@@ -1711,8 +1711,8 @@ extern "C" __global__ void ink2_depth_mix_b(
     }
 }
 
-// Grid: `(64, n_ctrls * B)`, Block: `256`
-extern "C" __global__ void ink2_ctrl_down_b(
+template<int Rows>
+__device__ __forceinline__ void ctrl_down_rows(
     const float* __restrict__ cur_base,       // [n_ctrls, B, D]
     const float* __restrict__ msg_base,       // [n_ctrls, B, D]
     const uint4* __restrict__ down_bf16_u128, // [n_ctrls, 64, 576]
@@ -1722,7 +1722,9 @@ extern "C" __global__ void ink2_ctrl_down_b(
     __shared__ float smem_red_b[8];
     __shared__ float inv_ab[2];
 
-    const int r = blockIdx.x;
+    __shared__ float cur_tile[Rows == 1 ? 1 : kD];
+    __shared__ float msg_tile[Rows == 1 ? 1 : kD];
+    const int first_row = blockIdx.x * Rows;
     const int cb = blockIdx.y;
     const int c_idx = cb / B;
     const int tid = threadIdx.x;
@@ -1737,6 +1739,10 @@ extern "C" __global__ void ink2_ctrl_down_b(
     for (int i = tid; i < kD; i += 256) {
         float va = cur[i];
         float vb = msg[i];
+        if (Rows > 1) {
+            cur_tile[i] = va;
+            msg_tile[i] = vb;
+        }
         sq_a += va * va;
         sq_b += vb * vb;
     }
@@ -1759,31 +1765,58 @@ extern "C" __global__ void ink2_ctrl_down_b(
     }
     __syncthreads();
 
-    const uint4* w_row = down_bf16_u128 + (static_cast<size_t>(c_idx) * 64u + r) * 576u;
-    const float ka = inv_ab[0];
-    const float kb = inv_ab[1];
-    float dot_acc = 0.0f;
+    // Reuse one normalized input across Rows rank projections. Each row keeps
+    // the scalar kernel's accumulation order and its eight-warp reduction tree.
+    __shared__ float partial[Rows][8];
+    float dot[Rows] = {};
     for (int c8 = tid; c8 < 576; c8 += 256) {
-        uint4 pack = w_row[c8];
-        uint32_t w_u32[4] = {pack.x, pack.y, pack.z, pack.w};
-        int base = c8 * 8;
-        const float* src = (base < kD) ? (cur + base) : (msg + (base - kD));
-        float k_scale = (base < kD) ? ka : kb;
+        const int offset = c8 * 8;
+        const float* src = offset < kD
+            ? (Rows > 1 ? cur_tile : cur) + offset
+            : (Rows > 1 ? msg_tile : msg) + (offset - kD);
+        const float scale = inv_ab[offset < kD ? 0 : 1];
         #pragma unroll
-        for (int p = 0; p < 4; ++p) {
-            float w0 = bf16_to_f32(static_cast<uint16_t>(w_u32[p] & 0xFFFFu));
-            float w1 = bf16_to_f32(static_cast<uint16_t>(w_u32[p] >> 16));
-            dot_acc += (w0 * src[p * 2] + w1 * src[p * 2 + 1]) * k_scale;
+        for (int row = 0; row < Rows; ++row) {
+            size_t rank = static_cast<size_t>(c_idx) * 64 + first_row + row;
+            uint4 pack = down_bf16_u128[rank * 576 + c8];
+            uint32_t words[4] = {pack.x, pack.y, pack.z, pack.w};
+            #pragma unroll
+            for (int p = 0; p < 4; ++p) {
+                float w0 = bf16_to_f32(static_cast<uint16_t>(words[p]));
+                float w1 = bf16_to_f32(static_cast<uint16_t>(words[p] >> 16));
+                dot[row] += (w0 * src[2 * p] + w1 * src[2 * p + 1]) * scale;
+            }
         }
     }
-    dot_acc = warp_sum(dot_acc);
-    if (lane == 0) smem_red_a[warp_id] = dot_acc;
-    __syncthreads();
-    if (warp_id == 0) {
-        float s = (lane < 8) ? smem_red_a[lane] : 0.0f;
-        s = warp_sum(s);
-        if (lane == 0) g_out_base[cb * 64 + r] = s;
+    #pragma unroll
+    for (int row = 0; row < Rows; ++row) {
+        float sum = warp_sum(dot[row]);
+        if (lane == 0) partial[row][warp_id] = sum;
     }
+    __syncthreads();
+    if (warp_id < Rows) {
+        float sum = lane < 8 ? partial[warp_id][lane] : 0.0f;
+        sum = warp_sum(sum);
+        if (lane == 0) g_out_base[cb * 64 + first_row + warp_id] = sum;
+    }
+}
+
+extern "C" __global__ void ink2_ctrl_down_b(
+    const float* __restrict__ cur_base,       // [n_ctrls, B, D]
+    const float* __restrict__ msg_base,       // [n_ctrls, B, D]
+    const uint4* __restrict__ down_bf16_u128, // [n_ctrls, 64, 576]
+    float* __restrict__ g_out_base,           // [n_ctrls, B, 64]
+    int32_t B) {
+    ctrl_down_rows<1>(cur_base, msg_base, down_bf16_u128, g_out_base, B);
+}
+
+extern "C" __global__ void ink2_ctrl_down_r8_b(
+    const float* __restrict__ cur_base,       // [n_ctrls, B, D]
+    const float* __restrict__ msg_base,       // [n_ctrls, B, D]
+    const uint4* __restrict__ down_bf16_u128, // [n_ctrls, 64, 576]
+    float* __restrict__ g_out_base,           // [n_ctrls, B, 64]
+    int32_t B) {
+    ctrl_down_rows<8>(cur_base, msg_base, down_bf16_u128, g_out_base, B);
 }
 
 // Grid: `(9, n_ctrls * B)`, Block: `256`
@@ -1825,6 +1858,63 @@ extern "C" __global__ void ink2_ctrl_apply_b(
     }
     float c = cur_inout[i];
     cur_inout[i] = c - ptx_tanh(forget_acc) * c + ptx_tanh(gain_acc) * msg[i];
+}
+
+// Grid: (9, n_ctrls * ceil(B / 8)), Block: 256
+extern "C" __global__ void ink2_ctrl_apply_t8_b(
+    float* __restrict__ cur_inout_base,       // [n_ctrls, B, D]
+    const float* __restrict__ msg_base,       // [n_ctrls, B, D]
+    const float* __restrict__ g_vec_base,     // [n_ctrls, B, 64]
+    const uint4* __restrict__ gain_bf16_u128, // [n_ctrls, D, 8]
+    const uint4* __restrict__ forget_bf16_u128,
+    int32_t B) {
+    constexpr int Tokens = 8;
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    const int tiles = (B + Tokens - 1) / Tokens;
+    const int ctrl = blockIdx.y / tiles;
+    const int first = (blockIdx.y % tiles) * Tokens;
+    const int cb = ctrl * B + first;
+    __shared__ float gates[Tokens * 64];
+    for (int j = threadIdx.x; j < Tokens * 64; j += blockDim.x) {
+        gates[j] = first + j / 64 < B ? g_vec_base[cb * 64 + j] : 0.0f;
+    }
+    __syncthreads();
+    if (i >= kD) return;
+
+    // Convert each BF16 weight pair once for all tokens in this tile.
+    const size_t row_idx = static_cast<size_t>(ctrl) * kD + i;
+    float gain[Tokens] = {};
+    float forget[Tokens] = {};
+    #pragma unroll 2
+    for (int c8 = 0; c8 < 8; ++c8) {
+        uint4 gp = gain_bf16_u128[row_idx * 8 + c8];
+        uint4 fp = forget_bf16_u128[row_idx * 8 + c8];
+        uint32_t gu[4] = {gp.x, gp.y, gp.z, gp.w};
+        uint32_t fu[4] = {fp.x, fp.y, fp.z, fp.w};
+        #pragma unroll
+        for (int p = 0; p < 4; ++p) {
+            float g0 = bf16_to_f32(static_cast<uint16_t>(gu[p]));
+            float g1 = bf16_to_f32(static_cast<uint16_t>(gu[p] >> 16));
+            float f0 = bf16_to_f32(static_cast<uint16_t>(fu[p]));
+            float f1 = bf16_to_f32(static_cast<uint16_t>(fu[p] >> 16));
+            #pragma unroll
+            for (int t = 0; t < Tokens; ++t) {
+                int j = t * 64 + c8 * 8 + 2 * p;
+                // The scalar projection rounds the high-half product before
+                // fusing the low-half product. Preserve that rounding for every token.
+                gain[t] += __fmaf_rn(g0, gates[j], __fmul_rn(g1, gates[j + 1]));
+                forget[t] += __fmaf_rn(f0, gates[j], __fmul_rn(f1, gates[j + 1]));
+            }
+        }
+    }
+    #pragma unroll
+    for (int t = 0; t < Tokens; ++t) {
+        if (first + t < B) {
+            size_t idx = static_cast<size_t>(cb + t) * kD + i;
+            float c = cur_inout_base[idx];
+            cur_inout_base[idx] = c - ptx_tanh(forget[t]) * c + ptx_tanh(gain[t]) * msg_base[idx];
+        }
+    }
 }
 
 // Four signed DP4A instructions cover one packed 16-element dot product.

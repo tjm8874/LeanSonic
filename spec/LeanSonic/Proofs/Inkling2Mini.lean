@@ -595,4 +595,33 @@ theorem cycle4_splitkv_all_kernels_valid :
     (cycle4SplitKvKernelSuite.all checkSm120Kernel) = true := by
   decide
 
+/-! ## Batched controller tiles (256 threads per CTA, sm_120a) -/
+
+def kInk2CtrlDownR8B : KernelResourceSpec :=
+  { name := "ink2_ctrl_down_r8_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 48
+    userSmemPerCtaBytes := 18760
+    smemAlignPadBytes := 0
+    ctasPerSm := 5
+    clusterCtas := 1
+    minRequiredL1KiB := 28
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2CtrlApplyT8B : KernelResourceSpec :=
+  { name := "ink2_ctrl_apply_t8_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 64
+    userSmemPerCtaBytes := 2048
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 112
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+theorem ink2_ctrl_down_r8_b_valid : ValidSm120Kernel kInk2CtrlDownR8B := by decide
+theorem ink2_ctrl_apply_t8_b_valid : ValidSm120Kernel kInk2CtrlApplyT8B := by decide
+
 end LeanSonic.Proofs
