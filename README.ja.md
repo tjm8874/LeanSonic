@@ -129,11 +129,12 @@ python3 ci/check_lean_axioms.py
 
 ---
 
-## ロードマップ
+## ロードマップ・リリース履歴
 
-- [x] **Phase 0 — 凍結信頼コア（Immutable Trust Core）＆ 5段階CIゲート基盤**: Lean 4による `sm_120` 離散資源則・`0-ULP`・非破壊プール仕様の定義、`.rs`/`.cuh` 自動生成、Gate 0〜4監査スクリプト、GitHub Actionsワークフローの構築。
-- [x] **Phase 1 — `Inkling-2-mini` 縦貫通スライス ＆ `Qwen3.8` 共通スケジュール基盤**: `VisitBytecode`（`24 → 48` Looped + `3:1` GDN/QSA）、`HybridSlotPool`（`64` 整列SWAリング + `O(1)` GDN投機ロールバック）、`128B` Planar SoA重み、`0-ULP` 2レジームMoE、`sm_120` CUDA/PTXテンプレート群の投入。
-- [ ] **Phase 2 — 実重み `safetensors` ストリーミング・`libcuda` Graph実行・完全無人PRループ稼働**: `Inkling-2-mini` / `Qwen3.8-Flash-Next` 実チェックポイントの `mmap` ローダ、QSAマイクロブロックインデクサ、51B `Engram` ホストDMAリングの接続、およびBlackwell実機ランナーを用いた自律Issue→PR→Merge→Releaseの本稼働。
+- [x] **Phase 0 & 1 (`v0.1.0`) — 凍結信頼コア・5段階CI ＆ `Inkling-2-Mini` 実機GPUエンジン**: Lean 4による `sm_120` 離散資源則・`0-ULP` 証明、全24層・48訪問 Full-GPU `Inkling-2-Mini`（`RTX PRO 4500`: `131.3 tok/s`, `RTX 5070 Ti` Spilled: `65.9 tok/s`）。
+- [x] **Cycle 1 (`v0.2.0`) — Multi-Token Batched Prefill**: Planar `Q8_64` `__dp4a` GEMM + Zero-Atomic Grouped MoE（`RTX PRO 4500`: `794.1 tok/s` = `7.14×`, `RTX 5070 Ti`: `337.6 tok/s` = `5.55×`）。
+- [x] **Cycle 2 (`v0.3.0`) — 無損失 `DSpark` Full-GPU 投機的デコード**: `mtp.safetensors` GPUドラフタ + `O(1)` Multi-Token Rewind + `0.0000`-ULP ハードウェアFMA完全一致（`RTX PRO 4500`: `326.8 tok/s` = `2.58×`, `RTX 5070 Ti`: `132.0 tok/s` = `2.02×`、凍結コア差分 `0`）。
+- [x] **Cycle 3 (`v0.4.0`) — 実重み `106 GB` `Qwen3.8-Flash-Next` / `Qwen4Exp` GPUエンジン**: 22シャード `safetensors` `mmap`、36層 Gated DeltaNet + 12層 QSA Sparse Attention、4分岐 Hyper-Connection、`512`-Expert `Top-10` 4-bit MoE（3階層 VRAM / HostPinned / MmapCompact）、`29.80 GiB` 3-Gram `Engram`/`PLE` 非同期オフロード、48層 CUDA Graph、計 `61` 個の Lean 4 機械証明（凍結コア差分 `0`）。
 
 ---
 
