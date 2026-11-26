@@ -224,6 +224,42 @@ struct KernelFns {
 unsafe impl Send for KernelFns {}
 unsafe impl Sync for KernelFns {}
 
+// Each layer finishes attention before the expert down projection writes pair_output
+// on the same stream. Attention uses seven disjoint slices of this allocation.
+struct LayerWorkspace {
+    pair_output: DeviceBuf,
+    qrgs: CUdeviceptr,
+    k_raw: CUdeviceptr,
+    v_raw: CUdeviceptr,
+    k_conv: CUdeviceptr,
+    v_conv: CUdeviceptr,
+    attn_out: CUdeviceptr,
+    wo_out: CUdeviceptr,
+}
+
+impl LayerWorkspace {
+    fn new(pair_output: DeviceBuf, capacity: usize) -> Self {
+        const ATTENTION_FLOATS: usize = SWA_ALL_ROWS + 2 * 1056 + 2 * N_KV * HD + N_HEAD * HD + D;
+        const { assert!(ATTENTION_FLOATS <= TOP_K * D) };
+        let mut next = pair_output.ptr;
+        let mut slice = |cols: usize| {
+            let ptr = next;
+            next += (capacity * cols * size_of::<f32>()) as u64;
+            ptr
+        };
+        Self {
+            qrgs: slice(SWA_ALL_ROWS),
+            k_raw: slice(1056),
+            v_raw: slice(1056),
+            k_conv: slice(N_KV * HD),
+            v_conv: slice(N_KV * HD),
+            attn_out: slice(N_HEAD * HD),
+            wo_out: slice(D),
+            pair_output,
+        }
+    }
+}
+
 // All these buffers scale linearly with the prefill width. A multiple of 64
 // also accommodates every page of the expert occurrence tables.
 struct PrefillBuffers {
@@ -240,13 +276,6 @@ struct PrefillBuffers {
     d_b_msgs: DeviceBuf,
     d_b_inputs: DeviceBuf,
     d_b_ctrl_g: DeviceBuf,
-    d_b_qrgs: DeviceBuf,
-    d_b_k_raw: DeviceBuf,
-    d_b_v_raw: DeviceBuf,
-    d_b_k_conv: DeviceBuf,
-    d_b_v_conv: DeviceBuf,
-    d_b_attn_out: DeviceBuf,
-    d_b_wo_out: DeviceBuf,
     d_b_mlp_h: DeviceBuf,
     d_b_router_logits: DeviceBuf,
     d_b_sel_ids: DeviceBuf,
@@ -254,7 +283,7 @@ struct PrefillBuffers {
     d_b_exp_toks: DeviceBuf,
     d_b_exp_pairs: DeviceBuf,
     d_b_moe_act: DeviceBuf,
-    d_b_pair_y: DeviceBuf,
+    layer_workspace: LayerWorkspace,
     d_b_moe_y: DeviceBuf,
     d_b_act_q8_64: DeviceBuf,
     d_b_act_sc_64: DeviceBuf,
@@ -282,13 +311,6 @@ impl PrefillBuffers {
             d_b_msgs: allocate((48 * MAX_SPEC_TOKENS).max(4 * capacity) * D * 4)?,
             d_b_inputs: allocate(3 * capacity * D * 4)?,
             d_b_ctrl_g: allocate(3 * capacity * RANK * 4)?,
-            d_b_qrgs: allocate(capacity * SWA_ALL_ROWS * 4)?,
-            d_b_k_raw: allocate(capacity * 1056 * 4)?,
-            d_b_v_raw: allocate(capacity * 1056 * 4)?,
-            d_b_k_conv: allocate(capacity * 1024 * 4)?,
-            d_b_v_conv: allocate(capacity * 1024 * 4)?,
-            d_b_attn_out: allocate(capacity * 3072 * 4)?,
-            d_b_wo_out: allocate(capacity * D * 4)?,
             d_b_mlp_h: allocate(capacity * D * 4)?,
             d_b_router_logits: allocate(capacity * N_EXP * 4)?,
             d_b_sel_ids: allocate(capacity * TOP_K * 4)?,
@@ -296,7 +318,7 @@ impl PrefillBuffers {
             d_b_exp_toks: allocate(N_EXP * capacity * 4)?,
             d_b_exp_pairs: allocate(N_EXP * capacity * 4)?,
             d_b_moe_act: allocate(capacity * TOP_K * FF * 4)?,
-            d_b_pair_y: allocate(capacity * TOP_K * D * 4)?,
+            layer_workspace: LayerWorkspace::new(allocate(capacity * TOP_K * D * 4)?, capacity),
             d_b_moe_y: allocate(capacity * D * 4)?,
             d_b_act_q8_64: allocate(3 * capacity * 3072)?,
             d_b_act_sc_64: allocate(3 * capacity * 48 * 4)?,
@@ -3595,13 +3617,13 @@ impl Inkling2GpuEngine {
                 SWA_ALL_ROWS as i32,
                 0,
                 b_len,
-                self.prefill.d_b_qrgs.ptr,
+                self.prefill.layer_workspace.qrgs,
                 SWA_ALL_ROWS as i32,
                 0.0,
             )?;
-            k_raw_ptr = self.prefill.d_b_qrgs.ptr + (SWA_K_OFFSET as u64) * 4;
+            k_raw_ptr = self.prefill.layer_workspace.qrgs + (SWA_K_OFFSET as u64) * 4;
             k_in_stride = SWA_ALL_ROWS as i32;
-            v_raw_ptr = self.prefill.d_b_qrgs.ptr + (SWA_V_OFFSET as u64) * 4;
+            v_raw_ptr = self.prefill.layer_workspace.qrgs + (SWA_V_OFFSET as u64) * 4;
             v_in_stride = SWA_ALL_ROWS as i32;
         } else if l.global {
             self.enqueue_q8_gemm_slice_at(
@@ -3611,7 +3633,7 @@ impl Inkling2GpuEngine {
                 QRGS_ROWS as i32,
                 0,
                 b_len,
-                self.prefill.d_b_qrgs.ptr,
+                self.prefill.layer_workspace.qrgs,
                 SWA_ALL_ROWS as i32,
                 0.0,
             )?;
@@ -3622,7 +3644,7 @@ impl Inkling2GpuEngine {
                 1056,
                 1,
                 b_len,
-                self.prefill.d_b_k_raw.ptr,
+                self.prefill.layer_workspace.k_raw,
                 1056,
                 0.0,
             )?;
@@ -3633,13 +3655,13 @@ impl Inkling2GpuEngine {
                 1056,
                 2,
                 b_len,
-                self.prefill.d_b_v_raw.ptr,
+                self.prefill.layer_workspace.v_raw,
                 1056,
                 0.0,
             )?;
-            k_raw_ptr = self.prefill.d_b_k_raw.ptr;
+            k_raw_ptr = self.prefill.layer_workspace.k_raw;
             k_in_stride = 1056;
-            v_raw_ptr = self.prefill.d_b_v_raw.ptr;
+            v_raw_ptr = self.prefill.layer_workspace.v_raw;
             v_in_stride = 1056;
         } else {
             self.enqueue_q8_gemm_slice_at(
@@ -3649,7 +3671,7 @@ impl Inkling2GpuEngine {
                 QRGS_ROWS as i32,
                 0,
                 b_len,
-                self.prefill.d_b_qrgs.ptr,
+                self.prefill.layer_workspace.qrgs,
                 SWA_ALL_ROWS as i32,
                 0.0,
             )?;
@@ -3660,7 +3682,7 @@ impl Inkling2GpuEngine {
                 1024,
                 1,
                 b_len,
-                self.prefill.d_b_k_raw.ptr,
+                self.prefill.layer_workspace.k_raw,
                 1024,
                 0.0,
             )?;
@@ -3671,13 +3693,13 @@ impl Inkling2GpuEngine {
                 1024,
                 2,
                 b_len,
-                self.prefill.d_b_v_raw.ptr,
+                self.prefill.layer_workspace.v_raw,
                 1024,
                 0.0,
             )?;
-            k_raw_ptr = self.prefill.d_b_k_raw.ptr;
+            k_raw_ptr = self.prefill.layer_workspace.k_raw;
             k_in_stride = 1024;
-            v_raw_ptr = self.prefill.d_b_v_raw.ptr;
+            v_raw_ptr = self.prefill.layer_workspace.v_raw;
             v_in_stride = 1024;
         }
 
@@ -3688,7 +3710,7 @@ impl Inkling2GpuEngine {
                 k_in_stride,
                 l.k_conv4.ptr,
                 st.hist_k,
-                self.prefill.d_b_k_conv.ptr,
+                self.prefill.layer_workspace.k_conv,
                 0usize,
             ),
             (
@@ -3696,7 +3718,7 @@ impl Inkling2GpuEngine {
                 v_in_stride,
                 l.v_conv4.ptr,
                 st.hist_v,
-                self.prefill.d_b_v_conv.ptr,
+                self.prefill.layer_workspace.v_conv,
                 1024 * CONV_SEQ_STEPS,
             ),
         ] {
@@ -3741,10 +3763,10 @@ impl Inkling2GpuEngine {
 
         // 5. Batched Q/R/K Clip + V RMSNorm + KV Cache Write (Ring-Hazard-Free via `1088 >= 1024 + 64`!)
         {
-            let mut pqrgs = self.prefill.d_b_qrgs.ptr;
+            let mut pqrgs = self.prefill.layer_workspace.qrgs;
             let mut qstride = SWA_ALL_ROWS as i32;
-            let mut pk = self.prefill.d_b_k_conv.ptr;
-            let mut pv = self.prefill.d_b_v_conv.ptr;
+            let mut pk = self.prefill.layer_workspace.k_conv;
+            let mut pv = self.prefill.layer_workspace.v_conv;
             let mut pqc = l.q_clip.ptr;
             let mut prc = l.rel_clip.ptr;
             let mut pkc = st.k_cache.ptr;
@@ -3777,7 +3799,7 @@ impl Inkling2GpuEngine {
         // 6. Batched GQA Relative-Bias + Sink Attention + In-Register `Q8_64` Epilogue!
         if self.attn_split_g == 0 {
             if let Some(f_attn_q8) = self.fns.gqa_rel_sink_attn_q8_b {
-                let mut pqrgs = self.prefill.d_b_qrgs.ptr;
+                let mut pqrgs = self.prefill.layer_workspace.qrgs;
                 let mut qstride = SWA_ALL_ROWS as i32;
                 let mut prp = l.rel_proj.ptr;
                 let mut pkc = st.k_cache.ptr;
@@ -3801,7 +3823,7 @@ impl Inkling2GpuEngine {
                 ];
                 self.launch(stream, f_attn_q8, (24, b_u32), 256, &mut args)?;
             } else {
-                let mut pqrgs = self.prefill.d_b_qrgs.ptr;
+                let mut pqrgs = self.prefill.layer_workspace.qrgs;
                 let mut qstride = SWA_ALL_ROWS as i32;
                 let mut prp = l.rel_proj.ptr;
                 let mut pkc = st.k_cache.ptr;
@@ -3809,7 +3831,7 @@ impl Inkling2GpuEngine {
                 let mut ppos = self.d_pos.ptr;
                 let mut cap = st.kv_cap as i32;
                 let mut ig = i32::from(l.global);
-                let mut pout = self.prefill.d_b_attn_out.ptr;
+                let mut pout = self.prefill.layer_workspace.attn_out;
                 let mut args: [*mut c_void; 9] = [
                     (&mut pqrgs as *mut _) as *mut c_void,
                     (&mut qstride as *mut _) as *mut c_void,
@@ -3828,19 +3850,24 @@ impl Inkling2GpuEngine {
                     256,
                     &mut args,
                 )?;
-                self.enqueue_quant_q8_64_b(stream, self.prefill.d_b_attn_out.ptr, 3072, b_len)?;
+                self.enqueue_quant_q8_64_b(
+                    stream,
+                    self.prefill.layer_workspace.attn_out,
+                    3072,
+                    b_len,
+                )?;
             }
         } else {
             self.enqueue_gqa_attn_split_impl(
                 stream,
-                self.prefill.d_b_qrgs.ptr,
+                self.prefill.layer_workspace.qrgs,
                 SWA_ALL_ROWS as i32,
                 l.rel_proj.ptr,
                 st.k_cache.ptr,
                 st.v_cache.ptr,
                 st.kv_cap as i32,
                 i32::from(l.global),
-                self.prefill.d_b_attn_out.ptr,
+                self.prefill.layer_workspace.attn_out,
                 self.prefill.d_b_act_q8_64.ptr,
                 self.prefill.d_b_act_sc_64.ptr,
                 b_len,
@@ -3855,7 +3882,7 @@ impl Inkling2GpuEngine {
             D as i32,
             0,
             b_len,
-            self.prefill.d_b_wo_out.ptr,
+            self.prefill.layer_workspace.wo_out,
             D as i32,
             0.0,
         )?;
@@ -3869,7 +3896,7 @@ impl Inkling2GpuEngine {
             0
         };
         if let Some(f_sc_save_b) = self.fns.short_conv4_save_b {
-            let mut p_cur = self.prefill.d_b_wo_out.ptr;
+            let mut p_cur = self.prefill.layer_workspace.wo_out;
             let mut ins = D as i32;
             let mut p_w = l.attn_conv4.ptr;
             let mut p_dyn: CUdeviceptr = 0;
@@ -3916,7 +3943,7 @@ impl Inkling2GpuEngine {
             if save_blk_ptr != 0 {
                 self.enqueue_copy_n(stream, self.prefill.d_b_cur.ptr, save_blk_ptr, bd_floats)?;
             }
-            let mut p_cur = self.prefill.d_b_wo_out.ptr;
+            let mut p_cur = self.prefill.layer_workspace.wo_out;
             let mut ins = D as i32;
             let mut p_w = l.attn_conv4.ptr;
             let mut p_dyn: CUdeviceptr = 0;
@@ -4165,7 +4192,7 @@ impl Inkling2GpuEngine {
                 let mut pw2 = w2.ptr();
                 let mut ps2 = s2.ptr;
                 let mut pa2 = a2.ptr;
-                let mut ppy = self.prefill.d_b_pair_y.ptr;
+                let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
                 let mut dn_args: [*mut c_void; 8] = [
                     (&mut pw2 as *mut _) as *mut c_void,
                     (&mut ps2 as *mut _) as *mut c_void,
@@ -4211,7 +4238,7 @@ impl Inkling2GpuEngine {
 
                 let mut pw2 = w2.ptr();
                 let mut ps2 = s2.ptr;
-                let mut ppy = self.prefill.d_b_pair_y.ptr;
+                let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
                 let mut dn_args: [*mut c_void; 6] = [
                     (&mut pw2 as *mut _) as *mut c_void,
                     (&mut ps2 as *mut _) as *mut c_void,
@@ -4231,7 +4258,7 @@ impl Inkling2GpuEngine {
         }
 
         {
-            let mut ppy = self.prefill.d_b_pair_y.ptr;
+            let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
             let mut pwts = self.prefill.d_b_sel_wts.ptr;
             let mut pout = self.prefill.d_b_moe_y.ptr;
             let mut bi = b_i32;
