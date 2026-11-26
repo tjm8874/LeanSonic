@@ -114,6 +114,55 @@ fn load_output_head(
     }
 }
 
+// Components occupy successive rows of the GPU matrix in kernel ABI order.
+fn load_attention_matrix(
+    ctx: &Arc<CudaContextHandle>,
+    st: &MappedSafeTensors,
+    prefix: &str,
+    parts: &[(&str, usize)],
+    cols: usize,
+) -> Result<PlanarQ8Gpu, String> {
+    let total_rows = parts.iter().map(|(_, rows)| rows).sum();
+    let result = allocate_planar_q8(ctx, total_rows, cols)?;
+    let scale_stride = cols / 64 * 4;
+    let mut row = 0;
+    for &(suffix, rows) in parts {
+        let name = format!("{prefix}attn.{suffix}");
+        let dense = st.get(&name);
+        let codes = st.get(&format!("{name}.q8_64.codes"));
+        let scales = st.get(&format!("{name}.q8_64.scales"));
+        match (dense, codes, scales) {
+            (Some(w), None, None)
+                if w.dtype == "BF16"
+                    && w.shape == [rows, cols]
+                    && w.data.len() == rows * cols * 2 =>
+            {
+                upload_bf16_rows(&result, w.data, row, rows, cols)?;
+            }
+            (None, Some(c), Some(s))
+                if c.dtype == "I8"
+                    && c.shape == [rows, cols]
+                    && c.data.len() == rows * cols
+                    && s.dtype == "F32"
+                    && s.shape == [rows, cols / 64]
+                    && s.data.len() == rows * scale_stride =>
+            {
+                result.codes.copy_from_host_at(row * cols, c.data)?;
+                result
+                    .scales64
+                    .copy_from_host_at(row * scale_stride, s.data)?;
+            }
+            _ => {
+                return Err(format!(
+                "invalid Inkling projection {name}: expected BF16 or a complete native Q8_64 pair"
+            ))
+            }
+        }
+        row += rows;
+    }
+    Ok(result)
+}
+
 struct CtrlGpu {
     down: DeviceBuf,
     gain: DeviceBuf,
@@ -470,16 +519,34 @@ pub fn repack_bf16_to_planar_q8_64(
 ) -> Result<PlanarQ8Gpu, String> {
     assert_eq!(cols % 64, 0);
     assert_eq!(bf16_bytes.len(), rows * cols * 2);
-    let scale_stride = (cols / 64) * 4;
-    let result = PlanarQ8Gpu {
-        codes: DeviceBuf::alloc_zeroed(ctx, rows * cols)?,
-        scales64: DeviceBuf::alloc_zeroed(ctx, rows * scale_stride)?,
-        cols: cols as i32,
-    };
-    if rows == 0 || cols == 0 {
-        return Ok(result);
-    }
+    let result = allocate_planar_q8(ctx, rows, cols)?;
+    upload_bf16_rows(&result, bf16_bytes, 0, rows, cols)?;
+    Ok(result)
+}
 
+fn allocate_planar_q8(
+    ctx: &Arc<CudaContextHandle>,
+    rows: usize,
+    cols: usize,
+) -> Result<PlanarQ8Gpu, String> {
+    Ok(PlanarQ8Gpu {
+        codes: DeviceBuf::alloc_zeroed(ctx, rows * cols)?,
+        scales64: DeviceBuf::alloc_zeroed(ctx, rows * (cols / 64) * 4)?,
+        cols: cols as i32,
+    })
+}
+
+fn upload_bf16_rows(
+    result: &PlanarQ8Gpu,
+    bf16_bytes: &[u8],
+    row_offset: usize,
+    rows: usize,
+    cols: usize,
+) -> Result<(), String> {
+    if rows == 0 || cols == 0 {
+        return Ok(());
+    }
+    let scale_stride = (cols / 64) * 4;
     // Keep the host staging area bounded while packing the vocabulary projection.
     const STAGING_BYTES: usize = 32 * 1024 * 1024;
     let tile_rows = (STAGING_BYTES / (cols + scale_stride)).clamp(1, rows);
@@ -495,12 +562,14 @@ pub fn repack_bf16_to_planar_q8_64(
             tile_codes,
             tile_scales,
         );
-        result.codes.copy_from_host_at(first * cols, tile_codes)?;
+        result
+            .codes
+            .copy_from_host_at((row_offset + first) * cols, tile_codes)?;
         result
             .scales64
-            .copy_from_host_at(first * scale_stride, tile_scales)?;
+            .copy_from_host_at((row_offset + first) * scale_stride, tile_scales)?;
     }
-    Ok(result)
+    Ok(())
 }
 
 /// Pack complete BF16 rows into signed Q8 codes and little-endian FP32 scales.
@@ -818,101 +887,25 @@ impl Inkling2GpuEngine {
                 DeviceBuf::from_host_bytes(&ctx, &concat_slices(&[raw, raw, raw]))?
             };
 
-            let wq = st
-                .require(
-                    &format!("{pfx}attn.wq_du.weight"),
-                    "BF16",
-                    &[N_HEAD * HD, D],
-                )
-                .data;
-            let wr = st
-                .require(
-                    &format!("{pfx}attn.wr_du.weight"),
-                    "BF16",
-                    &[N_REL * N_HEAD, D],
-                )
-                .data;
-            let gate_attn = st
-                .require(
-                    &format!("{pfx}attn.gate_attn.weight"),
-                    "BF16",
-                    &[N_HEAD * HD, D],
-                )
-                .data;
-            let sink = st
-                .require(
-                    &format!("{pfx}attn.attn_sink_proj.weight"),
-                    "BF16",
-                    &[N_HEAD, D],
-                )
-                .data;
-            let wk = st
-                .require(&format!("{pfx}attn.wk_dv.weight"), "BF16", &[N_KV * HD, D])
-                .data;
-            let wv = st
-                .require(&format!("{pfx}attn.wv_dv.weight"), "BF16", &[N_KV * HD, D])
-                .data;
-
+            let q = ("wq_du.weight", N_HEAD * HD);
+            let r = ("wr_du.weight", N_REL * N_HEAD);
+            let gate = ("gate_attn.weight", N_HEAD * HD);
+            let sink = ("attn_sink_proj.weight", N_HEAD);
+            let k = ("wk_dv.weight", N_KV * HD);
+            let v = ("wv_dv.weight", N_KV * HD);
+            let projection =
+                |parts: &[(&str, usize)]| load_attention_matrix(&ctx, &st, &pfx, parts, D);
             let (wq_all_q8, wk_glob_q8, wv_glob_q8) = if global {
-                let kd = st
-                    .require(
-                        &format!("{pfx}attn.k_sconv.weight_proj"),
-                        "BF16",
-                        &[4 * N_KV, D],
-                    )
-                    .data;
-                let vd = st
-                    .require(
-                        &format!("{pfx}attn.v_sconv.weight_proj"),
-                        "BF16",
-                        &[4 * N_KV, D],
-                    )
-                    .data;
                 (
-                    repack_bf16_to_planar_q8_64(
-                        &ctx,
-                        &concat_slices(&[wq, wr, gate_attn, sink]),
-                        QRGS_ROWS,
-                        D,
-                    )?,
-                    Some(repack_bf16_to_planar_q8_64(
-                        &ctx,
-                        &concat_slices(&[wk, kd]),
-                        1056,
-                        D,
-                    )?),
-                    Some(repack_bf16_to_planar_q8_64(
-                        &ctx,
-                        &concat_slices(&[wv, vd]),
-                        1056,
-                        D,
-                    )?),
+                    projection(&[q, r, gate, sink])?,
+                    Some(projection(&[k, ("k_sconv.weight_proj", 4 * N_KV)])?),
+                    Some(projection(&[v, ("v_sconv.weight_proj", 4 * N_KV)])?),
                 )
             } else {
-                // Fuse ALL 6 `[wq; wr; gate; sink; wk; wv]` (`8,600` rows!) into one Planar Q8 tensor!
-                (
-                    repack_bf16_to_planar_q8_64(
-                        &ctx,
-                        &concat_slices(&[wq, wr, gate_attn, sink, wk, wv]),
-                        SWA_ALL_ROWS,
-                        D,
-                    )?,
-                    None,
-                    None,
-                )
+                (projection(&[q, r, gate, sink, k, v])?, None, None)
             };
-
-            let wo_q8 = repack_bf16_to_planar_q8_64(
-                &ctx,
-                st.require(
-                    &format!("{pfx}attn.wo_ud.weight"),
-                    "BF16",
-                    &[D, N_HEAD * HD],
-                )
-                .data,
-                D,
-                3072,
-            )?;
+            let wo_q8 =
+                load_attention_matrix(&ctx, &st, &pfx, &[("wo_ud.weight", D)], N_HEAD * HD)?;
 
             let q_clip = DeviceBuf::from_host_bytes(
                 &ctx,
