@@ -1402,18 +1402,15 @@ impl Inkling2GpuEngine {
             Err(e) => return Err(e.to_string()),
         };
         if eng.fns.build_expert_groups_wide_b.is_some() {
-            let local_slots = eng.slots.iter().filter(|s| !s.is_global).count();
-            let base_ring = max_ctx.min(EXTENT + EXPERT_PAGE);
             let headroom = budget - expert_bytes;
             for width in [1024, 512, 256, 128] {
                 if width > limit || width > max_ctx {
                     continue;
                 }
-                let ring_rows = max_ctx.min(EXTENT + width) - base_ring;
-                let mut extra = (width - EXPERT_PAGE) * eng.prefill.bytes_per_row;
-                if saved_scale_bytes == 0 {
-                    extra += ring_rows * local_slots * 2 * N_KV * HD * 2;
-                }
+                // The requested ring growth can exceed its actual CUDA memory cost.
+                // Screen by scratch size, then validate both scratch and rings
+                // against the original expert placement after allocation.
+                let extra = (width - EXPERT_PAGE) * eng.prefill.bytes_per_row;
                 if extra > headroom {
                     continue;
                 }
