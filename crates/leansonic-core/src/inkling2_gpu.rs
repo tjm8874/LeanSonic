@@ -1424,8 +1424,25 @@ impl Inkling2GpuEngine {
         &self,
         stream: CUstream,
         x_ptr: CUdeviceptr,
-        mut pq: CUdeviceptr,
-        mut ps: CUdeviceptr,
+        n_vecs: usize,
+        cols: usize,
+    ) -> Result<(), String> {
+        self.enqueue_quant_q8_groups(
+            stream,
+            x_ptr,
+            self.d_act_q8_16.ptr,
+            self.d_act_sc_16.ptr,
+            n_vecs,
+            cols,
+        )
+    }
+
+    fn enqueue_quant_q8_groups(
+        &self,
+        stream: CUstream,
+        x_ptr: CUdeviceptr,
+        mut codes: CUdeviceptr,
+        mut scales: CUdeviceptr,
         n_vecs: usize,
         cols: usize,
     ) -> Result<(), String> {
@@ -1434,8 +1451,8 @@ impl Inkling2GpuEngine {
         let mut c = cols as i32;
         let mut args: [*mut c_void; 4] = [
             (&mut px as *mut _) as *mut c_void,
-            (&mut pq as *mut _) as *mut c_void,
-            (&mut ps as *mut _) as *mut c_void,
+            (&mut codes as *mut _) as *mut c_void,
+            (&mut scales as *mut _) as *mut c_void,
             (&mut c as *mut _) as *mut c_void,
         ];
         self.launch(
@@ -1824,14 +1841,7 @@ impl Inkling2GpuEngine {
                 a2,
             } => {
                 if self.use_moe_dp4a {
-                    self.enqueue_quant_q8_16(
-                        stream,
-                        self.d_mlp_h.ptr,
-                        self.d_act_q8_16.ptr,
-                        self.d_act_sc_16.ptr,
-                        1,
-                        D,
-                    )?;
+                    self.enqueue_quant_q8_16(stream, self.d_mlp_h.ptr, 1, D)?;
                     let mut pw13 = w13.ptr();
                     let mut ps13 = s13.ptr;
                     let mut pa13 = a13.ptr;
@@ -1856,14 +1866,7 @@ impl Inkling2GpuEngine {
                         &mut up_args,
                     )?;
 
-                    self.enqueue_quant_q8_16(
-                        stream,
-                        self.d_moe_act.ptr,
-                        self.d_act_q8_16.ptr,
-                        self.d_act_sc_16.ptr,
-                        TOP_K,
-                        FF,
-                    )?;
+                    self.enqueue_quant_q8_16(stream, self.d_moe_act.ptr, TOP_K, FF)?;
                     let mut pw2 = w2.ptr();
                     let mut ps2 = s2.ptr;
                     let mut pa2 = a2.ptr;
@@ -2678,6 +2681,23 @@ impl Inkling2GpuEngine {
         )
     }
 
+    fn enqueue_quant_q8_16_b(
+        &self,
+        stream: CUstream,
+        x_ptr: CUdeviceptr,
+        n_vecs: usize,
+        cols: usize,
+    ) -> Result<(), String> {
+        self.enqueue_quant_q8_groups(
+            stream,
+            x_ptr,
+            self.d_b_act_q8_16.ptr,
+            self.d_b_act_sc_16.ptr,
+            n_vecs,
+            cols,
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn enqueue_q8_gemm_slice_at(
         &self,
@@ -3212,14 +3232,7 @@ impl Inkling2GpuEngine {
                 s2,
                 a2,
             } => {
-                self.enqueue_quant_q8_16(
-                    stream,
-                    self.d_b_mlp_h.ptr,
-                    self.d_b_act_q8_16.ptr,
-                    self.d_b_act_sc_16.ptr,
-                    b_len,
-                    D,
-                )?;
+                self.enqueue_quant_q8_16_b(stream, self.d_b_mlp_h.ptr, b_len, D)?;
                 let mut pw13 = w13.ptr();
                 let mut ps13 = s13.ptr;
                 let mut pa13 = a13.ptr;
@@ -3248,14 +3261,7 @@ impl Inkling2GpuEngine {
                     &mut up_args,
                 )?;
 
-                self.enqueue_quant_q8_16(
-                    stream,
-                    self.d_b_moe_act.ptr,
-                    self.d_b_act_q8_16.ptr,
-                    self.d_b_act_sc_16.ptr,
-                    b_len * TOP_K,
-                    FF,
-                )?;
+                self.enqueue_quant_q8_16_b(stream, self.d_b_moe_act.ptr, b_len * TOP_K, FF)?;
                 let mut pw2 = w2.ptr();
                 let mut ps2 = s2.ptr;
                 let mut pa2 = a2.ptr;
