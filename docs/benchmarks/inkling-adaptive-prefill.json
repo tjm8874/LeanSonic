@@ -437,5 +437,49 @@
         "ms": 1.232
       }
     }
+  },
+  "quality": {
+    "reference": "100-chunk WikiText BF16 reference described in docs/inkling-reference.md",
+    "gpu": "RTX PRO 4500 Blackwell",
+    "result_sha256_both_arms": "610fccf68a36c43da1ab9a62fe077fee0213c0dd006620e176e9996509ed3998",
+    "result_both_arms": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.071985759563496,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.0030389868322863254,
+      "median_kld": 0.0012228699963499484,
+      "p99_kld": 0.028630558999079292,
+      "max_kld": 0.6639923296258949,
+      "start_chunk": 0,
+      "max_kld_chunk": 69,
+      "max_kld_position": 353,
+      "ref_floor_targets": 14,
+      "top1_matches": 24880,
+      "top1_agreement": 0.9756862745098039
+    },
+    "continued_prefill": {
+      "requests": 34,
+      "segments_per_request": 3,
+      "rows": 102,
+      "vocab_size": 200058,
+      "fp32_bytes": 81623664,
+      "sha256_both_arms": "4e6a6c3fcd7970887066b8180b9877bebc903ab405a8d59b0b7d1999dc90c38d"
+    },
+    "gpu_http": [
+      {
+        "prompt_tokens": 1192,
+        "completion_tokens": 253,
+        "finish": "stop",
+        "content": "12 beads."
+      },
+      {
+        "prompt_tokens": 18,
+        "completion_tokens": 46,
+        "finish": "stop",
+        "content": "Tokyo"
+      }
+    ]
   }
 }
