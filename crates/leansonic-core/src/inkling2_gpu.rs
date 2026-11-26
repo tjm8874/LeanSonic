@@ -146,6 +146,8 @@ struct KernelFns {
     short_conv4: CUfunction,
     prep_qkv_and_cache: CUfunction,
     gqa_rel_sink_attn: CUfunction,
+    gqa_attn_split: CUfunction,
+    gqa_attn_combine: CUfunction,
     router_topk8: CUfunction,
     moe_nvfp4_up_situ: CUfunction,
     moe_nvfp4_down: CUfunction,
@@ -217,6 +219,10 @@ pub struct Inkling2GpuEngine {
     d_k_conv: DeviceBuf,
     d_v_conv: DeviceBuf,
     d_attn_out: DeviceBuf,
+    /// Split-KV attention partials (`attn_split_g == 0` keeps the legacy 24-CTA kernel).
+    attn_split_g: usize,
+    d_attn_part_ml: DeviceBuf,
+    d_attn_part_o: DeviceBuf,
     d_wo_out: DeviceBuf,
     d_mlp_h: DeviceBuf,
     d_router_logits: DeviceBuf,
@@ -362,6 +368,12 @@ impl Inkling2GpuEngine {
         let t_load = Instant::now();
         let ctx = CudaContextHandle::init(0)?;
         ctx.bind_current()?;
+        // `LEANSONIC_ATTN_SPLIT=G` (G in 1..=64) enables the split-KV GQA attention; `0` = legacy.
+        let attn_split_g = std::env::var("LEANSONIC_ATTN_SPLIT")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(0)
+            .min(64);
         let use_moe_dp4a = std::env::var("LEANSONIC_MOE_DP4A")
             .map(|v| v != "0")
             .unwrap_or(true);
@@ -932,6 +944,9 @@ impl Inkling2GpuEngine {
             d_k_conv: DeviceBuf::alloc_zeroed(&ctx, 1024 * 4)?,
             d_v_conv: DeviceBuf::alloc_zeroed(&ctx, 1024 * 4)?,
             d_attn_out: DeviceBuf::alloc_zeroed(&ctx, 3072 * 4)?,
+            attn_split_g,
+            d_attn_part_ml: DeviceBuf::alloc_zeroed(&ctx, 24 * attn_split_g.max(1) * 2 * 4)?,
+            d_attn_part_o: DeviceBuf::alloc_zeroed(&ctx, 24 * attn_split_g.max(1) * 128 * 4)?,
             d_wo_out: DeviceBuf::alloc_zeroed(&ctx, D * 4)?,
             d_mlp_h: DeviceBuf::alloc_zeroed(&ctx, D * 4)?,
             d_router_logits: DeviceBuf::alloc_zeroed(&ctx, N_EXP * 4)?,
@@ -1047,6 +1062,8 @@ impl Inkling2GpuEngine {
             short_conv4: get_fn("ink2_short_conv4")?,
             prep_qkv_and_cache: get_fn("ink2_prep_qkv_and_cache")?,
             gqa_rel_sink_attn: get_fn("ink2_gqa_rel_sink_attn")?,
+            gqa_attn_split: get_fn("ink2_gqa_attn_split")?,
+            gqa_attn_combine: get_fn("ink2_gqa_attn_combine")?,
             router_topk8: get_fn("ink2_router_topk8")?,
             moe_nvfp4_up_situ: get_fn("ink2_moe_nvfp4_up_situ")?,
             moe_nvfp4_down: get_fn("ink2_moe_nvfp4_down")?,
@@ -1558,7 +1575,48 @@ impl Inkling2GpuEngine {
                 (&mut ig as *mut _) as *mut c_void,
                 (&mut pout as *mut _) as *mut c_void,
             ];
-            self.launch(stream, self.fns.gqa_rel_sink_attn, (24, 1), 256, &mut args)?;
+            if self.attn_split_g == 0 {
+                self.launch(stream, self.fns.gqa_rel_sink_attn, (24, 1), 256, &mut args)?;
+            } else {
+                let mut pml = self.d_attn_part_ml.ptr;
+                let mut po = self.d_attn_part_o.ptr;
+                let mut split_args: [*mut c_void; 11] = [
+                    (&mut pq as *mut _) as *mut c_void,
+                    (&mut pr as *mut _) as *mut c_void,
+                    (&mut ps as *mut _) as *mut c_void,
+                    (&mut prp as *mut _) as *mut c_void,
+                    (&mut pkc as *mut _) as *mut c_void,
+                    (&mut pvc as *mut _) as *mut c_void,
+                    (&mut ppos as *mut _) as *mut c_void,
+                    (&mut cap as *mut _) as *mut c_void,
+                    (&mut ig as *mut _) as *mut c_void,
+                    (&mut pml as *mut _) as *mut c_void,
+                    (&mut po as *mut _) as *mut c_void,
+                ];
+                let g = self.attn_split_g as u32;
+                self.launch(
+                    stream,
+                    self.fns.gqa_attn_split,
+                    (8, g),
+                    256,
+                    &mut split_args,
+                )?;
+                let mut gi = self.attn_split_g as i32;
+                let mut comb_args: [*mut c_void; 5] = [
+                    (&mut pml as *mut _) as *mut c_void,
+                    (&mut po as *mut _) as *mut c_void,
+                    (&mut pg as *mut _) as *mut c_void,
+                    (&mut gi as *mut _) as *mut c_void,
+                    (&mut pout as *mut _) as *mut c_void,
+                ];
+                self.launch(
+                    stream,
+                    self.fns.gqa_attn_combine,
+                    (24, 1),
+                    128,
+                    &mut comb_args,
+                )?;
+            }
         }
 
         // 8. `wo` Planar `Q8_64` `__dp4a` Projection + `attn_sconv` in-place into `d_cur`!

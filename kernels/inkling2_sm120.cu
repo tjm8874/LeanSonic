@@ -2852,3 +2852,194 @@ extern "C" __global__ void ink2_argmax_b(
         out_toks[b] = fi;
     }
 }
+
+// ----------------------------------------------------------------------------
+// 8b. Split-KV + GQA-grouped decode attention (experimental, `LEANSONIC_ATTN_SPLIT`)
+//     Grid: `(8 kv heads, G splits)`, Block: `256`. CTA `(kvh, g)` walks 64-position
+//     chunks `c = g, g + G, ...` over `[first, n)` for the 3 query heads sharing `kvh`,
+//     so K/V are read once per KV head instead of once per query head.
+// ----------------------------------------------------------------------------
+extern "C" __global__ void ink2_gqa_attn_split(
+    const float* __restrict__ q_buf,            // [24, 128]
+    const float* __restrict__ r_buf,            // [24, 16]
+    const float* __restrict__ sinks_buf,        // [24]
+    const uint32_t* __restrict__ rel_proj_bf16, // [16, 512]
+    const uint16_t* __restrict__ k_cache_fp16,  // [kv_cap, 8, 128]
+    const uint16_t* __restrict__ v_cache_fp16,  // [kv_cap, 8, 128]
+    const int32_t* __restrict__ pos_ptr,
+    int32_t kv_cap,
+    int32_t is_global,
+    float* __restrict__ part_ml,                // [24, G, 2]
+    float* __restrict__ part_o) {               // [24, G, 128]
+    constexpr int kChunk = 64;
+    __shared__ float smem_q[3][kHd];
+    __shared__ float smem_r[3][kRel];
+    __shared__ float smem_rel[3][kChunk];
+    __shared__ float smem_m[8][3];
+    __shared__ float smem_l[8][3];
+    __shared__ float smem_o[8][3][kHd];
+
+    const int kvh = blockIdx.x;
+    const int g = blockIdx.y;
+    const int G = gridDim.y;
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int pos = *pos_ptr;
+    const int n = pos + 1;
+    const int first = is_global ? 0 : ((n > kExtent) ? (n - kExtent) : 0);
+
+    for (int i = tid; i < 3 * kHd; i += 256) {
+        smem_q[i / kHd][i % kHd] = q_buf[(kvh * 3) * kHd + i];
+    }
+    if (tid < 3 * kRel) {
+        smem_r[tid / kRel][tid % kRel] = r_buf[(kvh * 3) * kRel + tid];
+    }
+    __syncthreads();
+
+    float qa[3][4];
+    float m_w[3], l_w[3], o[3][4];
+    #pragma unroll
+    for (int hh = 0; hh < 3; ++hh) {
+        #pragma unroll
+        for (int k = 0; k < 4; ++k) {
+            qa[hh][k] = smem_q[hh][lane * 4 + k];
+            o[hh][k] = 0.0f;
+        }
+        const bool own_sink = (g == 0 && warp_id == 0);
+        m_w[hh] = own_sink ? sinks_buf[kvh * 3 + hh] : -1e30f;
+        l_w[hh] = own_sink ? 1.0f : 0.0f;
+    }
+    const float scale = 0.08838834764831845f; // 1 / sqrt(128)
+
+    const int total = n - first;
+    const int n_chunks = (total + kChunk - 1) / kChunk;
+    for (int c = g; c < n_chunks; c += G) {
+        const int j0 = first + c * kChunk;
+        if (tid < 3 * kChunk) {
+            const int hh = tid / kChunk;
+            const int jj = tid % kChunk;
+            const int j = j0 + jj;
+            const int d = pos - j;
+            float acc = 0.0f;
+            if (j < n && d < kExtent) {
+                const int pair_d = d >> 1;
+                const int hi = d & 1;
+                #pragma unroll
+                for (int i = 0; i < kRel; ++i) {
+                    uint32_t p = rel_proj_bf16[i * 512 + pair_d];
+                    acc += smem_r[hh][i] * bf16_to_f32(static_cast<uint16_t>(hi ? (p >> 16) : (p & 0xFFFFu)));
+                }
+            }
+            smem_rel[hh][jj] = acc;
+        }
+        __syncthreads();
+
+        for (int jj = warp_id; jj < kChunk; jj += 8) {
+            const int j = j0 + jj;
+            if (j >= n) break;
+            const int slot_row = is_global ? j : (j % kv_cap);
+            const uint64_t kw = reinterpret_cast<const uint64_t*>(
+                k_cache_fp16 + static_cast<size_t>(slot_row) * 1024u + kvh * 128)[lane];
+            const uint64_t vw = reinterpret_cast<const uint64_t*>(
+                v_cache_fp16 + static_cast<size_t>(slot_row) * 1024u + kvh * 128)[lane];
+            const float k0 = fp16_bits_to_f32(static_cast<uint16_t>(kw & 0xFFFFu));
+            const float k1 = fp16_bits_to_f32(static_cast<uint16_t>((kw >> 16) & 0xFFFFu));
+            const float k2 = fp16_bits_to_f32(static_cast<uint16_t>((kw >> 32) & 0xFFFFu));
+            const float k3 = fp16_bits_to_f32(static_cast<uint16_t>((kw >> 48) & 0xFFFFu));
+            const float v0 = fp16_bits_to_f32(static_cast<uint16_t>(vw & 0xFFFFu));
+            const float v1 = fp16_bits_to_f32(static_cast<uint16_t>((vw >> 16) & 0xFFFFu));
+            const float v2 = fp16_bits_to_f32(static_cast<uint16_t>((vw >> 32) & 0xFFFFu));
+            const float v3 = fp16_bits_to_f32(static_cast<uint16_t>((vw >> 48) & 0xFFFFu));
+            float dots[3];
+            #pragma unroll
+            for (int hh = 0; hh < 3; ++hh) {
+                dots[hh] = qa[hh][0] * k0 + qa[hh][1] * k1 + qa[hh][2] * k2 + qa[hh][3] * k3;
+            }
+            #pragma unroll
+            for (int mask = 16; mask > 0; mask >>= 1) {
+                #pragma unroll
+                for (int hh = 0; hh < 3; ++hh) {
+                    dots[hh] += __shfl_xor_sync(0xFFFFFFFFu, dots[hh], mask);
+                }
+            }
+            #pragma unroll
+            for (int hh = 0; hh < 3; ++hh) {
+                // Separate mul/add roundings to match `ink2_gqa_rel_sink_attn` bit-for-bit at `G = 1`.
+                float dot = __fmul_rn(dots[hh], scale);
+                if (pos - j < kExtent) dot = __fadd_rn(dot, smem_rel[hh][jj]);
+                const float m_new = (dot > m_w[hh]) ? dot : m_w[hh];
+                const float alpha = ptx_exp(m_w[hh] - m_new);
+                const float p = ptx_exp(dot - m_new);
+                l_w[hh] = l_w[hh] * alpha + p;
+                m_w[hh] = m_new;
+                o[hh][0] = o[hh][0] * alpha + p * v0;
+                o[hh][1] = o[hh][1] * alpha + p * v1;
+                o[hh][2] = o[hh][2] * alpha + p * v2;
+                o[hh][3] = o[hh][3] * alpha + p * v3;
+            }
+        }
+        __syncthreads();
+    }
+
+    #pragma unroll
+    for (int hh = 0; hh < 3; ++hh) {
+        if (lane == 0) {
+            smem_m[warp_id][hh] = m_w[hh];
+            smem_l[warp_id][hh] = l_w[hh];
+        }
+        #pragma unroll
+        for (int k = 0; k < 4; ++k) {
+            smem_o[warp_id][hh][lane * 4 + k] = o[hh][k];
+        }
+    }
+    __syncthreads();
+
+    for (int i = tid; i < 3 * kHd; i += 256) {
+        const int hh = i / kHd;
+        const int dd = i % kHd;
+        float m_max = smem_m[0][hh];
+        #pragma unroll
+        for (int w = 1; w < 8; ++w) {
+            m_max = fmaxf(m_max, smem_m[w][hh]);
+        }
+        float denom = 0.0f;
+        float sum_d = 0.0f;
+        #pragma unroll
+        for (int w = 0; w < 8; ++w) {
+            const float s = ptx_exp(smem_m[w][hh] - m_max);
+            denom += smem_l[w][hh] * s;
+            sum_d += smem_o[w][hh][dd] * s;
+        }
+        const int h = kvh * 3 + hh;
+        part_o[(static_cast<size_t>(h) * G + g) * kHd + dd] = sum_d;
+        if (dd == 0) {
+            part_ml[(h * G + g) * 2] = m_max;
+            part_ml[(h * G + g) * 2 + 1] = denom;
+        }
+    }
+}
+
+// Merge `G` split partials per head + sigmoid gate. Grid: `24`, Block: `128`.
+extern "C" __global__ void ink2_gqa_attn_combine(
+    const float* __restrict__ part_ml,  // [24, G, 2]
+    const float* __restrict__ part_o,   // [24, G, 128]
+    const float* __restrict__ gate_buf, // [24, 128]
+    int32_t G,
+    float* __restrict__ attn_out) {     // [24, 128]
+    const int h = blockIdx.x;
+    const int dd = threadIdx.x;
+    float m_max = -1e30f;
+    for (int g = 0; g < G; ++g) {
+        m_max = fmaxf(m_max, part_ml[(h * G + g) * 2]);
+    }
+    float denom = 0.0f;
+    float sum_d = 0.0f;
+    for (int g = 0; g < G; ++g) {
+        const float s = ptx_exp(part_ml[(h * G + g) * 2] - m_max);
+        denom += part_ml[(h * G + g) * 2 + 1] * s;
+        sum_d += part_o[(static_cast<size_t>(h) * G + g) * kHd + dd] * s;
+    }
+    const float gt = ptx_sigmoid(gate_buf[h * kHd + dd]);
+    attn_out[h * kHd + dd] = (sum_d * ptx_rcp(fmaxf(denom, 1e-20f))) * gt;
+}

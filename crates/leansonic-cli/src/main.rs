@@ -354,6 +354,32 @@ fn cmd_bench(args: &[String]) -> Result<(), String> {
             sum_logits
         );
 
+        // Teacher-forced logits dump for numerical A/B (`LEANSONIC_EVAL_DUMP=<file>`,
+        // `LEANSONIC_EVAL_FORCE=<csv tokens>`): raw f32 [1 + n_force, VOCAB].
+        if let Ok(dump_path) = env::var("LEANSONIC_EVAL_DUMP") {
+            use std::io::Write as _;
+            let forced: Vec<u32> = env::var("LEANSONIC_EVAL_FORCE")
+                .unwrap_or_default()
+                .split(',')
+                .filter_map(|t| t.trim().parse().ok())
+                .collect();
+            let mut f = std::fs::File::create(&dump_path).map_err(|e| e.to_string())?;
+            let write_logits = |f: &mut std::fs::File, l: &[f32]| -> Result<(), String> {
+                let bytes: Vec<u8> = l.iter().flat_map(|v| v.to_le_bytes()).collect();
+                f.write_all(&bytes).map_err(|e| e.to_string())
+            };
+            write_logits(&mut f, &logits)?;
+            for &t in &forced {
+                let _ = gpu.forward_greedy_token(t)?;
+                write_logits(&mut f, &gpu.read_last_logits()?)?;
+            }
+            println!(
+                "[eval] dumped {} logit rows to {dump_path}",
+                1 + forced.len()
+            );
+            return Ok(());
+        }
+
         if n_gen > 0 {
             let mut out_ids = Vec::with_capacity(n_gen);
             let t_dec = Instant::now();
