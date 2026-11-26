@@ -451,7 +451,13 @@ impl Inkling2GpuEngine {
                 6 + ((s_idx - N_LAYER) % 12)
             };
             let is_global = GLOBAL_LAYERS.contains(&il);
-            let kv_cap = if is_global { max_ctx } else { EXTENT + 64 };
+            // A short context ends before the ring wraps. For longer contexts the
+            // extra batch protects earlier rows while a whole chunk writes its KV.
+            let kv_cap = if is_global {
+                max_ctx
+            } else {
+                max_ctx.min(EXTENT + MAX_BATCH_TOKENS)
+            };
             slots.push(SlotStateGpu {
                 kv_cap,
                 k_cache: DeviceBuf::alloc_zeroed(&ctx, kv_cap * N_KV * HD * 2)?,
