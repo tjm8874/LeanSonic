@@ -1,0 +1,185 @@
+{
+  "model": "Inkling-2-Mini (official weights)",
+  "driver": "595.99.02",
+  "nvcc": "13.0.88",
+  "nvcc_flags": "-O3 -arch=sm_120a --cubin",
+  "cli_source": "c7ac5d3470331aaf8baaae4b68b395505d41da52",
+  "baseline_kernel_source": "fd9460a35c1be58c38fb873cfc0dbed619398663",
+  "kernel_images": {
+    "A": {
+      "sha256": "1d860618ab9d51cb194e8e64cd5116d287cfe87ade8f86e015e7e1a9aa52a370",
+      "bytes": 605392
+    },
+    "B": {
+      "sha256": "e9f88e30db9806b4f249a0c707b32fbff17a1fe7b1e9826844cceeb02fcd56b7",
+      "bytes": 636704
+    }
+  },
+  "cli_sha256": "fb5c31bd62d26e9a06a69f82540a442d263445f244490f647a56e2e2695691b9",
+  "benchmark": "LEANSONIC_CTX=8192 LEANSONIC_CUBIN_PATH=<image> leansonic bench --weights <model> --spec 0 --tokens @readme1024.txt --gen 32 --repeat 2",
+  "prompt": {
+    "readme_commit": "4c71b4cf58a6f35f64e347c897cb67ebffcde74e",
+    "tokens": 1024,
+    "format": "First 1024 ordinary BPE token IDs of README.md, comma separated with final LF",
+    "sha256": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843"
+  },
+  "sampling": "Each array is one A-B-B-A cycle of four fresh processes. Timings are the second request in each process. Both requests in all processes generated the recorded 32 IDs. The same CLI used an old cubin (A) or a tiled cubin (B).",
+  "gpus": [
+    {
+      "gpu": "RTX PRO 5000 72GB Blackwell",
+      "power_limit_w": 350,
+      "engine_reported_vram_gib": 16.87,
+      "generated_ids_csv": "145026,220,39446,220,19,154978,152792,189134,149860,185136,198,84375,149859,23033,220,137294,196997,13,1157,63,150406,903,25,196997,30841,57335,12,1339,903,63,197005,196997",
+      "warmed_process_samples": [
+        {
+          "prefill_ms": [
+            785.59,
+            723.58,
+            723.63,
+            785.47
+          ],
+          "decode_32_ms": [
+            354.76,
+            354.62,
+            354.89,
+            354.58
+          ]
+        },
+        {
+          "prefill_ms": [
+            785.79,
+            723.96,
+            724.18,
+            786.41
+          ],
+          "decode_32_ms": [
+            354.6,
+            354.74,
+            354.68,
+            354.69
+          ]
+        },
+        {
+          "prefill_ms": [
+            786.59,
+            724.63,
+            724.58,
+            786.63
+          ],
+          "decode_32_ms": [
+            354.83,
+            354.7,
+            354.94,
+            354.99
+          ]
+        },
+        {
+          "prefill_ms": [
+            786.62,
+            724.9,
+            724.98,
+            786.94
+          ],
+          "decode_32_ms": [
+            354.86,
+            355.04,
+            354.97,
+            354.95
+          ]
+        },
+        {
+          "prefill_ms": [
+            786.8,
+            724.95,
+            724.94,
+            787.16
+          ],
+          "decode_32_ms": [
+            354.91,
+            354.88,
+            355.04,
+            355.11
+          ]
+        }
+      ]
+    },
+    {
+      "gpu": "RTX 5060 Ti 16GB",
+      "power_limit_w": 180,
+      "engine_reported_vram_gib": 15.4,
+      "generated_ids_csv": "145026,220,39446,220,19,154978,152792,189134,149860,185136,198,84375,149859,23033,220,137294,196997,13,1157,63,150406,903,25,196997,30841,57335,12,1339,903,63,197005,196997",
+      "warmed_process_samples": [
+        {
+          "prefill_ms": [
+            5344.13,
+            5189.23,
+            5190.1,
+            5346.88
+          ],
+          "decode_32_ms": [
+            906.36,
+            906.61,
+            906.93,
+            906.78
+          ]
+        },
+        {
+          "prefill_ms": [
+            5348.29,
+            5192.43,
+            5192.11,
+            5349.27
+          ],
+          "decode_32_ms": [
+            907.1,
+            906.93,
+            906.89,
+            906.94
+          ]
+        },
+        {
+          "prefill_ms": [
+            5349.13,
+            5193.1,
+            5193.4,
+            5349.1
+          ],
+          "decode_32_ms": [
+            906.9,
+            907.13,
+            907.11,
+            906.94
+          ]
+        },
+        {
+          "prefill_ms": [
+            5349.83,
+            5193.08,
+            5193.33,
+            5349.57
+          ],
+          "decode_32_ms": [
+            906.99,
+            907.06,
+            907.03,
+            907.29
+          ]
+        },
+        {
+          "prefill_ms": [
+            5349.55,
+            5193.57,
+            5193.0,
+            5349.97
+          ],
+          "decode_32_ms": [
+            906.92,
+            906.96,
+            906.97,
+            906.95
+          ]
+        }
+      ]
+    }
+  ]
+}
