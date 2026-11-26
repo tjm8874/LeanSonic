@@ -475,13 +475,21 @@ fn pack_q8_rows(bf16_bytes: &[u8], cols: usize, codes: &mut [u8], scales_bytes: 
                                 amax = av;
                             }
                         }
-                        let sc = amax * (1.0 / 127.0);
                         let inv = if amax > 0.0 { 127.0 / amax } else { 0.0 };
-                        dst_s[b * 4..(b + 1) * 4].copy_from_slice(&sc.to_le_bytes());
+                        let mut dot = 0.0f64;
+                        let mut norm = 0i32;
                         for (i, &fv) in fvals.iter().enumerate() {
                             let q = (fv * inv).round().clamp(-127.0, 127.0) as i8;
                             dst_c[b * 64 + i] = q as u8;
+                            dot += f64::from(fv) * f64::from(q);
+                            norm += i32::from(q) * i32::from(q);
                         }
+                        let scale = if norm == 0 {
+                            0.0
+                        } else {
+                            (dot / f64::from(norm)) as f32
+                        };
+                        dst_s[b * 4..(b + 1) * 4].copy_from_slice(&scale.to_le_bytes());
                     }
                 }
             });
