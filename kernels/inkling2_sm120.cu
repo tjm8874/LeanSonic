@@ -880,16 +880,39 @@ extern "C" __global__ void ink2_router_topk8(
 //     - `ink2_moe_nvfp4_down`   : Grid `2304 / 8 = 288`, `256` threads (`8` warps)
 //       Each warp computes row `d` summed over all `k = 0..8` selected experts!
 // ----------------------------------------------------------------------------
+// Keep the raw entry points compatible with existing hosts. Each packed entry
+// reconstructs four original scale bytes before the existing arithmetic.
+#define INK2_SCALE_KERNEL(name, params, args) \
+    template<bool PackedScales> __device__ __forceinline__ void name##_impl params; \
+    extern "C" __global__ void name params { name##_impl<false> args; } \
+    extern "C" __global__ void name##_packed_scales params { name##_impl<true> args; } \
+    template<bool PackedScales> __device__ __forceinline__ void name##_impl params
+
+template<bool PackedScales, int Bits, unsigned Base>
+__device__ __forceinline__ unsigned expert_scale_word(const unsigned* scales, unsigned index) {
+    if constexpr (!PackedScales) return scales[index];
+    // The final zero word makes the second aligned load valid at the end.
+    const unsigned bit = index * (4u * Bits);
+    const unsigned word = bit >> 5;
+    const unsigned fields = __funnelshift_r(scales[word], scales[word + 1], bit & 31);
+    constexpr unsigned mask = (1u << Bits) - 1;
+    return Base * 0x01010101u | (fields & mask)
+        | (((fields >> Bits) & mask) << 8)
+        | (((fields >> (2 * Bits)) & mask) << 16)
+        | (((fields >> (3 * Bits)) & mask) << 24);
+}
+
+template<bool PackedScales>
 __device__ __forceinline__ float warp_dot_nvfp4_row(
     const uint2* __restrict__ row_packed_u64,  // [n_blocks16] (8 bytes = 16 nibbles/blk)
-    const uint32_t* __restrict__ row_scale_u32,// [n_blocks16 / 4]
+    const uint32_t* __restrict__ row_scale_u32, unsigned scale_start, // [n_blocks16 / 4]
     const float4* __restrict__ x4,             // [cols / 4]
     int n_blocks16,
     int lane) {
     float acc = 0.0f;
     for (int blk = lane; blk < n_blocks16; blk += 32) {
         uint2 pk = row_packed_u64[blk];
-        uint32_t sc4 = row_scale_u32[blk >> 2];
+        uint32_t sc4 = expert_scale_word<PackedScales, 6, 64>(row_scale_u32, scale_start + (blk >> 2));
         uint32_t sc_byte = (sc4 >> ((blk & 3) * 8)) & 0xFFu;
         float sc = e4m3_byte_to_f32(sc_byte) * 0.5f; // `* 0.5f` cancels `2x` E2M1 LUT!
 
@@ -917,13 +940,14 @@ __device__ __forceinline__ float warp_dot_nvfp4_row(
     return warp_sum(acc);
 }
 
-extern "C" __global__ void ink2_moe_nvfp4_up_situ(
+INK2_SCALE_KERNEL(ink2_moe_nvfp4_up_situ, (
     const uint2* __restrict__ w13_u64,     // [128, 2304, 144]
     const uint32_t* __restrict__ s13_u32,  // [128, 2304, 36]
     const float* __restrict__ a13,         // [128]
     const float4* __restrict__ x4,         // [2304 / 4]
     const int32_t* __restrict__ sel_ids,   // [8]
-    float* __restrict__ act_out) {         // [8, 1152]
+    float* __restrict__ act_out),
+    (w13_u64, s13_u32, a13, x4, sel_ids, act_out)) {         // [8, 1152]
     __shared__ float smem_gu[8];
     const int warp_id = threadIdx.x >> 5;
     const int lane = threadIdx.x & 31;
@@ -934,9 +958,9 @@ extern "C" __global__ void ink2_moe_nvfp4_up_situ(
     const int ex = sel_ids[k];
 
     const size_t row_idx = static_cast<size_t>(ex) * (2u * kFf) + r;
-    float dot = warp_dot_nvfp4_row(
+    float dot = warp_dot_nvfp4_row<PackedScales>(
         w13_u64 + row_idx * 144u,
-        s13_u32 + row_idx * 36u,
+        s13_u32, row_idx * 36u,
         x4,
         144,
         lane);
@@ -952,14 +976,15 @@ extern "C" __global__ void ink2_moe_nvfp4_up_situ(
     }
 }
 
-extern "C" __global__ void ink2_moe_nvfp4_down(
+INK2_SCALE_KERNEL(ink2_moe_nvfp4_down, (
     const uint2* __restrict__ w2_u64,      // [128, 2304, 72]
     const uint32_t* __restrict__ s2_u32,   // [128, 2304, 18]
     const float* __restrict__ a2,          // [128]
     const float4* __restrict__ act4,       // [8, 1152 / 4 = 288]
     const int32_t* __restrict__ sel_ids,   // [8]
     const float* __restrict__ sel_wts,     // [8]
-    float* __restrict__ moe_out) {         // [2304]
+    float* __restrict__ moe_out),
+    (w2_u64, s2_u32, a2, act4, sel_ids, sel_wts, moe_out)) {         // [2304]
     const int warp_id = threadIdx.x >> 5;
     const int lane = threadIdx.x & 31;
     const int row = blockIdx.x * 8 + warp_id;
@@ -969,9 +994,9 @@ extern "C" __global__ void ink2_moe_nvfp4_down(
     for (int k = 0; k < kTopK; ++k) {
         const int ex = sel_ids[k];
         const size_t r_idx = static_cast<size_t>(ex) * kD + row;
-        float dot = warp_dot_nvfp4_row(
+        float dot = warp_dot_nvfp4_row<PackedScales>(
             w2_u64 + r_idx * 72u,
-            s2_u32 + r_idx * 18u,
+            s2_u32, r_idx * 18u,
             act4 + k * 288,
             72,
             lane);
@@ -1012,16 +1037,17 @@ __device__ __forceinline__ float dot_mxfp8_u128_exact(uint4 p, const float4* __r
     return sub;
 }
 
+template<bool PackedScales>
 __device__ __forceinline__ float warp_dot_mxfp8_u128_row(
     const uint4* __restrict__ row_fp8_u128,     // [n_u128]
-    const uint32_t* __restrict__ row_e8m0_u32,  // [n_u128 / 8]
+    const uint32_t* __restrict__ row_e8m0_u32, unsigned scale_start, // [n_u128 / 8]
     const float4* __restrict__ x4,              // [n_u128 * 4]
     int n_u128,
     int lane) {
     float acc = 0.0f;
     for (int u16 = lane; u16 < n_u128; u16 += 32) {
         const int blk32 = u16 >> 1;
-        uint32_t s4 = row_e8m0_u32[blk32 >> 2];
+        uint32_t s4 = expert_scale_word<PackedScales, 3, 112>(row_e8m0_u32, scale_start + (blk32 >> 2));
         uint32_t s_e8m0 = (s4 >> ((blk32 & 3) * 8)) & 0xFFu;
         float exp_scale = __uint_as_float(s_e8m0 << 23);
         acc = __fmaf_rn(dot_mxfp8_u128_exact(row_fp8_u128[u16], x4 + u16 * 4), exp_scale, acc);
@@ -1029,12 +1055,13 @@ __device__ __forceinline__ float warp_dot_mxfp8_u128_row(
     return warp_sum(acc);
 }
 
-extern "C" __global__ void ink2_moe_mxfp8_up_situ(
+INK2_SCALE_KERNEL(ink2_moe_mxfp8_up_situ, (
     const uint4* __restrict__ w13_u128,    // [128, 2304, 144]
     const uint32_t* __restrict__ s13_u32,  // [128, 2304, 18]
     const float4* __restrict__ x4,         // [576]
     const int32_t* __restrict__ sel_ids,   // [8]
-    float* __restrict__ act_out) {         // [8, 1152]
+    float* __restrict__ act_out),
+    (w13_u128, s13_u32, x4, sel_ids, act_out)) {         // [8, 1152]
     __shared__ float smem_gu[8];
     const int warp_id = threadIdx.x >> 5;
     const int lane = threadIdx.x & 31;
@@ -1045,9 +1072,9 @@ extern "C" __global__ void ink2_moe_mxfp8_up_situ(
     const int ex = sel_ids[k];
 
     const size_t row_idx = static_cast<size_t>(ex) * (2u * kFf) + r;
-    float dot = warp_dot_mxfp8_u128_row(
+    float dot = warp_dot_mxfp8_u128_row<PackedScales>(
         w13_u128 + row_idx * 144u,
-        s13_u32 + row_idx * 18u,
+        s13_u32, row_idx * 18u,
         x4,
         144,
         lane);
@@ -1063,13 +1090,14 @@ extern "C" __global__ void ink2_moe_mxfp8_up_situ(
     }
 }
 
-extern "C" __global__ void ink2_moe_mxfp8_down(
+INK2_SCALE_KERNEL(ink2_moe_mxfp8_down, (
     const uint4* __restrict__ w2_u128,     // [128, 2304, 72]
     const uint32_t* __restrict__ s2_u32,   // [128, 2304, 9]
     const float4* __restrict__ act4,       // [8, 288]
     const int32_t* __restrict__ sel_ids,   // [8]
     const float* __restrict__ sel_wts,     // [8]
-    float* __restrict__ moe_out) {         // [2304]
+    float* __restrict__ moe_out),
+    (w2_u128, s2_u32, act4, sel_ids, sel_wts, moe_out)) {         // [2304]
     const int warp_id = threadIdx.x >> 5;
     const int lane = threadIdx.x & 31;
     const int row = blockIdx.x * 8 + warp_id;
@@ -1079,9 +1107,9 @@ extern "C" __global__ void ink2_moe_mxfp8_down(
     for (int k = 0; k < kTopK; ++k) {
         const int ex = sel_ids[k];
         const size_t r_idx = static_cast<size_t>(ex) * kD + row;
-        float dot = warp_dot_mxfp8_u128_row(
+        float dot = warp_dot_mxfp8_u128_row<PackedScales>(
             w2_u128 + r_idx * 72u,
-            s2_u32 + r_idx * 9u,
+            s2_u32, r_idx * 9u,
             act4 + k * 288,
             72,
             lane);
@@ -1244,9 +1272,10 @@ extern "C" __global__ void ink2_q8_dp4a_gemv(
     }
 }
 
+template<bool PackedScales>
 __device__ __forceinline__ float warp_dot_nvfp4_dp4a_u128_row(
     const uint4* __restrict__ row_u128,         // [n_u128] (`16B` = `32` nibbles = `2` blocks of 16!)
-    const uint32_t* __restrict__ row_scale_u32, // [n_u128 / 2]
+    const uint32_t* __restrict__ row_scale_u32, unsigned scale_start, // [n_u128 / 2]
     const uint4* __restrict__ smem_xq16,        // [n_u128 * 2]
     const float* __restrict__ smem_xsc16,       // [n_u128 * 2]
     int n_u128,
@@ -1254,7 +1283,7 @@ __device__ __forceinline__ float warp_dot_nvfp4_dp4a_u128_row(
     float acc = 0.0f;
     for (int u16 = lane; u16 < n_u128; u16 += 32) {
         uint4 pk16 = row_u128[u16];
-        uint32_t sc4 = row_scale_u32[u16 >> 1];
+        uint32_t sc4 = expert_scale_word<PackedScales, 6, 64>(row_scale_u32, scale_start + (u16 >> 1));
         int sh = (u16 & 1) * 16;
         float s0 = __fmul_rn(e4m3_byte_to_f32((sc4 >> sh) & 0xFFu) * 0.5f, smem_xsc16[u16 * 2]);
         float s1 = __fmul_rn(e4m3_byte_to_f32((sc4 >> (sh + 8)) & 0xFFu) * 0.5f, smem_xsc16[u16 * 2 + 1]);
@@ -1274,14 +1303,15 @@ __device__ __forceinline__ float warp_dot_nvfp4_dp4a_u128_row(
     return warp_sum(acc);
 }
 
-extern "C" __global__ void ink2_moe_nvfp4_dp4a_up_situ(
+INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_up_situ, (
     const uint4* __restrict__ w13_u128,    // [128, 2304, 72]
     const uint32_t* __restrict__ s13_u32,  // [128, 2304, 36]
     const float* __restrict__ a13,         // [128]
     const uint4* __restrict__ x_q8_u128,   // [144]
     const float* __restrict__ x_sc16,      // [144]
     const int32_t* __restrict__ sel_ids,   // [8]
-    float* __restrict__ act_out) {         // [8, 1152]
+    float* __restrict__ act_out),
+    (w13_u128, s13_u32, a13, x_q8_u128, x_sc16, sel_ids, act_out)) {         // [8, 1152]
     __shared__ uint4 smem_xq[144];
     __shared__ float smem_xsc[144];
     __shared__ float smem_gu[8];
@@ -1302,9 +1332,9 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_up_situ(
     const int ex = sel_ids[k];
 
     const size_t row_idx = static_cast<size_t>(ex) * (2u * kFf) + r;
-    float dot = warp_dot_nvfp4_dp4a_u128_row(
+    float dot = warp_dot_nvfp4_dp4a_u128_row<PackedScales>(
         w13_u128 + row_idx * 72u,
-        s13_u32 + row_idx * 36u,
+        s13_u32, row_idx * 36u,
         smem_xq,
         smem_xsc,
         72,
@@ -1321,7 +1351,7 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_up_situ(
     }
 }
 
-extern "C" __global__ void ink2_moe_nvfp4_dp4a_down(
+INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_down, (
     const uint4* __restrict__ w2_u128,     // [128, 2304, 36]
     const uint32_t* __restrict__ s2_u32,   // [128, 2304, 18]
     const float* __restrict__ a2,          // [128]
@@ -1329,7 +1359,8 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_down(
     const float* __restrict__ act_sc16,    // [8, 72]
     const int32_t* __restrict__ sel_ids,   // [8]
     const float* __restrict__ sel_wts,     // [8]
-    float* __restrict__ moe_out) {         // [2304]
+    float* __restrict__ moe_out),
+    (w2_u128, s2_u32, a2, act_q8_u128, act_sc16, sel_ids, sel_wts, moe_out)) {         // [2304]
     __shared__ uint4 smem_aq[8 * 72];      // 9,216 B
     __shared__ float smem_asc[8 * 72];     // 2,304 B
 
@@ -1349,9 +1380,9 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_down(
     for (int k = 0; k < kTopK; ++k) {
         const int ex = sel_ids[k];
         const size_t r_idx = static_cast<size_t>(ex) * kD + row;
-        float dot = warp_dot_nvfp4_dp4a_u128_row(
+        float dot = warp_dot_nvfp4_dp4a_u128_row<PackedScales>(
             w2_u128 + r_idx * 36u,
-            s2_u32 + r_idx * 18u,
+            s2_u32, r_idx * 18u,
             smem_aq + k * 72,
             smem_asc + k * 72,
             36,
@@ -2500,7 +2531,7 @@ extern "C" __global__ void ink2_build_expert_groups_wide_b(
 // 16 rows x 8 tokens x 16 input values, the width of one NVFP4 scale group.
 // The gate/up projection consumes token rows and fuses SITU. The down
 // projection reads and writes the routed pair rows.
-template <bool GateUp>
+template <bool GateUp, bool PackedScales>
 __device__ __forceinline__ void grouped_nvfp4_mma(
     const uint4* weight_data, const uint32_t* weight_scales, const float* amax,
     const uint4* x_q8, const float* x_scales, const int32_t* exp_counts,
@@ -2534,7 +2565,7 @@ __device__ __forceinline__ void grouped_nvfp4_mma(
             weights[i / (groups / 2)][i % (groups / 2)] = weight_data[offset * (groups / 2) + i];
         }
         for (int i = tid; i < rows * (groups / 4); i += 256) {
-            const uint32_t packed = weight_scales[offset * (groups / 4) + i];
+            const uint32_t packed = expert_scale_word<PackedScales, 6, 64>(weight_scales, offset * (groups / 4) + i);
             #pragma unroll
             for (int byte = 0; byte < 4; ++byte) {
                 scales[i / (groups / 4)][4 * (i % (groups / 4)) + byte] =
@@ -2633,7 +2664,7 @@ __device__ __forceinline__ void grouped_nvfp4_mma(
 }
 
 // Retain the entry points used by existing launchers and external cubins.
-extern "C" __global__ void ink2_moe_nvfp4_dp4a_grouped_up_situ(
+INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_grouped_up_situ, (
     const uint4* __restrict__ w13_u128,
     const uint32_t* __restrict__ s13_u32,
     const float* __restrict__ a13,
@@ -2642,11 +2673,12 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_grouped_up_situ(
     const int32_t* __restrict__ exp_counts,
     const int32_t* __restrict__ exp_toks,
     const int32_t* __restrict__ exp_pairs,
-    float* __restrict__ act_out) {
-    grouped_nvfp4_mma<true>(w13_u128, s13_u32, a13, x_q8_u128, x_sc16, exp_counts, exp_toks, exp_pairs, act_out);
+    float* __restrict__ act_out),
+    (w13_u128, s13_u32, a13, x_q8_u128, x_sc16, exp_counts, exp_toks, exp_pairs, act_out)) {
+    grouped_nvfp4_mma<true, PackedScales>(w13_u128, s13_u32, a13, x_q8_u128, x_sc16, exp_counts, exp_toks, exp_pairs, act_out);
 }
 
-extern "C" __global__ void ink2_moe_nvfp4_dp4a_grouped_down(
+INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_grouped_down, (
     const uint4* __restrict__ w2_u128,     // [128, 2304, 36]
     const uint32_t* __restrict__ s2_u32,   // [128, 2304, 18]
     const float* __restrict__ a2,          // [128]
@@ -2654,8 +2686,9 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_grouped_down(
     const float* __restrict__ act_sc16,    // [B * 8, 72]
     const int32_t* __restrict__ exp_counts,// [128]
     const int32_t* __restrict__ exp_pairs, // [page, 128, 64]
-    float* __restrict__ pair_y) {          // [B * 8, 2304]
-    grouped_nvfp4_mma<false>(w2_u128, s2_u32, a2, act_q8_u128, act_sc16, exp_counts, exp_pairs, exp_pairs, pair_y);
+    float* __restrict__ pair_y),
+    (w2_u128, s2_u32, a2, act_q8_u128, act_sc16, exp_counts, exp_pairs, pair_y)) {          // [B * 8, 2304]
+    grouped_nvfp4_mma<false, PackedScales>(w2_u128, s2_u32, a2, act_q8_u128, act_sc16, exp_counts, exp_pairs, exp_pairs, pair_y);
 }
 
 __device__ __forceinline__ float dot_mxfp8_u128_raw(uint4 p, const float4* __restrict__ x4_sub) {
@@ -2683,22 +2716,24 @@ __device__ __forceinline__ float dot_mxfp8_u128_raw(uint4 p, const float4* __res
     return sub;
 }
 
-__device__ __forceinline__ float load_e8m0_scale(const uint32_t* __restrict__ row_e8m0_u32, int u16_idx) {
+template<bool PackedScales>
+__device__ __forceinline__ float load_e8m0_scale(const uint32_t* __restrict__ row_e8m0_u32, unsigned scale_start, int u16_idx) {
     const int blk32 = u16_idx >> 1;
-    uint32_t s4 = row_e8m0_u32[blk32 >> 2];
+    uint32_t s4 = expert_scale_word<PackedScales, 3, 112>(row_e8m0_u32, scale_start + (blk32 >> 2));
     uint32_t s_e8m0 = (s4 >> ((blk32 & 3) * 8)) & 0xFFu;
     return __uint_as_float(s_e8m0 << 23);
 }
 
 // Tile-4 Grouped-Expert MXFP8 Up+SITU (`Grid (72, 128)`, `Block 256`, `<= 42` regs!)
-extern "C" __global__ void ink2_moe_mxfp8_grouped_up_situ(
+INK2_SCALE_KERNEL(ink2_moe_mxfp8_grouped_up_situ, (
     const uint4* __restrict__ w13_u128,    // [128, 2304, 144]
     const uint32_t* __restrict__ s13_u32,  // [128, 2304, 18]
     const float4* __restrict__ x4_base,    // [B, 576]
     const int32_t* __restrict__ exp_counts,// [128]
     const int32_t* __restrict__ exp_toks,  // [page, 128, 64]
     const int32_t* __restrict__ exp_pairs, // [page, 128, 64]
-    float* __restrict__ act_out) {         // [B * 8, 1152]
+    float* __restrict__ act_out),
+    (w13_u128, s13_u32, x4_base, exp_counts, exp_toks, exp_pairs, act_out)) {         // [B * 8, 1152]
     const int ex = blockIdx.y;
     const int cnt = exp_counts[ex];
     if (cnt == 0) return;
@@ -2735,12 +2770,12 @@ extern "C" __global__ void ink2_moe_mxfp8_grouped_up_situ(
             const int r = m * 2 + is_up;
             const size_t row_idx = static_cast<size_t>(ex) * (2u * kFf) + r;
             const uint4* r_u128 = w13_u128 + row_idx * 144u;
-            const uint32_t* r_sc = s13_u32 + row_idx * 18u;
+            const unsigned scale_start = row_idx * 18u;
 
             float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
             for (int u16 = lane; u16 < 144; u16 += 32) {
                 const uint4 p = r_u128[u16];
-                const float es = load_e8m0_scale(r_sc, u16);
+                const float es = load_e8m0_scale<PackedScales>(s13_u32, scale_start, u16);
                 if (tile_t > 0) a0 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_x4[0] + u16), es, a0);
                 if (tile_t > 1) a1 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_x4[1] + u16), es, a1);
                 if (tile_t > 2) a2 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_x4[2] + u16), es, a2);
@@ -2767,13 +2802,14 @@ extern "C" __global__ void ink2_moe_mxfp8_grouped_up_situ(
 }
 
 // Tile-8 Grouped-Expert MXFP8 Down (`Grid (72, 128)`, `Block 256`, Zero Atomics!)
-extern "C" __global__ void ink2_moe_mxfp8_grouped_down(
+INK2_SCALE_KERNEL(ink2_moe_mxfp8_grouped_down, (
     const uint4* __restrict__ w2_u128,     // [128, 2304, 72]
     const uint32_t* __restrict__ s2_u32,   // [128, 2304, 9]
     const float4* __restrict__ act4_base,  // [B * 8, 288]
     const int32_t* __restrict__ exp_counts,// [128]
     const int32_t* __restrict__ exp_pairs, // [page, 128, 64]
-    float* __restrict__ pair_y) {          // [B * 8, 2304]
+    float* __restrict__ pair_y),
+    (w2_u128, s2_u32, act4_base, exp_counts, exp_pairs, pair_y)) {          // [B * 8, 2304]
     const int ex = blockIdx.y;
     const int cnt = exp_counts[ex];
     if (cnt == 0) return;
@@ -2808,14 +2844,14 @@ extern "C" __global__ void ink2_moe_mxfp8_grouped_down(
             if (row >= kD) continue;
             const size_t r_idx = static_cast<size_t>(ex) * kD + row;
             const uint4* r_u128 = w2_u128 + r_idx * 72u;
-            const uint32_t* r_sc = s2_u32 + r_idx * 9u;
+            const unsigned scale_start = r_idx * 9u;
 
             float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
             float a4 = 0.0f, a5 = 0.0f, a6 = 0.0f, a7 = 0.0f;
 
             for (int u16 = lane; u16 < 72; u16 += 32) {
                 const uint4 p = r_u128[u16];
-                const float es = load_e8m0_scale(r_sc, u16);
+                const float es = load_e8m0_scale<PackedScales>(s2_u32, scale_start, u16);
                 if (tile_t > 0) a0 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_a4[0] + u16), es, a0);
                 if (tile_t > 1) a1 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_a4[1] + u16), es, a1);
                 if (tile_t > 2) a2 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_a4[2] + u16), es, a2);
@@ -4890,9 +4926,9 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_down_2w(
     for (int k = 0; k < kTopK; ++k) {
         const int ex = sel_ids[k];
         const size_t r_idx = static_cast<size_t>(ex) * kD + row;
-        float dot = warp_dot_nvfp4_dp4a_u128_row(
+        float dot = warp_dot_nvfp4_dp4a_u128_row<false>(
             w2_u128 + r_idx * 36u,
-            s2_u32 + r_idx * 18u,
+            s2_u32, r_idx * 18u,
             smem_aq + k * 72,
             smem_asc + k * 72,
             36,
@@ -4921,9 +4957,9 @@ extern "C" __global__ void ink2_moe_mxfp8_down_2w(
     for (int k = 0; k < kTopK; ++k) {
         const int ex = sel_ids[k];
         const size_t r_idx = static_cast<size_t>(ex) * kD + row;
-        float dot = warp_dot_mxfp8_u128_row(
+        float dot = warp_dot_mxfp8_u128_row<false>(
             w2_u128 + r_idx * 72u,
-            s2_u32 + r_idx * 9u,
+            s2_u32, r_idx * 9u,
             act4 + k * 288,
             72,
             lane);
@@ -4970,3 +5006,5 @@ extern "C" __global__ void ink2_short_conv4_kv2(
 
     out[c] = eval_conv4_step(w, h0, h1, h2, x, has_dyn, d, 0, 0.0f);
 }
+
+#undef INK2_SCALE_KERNEL
