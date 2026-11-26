@@ -461,6 +461,7 @@ impl Inkling2GpuEngine {
             .require("model.llm.embed.weight", "BF16", &[PADDED_VOCAB, D])
             .data;
         let embed = TierBuf::HostPinned(PinnedHostBuf::from_bytes(&ctx, embed_raw)?);
+        st.discard_resident_pages();
         let embed_norm = DeviceBuf::from_host_bytes(
             &ctx,
             st.require("model.llm.embed_norm.weight", "BF16", &[D]).data,
@@ -1116,6 +1117,9 @@ impl Inkling2GpuEngine {
                 &eng.ctx, bytes,
             )?))
         };
+        // The dense tensors now live in their final buffers. Release their source pages
+        // before copying the larger expert matrices into VRAM or pinned host memory.
+        st.discard_resident_pages();
         let mut mixed_layers = 0;
         for ([up, down], [up_on_device, down_on_device]) in expert_views.into_iter().zip(resident) {
             let pair = [place(up_on_device, up)?, place(down_on_device, down)?];
@@ -1128,6 +1132,7 @@ impl Inkling2GpuEngine {
                 }
             }
             eng.expert_weights.push(pair);
+            st.discard_resident_pages();
         }
 
         if enable_cuda_graph {
