@@ -102,6 +102,71 @@ __device__ __forceinline__ float warp_sum(float v) {
     return v;
 }
 
+// ----------------------------------------------------------------------------
+// Opt-in INT8 KV for Full-attention (global) layers (`LEANSONIC_KV=int8`, #14 / T011).
+// A row holds `8 x 128` int8 values (1,024 B) plus one FP32 absmax scale per
+// (row, KV head) in a separate `[kv_cap, 8]` array. `scale == nullptr` selects the
+// original FP16 layout, so FP16 numerics are unchanged bit-for-bit.
+// ----------------------------------------------------------------------------
+__device__ __forceinline__ void kv_load4(
+    const uint16_t* __restrict__ cache, const float* __restrict__ scale,
+    int row, int kvh, int lane, float& x0, float& x1, float& x2, float& x3) {
+    if (scale == nullptr) {
+        const uint64_t w = reinterpret_cast<const uint64_t*>(
+            cache + static_cast<size_t>(row) * 1024u + kvh * 128)[lane];
+        x0 = fp16_bits_to_f32(static_cast<uint16_t>(w & 0xFFFFu));
+        x1 = fp16_bits_to_f32(static_cast<uint16_t>((w >> 16) & 0xFFFFu));
+        x2 = fp16_bits_to_f32(static_cast<uint16_t>((w >> 32) & 0xFFFFu));
+        x3 = fp16_bits_to_f32(static_cast<uint16_t>((w >> 48) & 0xFFFFu));
+    } else {
+        const uint32_t w = reinterpret_cast<const uint32_t*>(
+            reinterpret_cast<const int8_t*>(cache) + static_cast<size_t>(row) * 1024u + kvh * 128)[lane];
+        const float sc = scale[static_cast<size_t>(row) * 8u + kvh];
+        x0 = __fmul_rn(static_cast<float>(static_cast<int8_t>(w & 0xFFu)), sc);
+        x1 = __fmul_rn(static_cast<float>(static_cast<int8_t>((w >> 8) & 0xFFu)), sc);
+        x2 = __fmul_rn(static_cast<float>(static_cast<int8_t>((w >> 16) & 0xFFu)), sc);
+        x3 = __fmul_rn(static_cast<float>(static_cast<int8_t>((w >> 24) & 0xFFu)), sc);
+    }
+}
+
+// Compile-time KV format for kernels instantiated per format (keeps FP16 register use unchanged).
+template <bool kInt8>
+__device__ __forceinline__ void kv_load4_t(
+    const uint16_t* __restrict__ cache, const float* __restrict__ scale,
+    int row, int kvh, int lane, float& x0, float& x1, float& x2, float& x3) {
+    kv_load4(cache, kInt8 ? scale : nullptr, row, kvh, lane, x0, x1, x2, x3);
+}
+
+__device__ __forceinline__ uint32_t kv_q8(float x, float inv) {
+    int q = __float2int_rn(__fmul_rn(x, inv));
+    q = q > 127 ? 127 : (q < -127 ? -127 : q);
+    return static_cast<uint32_t>(q) & 0xFFu;
+}
+
+// Whole warp stores one KV head row (4 values per lane).
+__device__ __forceinline__ void kv_store4(
+    uint16_t* __restrict__ cache, float* __restrict__ scale,
+    int row, int kvh, int lane, float x0, float x1, float x2, float x3) {
+    if (scale == nullptr) {
+        uint16_t* dst = cache + static_cast<size_t>(row) * 1024u + kvh * 128;
+        dst[lane * 4] = f32_to_fp16_bits(x0);
+        dst[lane * 4 + 1] = f32_to_fp16_bits(x1);
+        dst[lane * 4 + 2] = f32_to_fp16_bits(x2);
+        dst[lane * 4 + 3] = f32_to_fp16_bits(x3);
+    } else {
+        float a = fmaxf(fmaxf(fabsf(x0), fabsf(x1)), fmaxf(fabsf(x2), fabsf(x3)));
+        #pragma unroll
+        for (int m = 16; m > 0; m >>= 1) a = fmaxf(a, __shfl_xor_sync(0xFFFFFFFFu, a, m));
+        // `rcp.approx` (deterministic, no IEEE-division subroutine call in the hot path).
+        const float inv = (a > 0.0f) ? __fmul_rn(127.0f, ptx_rcp(a)) : 0.0f;
+        const uint32_t packed = kv_q8(x0, inv) | (kv_q8(x1, inv) << 8) |
+                                (kv_q8(x2, inv) << 16) | (kv_q8(x3, inv) << 24);
+        reinterpret_cast<uint32_t*>(
+            reinterpret_cast<int8_t*>(cache) + static_cast<size_t>(row) * 1024u + kvh * 128)[lane] = packed;
+        if (lane == 0) scale[static_cast<size_t>(row) * 8u + kvh] = __fmul_rn(a, 1.0f / 127.0f);
+    }
+}
+
 __device__ __forceinline__ float e4m3_byte_to_f32(uint32_t b) {
     uint32_t mag = (b & 0x7Fu) << 20;
     uint32_t sgn = (b & 0x80u) << 24;
@@ -584,6 +649,8 @@ extern "C" __global__ void ink2_prep_qkv_and_cache(
     const uint32_t* __restrict__ r_clip_bf16,  // [24 * 16 / 2]
     uint16_t* __restrict__ k_cache_fp16,       // [kv_cap, 8 * 128]
     uint16_t* __restrict__ v_cache_fp16,       // [kv_cap, 8 * 128]
+    float* __restrict__ k_scale,               // [kv_cap, 8] INT8 KV scales, or nullptr (FP16)
+    float* __restrict__ v_scale,               // [kv_cap, 8] INT8 KV scales, or nullptr (FP16)
     const int32_t* __restrict__ pos_ptr,
     int32_t kv_cap,
     int32_t is_global) {
@@ -650,11 +717,8 @@ extern "C" __global__ void ink2_prep_qkv_and_cache(
             __fmaf_rn(kv3, kv3, __fmul_rn(kv2, kv2))));
         float k_f = 22.627416997969522f * ptx_rcp(ptx_sqrt(k_sq) + 1e-6f);
         if (k_f > 1.0f) k_f = 1.0f;
-        uint16_t* dst = k_cache_fp16 + static_cast<size_t>(cache_row) * 1024u + kh * 128;
-        dst[lane * 4] = f32_to_fp16_bits(kv0 * k_f);
-        dst[lane * 4 + 1] = f32_to_fp16_bits(kv1 * k_f);
-        dst[lane * 4 + 2] = f32_to_fp16_bits(kv2 * k_f);
-        dst[lane * 4 + 3] = f32_to_fp16_bits(kv3 * k_f);
+        kv_store4(k_cache_fp16, k_scale, cache_row, kh, lane,
+                  kv0 * k_f, kv1 * k_f, kv2 * k_f, kv3 * k_f);
     } else if (g_warp < 40) {
         // V head (`128` dims = `4` per lane, no-gamma RMSNorm)
         const int vh = g_warp - 32;
@@ -664,11 +728,8 @@ extern "C" __global__ void ink2_prep_qkv_and_cache(
             __fmaf_rn(vv1, vv1, __fmul_rn(vv0, vv0)),
             __fmaf_rn(vv3, vv3, __fmul_rn(vv2, vv2))));
         float v_inv = ptx_rsqrt(v_sq * (1.0f / 128.0f) + 1e-6f);
-        uint16_t* dst = v_cache_fp16 + static_cast<size_t>(cache_row) * 1024u + vh * 128;
-        dst[lane * 4] = f32_to_fp16_bits(vv0 * v_inv);
-        dst[lane * 4 + 1] = f32_to_fp16_bits(vv1 * v_inv);
-        dst[lane * 4 + 2] = f32_to_fp16_bits(vv2 * v_inv);
-        dst[lane * 4 + 3] = f32_to_fp16_bits(vv3 * v_inv);
+        kv_store4(v_cache_fp16, v_scale, cache_row, vh, lane,
+                  vv0 * v_inv, vv1 * v_inv, vv2 * v_inv, vv3 * v_inv);
     }
 }
 
@@ -684,6 +745,8 @@ extern "C" __global__ void ink2_gqa_rel_sink_attn(
     const uint32_t* __restrict__ rel_proj_bf16, // [16, 1024 / 2 = 512]
     const uint16_t* __restrict__ k_cache_fp16,  // [kv_cap, 8, 128]
     const uint16_t* __restrict__ v_cache_fp16,  // [kv_cap, 8, 128]
+    const float* __restrict__ k_scale,          // [kv_cap, 8] INT8 KV scales, or nullptr (FP16)
+    const float* __restrict__ v_scale,          // [kv_cap, 8] INT8 KV scales, or nullptr (FP16)
     const int32_t* __restrict__ pos_ptr,
     int32_t kv_cap,
     int32_t is_global,
@@ -742,13 +805,8 @@ extern "C" __global__ void ink2_gqa_rel_sink_attn(
 
     for (int j = first + warp_id; j < n; j += 8) {
         const int slot_row = is_global ? j : (j % kv_cap);
-        const uint64_t* kp = reinterpret_cast<const uint64_t*>(
-            k_cache_fp16 + static_cast<size_t>(slot_row) * 1024u + kvh * 128);
-        uint64_t kw = kp[lane];
-        float k0 = fp16_bits_to_f32(static_cast<uint16_t>(kw & 0xFFFFu));
-        float k1 = fp16_bits_to_f32(static_cast<uint16_t>((kw >> 16) & 0xFFFFu));
-        float k2 = fp16_bits_to_f32(static_cast<uint16_t>((kw >> 32) & 0xFFFFu));
-        float k3 = fp16_bits_to_f32(static_cast<uint16_t>((kw >> 48) & 0xFFFFu));
+        float k0, k1, k2, k3;
+        kv_load4(k_cache_fp16, k_scale, slot_row, kvh, lane, k0, k1, k2, k3);
 
         float dot = warp_sum(q0 * k0 + q1 * k1 + q2 * k2 + q3 * k3) * scale;
         int d = pos - j;
@@ -762,13 +820,12 @@ extern "C" __global__ void ink2_gqa_rel_sink_attn(
         l_w = l_w * alpha + p;
         m_w = m_new;
 
-        const uint64_t* vp = reinterpret_cast<const uint64_t*>(
-            v_cache_fp16 + static_cast<size_t>(slot_row) * 1024u + kvh * 128);
-        uint64_t vw = vp[lane];
-        o0 = o0 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>(vw & 0xFFFFu));
-        o1 = o1 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>((vw >> 16) & 0xFFFFu));
-        o2 = o2 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>((vw >> 32) & 0xFFFFu));
-        o3 = o3 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>((vw >> 48) & 0xFFFFu));
+        float v0, v1, v2, v3;
+        kv_load4(v_cache_fp16, v_scale, slot_row, kvh, lane, v0, v1, v2, v3);
+        o0 = o0 * alpha + p * v0;
+        o1 = o1 * alpha + p * v1;
+        o2 = o2 * alpha + p * v2;
+        o3 = o3 * alpha + p * v3;
     }
 
     if (lane == 0) {
@@ -1993,6 +2050,8 @@ extern "C" __global__ void ink2_prep_qkv_and_cache_b(
     const uint32_t* __restrict__ r_clip_bf16,  // [24 * 8]
     uint16_t* __restrict__ k_cache_fp16,       // [kv_cap, 1024]
     uint16_t* __restrict__ v_cache_fp16,       // [kv_cap, 1024]
+    float* __restrict__ k_scale,               // [kv_cap, 8] INT8 KV scales, or nullptr (FP16)
+    float* __restrict__ v_scale,               // [kv_cap, 8] INT8 KV scales, or nullptr (FP16)
     const int32_t* __restrict__ pos_ptr,
     int32_t kv_cap,
     int32_t is_global) {
@@ -2065,11 +2124,8 @@ extern "C" __global__ void ink2_prep_qkv_and_cache_b(
             __fmaf_rn(kv3, kv3, __fmul_rn(kv2, kv2))));
         float k_f = 22.627416997969522f * ptx_rcp(ptx_sqrt(k_sq) + 1e-6f);
         if (k_f > 1.0f) k_f = 1.0f;
-        uint16_t* dst = k_cache_fp16 + static_cast<size_t>(cache_row) * 1024u + kh * 128;
-        dst[lane * 4] = f32_to_fp16_bits(kv0 * k_f);
-        dst[lane * 4 + 1] = f32_to_fp16_bits(kv1 * k_f);
-        dst[lane * 4 + 2] = f32_to_fp16_bits(kv2 * k_f);
-        dst[lane * 4 + 3] = f32_to_fp16_bits(kv3 * k_f);
+        kv_store4(k_cache_fp16, k_scale, cache_row, kh, lane,
+                  kv0 * k_f, kv1 * k_f, kv2 * k_f, kv3 * k_f);
     } else if (g_warp < 40) {
         const int vh = g_warp - 32;
         const float* vs = v_in + vh * 128;
@@ -2078,11 +2134,8 @@ extern "C" __global__ void ink2_prep_qkv_and_cache_b(
             __fmaf_rn(vv1, vv1, __fmul_rn(vv0, vv0)),
             __fmaf_rn(vv3, vv3, __fmul_rn(vv2, vv2))));
         float v_inv = ptx_rsqrt(v_sq * (1.0f / 128.0f) + 1e-6f);
-        uint16_t* dst = v_cache_fp16 + static_cast<size_t>(cache_row) * 1024u + vh * 128;
-        dst[lane * 4] = f32_to_fp16_bits(vv0 * v_inv);
-        dst[lane * 4 + 1] = f32_to_fp16_bits(vv1 * v_inv);
-        dst[lane * 4 + 2] = f32_to_fp16_bits(vv2 * v_inv);
-        dst[lane * 4 + 3] = f32_to_fp16_bits(vv3 * v_inv);
+        kv_store4(v_cache_fp16, v_scale, cache_row, vh, lane,
+                  vv0 * v_inv, vv1 * v_inv, vv2 * v_inv, vv3 * v_inv);
     }
 }
 
@@ -2093,6 +2146,8 @@ extern "C" __global__ void ink2_gqa_rel_sink_attn_b(
     const uint32_t* __restrict__ rel_proj_bf16, // [16, 512]
     const uint16_t* __restrict__ k_cache_fp16,  // [kv_cap, 1024]
     const uint16_t* __restrict__ v_cache_fp16,  // [kv_cap, 1024]
+    const float* __restrict__ k_scale,          // [kv_cap, 8] or nullptr (FP16)
+    const float* __restrict__ v_scale,          // [kv_cap, 8] or nullptr (FP16)
     const int32_t* __restrict__ pos_ptr,
     int32_t kv_cap,
     int32_t is_global,
@@ -2154,13 +2209,8 @@ extern "C" __global__ void ink2_gqa_rel_sink_attn_b(
 
     for (int j = first + warp_id; j < n; j += 8) {
         const int slot_row = is_global ? j : (j % kv_cap);
-        const uint64_t* kp = reinterpret_cast<const uint64_t*>(
-            k_cache_fp16 + static_cast<size_t>(slot_row) * 1024u + kvh * 128);
-        uint64_t kw = kp[lane];
-        float k0 = fp16_bits_to_f32(static_cast<uint16_t>(kw & 0xFFFFu));
-        float k1 = fp16_bits_to_f32(static_cast<uint16_t>((kw >> 16) & 0xFFFFu));
-        float k2 = fp16_bits_to_f32(static_cast<uint16_t>((kw >> 32) & 0xFFFFu));
-        float k3 = fp16_bits_to_f32(static_cast<uint16_t>((kw >> 48) & 0xFFFFu));
+        float k0, k1, k2, k3;
+        kv_load4(k_cache_fp16, k_scale, slot_row, kvh, lane, k0, k1, k2, k3);
 
         float dot = warp_sum(q0 * k0 + q1 * k1 + q2 * k2 + q3 * k3) * scale;
         int d = pos - j;
@@ -2174,13 +2224,12 @@ extern "C" __global__ void ink2_gqa_rel_sink_attn_b(
         l_w = l_w * alpha + p;
         m_w = m_new;
 
-        const uint64_t* vp = reinterpret_cast<const uint64_t*>(
-            v_cache_fp16 + static_cast<size_t>(slot_row) * 1024u + kvh * 128);
-        uint64_t vw = vp[lane];
-        o0 = o0 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>(vw & 0xFFFFu));
-        o1 = o1 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>((vw >> 16) & 0xFFFFu));
-        o2 = o2 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>((vw >> 32) & 0xFFFFu));
-        o3 = o3 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>((vw >> 48) & 0xFFFFu));
+        float v0, v1, v2, v3;
+        kv_load4(v_cache_fp16, v_scale, slot_row, kvh, lane, v0, v1, v2, v3);
+        o0 = o0 * alpha + p * v0;
+        o1 = o1 * alpha + p * v1;
+        o2 = o2 * alpha + p * v2;
+        o3 = o3 * alpha + p * v3;
     }
 
     if (lane == 0) {
@@ -3483,12 +3532,15 @@ extern "C" __global__ void mtp_fold_fin(
 //     - `ink2_gqa_attn_split`: Grid `(8 * B, G)`, Block `256` (`3` Q heads share `1` KV read!)
 //     - `ink2_gqa_attn_combine`: Grid `(24, B)`, Block `128`
 // ============================================================================
-extern "C" __global__ void ink2_gqa_attn_split(
+template <bool kInt8>
+__device__ __forceinline__ void gqa_attn_split_body(
     const float* __restrict__ qrgs_base,        // [B, qrgs_stride] (`q@0, r@3072, gate@3456, sinks@6528`)
     int32_t qrgs_stride,
     const uint32_t* __restrict__ rel_proj_bf16, // [16, 512]
     const uint16_t* __restrict__ k_cache_fp16,  // [kv_cap, 8, 128]
     const uint16_t* __restrict__ v_cache_fp16,  // [kv_cap, 8, 128]
+    const float* __restrict__ k_scale,          // [kv_cap, 8] INT8 KV scales, or nullptr (FP16)
+    const float* __restrict__ v_scale,          // [kv_cap, 8] INT8 KV scales, or nullptr (FP16)
     const int32_t* __restrict__ pos_ptr,
     int32_t kv_cap,
     int32_t is_global,
@@ -3568,18 +3620,9 @@ extern "C" __global__ void ink2_gqa_attn_split(
             const int j = j0 + jj;
             if (j >= n) break;
             const int slot_row = is_global ? j : (j % kv_cap);
-            const uint64_t kw = reinterpret_cast<const uint64_t*>(
-                k_cache_fp16 + static_cast<size_t>(slot_row) * 1024u + kvh * 128)[lane];
-            const uint64_t vw = reinterpret_cast<const uint64_t*>(
-                v_cache_fp16 + static_cast<size_t>(slot_row) * 1024u + kvh * 128)[lane];
-            const float k0 = fp16_bits_to_f32(static_cast<uint16_t>(kw & 0xFFFFu));
-            const float k1 = fp16_bits_to_f32(static_cast<uint16_t>((kw >> 16) & 0xFFFFu));
-            const float k2 = fp16_bits_to_f32(static_cast<uint16_t>((kw >> 32) & 0xFFFFu));
-            const float k3 = fp16_bits_to_f32(static_cast<uint16_t>((kw >> 48) & 0xFFFFu));
-            const float v0 = fp16_bits_to_f32(static_cast<uint16_t>(vw & 0xFFFFu));
-            const float v1 = fp16_bits_to_f32(static_cast<uint16_t>((vw >> 16) & 0xFFFFu));
-            const float v2 = fp16_bits_to_f32(static_cast<uint16_t>((vw >> 32) & 0xFFFFu));
-            const float v3 = fp16_bits_to_f32(static_cast<uint16_t>((vw >> 48) & 0xFFFFu));
+            float k0, k1, k2, k3, v0, v1, v2, v3;
+            kv_load4_t<kInt8>(k_cache_fp16, k_scale, slot_row, kvh, lane, k0, k1, k2, k3);
+            kv_load4_t<kInt8>(v_cache_fp16, v_scale, slot_row, kvh, lane, v0, v1, v2, v3);
             float dots[3];
             #pragma unroll
             for (int hh = 0; hh < 3; ++hh) {
@@ -3648,6 +3691,40 @@ extern "C" __global__ void ink2_gqa_attn_split(
             part_ml[(bh * G + g) * 2 + 1] = denom;
         }
     }
+}
+
+extern "C" __global__ void ink2_gqa_attn_split(
+    const float* __restrict__ qrgs_base,        // [B, qrgs_stride] (`q@0, r@3072, gate@3456, sinks@6528`)
+    int32_t qrgs_stride,
+    const uint32_t* __restrict__ rel_proj_bf16, // [16, 512]
+    const uint16_t* __restrict__ k_cache_fp16,  // [kv_cap, 8, 128]
+    const uint16_t* __restrict__ v_cache_fp16,  // [kv_cap, 8, 128]
+    const float* __restrict__ k_scale,          // [kv_cap, 8] INT8 KV scales, or nullptr (FP16)
+    const float* __restrict__ v_scale,          // [kv_cap, 8] INT8 KV scales, or nullptr (FP16)
+    const int32_t* __restrict__ pos_ptr,
+    int32_t kv_cap,
+    int32_t is_global,
+    float* __restrict__ part_ml,                // [B, 24, G, 2]
+    float* __restrict__ part_o) {
+    gqa_attn_split_body<false>(qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_fp16, v_cache_fp16, k_scale, v_scale, pos_ptr, kv_cap, is_global, part_ml, part_o);
+}
+
+// INT8-KV instantiation (`LEANSONIC_KV=int8`, Full-attention layers only).
+// `__launch_bounds__(256, 4)` keeps 4 CTAs/SM (<= 64 regs) like the FP16 instantiation.
+extern "C" __global__ void __launch_bounds__(256, 4) ink2_gqa_attn_split_i8(
+    const float* __restrict__ qrgs_base,        // [B, qrgs_stride] (`q@0, r@3072, gate@3456, sinks@6528`)
+    int32_t qrgs_stride,
+    const uint32_t* __restrict__ rel_proj_bf16, // [16, 512]
+    const uint16_t* __restrict__ k_cache_fp16,  // [kv_cap, 8, 128]
+    const uint16_t* __restrict__ v_cache_fp16,  // [kv_cap, 8, 128]
+    const float* __restrict__ k_scale,          // [kv_cap, 8] INT8 KV scales, or nullptr (FP16)
+    const float* __restrict__ v_scale,          // [kv_cap, 8] INT8 KV scales, or nullptr (FP16)
+    const int32_t* __restrict__ pos_ptr,
+    int32_t kv_cap,
+    int32_t is_global,
+    float* __restrict__ part_ml,                // [B, 24, G, 2]
+    float* __restrict__ part_o) {
+    gqa_attn_split_body<true>(qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_fp16, v_cache_fp16, k_scale, v_scale, pos_ptr, kv_cap, is_global, part_ml, part_o);
 }
 
 // Merge `G` split partials per head + sigmoid gate. Grid: `(24, B)`, Block: `128`.

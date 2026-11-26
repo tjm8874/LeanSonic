@@ -125,10 +125,23 @@ struct SlotStateGpu {
     kv_cap: usize,
     k_cache: DeviceBuf,
     v_cache: DeviceBuf,
+    /// `[kv_cap, 8]` FP32 absmax scales when this slot stores INT8 KV (`LEANSONIC_KV=int8`).
+    k_scale: Option<DeviceBuf>,
+    v_scale: Option<DeviceBuf>,
     hist_k: CUdeviceptr,
     hist_v: CUdeviceptr,
     hist_attn: CUdeviceptr,
     hist_mlp: CUdeviceptr,
+}
+
+impl SlotStateGpu {
+    /// `(k_scale, v_scale)` device pointers; `0` (kernel `nullptr`) selects FP16 KV.
+    fn kv_scale_ptrs(&self) -> (CUdeviceptr, CUdeviceptr) {
+        match (&self.k_scale, &self.v_scale) {
+            (Some(k), Some(v)) => (k.ptr, v.ptr),
+            _ => (0, 0),
+        }
+    }
 }
 
 struct Q8GroupKernel {
@@ -153,6 +166,7 @@ struct KernelFns {
     prep_qkv_and_cache: CUfunction,
     gqa_rel_sink_attn: CUfunction,
     gqa_attn_split: Option<CUfunction>,
+    gqa_attn_split_i8: Option<CUfunction>,
     gqa_attn_combine: Option<CUfunction>,
     router_topk8: CUfunction,
     moe_nvfp4_up_situ: CUfunction,
@@ -486,6 +500,11 @@ impl Inkling2GpuEngine {
         let residual_history_bytes = 3 * D * size_of::<f32>();
         let slot_history_bytes = 2 * kv_history_bytes + 2 * residual_history_bytes;
         let conv_history = DeviceBuf::alloc_zeroed(&ctx, N_SLOT * slot_history_bytes)?;
+        // `LEANSONIC_KV=int8` stores Full-attention (global) KV as int8 + per-(row, head) FP32
+        // absmax scales (#14). Default FP16 is unchanged bit-for-bit.
+        let kv_int8 = std::env::var("LEANSONIC_KV")
+            .map(|v| v.eq_ignore_ascii_case("int8"))
+            .unwrap_or(false);
         let mut slots = Vec::with_capacity(N_SLOT);
         for s_idx in 0..N_SLOT {
             let hist_k = conv_history.ptr + (s_idx * slot_history_bytes) as u64;
@@ -505,10 +524,23 @@ impl Inkling2GpuEngine {
             } else {
                 max_ctx.min(EXTENT + MAX_BATCH_TOKENS)
             };
+            // Opt-in INT8 KV for Full-attention layers only (`1 + 4/128` B/value vs `2`).
+            let int8 = kv_int8 && is_global;
+            let kv_bytes_per_value = if int8 { 1 } else { 2 };
             slots.push(SlotStateGpu {
                 kv_cap,
-                k_cache: DeviceBuf::alloc_zeroed(&ctx, kv_cap * N_KV * HD * 2)?,
-                v_cache: DeviceBuf::alloc_zeroed(&ctx, kv_cap * N_KV * HD * 2)?,
+                k_cache: DeviceBuf::alloc_zeroed(&ctx, kv_cap * N_KV * HD * kv_bytes_per_value)?,
+                v_cache: DeviceBuf::alloc_zeroed(&ctx, kv_cap * N_KV * HD * kv_bytes_per_value)?,
+                k_scale: if int8 {
+                    Some(DeviceBuf::alloc_zeroed(&ctx, kv_cap * N_KV * 4)?)
+                } else {
+                    None
+                },
+                v_scale: if int8 {
+                    Some(DeviceBuf::alloc_zeroed(&ctx, kv_cap * N_KV * 4)?)
+                } else {
+                    None
+                },
                 hist_k,
                 hist_v,
                 hist_attn,
@@ -1152,7 +1184,7 @@ impl Inkling2GpuEngine {
             "off".to_string()
         };
         eprintln!(
-            "[LeanSonic GPU] {} | VRAM used: {:.2} GiB / {:.2} GiB | Resident expert layers: {}/24 (Spilled: {}) | Mixed VRAM/host layers: {} | Spec: {} | Loaded in {:.2}s",
+            "[LeanSonic GPU] {} | VRAM used: {:.2} GiB / {:.2} GiB | Resident expert layers: {}/24 (Spilled: {}) | Mixed VRAM/host layers: {} | Spec: {} | KV: {} | Loaded in {:.2}s",
             eng.ctx.device_name,
             (total_vram - free_after) as f64 / (1024.0 * 1024.0 * 1024.0),
             total_vram as f64 / (1024.0 * 1024.0 * 1024.0),
@@ -1160,6 +1192,11 @@ impl Inkling2GpuEngine {
             eng.spilled_expert_layers,
             mixed_layers,
             drafter_tag,
+            if eng.slots.iter().any(|st| st.k_scale.is_some()) {
+                "int8 (global layers)"
+            } else {
+                "fp16"
+            },
             t_load.elapsed().as_secs_f64()
         );
         Ok(eng)
@@ -1215,6 +1252,7 @@ impl Inkling2GpuEngine {
             prep_qkv_and_cache: get_fn("ink2_prep_qkv_and_cache")?,
             gqa_rel_sink_attn: get_fn("ink2_gqa_rel_sink_attn")?,
             gqa_attn_split: get_fn("ink2_gqa_attn_split").ok(),
+            gqa_attn_split_i8: get_fn("ink2_gqa_attn_split_i8").ok(),
             gqa_attn_combine: get_fn("ink2_gqa_attn_combine").ok(),
             router_topk8: get_fn("ink2_router_topk8")?,
             moe_nvfp4_up_situ: get_fn("ink2_moe_nvfp4_up_situ")?,
@@ -1544,6 +1582,7 @@ impl Inkling2GpuEngine {
         rel_proj_ptr: CUdeviceptr,
         k_cache_ptr: CUdeviceptr,
         v_cache_ptr: CUdeviceptr,
+        kv_scale_ptrs: (CUdeviceptr, CUdeviceptr),
         kv_cap: i32,
         is_global: i32,
         attn_out_ptr: CUdeviceptr,
@@ -1554,17 +1593,20 @@ impl Inkling2GpuEngine {
         let mut prp = rel_proj_ptr;
         let mut pkc = k_cache_ptr;
         let mut pvc = v_cache_ptr;
+        let (mut pks, mut pvs) = kv_scale_ptrs;
         let mut ppos = self.d_pos.ptr;
         let mut cap = kv_cap;
         let mut ig = is_global;
         let mut pml = self.d_attn_part_ml.ptr;
         let mut po = self.d_attn_part_o.ptr;
-        let mut split_args: [*mut c_void; 10] = [
+        let mut split_args: [*mut c_void; 12] = [
             (&mut pqrgs as *mut _) as *mut c_void,
             (&mut qstride as *mut _) as *mut c_void,
             (&mut prp as *mut _) as *mut c_void,
             (&mut pkc as *mut _) as *mut c_void,
             (&mut pvc as *mut _) as *mut c_void,
+            (&mut pks as *mut _) as *mut c_void,
+            (&mut pvs as *mut _) as *mut c_void,
             (&mut ppos as *mut _) as *mut c_void,
             (&mut cap as *mut _) as *mut c_void,
             (&mut ig as *mut _) as *mut c_void,
@@ -1574,7 +1616,13 @@ impl Inkling2GpuEngine {
         let g_u32 = self.attn_split_g as u32;
         self.launch(
             stream,
-            self.fns.gqa_attn_split.unwrap(),
+            if pks != 0 {
+                self.fns
+                    .gqa_attn_split_i8
+                    .ok_or("LEANSONIC_KV=int8 requires a cubin with ink2_gqa_attn_split_i8")?
+            } else {
+                self.fns.gqa_attn_split.unwrap()
+            },
             ((8 * b_len) as u32, g_u32),
             256,
             &mut split_args,
@@ -1778,10 +1826,11 @@ impl Inkling2GpuEngine {
             let mut prc = l.rel_clip.ptr;
             let mut pkc = st.k_cache.ptr;
             let mut pvc = st.v_cache.ptr;
+            let (mut pks, mut pvs) = st.kv_scale_ptrs();
             let mut ppos = self.d_pos.ptr;
             let mut cap = st.kv_cap as i32;
             let mut ig = i32::from(l.global);
-            let mut args: [*mut c_void; 11] = [
+            let mut args: [*mut c_void; 13] = [
                 (&mut pq as *mut _) as *mut c_void,
                 (&mut pr as *mut _) as *mut c_void,
                 (&mut pk as *mut _) as *mut c_void,
@@ -1790,6 +1839,8 @@ impl Inkling2GpuEngine {
                 (&mut prc as *mut _) as *mut c_void,
                 (&mut pkc as *mut _) as *mut c_void,
                 (&mut pvc as *mut _) as *mut c_void,
+                (&mut pks as *mut _) as *mut c_void,
+                (&mut pvs as *mut _) as *mut c_void,
                 (&mut ppos as *mut _) as *mut c_void,
                 (&mut cap as *mut _) as *mut c_void,
                 (&mut ig as *mut _) as *mut c_void,
@@ -1806,11 +1857,12 @@ impl Inkling2GpuEngine {
             let mut prp = l.rel_proj.ptr;
             let mut pkc = st.k_cache.ptr;
             let mut pvc = st.v_cache.ptr;
+            let (mut pks, mut pvs) = st.kv_scale_ptrs();
             let mut ppos = self.d_pos.ptr;
             let mut cap = st.kv_cap as i32;
             let mut ig = i32::from(l.global);
             let mut pout = self.d_attn_out.ptr;
-            let mut args: [*mut c_void; 11] = [
+            let mut args: [*mut c_void; 13] = [
                 (&mut pq as *mut _) as *mut c_void,
                 (&mut pr as *mut _) as *mut c_void,
                 (&mut pg as *mut _) as *mut c_void,
@@ -1818,6 +1870,8 @@ impl Inkling2GpuEngine {
                 (&mut prp as *mut _) as *mut c_void,
                 (&mut pkc as *mut _) as *mut c_void,
                 (&mut pvc as *mut _) as *mut c_void,
+                (&mut pks as *mut _) as *mut c_void,
+                (&mut pvs as *mut _) as *mut c_void,
                 (&mut ppos as *mut _) as *mut c_void,
                 (&mut cap as *mut _) as *mut c_void,
                 (&mut ig as *mut _) as *mut c_void,
@@ -1832,6 +1886,7 @@ impl Inkling2GpuEngine {
                 l.rel_proj.ptr,
                 st.k_cache.ptr,
                 st.v_cache.ptr,
+                st.kv_scale_ptrs(),
                 st.kv_cap as i32,
                 i32::from(l.global),
                 self.d_attn_out.ptr,
@@ -3109,10 +3164,11 @@ impl Inkling2GpuEngine {
             let mut prc = l.rel_clip.ptr;
             let mut pkc = st.k_cache.ptr;
             let mut pvc = st.v_cache.ptr;
+            let (mut pks, mut pvs) = st.kv_scale_ptrs();
             let mut ppos = self.d_pos.ptr;
             let mut cap = st.kv_cap as i32;
             let mut ig = i32::from(l.global);
-            let mut args: [*mut c_void; 11] = [
+            let mut args: [*mut c_void; 13] = [
                 (&mut pqrgs as *mut _) as *mut c_void,
                 (&mut qstride as *mut _) as *mut c_void,
                 (&mut pk as *mut _) as *mut c_void,
@@ -3121,6 +3177,8 @@ impl Inkling2GpuEngine {
                 (&mut prc as *mut _) as *mut c_void,
                 (&mut pkc as *mut _) as *mut c_void,
                 (&mut pvc as *mut _) as *mut c_void,
+                (&mut pks as *mut _) as *mut c_void,
+                (&mut pvs as *mut _) as *mut c_void,
                 (&mut ppos as *mut _) as *mut c_void,
                 (&mut cap as *mut _) as *mut c_void,
                 (&mut ig as *mut _) as *mut c_void,
@@ -3141,16 +3199,19 @@ impl Inkling2GpuEngine {
             let mut prp = l.rel_proj.ptr;
             let mut pkc = st.k_cache.ptr;
             let mut pvc = st.v_cache.ptr;
+            let (mut pks, mut pvs) = st.kv_scale_ptrs();
             let mut ppos = self.d_pos.ptr;
             let mut cap = st.kv_cap as i32;
             let mut ig = i32::from(l.global);
             let mut pout = self.d_b_attn_out.ptr;
-            let mut args: [*mut c_void; 9] = [
+            let mut args: [*mut c_void; 11] = [
                 (&mut pqrgs as *mut _) as *mut c_void,
                 (&mut qstride as *mut _) as *mut c_void,
                 (&mut prp as *mut _) as *mut c_void,
                 (&mut pkc as *mut _) as *mut c_void,
                 (&mut pvc as *mut _) as *mut c_void,
+                (&mut pks as *mut _) as *mut c_void,
+                (&mut pvs as *mut _) as *mut c_void,
                 (&mut ppos as *mut _) as *mut c_void,
                 (&mut cap as *mut _) as *mut c_void,
                 (&mut ig as *mut _) as *mut c_void,
@@ -3171,6 +3232,7 @@ impl Inkling2GpuEngine {
                 l.rel_proj.ptr,
                 st.k_cache.ptr,
                 st.v_cache.ptr,
+                st.kv_scale_ptrs(),
                 st.kv_cap as i32,
                 i32::from(l.global),
                 self.d_b_attn_out.ptr,
