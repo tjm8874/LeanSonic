@@ -330,18 +330,50 @@ pub fn repack_bf16_to_planar_q8_64(
 ) -> Result<PlanarQ8Gpu, String> {
     assert_eq!(cols % 64, 0);
     assert_eq!(bf16_bytes.len(), rows * cols * 2);
-    let cols64 = cols / 64;
-    let mut codes = vec![0u8; rows * cols];
-    let mut scales_bytes = vec![0u8; rows * cols64 * 4];
+    let scale_stride = (cols / 64) * 4;
+    let result = PlanarQ8Gpu {
+        codes: DeviceBuf::alloc_zeroed(ctx, rows * cols)?,
+        scales64: DeviceBuf::alloc_zeroed(ctx, rows * scale_stride)?,
+        cols: cols as i32,
+    };
+    if rows == 0 || cols == 0 {
+        return Ok(result);
+    }
 
+    // Keep the host staging area bounded while packing the vocabulary projection.
+    const STAGING_BYTES: usize = 32 * 1024 * 1024;
+    let tile_rows = (STAGING_BYTES / (cols + scale_stride)).clamp(1, rows);
+    let mut codes = vec![0u8; tile_rows * cols];
+    let mut scales = vec![0u8; tile_rows * scale_stride];
+    for first in (0..rows).step_by(tile_rows) {
+        let count = tile_rows.min(rows - first);
+        let tile_codes = &mut codes[..count * cols];
+        let tile_scales = &mut scales[..count * scale_stride];
+        pack_q8_rows(
+            &bf16_bytes[first * cols * 2..(first + count) * cols * 2],
+            cols,
+            tile_codes,
+            tile_scales,
+        );
+        result.codes.copy_from_host_at(first * cols, tile_codes)?;
+        result
+            .scales64
+            .copy_from_host_at(first * scale_stride, tile_scales)?;
+    }
+    Ok(result)
+}
+
+fn pack_q8_rows(bf16_bytes: &[u8], cols: usize, codes: &mut [u8], scales_bytes: &mut [u8]) {
+    let rows = codes.len() / cols;
+    let cols64 = cols / 64;
     let n_threads = std::thread::available_parallelism()
         .map(|n| n.get().min(16))
         .unwrap_or(8);
     let rows_per_thread = rows.div_ceil(n_threads).max(1);
 
     std::thread::scope(|s| {
-        let mut code_rest = codes.as_mut_slice();
-        let mut scale_rest = scales_bytes.as_mut_slice();
+        let mut code_rest = codes;
+        let mut scale_rest = scales_bytes;
         let mut row_start = 0usize;
         while row_start < rows {
             let chunk_rows = rows_per_thread.min(rows - row_start);
@@ -353,18 +385,16 @@ pub fn repack_bf16_to_planar_q8_64(
             row_start += chunk_rows;
 
             s.spawn(move || {
-                let (pre, src_u16, post) = unsafe { src_chunk.align_to::<u16>() };
-                assert!(pre.is_empty() && post.is_empty());
                 for r in 0..chunk_rows {
-                    let w_row = &src_u16[r * cols..(r + 1) * cols];
+                    let w_row = &src_chunk[r * cols * 2..(r + 1) * cols * 2];
                     let dst_c = &mut c_chunk[r * cols..(r + 1) * cols];
                     let dst_s = &mut s_chunk[r * cols64 * 4..(r + 1) * cols64 * 4];
                     for b in 0..cols64 {
-                        let sub = &w_row[b * 64..(b + 1) * 64];
+                        let sub = &w_row[b * 128..(b + 1) * 128];
                         let mut amax = 0.0f32;
                         let mut fvals = [0.0f32; 64];
-                        for (i, &u) in sub.iter().enumerate() {
-                            let fv = bf16_to_f32(u);
+                        for (i, &bytes) in sub.as_chunks::<2>().0.iter().enumerate() {
+                            let fv = bf16_to_f32(u16::from_le_bytes(bytes));
                             fvals[i] = fv;
                             let av = fv.abs();
                             if av > amax {
@@ -383,12 +413,6 @@ pub fn repack_bf16_to_planar_q8_64(
             });
         }
     });
-
-    Ok(PlanarQ8Gpu {
-        codes: DeviceBuf::from_host_bytes(ctx, &codes)?,
-        scales64: DeviceBuf::from_host_bytes(ctx, &scales_bytes)?,
-        cols: cols as i32,
-    })
 }
 
 // Prioritize the layers visited three times. At the budget boundary, each expert
@@ -3773,8 +3797,32 @@ impl Inkling2GpuEngine {
 }
 
 #[cfg(test)]
-mod placement_tests {
+mod tests {
     use super::*;
+
+    #[test]
+    fn planar_q8_packs_unaligned_bf16_rows_in_order() {
+        let cols = 128;
+        let mut bytes = vec![0; 1 + 3 * cols * 2];
+        let mut expected_codes = Vec::new();
+        let mut expected_scales = Vec::new();
+        for (block, target) in bytes[1..].chunks_exact_mut(128).enumerate() {
+            let peak = [0.0_f32, 1.0, 2.0, 0.5, 4.0, 8.0][block];
+            expected_scales.extend_from_slice(&(peak * (1.0 / 127.0)).to_le_bytes());
+            for (i, word) in target.chunks_exact_mut(2).enumerate() {
+                let sign = if i % 2 == 0 { 1.0 } else { -1.0 };
+                let value = peak * sign;
+                word.copy_from_slice(&((value.to_bits() >> 16) as u16).to_le_bytes());
+                let code = if peak == 0.0 { 0 } else { (127.0 * sign) as i8 };
+                expected_codes.push(code as u8);
+            }
+        }
+        let mut codes = vec![0; 3 * cols];
+        let mut scales = vec![0; 24];
+        pack_q8_rows(&bytes[1..], cols, &mut codes, &mut scales);
+        assert_eq!(codes, expected_codes);
+        assert_eq!(scales, expected_scales);
+    }
 
     #[test]
     fn loop_layers_take_priority_and_a_remaining_matrix_can_fit() {
