@@ -19,6 +19,7 @@ use crate::cuda_ffi::{
     check_cu, compile_cuda_to_ptx_nvrtc, CUdeviceptr, CUfunction, CUmodule, CUstream,
     CapturedGraphExec, CudaContextHandle, DeviceBuf, PinnedHostBuf,
 };
+use crate::inkling2_mtp::{DsparkDrafterGpu, MtpKernelFns, SuffixDrafter};
 use crate::safetensors::MappedSafeTensors;
 
 const CUDA_KERNEL_SRC: &str = include_str!("../../../kernels/inkling2_sm120.cu");
@@ -40,6 +41,9 @@ pub const PADDED_VOCAB: usize = 201_024;
 pub const GLOBAL_LAYERS: [usize; 4] = [5, 11, 17, 23];
 pub const MAX_BATCH_TOKENS: usize = 64;
 pub const MAX_SPEC_TOKENS: usize = 8;
+pub const TAP_SLOTS: [usize; 3] = [4, 28, 46];
+const CONV_SEQ_STEPS: usize = MAX_SPEC_TOKENS + 3; // 11
+const CONV_SEQ_SLOT_FLOATS: usize = (1024 + 1024 + D + D) * CONV_SEQ_STEPS; // 6656 * 11 = 73,216
 const QRGS_ROWS: usize = N_HEAD * HD + N_REL * N_HEAD + N_HEAD * HD + N_HEAD; // 6552
 const SWA_K_OFFSET: usize = QRGS_ROWS; // 6552
 const SWA_V_OFFSET: usize = QRGS_ROWS + N_KV * HD; // 7576
@@ -66,10 +70,10 @@ impl TierBuf {
     }
 }
 
-struct PlanarQ8Gpu {
-    codes: DeviceBuf,
-    scales64: DeviceBuf,
-    cols: i32,
+pub struct PlanarQ8Gpu {
+    pub codes: DeviceBuf,
+    pub scales64: DeviceBuf,
+    pub cols: i32,
 }
 
 struct CtrlGpu {
@@ -178,6 +182,22 @@ struct KernelFns {
     moe_combine_top8_b: CUfunction,
     inc_pos_by: CUfunction,
     argmax_b: CUfunction,
+    conv_rewind: CUfunction,
+    q8_dp4a_gemm_ktiled: CUfunction,
+    mtp_tapmix: CUfunction,
+    mtp_copy_anchor: CUfunction,
+    mtp_ctx_store: CUfunction,
+    mtp_init_draft: CUfunction,
+    mtp_qk_norm_rope: CUfunction,
+    mtp_attn: CUfunction,
+    mtp_add_inplace: CUfunction,
+    mtp_silu_mul: CUfunction,
+    mtp_concat_frnn: CUfunction,
+    mtp_add_bias_rows: CUfunction,
+    mtp_markov_raw: CUfunction,
+    mtp_markov_step_q8: CUfunction,
+    mtp_fold_mv_q8: CUfunction,
+    mtp_fold_fin: CUfunction,
 }
 
 unsafe impl Send for KernelFns {}
@@ -262,6 +282,14 @@ pub struct Inkling2GpuEngine {
     d_b_act_sc_16: DeviceBuf,
     d_spec_logits: DeviceBuf,
     d_spec_tokens_out: DeviceBuf,
+    d_taps: DeviceBuf,
+    d_conv_seq: DeviceBuf,
+    d_conv_hist_ptrs: DeviceBuf,
+    pub drafter: Option<DsparkDrafterGpu>,
+    pub spec_k: usize,
+    pub spec_drafted_total: usize,
+    pub spec_accepted_total: usize,
+    pub spec_verify_steps: usize,
     host_pos: usize,
     decode_graph: Option<CapturedGraphExec>,
     prefill_graph: Option<CapturedGraphExec>,
@@ -284,7 +312,7 @@ fn concat_slices(slices: &[&[u8]]) -> Vec<u8> {
 
 /// Multi-threaded load-time repack of row-major `BF16 [rows, cols]` (`cols % 64 == 0`)
 /// into Planar `Q8_64` (`codes [rows, cols] i8` + `scales [rows, cols / 64] f32`).
-fn repack_bf16_to_planar_q8_64(
+pub fn repack_bf16_to_planar_q8_64(
     ctx: &Arc<CudaContextHandle>,
     bf16_bytes: &[u8],
     rows: usize,
@@ -359,6 +387,20 @@ impl Inkling2GpuEngine {
         max_ctx: usize,
         enable_cuda_graph: bool,
     ) -> Result<Self, String> {
+        let default_spec_k = std::env::var("LEANSONIC_SPEC_K")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(0);
+        Self::load_from_dir_with_spec(model_dir, max_ctx, enable_cuda_graph, default_spec_k)
+    }
+
+    pub fn load_from_dir_with_spec(
+        model_dir: impl AsRef<Path>,
+        max_ctx: usize,
+        enable_cuda_graph: bool,
+        spec_k: usize,
+    ) -> Result<Self, String> {
+        let spec_k = spec_k.min(MAX_SPEC_TOKENS - 1);
         let t_load = Instant::now();
         let ctx = CudaContextHandle::init(0)?;
         ctx.bind_current()?;
@@ -421,11 +463,62 @@ impl Inkling2GpuEngine {
             });
         }
 
-        // Exact post-slot non-expert VRAM: `690 MiB` Planar `Q8_64` dense + `1,338 MiB` MoE scales
-        // (`s13/s2/a13/a2`) + `148 MiB` controllers/scratch/CUDA-Graph reserve = `2,176 MiB`.
-        // Frees `~1.00 GiB` vs BF16 Wave 0, fitting `22/24` layers (`only 2 spilled!`) on 16GB GPUs!
+        let mut hist_ptr_bytes = Vec::with_capacity(N_SLOT * 4 * 8);
+        for s in &slots {
+            for p in [s.hist_k.ptr, s.hist_v.ptr, s.hist_attn.ptr, s.hist_mlp.ptr] {
+                hist_ptr_bytes.extend_from_slice(&p.to_le_bytes());
+            }
+        }
+        let d_conv_hist_ptrs = DeviceBuf::from_host_bytes(&ctx, &hist_ptr_bytes)?;
+        let d_taps = DeviceBuf::alloc_zeroed(&ctx, 4 * MAX_BATCH_TOKENS * D * 4)?;
+        let d_conv_seq = if spec_k > 0 {
+            DeviceBuf::alloc_zeroed(&ctx, N_SLOT * CONV_SEQ_SLOT_FLOATS * 4)?
+        } else {
+            DeviceBuf::alloc_zeroed(&ctx, 4)?
+        };
+
+        // Load `DSpark` (`mtp.safetensors`) BEFORE `ctx.mem_info()` so Spilled Mode on 16 GB GPUs
+        // automatically accounts for DSpark's `~380 MiB` VRAM footprint with zero OOM!
+        let mtp_path = model_dir.as_ref().join("mtp.safetensors");
+        let drafter = if spec_k > 0 && mtp_path.exists() {
+            let mtp_fns = MtpKernelFns {
+                rmsnorm_d_b: fns.rmsnorm_d_b,
+                rmsnorm_quant_q8_64_b: fns.rmsnorm_quant_q8_64_b,
+                quant_q8_64_b: fns.quant_q8_64_b,
+                q8_dp4a_gemm_b: fns.q8_dp4a_gemm_b,
+                q8_dp4a_gemv: fns.q8_dp4a_gemv,
+                q8_dp4a_gemm_ktiled: fns.q8_dp4a_gemm_ktiled,
+                tapmix: fns.mtp_tapmix,
+                copy_anchor: fns.mtp_copy_anchor,
+                ctx_store: fns.mtp_ctx_store,
+                init_draft: fns.mtp_init_draft,
+                qk_norm_rope: fns.mtp_qk_norm_rope,
+                attn: fns.mtp_attn,
+                add_inplace: fns.mtp_add_inplace,
+                silu_mul: fns.mtp_silu_mul,
+                concat_frnn: fns.mtp_concat_frnn,
+                add_bias_rows: fns.mtp_add_bias_rows,
+                markov_raw: fns.mtp_markov_raw,
+                markov_step_q8: fns.mtp_markov_step_q8,
+                fold_mv_q8: fns.mtp_fold_mv_q8,
+                fold_fin: fns.mtp_fold_fin,
+            };
+            Some(DsparkDrafterGpu::load_from_file(
+                &ctx,
+                mtp_fns,
+                &mtp_path,
+                &unembed_q8,
+                max_ctx,
+            )?)
+        } else {
+            None
+        };
+
+        // Exact post-slot non-expert VRAM: `690 MiB` Planar `Q8_64` dense + `729 MiB` MoE scales
+        // (`s13/s2/a13/a2`) + `216 MiB` controllers/scratch/CUDA-Graph + `125 MiB` headroom = `1,760 MiB`.
+        // Keeps `22/24` layers (`only 2 spilled!`) on 16GB GPUs even with `DSpark` (`~380 MiB`) resident!
         let (free_vram, total_vram) = ctx.mem_info()?;
-        let non_expert_reserve = 2176 * 1024 * 1024;
+        let non_expert_reserve = 1760 * 1024 * 1024;
         let mut rem_expert_vram = free_vram.saturating_sub(non_expert_reserve);
 
         let mut priority_order: Vec<usize> = (6..18).collect();
@@ -902,14 +995,21 @@ impl Inkling2GpuEngine {
         }
 
         let (free_after, _) = ctx.mem_info()?;
+        let drafter_tag = if drafter.is_some() {
+            format!("DSpark(K={spec_k})")
+        } else if spec_k > 0 {
+            format!("Suffix(K={spec_k})")
+        } else {
+            "off".to_string()
+        };
         eprintln!(
-            "[LeanSonic GPU Wave1] {} | VRAM used: {:.2} GiB / {:.2} GiB | Resident expert layers: {}/24 (Spilled: {}) | MoE dp4a: {} | Loaded in {:.2}s",
+            "[LeanSonic GPU] {} | VRAM used: {:.2} GiB / {:.2} GiB | Resident expert layers: {}/24 (Spilled: {}) | Spec: {} | Loaded in {:.2}s",
             ctx.device_name,
             (total_vram - free_after) as f64 / (1024.0 * 1024.0 * 1024.0),
             total_vram as f64 / (1024.0 * 1024.0 * 1024.0),
             resident_expert_layers,
             spilled_expert_layers,
-            use_moe_dp4a,
+            drafter_tag,
             t_load.elapsed().as_secs_f64()
         );
 
@@ -975,6 +1075,14 @@ impl Inkling2GpuEngine {
             d_b_act_sc_16: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * TOP_K * (FF / 16) * 4)?,
             d_spec_logits: DeviceBuf::alloc_zeroed(&ctx, MAX_SPEC_TOKENS * VOCAB * 4)?,
             d_spec_tokens_out: DeviceBuf::alloc_zeroed(&ctx, MAX_SPEC_TOKENS * 4)?,
+            d_taps,
+            d_conv_seq,
+            d_conv_hist_ptrs,
+            drafter,
+            spec_k,
+            spec_drafted_total: 0,
+            spec_accepted_total: 0,
+            spec_verify_steps: 0,
             ctx,
             fns,
             embed,
@@ -1078,6 +1186,22 @@ impl Inkling2GpuEngine {
             moe_combine_top8_b: get_fn("ink2_moe_combine_top8_b")?,
             inc_pos_by: get_fn("ink2_inc_pos_by")?,
             argmax_b: get_fn("ink2_argmax_b")?,
+            conv_rewind: get_fn("ink2_conv_rewind")?,
+            q8_dp4a_gemm_ktiled: get_fn("ink2_q8_dp4a_gemm_ktiled")?,
+            mtp_tapmix: get_fn("mtp_tapmix")?,
+            mtp_copy_anchor: get_fn("mtp_copy_anchor")?,
+            mtp_ctx_store: get_fn("mtp_ctx_store")?,
+            mtp_init_draft: get_fn("mtp_init_draft")?,
+            mtp_qk_norm_rope: get_fn("mtp_qk_norm_rope")?,
+            mtp_attn: get_fn("mtp_attn")?,
+            mtp_add_inplace: get_fn("mtp_add_inplace")?,
+            mtp_silu_mul: get_fn("mtp_silu_mul")?,
+            mtp_concat_frnn: get_fn("mtp_concat_frnn")?,
+            mtp_add_bias_rows: get_fn("mtp_add_bias_rows")?,
+            mtp_markov_raw: get_fn("mtp_markov_raw")?,
+            mtp_markov_step_q8: get_fn("mtp_markov_step_q8")?,
+            mtp_fold_mv_q8: get_fn("mtp_fold_mv_q8")?,
+            mtp_fold_fin: get_fn("mtp_fold_fin")?,
         })
     }
 
@@ -1085,6 +1209,12 @@ impl Inkling2GpuEngine {
         self.ctx.bind_current()?;
         self.ctx.sync_compute()?;
         self.host_pos = 0;
+        self.spec_drafted_total = 0;
+        self.spec_accepted_total = 0;
+        self.spec_verify_steps = 0;
+        if let Some(ref mut d) = self.drafter {
+            d.reset();
+        }
         unsafe {
             check_cu(
                 (self.ctx.api.cuMemsetD8_v2)(self.d_pos.ptr, 0, 4),
@@ -1822,6 +1952,13 @@ impl Inkling2GpuEngine {
             self.launch(stream, self.fns.short_conv4, (9, 1), 256, &mut args)?;
         }
 
+        if self.drafter.is_some() {
+            if let Some(tap_idx) = TAP_SLOTS.iter().position(|&s| s == slot_idx) {
+                let dst = self.d_taps.ptr + (tap_idx * MAX_BATCH_TOKENS * D * 4) as u64;
+                self.enqueue_copy_d(stream, self.d_cur.ptr, dst)?;
+            }
+        }
+
         Ok(())
     }
 
@@ -1903,6 +2040,36 @@ impl Inkling2GpuEngine {
         debug_assert_eq!(n_blocks, 4);
 
         if prefill_only {
+            if self.drafter.is_some() {
+                let mut pb = self.d_blocks.ptr;
+                let mut nb = n_blocks as i32;
+                let mut pc = self.d_cur.ptr;
+                let mut ac = 1i32;
+                let mut pq = self.output_query.ptr;
+                let mut pout = self.d_mlp_h.ptr;
+                let mut b3 = 0i32;
+                let mut args: [*mut c_void; 7] = [
+                    (&mut pb as *mut _) as *mut c_void,
+                    (&mut nb as *mut _) as *mut c_void,
+                    (&mut pc as *mut _) as *mut c_void,
+                    (&mut ac as *mut _) as *mut c_void,
+                    (&mut pq as *mut _) as *mut c_void,
+                    (&mut pout as *mut _) as *mut c_void,
+                    (&mut b3 as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, self.fns.depth_mix, (1, 1), 256, &mut args)?;
+                let mut pin = self.d_mlp_h.ptr;
+                let mut pg = self.final_norm.ptr;
+                let mut p_tap3 = self.d_taps.ptr + (3 * MAX_BATCH_TOKENS * D * 4) as u64;
+                let mut hg = 1i32;
+                let mut rn_args: [*mut c_void; 4] = [
+                    (&mut pin as *mut _) as *mut c_void,
+                    (&mut pg as *mut _) as *mut c_void,
+                    (&mut p_tap3 as *mut _) as *mut c_void,
+                    (&mut hg as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, self.fns.rmsnorm_d, (1, 1), 256, &mut rn_args)?;
+            }
             let mut pp = self.d_pos.ptr;
             let mut args: [*mut c_void; 1] = [(&mut pp as *mut _) as *mut c_void];
             self.launch(stream, self.fns.inc_pos, (1, 1), 32, &mut args)?;
@@ -1928,6 +2095,19 @@ impl Inkling2GpuEngine {
                 (&mut b3 as *mut _) as *mut c_void,
             ];
             self.launch(stream, self.fns.depth_mix, (1, 1), 256, &mut args)?;
+        }
+        if self.drafter.is_some() {
+            let mut pin = self.d_mlp_h.ptr;
+            let mut pg = self.final_norm.ptr;
+            let mut p_tap3 = self.d_taps.ptr + (3 * MAX_BATCH_TOKENS * D * 4) as u64;
+            let mut hg = 1i32;
+            let mut rn_args: [*mut c_void; 4] = [
+                (&mut pin as *mut _) as *mut c_void,
+                (&mut pg as *mut _) as *mut c_void,
+                (&mut p_tap3 as *mut _) as *mut c_void,
+                (&mut hg as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, self.fns.rmsnorm_d, (1, 1), 256, &mut rn_args)?;
         }
         self.enqueue_rmsnorm_quant_q8_64(stream, self.d_mlp_h.ptr, self.final_norm.ptr, 1)?;
         self.enqueue_q8_gemv_slice_at(
@@ -1974,6 +2154,14 @@ impl Inkling2GpuEngine {
             graph.replay()?;
         } else {
             self.enqueue_step_impl(self.ctx.compute_stream, false)?;
+        }
+        if let Some(ref mut d) = self.drafter {
+            d.enqueue_add_ctx(
+                self.ctx.compute_stream,
+                self.d_taps.ptr,
+                MAX_BATCH_TOKENS,
+                1,
+            )?;
         }
         self.ctx.sync_compute()?;
         let mut out_tok = 0i32;
@@ -2028,6 +2216,14 @@ impl Inkling2GpuEngine {
                     } else {
                         self.enqueue_step_impl(self.ctx.compute_stream, true)?;
                     }
+                    if let Some(ref mut d) = self.drafter {
+                        d.enqueue_add_ctx(
+                            self.ctx.compute_stream,
+                            self.d_taps.ptr,
+                            MAX_BATCH_TOKENS,
+                            1,
+                        )?;
+                    }
                 }
                 self.host_pos += n_prefix;
             }
@@ -2071,7 +2267,21 @@ impl Inkling2GpuEngine {
             } else {
                 BatchHeadMode::None
             };
-            self.enqueue_batch_step_impl(self.ctx.compute_stream, tok_ptr, chunk_len, head_mode)?;
+            self.enqueue_batch_step_impl(
+                self.ctx.compute_stream,
+                tok_ptr,
+                chunk_len,
+                head_mode,
+                false,
+            )?;
+            if let Some(ref mut d) = self.drafter {
+                d.enqueue_add_ctx(
+                    self.ctx.compute_stream,
+                    self.d_taps.ptr,
+                    MAX_BATCH_TOKENS,
+                    chunk_len,
+                )?;
+            }
             self.host_pos += chunk_len;
             offset += chunk_len;
 
@@ -2120,6 +2330,7 @@ impl Inkling2GpuEngine {
             tok_ptr,
             b_len,
             BatchHeadMode::AllHeads,
+            self.spec_k > 0,
         )?;
         self.ctx.sync_compute()?;
         self.host_pos += b_len;
@@ -2135,6 +2346,177 @@ impl Inkling2GpuEngine {
             )?;
         }
         Ok(out_i32.into_iter().map(|v| v as u32).collect())
+    }
+
+    /// `O(1)` Rewind of all 48 slots' `short_conv4` histories + `*d_pos` / `host_pos` (`keep < b_len`).
+    pub fn rewind_speculative(&mut self, keep: usize, b_len: usize) -> Result<(), String> {
+        if keep < b_len {
+            let mut pseq = self.d_conv_seq.ptr;
+            let mut phist = self.d_conv_hist_ptrs.ptr;
+            let mut ppos = self.d_pos.ptr;
+            let mut kp = keep as i32;
+            let mut bi = b_len as i32;
+            let mut args: [*mut c_void; 5] = [
+                (&mut pseq as *mut _) as *mut c_void,
+                (&mut phist as *mut _) as *mut c_void,
+                (&mut ppos as *mut _) as *mut c_void,
+                (&mut kp as *mut _) as *mut c_void,
+                (&mut bi as *mut _) as *mut c_void,
+            ];
+            self.launch(
+                self.ctx.compute_stream,
+                self.fns.conv_rewind,
+                (9, (N_SLOT * 4) as u32),
+                256,
+                &mut args,
+            )?;
+            self.host_pos -= b_len - keep;
+        }
+        Ok(())
+    }
+
+    /// Unified Greedy Generation Loop (`spec_k == 0` -> CUDA Graph Solo; `spec_k > 0` -> DSpark/Suffix + Batch Verify).
+    /// Guarantees `0-ULP` lossless greedy token identity (`spec_k == 0` == `spec_k > 0`)!
+    pub fn generate_greedy_tokens(
+        &mut self,
+        first_next: u32,
+        n_gen: usize,
+        stop_tok: Option<u32>,
+        prompt_tokens: &[u32],
+        mut on_token: impl FnMut(u32),
+    ) -> Result<(Vec<u32>, u32), String> {
+        if n_gen == 0 {
+            return Ok((Vec::new(), first_next));
+        }
+
+        let mut out_ids = Vec::with_capacity(n_gen);
+        let mut cur_tok = first_next;
+
+        if self.spec_k == 0 {
+            for step in 0..n_gen {
+                if Some(cur_tok) == stop_tok {
+                    break;
+                }
+                out_ids.push(cur_tok);
+                on_token(cur_tok);
+                if stop_tok.is_some() && out_ids.len() >= n_gen {
+                    break;
+                }
+                if step + 1 < n_gen || stop_tok.is_none() {
+                    cur_tok = self.forward_greedy_token(cur_tok)?;
+                }
+            }
+            return Ok((out_ids, cur_tok));
+        }
+
+        // Speculative Decoding (`DSpark` `mtp.safetensors` GPU Drafter or `SuffixDrafter` fallback)
+        let mut full_hist: Vec<u32> = if self.drafter.is_none() {
+            let mut h = Vec::with_capacity(prompt_tokens.len() + n_gen + 8);
+            h.extend_from_slice(prompt_tokens);
+            h
+        } else {
+            Vec::new()
+        };
+
+        let mut steps_done = 0usize;
+        while steps_done < n_gen {
+            if Some(cur_tok) == stop_tok {
+                break;
+            }
+            let rem_steps = n_gen - steps_done;
+            let max_draft = self
+                .spec_k
+                .min(rem_steps.saturating_sub(1))
+                .min(self.max_ctx.saturating_sub(self.host_pos + 1));
+
+            let drafts = if max_draft == 0 {
+                Vec::new()
+            } else if let Some(ref mut d) = self.drafter {
+                d.draft_tokens(
+                    self.ctx.compute_stream,
+                    self.embed.ptr(),
+                    self.embed_norm.ptr,
+                    &self.unembed_q8,
+                    cur_tok,
+                    max_draft,
+                )?
+            } else {
+                SuffixDrafter::draft_from_history(&full_hist, cur_tok, max_draft)
+            };
+
+            if drafts.is_empty() {
+                out_ids.push(cur_tok);
+                on_token(cur_tok);
+                if self.drafter.is_none() {
+                    full_hist.push(cur_tok);
+                }
+                steps_done += 1;
+                if stop_tok.is_some() && out_ids.len() >= n_gen {
+                    break;
+                }
+                cur_tok = self.forward_greedy_token(cur_tok)?;
+                continue;
+            }
+
+            let k_len = drafts.len();
+            let b_len = k_len + 1;
+            let mut verify_in = Vec::with_capacity(b_len);
+            verify_in.push(cur_tok);
+            verify_in.extend_from_slice(&drafts);
+
+            let preds = self.forward_verify_batch_tokens(&verify_in)?;
+            self.spec_verify_steps += 1;
+            self.spec_drafted_total += k_len;
+
+            let mut accepted = 0usize;
+            while accepted < k_len {
+                if stop_tok.is_some() && Some(verify_in[accepted]) == stop_tok {
+                    break;
+                }
+                if preds[accepted] == drafts[accepted] {
+                    accepted += 1;
+                } else {
+                    break;
+                }
+            }
+            self.spec_accepted_total += accepted;
+            let keep = accepted + 1; // `1 <= keep <= b_len`
+
+            if keep < b_len {
+                self.rewind_speculative(keep, b_len)?;
+            }
+            if let Some(ref mut d) = self.drafter {
+                d.enqueue_add_ctx(
+                    self.ctx.compute_stream,
+                    self.d_taps.ptr,
+                    MAX_BATCH_TOKENS,
+                    keep,
+                )?;
+            }
+
+            let mut hit_stop = false;
+            for &accepted_tok in &verify_in[..keep] {
+                if Some(accepted_tok) == stop_tok {
+                    cur_tok = accepted_tok;
+                    hit_stop = true;
+                    break;
+                }
+                if out_ids.len() < n_gen {
+                    out_ids.push(accepted_tok);
+                    on_token(accepted_tok);
+                    if self.drafter.is_none() {
+                        full_hist.push(accepted_tok);
+                    }
+                }
+            }
+            steps_done += keep;
+            if hit_stop || (stop_tok.is_some() && out_ids.len() >= n_gen) {
+                break;
+            }
+            cur_tok = preds[accepted];
+        }
+
+        Ok((out_ids, cur_tok))
     }
 
     fn enqueue_copy_n(
@@ -2333,6 +2715,7 @@ impl Inkling2GpuEngine {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn enqueue_batch_visit(
         &self,
         stream: CUstream,
@@ -2341,6 +2724,7 @@ impl Inkling2GpuEngine {
         b_len: usize,
         n_blocks: &mut usize,
         has_msgs: bool,
+        record_seq: bool,
     ) -> Result<(), String> {
         let l = &self.layers[il];
         let st = &self.slots[slot_idx];
@@ -2348,6 +2732,11 @@ impl Inkling2GpuEngine {
         let b_i32 = b_len as i32;
         let bd_floats = b_len * D;
         let bd_bytes = (bd_floats * 4) as u64;
+        let slot_seq_base = if record_seq {
+            self.d_conv_seq.ptr + (slot_idx * CONV_SEQ_SLOT_FLOATS * 4) as u64
+        } else {
+            0
+        };
 
         // 1. Batched Attention inputs `[xq, xk, xv]` (`[3, b_len, D]`)
         if let Some(ref aq) = l.attn_query {
@@ -2516,13 +2905,14 @@ impl Inkling2GpuEngine {
         }
 
         // 4. Register-Persistent Causal `short_conv4` for K & V
-        for (raw_ptr, raw_stride, conv_w, hist_ptr, dst_ptr) in [
+        for (raw_ptr, raw_stride, conv_w, hist_ptr, dst_ptr, seq_off_floats) in [
             (
                 k_raw_ptr,
                 k_in_stride,
                 l.k_conv4.ptr,
                 st.hist_k.ptr,
                 self.d_b_k_conv.ptr,
+                0usize,
             ),
             (
                 v_raw_ptr,
@@ -2530,6 +2920,7 @@ impl Inkling2GpuEngine {
                 l.v_conv4.ptr,
                 st.hist_v.ptr,
                 self.d_b_v_conv.ptr,
+                1024 * CONV_SEQ_STEPS,
             ),
         ] {
             let mut p_cur = raw_ptr;
@@ -2542,11 +2933,16 @@ impl Inkling2GpuEngine {
             let mut outs = 1024i32;
             let mut p_res: CUdeviceptr = 0;
             let mut ress = 0i32;
+            let mut p_seq = if record_seq {
+                slot_seq_base + (seq_off_floats * 4) as u64
+            } else {
+                0
+            };
             let mut ch = 1024i32;
             let mut bi = b_i32;
             let mut hd = i32::from(l.global);
             let mut dr = 0i32;
-            let mut args: [*mut c_void; 14] = [
+            let mut args: [*mut c_void; 15] = [
                 (&mut p_cur as *mut _) as *mut c_void,
                 (&mut ins as *mut _) as *mut c_void,
                 (&mut p_w as *mut _) as *mut c_void,
@@ -2557,6 +2953,7 @@ impl Inkling2GpuEngine {
                 (&mut outs as *mut _) as *mut c_void,
                 (&mut p_res as *mut _) as *mut c_void,
                 (&mut ress as *mut _) as *mut c_void,
+                (&mut p_seq as *mut _) as *mut c_void,
                 (&mut ch as *mut _) as *mut c_void,
                 (&mut bi as *mut _) as *mut c_void,
                 (&mut hd as *mut _) as *mut c_void,
@@ -2662,11 +3059,16 @@ impl Inkling2GpuEngine {
             let mut outs = D as i32;
             let mut p_res = if is_block_start { 0 } else { self.d_b_cur.ptr };
             let mut ress = D as i32;
+            let mut p_seq = if record_seq {
+                slot_seq_base + (2048 * CONV_SEQ_STEPS * 4) as u64
+            } else {
+                0
+            };
             let mut ch = D as i32;
             let mut bi = b_i32;
             let mut hd = 0i32;
             let mut dr = i32::from(!is_block_start);
-            let mut args: [*mut c_void; 14] = [
+            let mut args: [*mut c_void; 15] = [
                 (&mut p_cur as *mut _) as *mut c_void,
                 (&mut ins as *mut _) as *mut c_void,
                 (&mut p_w as *mut _) as *mut c_void,
@@ -2677,6 +3079,7 @@ impl Inkling2GpuEngine {
                 (&mut outs as *mut _) as *mut c_void,
                 (&mut p_res as *mut _) as *mut c_void,
                 (&mut ress as *mut _) as *mut c_void,
+                (&mut p_seq as *mut _) as *mut c_void,
                 (&mut ch as *mut _) as *mut c_void,
                 (&mut bi as *mut _) as *mut c_void,
                 (&mut hd as *mut _) as *mut c_void,
@@ -2929,11 +3332,16 @@ impl Inkling2GpuEngine {
             let mut outs = D as i32;
             let mut p_res = self.d_b_cur.ptr;
             let mut ress = D as i32;
+            let mut p_seq = if record_seq {
+                slot_seq_base + (4352 * CONV_SEQ_STEPS * 4) as u64
+            } else {
+                0
+            };
             let mut ch = D as i32;
             let mut bi = b_i32;
             let mut hd = 0i32;
             let mut dr = 1i32;
-            let mut args: [*mut c_void; 14] = [
+            let mut args: [*mut c_void; 15] = [
                 (&mut p_cur as *mut _) as *mut c_void,
                 (&mut ins as *mut _) as *mut c_void,
                 (&mut p_w as *mut _) as *mut c_void,
@@ -2944,12 +3352,20 @@ impl Inkling2GpuEngine {
                 (&mut outs as *mut _) as *mut c_void,
                 (&mut p_res as *mut _) as *mut c_void,
                 (&mut ress as *mut _) as *mut c_void,
+                (&mut p_seq as *mut _) as *mut c_void,
                 (&mut ch as *mut _) as *mut c_void,
                 (&mut bi as *mut _) as *mut c_void,
                 (&mut hd as *mut _) as *mut c_void,
                 (&mut dr as *mut _) as *mut c_void,
             ];
             self.launch(stream, self.fns.short_conv4_b, (9, 1), 256, &mut args)?;
+        }
+
+        if self.drafter.is_some() {
+            if let Some(tap_idx) = TAP_SLOTS.iter().position(|&s| s == slot_idx) {
+                let dst = self.d_taps.ptr + (tap_idx * MAX_BATCH_TOKENS * D * 4) as u64;
+                self.enqueue_copy_n(stream, self.d_b_cur.ptr, dst, bd_floats)?;
+            }
         }
 
         Ok(())
@@ -2961,6 +3377,7 @@ impl Inkling2GpuEngine {
         tokens_dev_ptr: CUdeviceptr,
         b_len: usize,
         head_mode: BatchHeadMode,
+        record_seq: bool,
     ) -> Result<(), String> {
         let b_u32 = b_len as u32;
         let b_i32 = b_len as i32;
@@ -2984,7 +3401,7 @@ impl Inkling2GpuEngine {
 
         let mut n_blocks = 0usize;
         for il in 0..6 {
-            self.enqueue_batch_visit(stream, il, il, b_len, &mut n_blocks, false)?;
+            self.enqueue_batch_visit(stream, il, il, b_len, &mut n_blocks, false, record_seq)?;
         }
         debug_assert_eq!(n_blocks, 1);
         self.enqueue_copy_n(stream, self.d_b_cur.ptr, self.d_b_prelude_x.ptr, bd_floats)?;
@@ -3050,14 +3467,60 @@ impl Inkling2GpuEngine {
                     ];
                     self.launch(stream, self.fns.depth_mix_b, (4, b_u32), 256, &mut args)?;
                 }
-                self.enqueue_batch_visit(stream, ip, slot, b_len, &mut n_blocks, pass > 0)?;
+                self.enqueue_batch_visit(
+                    stream,
+                    ip,
+                    slot,
+                    b_len,
+                    &mut n_blocks,
+                    pass > 0,
+                    record_seq,
+                )?;
             }
         }
 
         for il in 18..24 {
-            self.enqueue_batch_visit(stream, il, il, b_len, &mut n_blocks, false)?;
+            self.enqueue_batch_visit(stream, il, il, b_len, &mut n_blocks, false, record_seq)?;
         }
         debug_assert_eq!(n_blocks, 4);
+
+        if self.drafter.is_some() {
+            // Compute `tap 3` (`final_norm(output_query_mix)`) across all `b_len` tokens!
+            let mut pb = self.d_b_blocks.ptr;
+            let mut nb = n_blocks as i32;
+            let mut sb = b_i32;
+            let mut bo = 0i32;
+            let mut bout = b_i32;
+            let mut pc = self.d_b_cur.ptr;
+            let mut ac = 1i32;
+            let mut pq = self.output_query.ptr;
+            let mut pout = self.d_b_mlp_h.ptr;
+            let mut b3 = 0i32;
+            let mut args: [*mut c_void; 10] = [
+                (&mut pb as *mut _) as *mut c_void,
+                (&mut nb as *mut _) as *mut c_void,
+                (&mut sb as *mut _) as *mut c_void,
+                (&mut bo as *mut _) as *mut c_void,
+                (&mut bout as *mut _) as *mut c_void,
+                (&mut pc as *mut _) as *mut c_void,
+                (&mut ac as *mut _) as *mut c_void,
+                (&mut pq as *mut _) as *mut c_void,
+                (&mut pout as *mut _) as *mut c_void,
+                (&mut b3 as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, self.fns.depth_mix_b, (1, b_u32), 256, &mut args)?;
+            let mut pin = self.d_b_mlp_h.ptr;
+            let mut pg = self.final_norm.ptr;
+            let mut p_tap3 = self.d_taps.ptr + (3 * MAX_BATCH_TOKENS * D * 4) as u64;
+            let mut hg = 1i32;
+            let mut rn_args: [*mut c_void; 4] = [
+                (&mut pin as *mut _) as *mut c_void,
+                (&mut pg as *mut _) as *mut c_void,
+                (&mut p_tap3 as *mut _) as *mut c_void,
+                (&mut hg as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, self.fns.rmsnorm_d_b, (b_u32, 1), 256, &mut rn_args)?;
+        }
 
         match head_mode {
             BatchHeadMode::None => {}

@@ -27,13 +27,13 @@ use leansonic_tuner::{
 };
 
 fn print_help() {
-    println!("LeanSonic v0.2.0 — Lean 4-Verified Blackwell Inference Engine & OpenAI Server");
+    println!("LeanSonic v0.3.0 — Lean 4-Verified Blackwell Inference Engine & OpenAI Server");
     println!();
     println!("USAGE:");
     println!(
-        "  leansonic -p \"<prompt>\" [--weights <dir>] [--effort none|low|high] [--max-tokens N] [--json]"
+        "  leansonic -p \"<prompt>\" [--weights <dir>] [--spec 0..7] [--effort none|low|high] [--max-tokens N] [--json]"
     );
-    println!("  leansonic bench --weights <dir> --tokens <id1,id2|@file|synth:N> [--gen N] [--repeat R] [--no-graph]");
+    println!("  leansonic bench --weights <dir> --tokens <id1,id2|@file|synth:N> [--spec 0..7] [--gen N] [--repeat R] [--no-graph]");
     println!("  leansonic serve [--host 127.0.0.1] [--port 8080] [--model inkling-2-mini]");
     println!(
         "  leansonic info            Print Lean-verified SM120, Hybrid Pool & Offload constants"
@@ -114,6 +114,7 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
     let mut effort = "none".to_string();
     let mut max_tokens = 64usize;
     let mut emit_json = false;
+    let mut spec_opt: Option<usize> = None;
 
     let mut i = 0usize;
     while i < args.len() {
@@ -148,6 +149,14 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
             "--json" => {
                 emit_json = true;
             }
+            "--spec" => {
+                i += 1;
+                let raw = args.get(i).ok_or("missing value after --spec")?;
+                spec_opt = Some(
+                    raw.parse::<usize>()
+                        .map_err(|_| format!("invalid --spec: {raw}"))?,
+                );
+            }
             other if prompt.is_none() && !other.starts_with('-') => {
                 prompt = Some(other.to_string());
             }
@@ -168,31 +177,44 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(8192);
-        let mut gpu = Inkling2GpuEngine::load_from_dir(dir, max_ctx, true)?;
+        let default_spec = if dir.join("mtp.safetensors").exists() {
+            7
+        } else {
+            0
+        };
+        let spec_k = spec_opt
+            .or_else(|| {
+                env::var("LEANSONIC_SPEC_K")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+            })
+            .unwrap_or(default_spec);
+        let mut gpu = Inkling2GpuEngine::load_from_dir_with_spec(dir, max_ctx, true, spec_k)?;
 
-        let (mut next, prefill_ms) = gpu.prefill_tokens(&prompt_ids)?;
+        let (next, prefill_ms) = gpu.prefill_tokens(&prompt_ids)?;
         let t_gen = Instant::now();
-        let mut generated = Vec::with_capacity(max_tokens);
         let mut text_bytes = Vec::new();
         let mut stdout = io::stdout();
-        for _ in 0..max_tokens {
-            if next == TOK_END_SAMPLING {
-                break;
-            }
-            generated.push(next);
-            if next < 199_998 {
-                text_bytes.extend_from_slice(tok.decode_token_bytes(next));
-                if !emit_json {
-                    let written = write_utf8_prefix(&mut stdout, &text_bytes)
-                        .map_err(|e| format!("write output: {e}"))?;
-                    text_bytes.drain(..written);
-                    stdout.flush().map_err(|e| format!("flush output: {e}"))?;
+        let mut stream_status = Ok(());
+        let (generated, _) = gpu.generate_greedy_tokens(
+            next,
+            max_tokens,
+            Some(TOK_END_SAMPLING),
+            &prompt_ids,
+            |tok_id| {
+                if tok_id < 199_998 && stream_status.is_ok() {
+                    text_bytes.extend_from_slice(tok.decode_token_bytes(tok_id));
+                    if !emit_json {
+                        stream_status =
+                            write_utf8_prefix(&mut stdout, &text_bytes).and_then(|written| {
+                                text_bytes.drain(..written);
+                                stdout.flush()
+                            });
+                    }
                 }
-            }
-            if generated.len() < max_tokens {
-                next = gpu.forward_greedy_token(next)?;
-            }
-        }
+            },
+        )?;
+        stream_status.map_err(|e| format!("write output: {e}"))?;
         let gen_ms = t_gen.elapsed().as_secs_f64() * 1000.0;
         let gen_tok_s = (generated.len() as f64) / (gen_ms / 1000.0).max(1e-9);
         let full_text = String::from_utf8_lossy(&text_bytes);
@@ -305,6 +327,7 @@ fn cmd_bench(args: &[String]) -> Result<(), String> {
     let mut n_gen = 32usize;
     let mut repeat = 1usize;
     let mut use_graph = true;
+    let mut spec_opt: Option<usize> = None;
 
     let mut i = 0usize;
     while i < args.len() {
@@ -333,6 +356,15 @@ fn cmd_bench(args: &[String]) -> Result<(), String> {
                     .parse()
                     .map_err(|_| "bad --repeat")?;
             }
+            "--spec" => {
+                i += 1;
+                spec_opt = Some(
+                    args.get(i)
+                        .ok_or("missing value after --spec")?
+                        .parse()
+                        .map_err(|_| "bad --spec")?,
+                );
+            }
             "--no-graph" => {
                 use_graph = false;
             }
@@ -350,11 +382,24 @@ fn cmd_bench(args: &[String]) -> Result<(), String> {
         .unwrap_or(8192)
         .max(prompt_ids.len() + n_gen + 64);
 
-    let mut gpu = Inkling2GpuEngine::load_from_dir(dir, max_ctx, use_graph)?;
+    let default_spec = if Path::new(&dir).join("mtp.safetensors").exists() {
+        7
+    } else {
+        0
+    };
+    let spec_k = spec_opt
+        .or_else(|| {
+            env::var("LEANSONIC_SPEC_K")
+                .ok()
+                .and_then(|s| s.parse().ok())
+        })
+        .unwrap_or(default_spec);
+
+    let mut gpu = Inkling2GpuEngine::load_from_dir_with_spec(dir, max_ctx, use_graph, spec_k)?;
 
     for run_idx in 0..repeat {
         gpu.reset()?;
-        let (mut next, prefill_ms) = gpu.prefill_tokens(&prompt_ids)?;
+        let (next, prefill_ms) = gpu.prefill_tokens(&prompt_ids)?;
         let prefill_tok_s = (prompt_ids.len() as f64) / (prefill_ms / 1000.0).max(1e-9);
         let logits = gpu.read_last_logits()?;
         let mut top_idx: Vec<usize> = (0..logits.len()).collect();
@@ -382,25 +427,34 @@ fn cmd_bench(args: &[String]) -> Result<(), String> {
         );
 
         if n_gen > 0 {
-            let mut out_ids = Vec::with_capacity(n_gen);
             let t_dec = Instant::now();
-            for step in 0..n_gen {
-                out_ids.push(next);
-                if step + 1 < n_gen {
-                    next = gpu.forward_greedy_token(next)?;
-                } else {
-                    // Measure `n_gen` full decode forward steps accurately!
-                    let _ = gpu.forward_greedy_token(next)?;
-                }
-            }
+            let (out_ids, _) =
+                gpu.generate_greedy_tokens(next, n_gen, None, &prompt_ids, |_| {})?;
             let dec_ms = t_dec.elapsed().as_secs_f64() * 1000.0;
             let dec_tok_s = (n_gen as f64) / (dec_ms / 1000.0).max(1e-9);
-            println!(
-                "[run {run_idx}] generated {n_gen} tokens: {:.2} ms ({:.2} ms/tok, {:.1} tok/s)",
-                dec_ms,
-                dec_ms / (n_gen as f64),
-                dec_tok_s
-            );
+            if gpu.spec_verify_steps > 0 {
+                let acc_pct = 100.0 * (gpu.spec_accepted_total as f64)
+                    / (gpu.spec_drafted_total.max(1) as f64);
+                let mean_step = (gpu.spec_accepted_total + gpu.spec_verify_steps) as f64
+                    / (gpu.spec_verify_steps as f64);
+                println!(
+                    "[run {run_idx}] generated {n_gen} tokens: {:.2} ms ({:.2} ms/tok, {:.1} tok/s) [spec acc={}/{} ({:.1}%), {:.2} tok/step]",
+                    dec_ms,
+                    dec_ms / (n_gen as f64),
+                    dec_tok_s,
+                    gpu.spec_accepted_total,
+                    gpu.spec_drafted_total,
+                    acc_pct,
+                    mean_step
+                );
+            } else {
+                println!(
+                    "[run {run_idx}] generated {n_gen} tokens: {:.2} ms ({:.2} ms/tok, {:.1} tok/s)",
+                    dec_ms,
+                    dec_ms / (n_gen as f64),
+                    dec_tok_s
+                );
+            }
             let csv: Vec<String> = out_ids.iter().map(u32::to_string).collect();
             println!("{}", csv.join(","));
         }

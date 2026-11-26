@@ -480,6 +480,34 @@ extern "C" __global__ void ink2_ctrl_apply(
 // 5. Coalesced 128-Bit BF16 GEMV (`8` warps = `256` threads/CTA -> `8` rows/CTA)
 //    Optional `softcap > 0.0f` applies `softcap * tanh(y / softcap)` (for `unembed`!)
 // ----------------------------------------------------------------------------
+__device__ __forceinline__ float accum_bf16_8(float acc, uint4 pack, float4 u, float4 v) {
+    acc = __fmaf_rn(bf16_to_f32(static_cast<uint16_t>(pack.x & 0xFFFFu)), u.x, acc);
+    acc = __fmaf_rn(bf16_to_f32(static_cast<uint16_t>(pack.x >> 16)), u.y, acc);
+    acc = __fmaf_rn(bf16_to_f32(static_cast<uint16_t>(pack.y & 0xFFFFu)), u.z, acc);
+    acc = __fmaf_rn(bf16_to_f32(static_cast<uint16_t>(pack.y >> 16)), u.w, acc);
+    acc = __fmaf_rn(bf16_to_f32(static_cast<uint16_t>(pack.z & 0xFFFFu)), v.x, acc);
+    acc = __fmaf_rn(bf16_to_f32(static_cast<uint16_t>(pack.z >> 16)), v.y, acc);
+    acc = __fmaf_rn(bf16_to_f32(static_cast<uint16_t>(pack.w & 0xFFFFu)), v.z, acc);
+    acc = __fmaf_rn(bf16_to_f32(static_cast<uint16_t>(pack.w >> 16)), v.w, acc);
+    return acc;
+}
+
+__device__ __forceinline__ float eval_conv4_step(
+    float4 w, float h0, float h1, float h2, float x, int has_dyn, float4 d, int do_res_add, float res) {
+    float conv_o = __fmaf_rn(w.w, x, __fmaf_rn(w.z, h2, __fmaf_rn(w.y, h1, __fmul_rn(w.x, h0))));
+    float inv_scale = 0.4472135954999579f;
+    if (has_dyn) {
+        float dyn_o = __fmaf_rn(d.w, h0, __fmaf_rn(d.z, h1, __fmaf_rn(d.y, h2, __fmul_rn(d.x, x))));
+        conv_o = __fadd_rn(conv_o, dyn_o);
+        inv_scale = 0.3333333333333333f;
+    }
+    float y = __fmul_rn(__fadd_rn(x, conv_o), inv_scale);
+    if (do_res_add) {
+        y = __fadd_rn(y, res);
+    }
+    return y;
+}
+
 extern "C" __global__ void ink2_bf16_gemv(
     const uint4* __restrict__ w_bf16_u128, // [rows, cols / 8]
     const float* __restrict__ x,           // [cols]
@@ -498,17 +526,7 @@ extern "C" __global__ void ink2_bf16_gemv(
 
     float acc = 0.0f;
     for (int c8 = lane; c8 < cols8; c8 += 32) {
-        uint4 pack = w_row[c8];
-        float4 xv0 = x4[c8 * 2];
-        float4 xv1 = x4[c8 * 2 + 1];
-        acc += bf16_to_f32(static_cast<uint16_t>(pack.x & 0xFFFFu)) * xv0.x;
-        acc += bf16_to_f32(static_cast<uint16_t>(pack.x >> 16)) * xv0.y;
-        acc += bf16_to_f32(static_cast<uint16_t>(pack.y & 0xFFFFu)) * xv0.z;
-        acc += bf16_to_f32(static_cast<uint16_t>(pack.y >> 16)) * xv0.w;
-        acc += bf16_to_f32(static_cast<uint16_t>(pack.z & 0xFFFFu)) * xv1.x;
-        acc += bf16_to_f32(static_cast<uint16_t>(pack.z >> 16)) * xv1.y;
-        acc += bf16_to_f32(static_cast<uint16_t>(pack.w & 0xFFFFu)) * xv1.z;
-        acc += bf16_to_f32(static_cast<uint16_t>(pack.w >> 16)) * xv1.w;
+        acc = accum_bf16_8(acc, w_row[c8], x4[c8 * 2], x4[c8 * 2 + 1]);
     }
     acc = warp_sum(acc);
     if (lane == 0) {
@@ -542,25 +560,14 @@ extern "C" __global__ void ink2_short_conv4(
     const float h1 = h[1];
     const float h2 = h[2];
     const float4 w = w_conv4[c];
-
-    float conv_o = w.x * h0 + w.y * h1 + w.z * h2 + w.w * x;
-    float inv_scale = 0.4472135954999579f; // 1 / sqrt(5.0)
-    if (has_dyn) {
-        int head = c >> 7; // channels = 1024, 8 heads -> 128 ch/head
-        float4 d = dyn_tap[head]; // lag 0=x, 1=h2, 2=h1, 3=h0
-        conv_o += d.x * x + d.y * h2 + d.z * h1 + d.w * h0;
-        inv_scale = 0.3333333333333333f; // 1 / sqrt(9.0)
-    }
+    const float4 d = has_dyn ? dyn_tap[c >> 7] : make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+    const float res = do_res_add ? res_add[c] : 0.0f;
 
     h[0] = h1;
     h[1] = h2;
     h[2] = x;
 
-    float y = (x + conv_o) * inv_scale;
-    if (do_res_add) {
-        y += res_add[c];
-    }
-    out[c] = y;
+    out[c] = eval_conv4_step(w, h0, h1, h2, x, has_dyn, d, do_res_add, res);
 }
 
 // ----------------------------------------------------------------------------
@@ -600,27 +607,23 @@ extern "C" __global__ void ink2_prep_qkv_and_cache(
         const int h = g_warp;
         float* qh = q_buf + h * 128;
         const uint32_t* qc = q_clip_bf16 + h * 64;
-        float qv[4];
-        float q_sq = 0.0f;
-        #pragma unroll
-        for (int j = 0; j < 2; ++j) {
-            int pair_idx = lane * 2 + j;
-            uint32_t cp = qc[pair_idx];
-            float s0 = bf16_to_f32(static_cast<uint16_t>(cp & 0xFFFFu));
-            float s1 = bf16_to_f32(static_cast<uint16_t>(cp >> 16));
-            qv[j * 2] = qh[pair_idx * 2] * s0;
-            qv[j * 2 + 1] = qh[pair_idx * 2 + 1] * s1;
-            q_sq += qv[j * 2] * qv[j * 2] + qv[j * 2 + 1] * qv[j * 2 + 1];
-        }
-        q_sq = warp_sum(q_sq);
+        uint32_t cp0 = qc[lane * 2];
+        uint32_t cp1 = qc[lane * 2 + 1];
+        float qv0 = qh[lane * 4] * bf16_to_f32(static_cast<uint16_t>(cp0 & 0xFFFFu));
+        float qv1 = qh[lane * 4 + 1] * bf16_to_f32(static_cast<uint16_t>(cp0 >> 16));
+        float qv2 = qh[lane * 4 + 2] * bf16_to_f32(static_cast<uint16_t>(cp1 & 0xFFFFu));
+        float qv3 = qh[lane * 4 + 3] * bf16_to_f32(static_cast<uint16_t>(cp1 >> 16));
+        float q_sq = warp_sum(__fadd_rn(
+            __fmaf_rn(qv1, qv1, __fmul_rn(qv0, qv0)),
+            __fmaf_rn(qv3, qv3, __fmul_rn(qv2, qv2))));
         float q_norm = ptx_sqrt(q_sq) + 1e-6f;
         float q_f = 22.627416997969522f * ptx_rcp(q_norm);
         if (q_f > 1.0f) q_f = 1.0f;
         q_f *= tau;
-        #pragma unroll
-        for (int i = 0; i < 4; ++i) {
-            qh[lane * 4 + i] = qv[i] * q_f;
-        }
+        qh[lane * 4] = qv0 * q_f;
+        qh[lane * 4 + 1] = qv1 * q_f;
+        qh[lane * 4 + 2] = qv2 * q_f;
+        qh[lane * 4 + 3] = qv3 * q_f;
 
         // Relative query `r_h` (`16` dims -> lanes `0..7` hold 2 dims each)
         float* rh = r_buf + h * 16;
@@ -631,7 +634,7 @@ extern "C" __global__ void ink2_prep_qkv_and_cache(
             rv0 = rh[lane * 2] * bf16_to_f32(static_cast<uint16_t>(rp & 0xFFFFu));
             rv1 = rh[lane * 2 + 1] * bf16_to_f32(static_cast<uint16_t>(rp >> 16));
         }
-        float r_sq = warp_sum(rv0 * rv0 + rv1 * rv1);
+        float r_sq = warp_sum(__fmaf_rn(rv1, rv1, __fmul_rn(rv0, rv0)));
         float r_f = 8.0f * ptx_rcp(ptx_sqrt(r_sq) + 1e-6f);
         if (r_f > 1.0f) r_f = 1.0f;
         r_f *= tau;
@@ -643,39 +646,31 @@ extern "C" __global__ void ink2_prep_qkv_and_cache(
         // K head (`128` dims = `4` per lane)
         const int kh = g_warp - 24;
         const float* ks = k_in + kh * 128;
-        float kv[4];
-        float k_sq = 0.0f;
-        #pragma unroll
-        for (int i = 0; i < 4; ++i) {
-            kv[i] = ks[lane * 4 + i];
-            k_sq += kv[i] * kv[i];
-        }
-        k_sq = warp_sum(k_sq);
+        float kv0 = ks[lane * 4], kv1 = ks[lane * 4 + 1], kv2 = ks[lane * 4 + 2], kv3 = ks[lane * 4 + 3];
+        float k_sq = warp_sum(__fadd_rn(
+            __fmaf_rn(kv1, kv1, __fmul_rn(kv0, kv0)),
+            __fmaf_rn(kv3, kv3, __fmul_rn(kv2, kv2))));
         float k_f = 22.627416997969522f * ptx_rcp(ptx_sqrt(k_sq) + 1e-6f);
         if (k_f > 1.0f) k_f = 1.0f;
         uint16_t* dst = k_cache_fp16 + static_cast<size_t>(cache_row) * 1024u + kh * 128;
-        #pragma unroll
-        for (int i = 0; i < 4; ++i) {
-            dst[lane * 4 + i] = f32_to_fp16_bits(kv[i] * k_f);
-        }
+        dst[lane * 4] = f32_to_fp16_bits(kv0 * k_f);
+        dst[lane * 4 + 1] = f32_to_fp16_bits(kv1 * k_f);
+        dst[lane * 4 + 2] = f32_to_fp16_bits(kv2 * k_f);
+        dst[lane * 4 + 3] = f32_to_fp16_bits(kv3 * k_f);
     } else if (g_warp < 40) {
         // V head (`128` dims = `4` per lane, no-gamma RMSNorm)
         const int vh = g_warp - 32;
         const float* vs = v_in + vh * 128;
-        float vv[4];
-        float v_sq = 0.0f;
-        #pragma unroll
-        for (int i = 0; i < 4; ++i) {
-            vv[i] = vs[lane * 4 + i];
-            v_sq += vv[i] * vv[i];
-        }
-        v_sq = warp_sum(v_sq);
+        float vv0 = vs[lane * 4], vv1 = vs[lane * 4 + 1], vv2 = vs[lane * 4 + 2], vv3 = vs[lane * 4 + 3];
+        float v_sq = warp_sum(__fadd_rn(
+            __fmaf_rn(vv1, vv1, __fmul_rn(vv0, vv0)),
+            __fmaf_rn(vv3, vv3, __fmul_rn(vv2, vv2))));
         float v_inv = ptx_rsqrt(v_sq * (1.0f / 128.0f) + 1e-6f);
         uint16_t* dst = v_cache_fp16 + static_cast<size_t>(cache_row) * 1024u + vh * 128;
-        #pragma unroll
-        for (int i = 0; i < 4; ++i) {
-            dst[lane * 4 + i] = f32_to_fp16_bits(vv[i] * v_inv);
-        }
+        dst[lane * 4] = f32_to_fp16_bits(vv0 * v_inv);
+        dst[lane * 4 + 1] = f32_to_fp16_bits(vv1 * v_inv);
+        dst[lane * 4 + 2] = f32_to_fp16_bits(vv2 * v_inv);
+        dst[lane * 4 + 3] = f32_to_fp16_bits(vv3 * v_inv);
     }
 }
 
@@ -972,7 +967,7 @@ extern "C" __global__ void ink2_moe_nvfp4_down(
             act4 + k * 288,
             72,
             lane);
-        sum_y += dot * (a2[ex] * (1.0f / 2688.0f)) * sel_wts[k];
+        sum_y = __fmaf_rn(__fmul_rn(dot, a2[ex] * (1.0f / 2688.0f)), sel_wts[k], sum_y);
     }
     if (lane == 0) {
         moe_out[row] = sum_y;
@@ -983,6 +978,31 @@ extern "C" __global__ void ink2_moe_nvfp4_down(
 // 11. Unit-Stride `512B` Coalesced MXFP8 (`layers 20..23`) MoE (`<= 42` regs!)
 //     `Grid (288, 8)` & `Grid 288` (`100%` SM120 occupancy across all SMs + `512B` PCIe burst!)
 // ----------------------------------------------------------------------------
+__device__ __forceinline__ float dot_mxfp8_u128_exact(uint4 p, const float4* __restrict__ x4_sub) {
+    float sub = 0.0f;
+    float4 xv0 = x4_sub[0];
+    sub = __fmaf_rn(e4m3_byte_to_f32(p.x & 0xFFu), xv0.x, sub);
+    sub = __fmaf_rn(e4m3_byte_to_f32((p.x >> 8) & 0xFFu), xv0.y, sub);
+    sub = __fmaf_rn(e4m3_byte_to_f32((p.x >> 16) & 0xFFu), xv0.z, sub);
+    sub = __fmaf_rn(e4m3_byte_to_f32((p.x >> 24) & 0xFFu), xv0.w, sub);
+    float4 xv1 = x4_sub[1];
+    sub = __fmaf_rn(e4m3_byte_to_f32(p.y & 0xFFu), xv1.x, sub);
+    sub = __fmaf_rn(e4m3_byte_to_f32((p.y >> 8) & 0xFFu), xv1.y, sub);
+    sub = __fmaf_rn(e4m3_byte_to_f32((p.y >> 16) & 0xFFu), xv1.z, sub);
+    sub = __fmaf_rn(e4m3_byte_to_f32((p.y >> 24) & 0xFFu), xv1.w, sub);
+    float4 xv2 = x4_sub[2];
+    sub = __fmaf_rn(e4m3_byte_to_f32(p.z & 0xFFu), xv2.x, sub);
+    sub = __fmaf_rn(e4m3_byte_to_f32((p.z >> 8) & 0xFFu), xv2.y, sub);
+    sub = __fmaf_rn(e4m3_byte_to_f32((p.z >> 16) & 0xFFu), xv2.z, sub);
+    sub = __fmaf_rn(e4m3_byte_to_f32((p.z >> 24) & 0xFFu), xv2.w, sub);
+    float4 xv3 = x4_sub[3];
+    sub = __fmaf_rn(e4m3_byte_to_f32(p.w & 0xFFu), xv3.x, sub);
+    sub = __fmaf_rn(e4m3_byte_to_f32((p.w >> 8) & 0xFFu), xv3.y, sub);
+    sub = __fmaf_rn(e4m3_byte_to_f32((p.w >> 16) & 0xFFu), xv3.z, sub);
+    sub = __fmaf_rn(e4m3_byte_to_f32((p.w >> 24) & 0xFFu), xv3.w, sub);
+    return sub;
+}
+
 __device__ __forceinline__ float warp_dot_mxfp8_u128_row(
     const uint4* __restrict__ row_fp8_u128,     // [n_u128]
     const uint32_t* __restrict__ row_e8m0_u32,  // [n_u128 / 8]
@@ -995,20 +1015,7 @@ __device__ __forceinline__ float warp_dot_mxfp8_u128_row(
         uint32_t s4 = row_e8m0_u32[blk32 >> 2];
         uint32_t s_e8m0 = (s4 >> ((blk32 & 3) * 8)) & 0xFFu;
         float exp_scale = __uint_as_float(s_e8m0 << 23);
-
-        uint4 p = row_fp8_u128[u16];
-        uint32_t words[4] = {p.x, p.y, p.z, p.w};
-        float sub = 0.0f;
-        #pragma unroll
-        for (int w = 0; w < 4; ++w) {
-            uint32_t packed = words[w];
-            float4 xv = x4[u16 * 4 + w];
-            sub += e4m3_byte_to_f32(packed & 0xFFu) * xv.x;
-            sub += e4m3_byte_to_f32((packed >> 8) & 0xFFu) * xv.y;
-            sub += e4m3_byte_to_f32((packed >> 16) & 0xFFu) * xv.z;
-            sub += e4m3_byte_to_f32((packed >> 24) & 0xFFu) * xv.w;
-        }
-        acc += sub * exp_scale;
+        acc = __fmaf_rn(dot_mxfp8_u128_exact(row_fp8_u128[u16], x4 + u16 * 4), exp_scale, acc);
     }
     return warp_sum(acc);
 }
@@ -1069,7 +1076,7 @@ extern "C" __global__ void ink2_moe_mxfp8_down(
             act4 + k * 288,
             72,
             lane);
-        sum_y += dot * sel_wts[k];
+        sum_y = __fmaf_rn(dot, sel_wts[k], sum_y);
     }
     if (lane == 0) {
         moe_out[row] = sum_y;
@@ -1202,7 +1209,7 @@ extern "C" __global__ void ink2_q8_dp4a_gemv(
         d0 = __dp4a(static_cast<int>(w0.y), static_cast<int>(xq.y), d0);
         d0 = __dp4a(static_cast<int>(w0.z), static_cast<int>(xq.z), d0);
         d0 = __dp4a(static_cast<int>(w0.w), static_cast<int>(xq.w), d0);
-        acc0 += static_cast<float>(d0) * (s_r0[c16 >> 2] * xsc);
+        acc0 = __fmaf_rn(static_cast<float>(d0), __fmul_rn(s_r0[c16 >> 2], xsc), acc0);
 
         if (has_row1) {
             uint4 w1 = w_r1[c16];
@@ -1210,7 +1217,7 @@ extern "C" __global__ void ink2_q8_dp4a_gemv(
             d1 = __dp4a(static_cast<int>(w1.y), static_cast<int>(xq.y), d1);
             d1 = __dp4a(static_cast<int>(w1.z), static_cast<int>(xq.z), d1);
             d1 = __dp4a(static_cast<int>(w1.w), static_cast<int>(xq.w), d1);
-            acc1 += static_cast<float>(d1) * (s_r1[c16 >> 2] * xsc);
+            acc1 = __fmaf_rn(static_cast<float>(d1), __fmul_rn(s_r1[c16 >> 2], xsc), acc1);
         }
     }
 
@@ -1239,8 +1246,8 @@ __device__ __forceinline__ float warp_dot_nvfp4_dp4a_u128_row(
         uint4 pk16 = row_u128[u16];
         uint32_t sc4 = row_scale_u32[u16 >> 1];
         int sh = (u16 & 1) * 16;
-        float s0 = e4m3_byte_to_f32((sc4 >> sh) & 0xFFu) * 0.5f * smem_xsc16[u16 * 2];
-        float s1 = e4m3_byte_to_f32((sc4 >> (sh + 8)) & 0xFFu) * 0.5f * smem_xsc16[u16 * 2 + 1];
+        float s0 = __fmul_rn(e4m3_byte_to_f32((sc4 >> sh) & 0xFFu) * 0.5f, smem_xsc16[u16 * 2]);
+        float s1 = __fmul_rn(e4m3_byte_to_f32((sc4 >> (sh + 8)) & 0xFFu) * 0.5f, smem_xsc16[u16 * 2 + 1]);
 
         uint4 xq0 = smem_xq16[u16 * 2];
         uint4 xq1 = smem_xq16[u16 * 2 + 1];
@@ -1252,7 +1259,7 @@ __device__ __forceinline__ float warp_dot_nvfp4_dp4a_u128_row(
         d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.z >> 16)), static_cast<int>(xq1.y), d1);
         d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w & 0xFFFFu)), static_cast<int>(xq1.z), d1);
         d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w >> 16)), static_cast<int>(xq1.w), d1);
-        acc += static_cast<float>(d0) * s0 + static_cast<float>(d1) * s1;
+        acc = __fmaf_rn(static_cast<float>(d1), s1, __fmaf_rn(static_cast<float>(d0), s0, acc));
     }
     return warp_sum(acc);
 }
@@ -1339,7 +1346,7 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_down(
             smem_asc + k * 72,
             36,
             lane);
-        sum_y += dot * (a2[ex] * (1.0f / 2688.0f)) * sel_wts[k];
+        sum_y = __fmaf_rn(__fmul_rn(dot, a2[ex] * (1.0f / 2688.0f)), sel_wts[k], sum_y);
     }
     if (lane == 0) {
         moe_out[row] = sum_y;
@@ -1889,43 +1896,43 @@ extern "C" __global__ void ink2_q8_dp4a_gemm_b(
 
         if (tile_b > 0) {
             uint4 xq = smem_x[0][c16]; float xs = smem_xsc[0][c64];
-            a0 += static_cast<float>(dp4a_u128(w0, xq)) * (ws0 * xs);
-            if (has_row1) b0 += static_cast<float>(dp4a_u128(w1, xq)) * (ws1 * xs);
+            a0 = __fmaf_rn(static_cast<float>(dp4a_u128(w0, xq)), __fmul_rn(ws0, xs), a0);
+            if (has_row1) b0 = __fmaf_rn(static_cast<float>(dp4a_u128(w1, xq)), __fmul_rn(ws1, xs), b0);
         }
         if (tile_b > 1) {
             uint4 xq = smem_x[1][c16]; float xs = smem_xsc[1][c64];
-            a1 += static_cast<float>(dp4a_u128(w0, xq)) * (ws0 * xs);
-            if (has_row1) b1 += static_cast<float>(dp4a_u128(w1, xq)) * (ws1 * xs);
+            a1 = __fmaf_rn(static_cast<float>(dp4a_u128(w0, xq)), __fmul_rn(ws0, xs), a1);
+            if (has_row1) b1 = __fmaf_rn(static_cast<float>(dp4a_u128(w1, xq)), __fmul_rn(ws1, xs), b1);
         }
         if (tile_b > 2) {
             uint4 xq = smem_x[2][c16]; float xs = smem_xsc[2][c64];
-            a2 += static_cast<float>(dp4a_u128(w0, xq)) * (ws0 * xs);
-            if (has_row1) b2 += static_cast<float>(dp4a_u128(w1, xq)) * (ws1 * xs);
+            a2 = __fmaf_rn(static_cast<float>(dp4a_u128(w0, xq)), __fmul_rn(ws0, xs), a2);
+            if (has_row1) b2 = __fmaf_rn(static_cast<float>(dp4a_u128(w1, xq)), __fmul_rn(ws1, xs), b2);
         }
         if (tile_b > 3) {
             uint4 xq = smem_x[3][c16]; float xs = smem_xsc[3][c64];
-            a3 += static_cast<float>(dp4a_u128(w0, xq)) * (ws0 * xs);
-            if (has_row1) b3 += static_cast<float>(dp4a_u128(w1, xq)) * (ws1 * xs);
+            a3 = __fmaf_rn(static_cast<float>(dp4a_u128(w0, xq)), __fmul_rn(ws0, xs), a3);
+            if (has_row1) b3 = __fmaf_rn(static_cast<float>(dp4a_u128(w1, xq)), __fmul_rn(ws1, xs), b3);
         }
         if (tile_b > 4) {
             uint4 xq = smem_x[4][c16]; float xs = smem_xsc[4][c64];
-            a4 += static_cast<float>(dp4a_u128(w0, xq)) * (ws0 * xs);
-            if (has_row1) b4 += static_cast<float>(dp4a_u128(w1, xq)) * (ws1 * xs);
+            a4 = __fmaf_rn(static_cast<float>(dp4a_u128(w0, xq)), __fmul_rn(ws0, xs), a4);
+            if (has_row1) b4 = __fmaf_rn(static_cast<float>(dp4a_u128(w1, xq)), __fmul_rn(ws1, xs), b4);
         }
         if (tile_b > 5) {
             uint4 xq = smem_x[5][c16]; float xs = smem_xsc[5][c64];
-            a5 += static_cast<float>(dp4a_u128(w0, xq)) * (ws0 * xs);
-            if (has_row1) b5 += static_cast<float>(dp4a_u128(w1, xq)) * (ws1 * xs);
+            a5 = __fmaf_rn(static_cast<float>(dp4a_u128(w0, xq)), __fmul_rn(ws0, xs), a5);
+            if (has_row1) b5 = __fmaf_rn(static_cast<float>(dp4a_u128(w1, xq)), __fmul_rn(ws1, xs), b5);
         }
         if (tile_b > 6) {
             uint4 xq = smem_x[6][c16]; float xs = smem_xsc[6][c64];
-            a6 += static_cast<float>(dp4a_u128(w0, xq)) * (ws0 * xs);
-            if (has_row1) b6 += static_cast<float>(dp4a_u128(w1, xq)) * (ws1 * xs);
+            a6 = __fmaf_rn(static_cast<float>(dp4a_u128(w0, xq)), __fmul_rn(ws0, xs), a6);
+            if (has_row1) b6 = __fmaf_rn(static_cast<float>(dp4a_u128(w1, xq)), __fmul_rn(ws1, xs), b6);
         }
         if (tile_b > 7) {
             uint4 xq = smem_x[7][c16]; float xs = smem_xsc[7][c64];
-            a7 += static_cast<float>(dp4a_u128(w0, xq)) * (ws0 * xs);
-            if (has_row1) b7 += static_cast<float>(dp4a_u128(w1, xq)) * (ws1 * xs);
+            a7 = __fmaf_rn(static_cast<float>(dp4a_u128(w0, xq)), __fmul_rn(ws0, xs), a7);
+            if (has_row1) b7 = __fmaf_rn(static_cast<float>(dp4a_u128(w1, xq)), __fmul_rn(ws1, xs), b7);
         }
     }
 
@@ -1963,6 +1970,7 @@ extern "C" __global__ void ink2_q8_dp4a_gemm_b(
 }
 
 // Register-Persistent Causal `short_conv4` over `b = 0..B-1` (`0-ULP` bit-identical!)
+// Optional `seq_out` (`[3 + B, channels]`) records `[hist3; x_0..x_{B-1}]` for `O(1)` speculative rewind!
 extern "C" __global__ void ink2_short_conv4_b(
     const float* __restrict__ cur_base,      // [B, in_stride]
     int32_t in_stride,
@@ -1974,6 +1982,7 @@ extern "C" __global__ void ink2_short_conv4_b(
     int32_t out_stride,
     const float* res_base,                   // nullable (`[B, res_stride]`)
     int32_t res_stride,
+    float* __restrict__ seq_out,             // nullable (`[3 + B, channels]`)
     int32_t channels,
     int32_t B,
     int32_t has_dyn,
@@ -1985,24 +1994,25 @@ extern "C" __global__ void ink2_short_conv4_b(
     float h0 = h[0];
     float h1 = h[1];
     float h2 = h[2];
+    if (seq_out != nullptr) {
+        seq_out[c] = h0;
+        seq_out[channels + c] = h1;
+        seq_out[2 * channels + c] = h2;
+    }
     const float4 w = w_conv4[c];
     const int head = c >> 7;
-    const float inv_scale = has_dyn ? 0.3333333333333333f : 0.4472135954999579f;
 
     for (int b = 0; b < B; ++b) {
         const float x = cur_base[static_cast<size_t>(b) * in_stride + c];
-        float conv_o = w.x * h0 + w.y * h1 + w.z * h2 + w.w * x;
-        if (has_dyn) {
-            float4 d = dyn_base[static_cast<size_t>(b) * dyn_f4_stride + head];
-            conv_o += d.x * x + d.y * h2 + d.z * h1 + d.w * h0;
+        if (seq_out != nullptr) {
+            seq_out[static_cast<size_t>(3 + b) * channels + c] = x;
         }
+        const float4 d = has_dyn ? dyn_base[static_cast<size_t>(b) * dyn_f4_stride + head] : make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+        const float res = do_res_add ? res_base[static_cast<size_t>(b) * res_stride + c] : 0.0f;
+        const float y = eval_conv4_step(w, h0, h1, h2, x, has_dyn, d, do_res_add, res);
         h0 = h1;
         h1 = h2;
         h2 = x;
-        float y = (x + conv_o) * inv_scale;
-        if (do_res_add) {
-            y += res_base[static_cast<size_t>(b) * res_stride + c];
-        }
         out_base[static_cast<size_t>(b) * out_stride + c] = y;
     }
 
@@ -2057,7 +2067,9 @@ extern "C" __global__ void ink2_prep_qkv_and_cache_b(
             qv2 = qh[lane * 4 + 2] * bf16_to_f32(static_cast<uint16_t>(cp1 & 0xFFFFu));
             qv3 = qh[lane * 4 + 3] * bf16_to_f32(static_cast<uint16_t>(cp1 >> 16));
         }
-        float q_sq = warp_sum((qv0 * qv0 + qv1 * qv1) + (qv2 * qv2 + qv3 * qv3));
+        float q_sq = warp_sum(__fadd_rn(
+            __fmaf_rn(qv1, qv1, __fmul_rn(qv0, qv0)),
+            __fmaf_rn(qv3, qv3, __fmul_rn(qv2, qv2))));
         float q_f = 22.627416997969522f * ptx_rcp(ptx_sqrt(q_sq) + 1e-6f);
         if (q_f > 1.0f) q_f = 1.0f;
         q_f *= tau;
@@ -2074,7 +2086,7 @@ extern "C" __global__ void ink2_prep_qkv_and_cache_b(
             rv0 = rh[lane * 2] * bf16_to_f32(static_cast<uint16_t>(rp & 0xFFFFu));
             rv1 = rh[lane * 2 + 1] * bf16_to_f32(static_cast<uint16_t>(rp >> 16));
         }
-        float r_sq = warp_sum(rv0 * rv0 + rv1 * rv1);
+        float r_sq = warp_sum(__fmaf_rn(rv1, rv1, __fmul_rn(rv0, rv0)));
         float r_f = 8.0f * ptx_rcp(ptx_sqrt(r_sq) + 1e-6f);
         if (r_f > 1.0f) r_f = 1.0f;
         r_f *= tau;
@@ -2086,7 +2098,9 @@ extern "C" __global__ void ink2_prep_qkv_and_cache_b(
         const int kh = g_warp - 24;
         const float* ks = k_in + kh * 128;
         float kv0 = ks[lane * 4], kv1 = ks[lane * 4 + 1], kv2 = ks[lane * 4 + 2], kv3 = ks[lane * 4 + 3];
-        float k_sq = warp_sum(kv0 * kv0 + kv1 * kv1 + kv2 * kv2 + kv3 * kv3);
+        float k_sq = warp_sum(__fadd_rn(
+            __fmaf_rn(kv1, kv1, __fmul_rn(kv0, kv0)),
+            __fmaf_rn(kv3, kv3, __fmul_rn(kv2, kv2))));
         float k_f = 22.627416997969522f * ptx_rcp(ptx_sqrt(k_sq) + 1e-6f);
         if (k_f > 1.0f) k_f = 1.0f;
         uint16_t* dst = k_cache_fp16 + static_cast<size_t>(cache_row) * 1024u + kh * 128;
@@ -2098,7 +2112,9 @@ extern "C" __global__ void ink2_prep_qkv_and_cache_b(
         const int vh = g_warp - 32;
         const float* vs = v_in + vh * 128;
         float vv0 = vs[lane * 4], vv1 = vs[lane * 4 + 1], vv2 = vs[lane * 4 + 2], vv3 = vs[lane * 4 + 3];
-        float v_sq = warp_sum(vv0 * vv0 + vv1 * vv1 + vv2 * vv2 + vv3 * vv3);
+        float v_sq = warp_sum(__fadd_rn(
+            __fmaf_rn(vv1, vv1, __fmul_rn(vv0, vv0)),
+            __fmaf_rn(vv3, vv3, __fmul_rn(vv2, vv2))));
         float v_inv = ptx_rsqrt(v_sq * (1.0f / 128.0f) + 1e-6f);
         uint16_t* dst = v_cache_fp16 + static_cast<size_t>(cache_row) * 1024u + vh * 128;
         dst[lane * 4] = f32_to_fp16_bits(vv0 * v_inv);
@@ -2267,35 +2283,10 @@ extern "C" __global__ void ink2_bf16_gemm_router_b(
 
     for (int c8 = lane; c8 < 288; c8 += 32) {
         uint4 pack = w_row[c8];
-        float w0 = bf16_to_f32(static_cast<uint16_t>(pack.x & 0xFFFFu));
-        float w1 = bf16_to_f32(static_cast<uint16_t>(pack.x >> 16));
-        float w2 = bf16_to_f32(static_cast<uint16_t>(pack.y & 0xFFFFu));
-        float w3 = bf16_to_f32(static_cast<uint16_t>(pack.y >> 16));
-        float w4 = bf16_to_f32(static_cast<uint16_t>(pack.z & 0xFFFFu));
-        float w5 = bf16_to_f32(static_cast<uint16_t>(pack.z >> 16));
-        float w6 = bf16_to_f32(static_cast<uint16_t>(pack.w & 0xFFFFu));
-        float w7 = bf16_to_f32(static_cast<uint16_t>(pack.w >> 16));
-
-        if (tile_b > 0) {
-            float4 u = smem_x[0][c8 * 2]; float4 v = smem_x[0][c8 * 2 + 1];
-            a0 += w0 * u.x; a0 += w1 * u.y; a0 += w2 * u.z; a0 += w3 * u.w;
-            a0 += w4 * v.x; a0 += w5 * v.y; a0 += w6 * v.z; a0 += w7 * v.w;
-        }
-        if (tile_b > 1) {
-            float4 u = smem_x[1][c8 * 2]; float4 v = smem_x[1][c8 * 2 + 1];
-            a1 += w0 * u.x; a1 += w1 * u.y; a1 += w2 * u.z; a1 += w3 * u.w;
-            a1 += w4 * v.x; a1 += w5 * v.y; a1 += w6 * v.z; a1 += w7 * v.w;
-        }
-        if (tile_b > 2) {
-            float4 u = smem_x[2][c8 * 2]; float4 v = smem_x[2][c8 * 2 + 1];
-            a2 += w0 * u.x; a2 += w1 * u.y; a2 += w2 * u.z; a2 += w3 * u.w;
-            a2 += w4 * v.x; a2 += w5 * v.y; a2 += w6 * v.z; a2 += w7 * v.w;
-        }
-        if (tile_b > 3) {
-            float4 u = smem_x[3][c8 * 2]; float4 v = smem_x[3][c8 * 2 + 1];
-            a3 += w0 * u.x; a3 += w1 * u.y; a3 += w2 * u.z; a3 += w3 * u.w;
-            a3 += w4 * v.x; a3 += w5 * v.y; a3 += w6 * v.z; a3 += w7 * v.w;
-        }
+        if (tile_b > 0) a0 = accum_bf16_8(a0, pack, smem_x[0][c8 * 2], smem_x[0][c8 * 2 + 1]);
+        if (tile_b > 1) a1 = accum_bf16_8(a1, pack, smem_x[1][c8 * 2], smem_x[1][c8 * 2 + 1]);
+        if (tile_b > 2) a2 = accum_bf16_8(a2, pack, smem_x[2][c8 * 2], smem_x[2][c8 * 2 + 1]);
+        if (tile_b > 3) a3 = accum_bf16_8(a3, pack, smem_x[3][c8 * 2], smem_x[3][c8 * 2 + 1]);
     }
     a0 = warp_sum(a0);
     a1 = warp_sum(a1);
@@ -2415,6 +2406,12 @@ __device__ __forceinline__ int dp4a_nvfp4_hi(uint4 pk, uint4 xq) {
     return __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk.w >> 16)), static_cast<int>(xq.w), d);
 }
 
+__device__ __forceinline__ float accum_nvfp4_pair(float acc, uint4 pk, uint4 xq0, float s0, uint4 xq1, float s1) {
+    float f0 = static_cast<float>(dp4a_nvfp4_lo(pk, xq0));
+    float f1 = static_cast<float>(dp4a_nvfp4_hi(pk, xq1));
+    return __fmaf_rn(f1, s1, __fmaf_rn(f0, s0, acc));
+}
+
 // Tile-8 Grouped-Expert NVFP4 `__dp4a` Up+SITU (`Grid (72, 128)`, `Block 256`):
 // Stages up to `8` tokens in SMEM (`23,296` B <= `64` KiB carveout at `2` CTAs/SM) and
 // processes `4` row-groups (`16` `m` outputs) per CTA with exact `u16 = lane` FMA parity!
@@ -2478,14 +2475,14 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_grouped_up_situ(
                 const int c0 = u16 * 2;
                 const int c1 = c0 + 1;
 
-                if (tile_t > 0) a0 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_xq[0][c0])) * (ws0 * smem_xsc[0][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_xq[0][c1])) * (ws1 * smem_xsc[0][c1]);
-                if (tile_t > 1) a1 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_xq[1][c0])) * (ws0 * smem_xsc[1][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_xq[1][c1])) * (ws1 * smem_xsc[1][c1]);
-                if (tile_t > 2) a2 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_xq[2][c0])) * (ws0 * smem_xsc[2][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_xq[2][c1])) * (ws1 * smem_xsc[2][c1]);
-                if (tile_t > 3) a3 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_xq[3][c0])) * (ws0 * smem_xsc[3][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_xq[3][c1])) * (ws1 * smem_xsc[3][c1]);
-                if (tile_t > 4) a4 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_xq[4][c0])) * (ws0 * smem_xsc[4][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_xq[4][c1])) * (ws1 * smem_xsc[4][c1]);
-                if (tile_t > 5) a5 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_xq[5][c0])) * (ws0 * smem_xsc[5][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_xq[5][c1])) * (ws1 * smem_xsc[5][c1]);
-                if (tile_t > 6) a6 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_xq[6][c0])) * (ws0 * smem_xsc[6][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_xq[6][c1])) * (ws1 * smem_xsc[6][c1]);
-                if (tile_t > 7) a7 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_xq[7][c0])) * (ws0 * smem_xsc[7][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_xq[7][c1])) * (ws1 * smem_xsc[7][c1]);
+                if (tile_t > 0) a0 = accum_nvfp4_pair(a0, pk, smem_xq[0][c0], __fmul_rn(ws0, smem_xsc[0][c0]), smem_xq[0][c1], __fmul_rn(ws1, smem_xsc[0][c1]));
+                if (tile_t > 1) a1 = accum_nvfp4_pair(a1, pk, smem_xq[1][c0], __fmul_rn(ws0, smem_xsc[1][c0]), smem_xq[1][c1], __fmul_rn(ws1, smem_xsc[1][c1]));
+                if (tile_t > 2) a2 = accum_nvfp4_pair(a2, pk, smem_xq[2][c0], __fmul_rn(ws0, smem_xsc[2][c0]), smem_xq[2][c1], __fmul_rn(ws1, smem_xsc[2][c1]));
+                if (tile_t > 3) a3 = accum_nvfp4_pair(a3, pk, smem_xq[3][c0], __fmul_rn(ws0, smem_xsc[3][c0]), smem_xq[3][c1], __fmul_rn(ws1, smem_xsc[3][c1]));
+                if (tile_t > 4) a4 = accum_nvfp4_pair(a4, pk, smem_xq[4][c0], __fmul_rn(ws0, smem_xsc[4][c0]), smem_xq[4][c1], __fmul_rn(ws1, smem_xsc[4][c1]));
+                if (tile_t > 5) a5 = accum_nvfp4_pair(a5, pk, smem_xq[5][c0], __fmul_rn(ws0, smem_xsc[5][c0]), smem_xq[5][c1], __fmul_rn(ws1, smem_xsc[5][c1]));
+                if (tile_t > 6) a6 = accum_nvfp4_pair(a6, pk, smem_xq[6][c0], __fmul_rn(ws0, smem_xsc[6][c0]), smem_xq[6][c1], __fmul_rn(ws1, smem_xsc[6][c1]));
+                if (tile_t > 7) a7 = accum_nvfp4_pair(a7, pk, smem_xq[7][c0], __fmul_rn(ws0, smem_xsc[7][c0]), smem_xq[7][c1], __fmul_rn(ws1, smem_xsc[7][c1]));
             }
 
             a0 = warp_sum(a0); a1 = warp_sum(a1); a2 = warp_sum(a2); a3 = warp_sum(a3);
@@ -2571,28 +2568,28 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_grouped_down(
                 const int c0 = u16 * 2;
                 const int c1 = c0 + 1;
 
-                if (tile_t > 0) a0 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_aq[0][c0])) * (ws0 * smem_asc[0][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_aq[0][c1])) * (ws1 * smem_asc[0][c1]);
-                if (tile_t > 1) a1 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_aq[1][c0])) * (ws0 * smem_asc[1][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_aq[1][c1])) * (ws1 * smem_asc[1][c1]);
-                if (tile_t > 2) a2v += static_cast<float>(dp4a_nvfp4_lo(pk, smem_aq[2][c0])) * (ws0 * smem_asc[2][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_aq[2][c1])) * (ws1 * smem_asc[2][c1]);
-                if (tile_t > 3) a3 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_aq[3][c0])) * (ws0 * smem_asc[3][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_aq[3][c1])) * (ws1 * smem_asc[3][c1]);
-                if (tile_t > 4) a4 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_aq[4][c0])) * (ws0 * smem_asc[4][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_aq[4][c1])) * (ws1 * smem_asc[4][c1]);
-                if (tile_t > 5) a5 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_aq[5][c0])) * (ws0 * smem_asc[5][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_aq[5][c1])) * (ws1 * smem_asc[5][c1]);
-                if (tile_t > 6) a6 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_aq[6][c0])) * (ws0 * smem_asc[6][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_aq[6][c1])) * (ws1 * smem_asc[6][c1]);
-                if (tile_t > 7) a7 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_aq[7][c0])) * (ws0 * smem_asc[7][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_aq[7][c1])) * (ws1 * smem_asc[7][c1]);
+                if (tile_t > 0) a0 = accum_nvfp4_pair(a0, pk, smem_aq[0][c0], __fmul_rn(ws0, smem_asc[0][c0]), smem_aq[0][c1], __fmul_rn(ws1, smem_asc[0][c1]));
+                if (tile_t > 1) a1 = accum_nvfp4_pair(a1, pk, smem_aq[1][c0], __fmul_rn(ws0, smem_asc[1][c0]), smem_aq[1][c1], __fmul_rn(ws1, smem_asc[1][c1]));
+                if (tile_t > 2) a2v = accum_nvfp4_pair(a2v, pk, smem_aq[2][c0], __fmul_rn(ws0, smem_asc[2][c0]), smem_aq[2][c1], __fmul_rn(ws1, smem_asc[2][c1]));
+                if (tile_t > 3) a3 = accum_nvfp4_pair(a3, pk, smem_aq[3][c0], __fmul_rn(ws0, smem_asc[3][c0]), smem_aq[3][c1], __fmul_rn(ws1, smem_asc[3][c1]));
+                if (tile_t > 4) a4 = accum_nvfp4_pair(a4, pk, smem_aq[4][c0], __fmul_rn(ws0, smem_asc[4][c0]), smem_aq[4][c1], __fmul_rn(ws1, smem_asc[4][c1]));
+                if (tile_t > 5) a5 = accum_nvfp4_pair(a5, pk, smem_aq[5][c0], __fmul_rn(ws0, smem_asc[5][c0]), smem_aq[5][c1], __fmul_rn(ws1, smem_asc[5][c1]));
+                if (tile_t > 6) a6 = accum_nvfp4_pair(a6, pk, smem_aq[6][c0], __fmul_rn(ws0, smem_asc[6][c0]), smem_aq[6][c1], __fmul_rn(ws1, smem_asc[6][c1]));
+                if (tile_t > 7) a7 = accum_nvfp4_pair(a7, pk, smem_aq[7][c0], __fmul_rn(ws0, smem_asc[7][c0]), smem_aq[7][c1], __fmul_rn(ws1, smem_asc[7][c1]));
             }
 
             a0 = warp_sum(a0); a1 = warp_sum(a1); a2v = warp_sum(a2v); a3 = warp_sum(a3);
             a4 = warp_sum(a4); a5 = warp_sum(a5); a6 = warp_sum(a6); a7 = warp_sum(a7);
 
             if (lane == 0) {
-                if (tile_t > 0) pair_y[static_cast<size_t>(smem_pairs[0]) * kD + row] = a0 * amax_sc;
-                if (tile_t > 1) pair_y[static_cast<size_t>(smem_pairs[1]) * kD + row] = a1 * amax_sc;
-                if (tile_t > 2) pair_y[static_cast<size_t>(smem_pairs[2]) * kD + row] = a2v * amax_sc;
-                if (tile_t > 3) pair_y[static_cast<size_t>(smem_pairs[3]) * kD + row] = a3 * amax_sc;
-                if (tile_t > 4) pair_y[static_cast<size_t>(smem_pairs[4]) * kD + row] = a4 * amax_sc;
-                if (tile_t > 5) pair_y[static_cast<size_t>(smem_pairs[5]) * kD + row] = a5 * amax_sc;
-                if (tile_t > 6) pair_y[static_cast<size_t>(smem_pairs[6]) * kD + row] = a6 * amax_sc;
-                if (tile_t > 7) pair_y[static_cast<size_t>(smem_pairs[7]) * kD + row] = a7 * amax_sc;
+                if (tile_t > 0) pair_y[static_cast<size_t>(smem_pairs[0]) * kD + row] = __fmul_rn(a0, amax_sc);
+                if (tile_t > 1) pair_y[static_cast<size_t>(smem_pairs[1]) * kD + row] = __fmul_rn(a1, amax_sc);
+                if (tile_t > 2) pair_y[static_cast<size_t>(smem_pairs[2]) * kD + row] = __fmul_rn(a2v, amax_sc);
+                if (tile_t > 3) pair_y[static_cast<size_t>(smem_pairs[3]) * kD + row] = __fmul_rn(a3, amax_sc);
+                if (tile_t > 4) pair_y[static_cast<size_t>(smem_pairs[4]) * kD + row] = __fmul_rn(a4, amax_sc);
+                if (tile_t > 5) pair_y[static_cast<size_t>(smem_pairs[5]) * kD + row] = __fmul_rn(a5, amax_sc);
+                if (tile_t > 6) pair_y[static_cast<size_t>(smem_pairs[6]) * kD + row] = __fmul_rn(a6, amax_sc);
+                if (tile_t > 7) pair_y[static_cast<size_t>(smem_pairs[7]) * kD + row] = __fmul_rn(a7, amax_sc);
             }
         }
     }
@@ -2680,10 +2677,10 @@ extern "C" __global__ void ink2_moe_mxfp8_grouped_up_situ(
                 const uint4 p = r_u128[u16];
                 const float es = load_e8m0_scale(r_sc, u16);
                 const int c4 = u16 * 4;
-                if (tile_t > 0) a0 += dot_mxfp8_u128_raw(p, smem_x4[0] + c4) * es;
-                if (tile_t > 1) a1 += dot_mxfp8_u128_raw(p, smem_x4[1] + c4) * es;
-                if (tile_t > 2) a2 += dot_mxfp8_u128_raw(p, smem_x4[2] + c4) * es;
-                if (tile_t > 3) a3 += dot_mxfp8_u128_raw(p, smem_x4[3] + c4) * es;
+                if (tile_t > 0) a0 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_x4[0] + c4), es, a0);
+                if (tile_t > 1) a1 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_x4[1] + c4), es, a1);
+                if (tile_t > 2) a2 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_x4[2] + c4), es, a2);
+                if (tile_t > 3) a3 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_x4[3] + c4), es, a3);
             }
             a0 = warp_sum(a0); a1 = warp_sum(a1); a2 = warp_sum(a2); a3 = warp_sum(a3);
 
@@ -2754,14 +2751,14 @@ extern "C" __global__ void ink2_moe_mxfp8_grouped_down(
                 const uint4 p = r_u128[u16];
                 const float es = load_e8m0_scale(r_sc, u16);
                 const int c4 = u16 * 4;
-                if (tile_t > 0) a0 += dot_mxfp8_u128_raw(p, smem_a4[0] + c4) * es;
-                if (tile_t > 1) a1 += dot_mxfp8_u128_raw(p, smem_a4[1] + c4) * es;
-                if (tile_t > 2) a2 += dot_mxfp8_u128_raw(p, smem_a4[2] + c4) * es;
-                if (tile_t > 3) a3 += dot_mxfp8_u128_raw(p, smem_a4[3] + c4) * es;
-                if (tile_t > 4) a4 += dot_mxfp8_u128_raw(p, smem_a4[4] + c4) * es;
-                if (tile_t > 5) a5 += dot_mxfp8_u128_raw(p, smem_a4[5] + c4) * es;
-                if (tile_t > 6) a6 += dot_mxfp8_u128_raw(p, smem_a4[6] + c4) * es;
-                if (tile_t > 7) a7 += dot_mxfp8_u128_raw(p, smem_a4[7] + c4) * es;
+                if (tile_t > 0) a0 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_a4[0] + c4), es, a0);
+                if (tile_t > 1) a1 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_a4[1] + c4), es, a1);
+                if (tile_t > 2) a2 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_a4[2] + c4), es, a2);
+                if (tile_t > 3) a3 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_a4[3] + c4), es, a3);
+                if (tile_t > 4) a4 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_a4[4] + c4), es, a4);
+                if (tile_t > 5) a5 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_a4[5] + c4), es, a5);
+                if (tile_t > 6) a6 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_a4[6] + c4), es, a6);
+                if (tile_t > 7) a7 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_a4[7] + c4), es, a7);
             }
             a0 = warp_sum(a0); a1 = warp_sum(a1); a2 = warp_sum(a2); a3 = warp_sum(a3);
             a4 = warp_sum(a4); a5 = warp_sum(a5); a6 = warp_sum(a6); a7 = warp_sum(a7);
@@ -2793,7 +2790,7 @@ extern "C" __global__ void ink2_moe_combine_top8_b(
     float sum_y = 0.0f;
     const size_t base_pair = static_cast<size_t>(b) * 8u;
     for (int k = 0; k < 8; ++k) {
-        sum_y += pair_y[(base_pair + k) * kD + d] * sel_wts[base_pair + k];
+        sum_y = __fmaf_rn(pair_y[(base_pair + k) * kD + d], sel_wts[base_pair + k], sum_y);
     }
     moe_out_base[static_cast<size_t>(b) * kD + d] = sum_y;
 }
@@ -2850,5 +2847,709 @@ extern "C" __global__ void ink2_argmax_b(
             }
         }
         out_toks[b] = fi;
+    }
+}
+
+// ============================================================================
+// 15. Cycle 2 (`v0.3.0`) Speculative Decoding Suite (`DSpark` MTP + `O(1)` Rewind)
+// ============================================================================
+
+namespace leansonic::inkling2 {
+
+__device__ __forceinline__ void ptx_sincos_reduced(float angle, float* s_out, float* c_out) {
+    // Reduce angle into [-pi, pi] via hardware RNDM + FFMA, then single-cycle MUFU SIN/COS!
+    float turns = floorf(angle * 0.15915494309189535f + 0.5f);
+    float r = angle - turns * 6.283185307179586f;
+    float sv, cv;
+    asm("sin.approx.ftz.f32 %0, %1;\n" : "=f"(sv) : "f"(r));
+    asm("cos.approx.ftz.f32 %0, %1;\n" : "=f"(cv) : "f"(r));
+    *s_out = sv;
+    *c_out = cv;
+}
+
+__device__ __forceinline__ float head_norm_neox_rope128(
+    float x,
+    const uint32_t* __restrict__ w_bf16_pairs, // [64] (`128` BF16)
+    const float* __restrict__ inv_freq64,      // [64]
+    int pos,
+    float* smem_hd) {                          // [128]
+    const int d = threadIdx.x; // 0..127 (`4` warps)
+    const int warp_id = d >> 5;
+    const int lane = d & 31;
+
+    float sq = warp_sum(x * x);
+    if (lane == 0) smem_hd[warp_id] = sq;
+    __syncthreads();
+    float bsum = smem_hd[0] + smem_hd[1] + smem_hd[2] + smem_hd[3];
+    float inv_rms = ptx_rsqrt(bsum * (1.0f / 128.0f) + 1e-6f);
+    __syncthreads();
+
+    uint32_t wp = w_bf16_pairs[d >> 1];
+    float g = ((d & 1) == 0)
+        ? bf16_to_f32(static_cast<uint16_t>(wp & 0xFFFFu))
+        : bf16_to_f32(static_cast<uint16_t>(wp >> 16));
+    smem_hd[d] = x * inv_rms * g;
+    __syncthreads();
+
+    const int i = d & 63;
+    float s, c;
+    ptx_sincos_reduced(static_cast<float>(pos) * inv_freq64[i], &s, &c);
+    float rot = (d < 64)
+        ? (smem_hd[d] * c - smem_hd[d + 64] * s)
+        : (smem_hd[d - 64] * s + smem_hd[d] * c);
+    __syncthreads();
+    return rot;
+}
+
+} // namespace leansonic::inkling2
+
+// `O(1)` Speculative Rewind across all 48 slots x 4 `short_conv4` states + `*pos_ptr`!
+// Grid: `(9, 192)`, Block: `256`
+extern "C" __global__ void ink2_conv_rewind(
+    const float* __restrict__ seq_base,       // [48, 6656 * 11]
+    const uint64_t* __restrict__ hist_ptrs,   // [48 * 4]
+    int32_t* __restrict__ pos_ptr,
+    int32_t keep,
+    int32_t B) {
+    const int slot = blockIdx.y >> 2;
+    const int kind = blockIdx.y & 3;
+    const int c = blockIdx.x * 256 + threadIdx.x;
+
+    const float* slot_seq = seq_base + static_cast<size_t>(slot) * (6656u * 11u);
+    int ch;
+    const float* seq;
+    if (kind == 0) {
+        ch = 1024;
+        seq = slot_seq;
+    } else if (kind == 1) {
+        ch = 1024;
+        seq = slot_seq + 1024u * 11u;
+    } else if (kind == 2) {
+        ch = 2304;
+        seq = slot_seq + 2048u * 11u;
+    } else {
+        ch = 2304;
+        seq = slot_seq + 4352u * 11u;
+    }
+
+    if (c < ch) {
+        float* h = reinterpret_cast<float*>(hist_ptrs[blockIdx.y]) + c * 3;
+        h[0] = seq[static_cast<size_t>(keep + 0) * ch + c];
+        h[1] = seq[static_cast<size_t>(keep + 1) * ch + c];
+        h[2] = seq[static_cast<size_t>(keep + 2) * ch + c];
+    }
+    if (blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0) {
+        *pos_ptr -= (B - keep);
+    }
+}
+
+// General K-Tiled Planar `Q8_64` `__dp4a` GEMM for `1 <= B <= 8` & ANY `cols % 64 == 0`
+// (`cols = 256, 2304, 3072, 4608, 9216`): `8,704` B SMEM, `<= 48` regs!
+// Grid: `(ceil(rows / 16), 1)`, Block: `256`
+extern "C" __global__ void ink2_q8_dp4a_gemm_ktiled(
+    const uint4* __restrict__ w_q8_u128,   // [rows, cols / 16]
+    const float* __restrict__ w_sc64,      // [rows, cols / 64]
+    const uint4* __restrict__ x_q8_u128,   // [B, cols / 16]
+    const float* __restrict__ x_sc64,      // [B, cols / 64]
+    float* __restrict__ y_base,            // [B, y_stride]
+    int32_t rows,
+    int32_t cols,
+    int32_t B,
+    int32_t y_stride) {
+    __shared__ uint4 smem_x[8][64];   // 8,192 B (`K_TILE = 1024`)
+    __shared__ float smem_xsc[8][16]; // 512 B
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int cols16 = cols >> 4;
+    const int cols64 = cols >> 6;
+    const int row0 = (blockIdx.x * 8 + warp_id) * 2;
+    const bool has_row0 = (row0 < rows);
+    const bool has_row1 = (row0 + 1 < rows);
+
+    const uint4* w_r0 = has_row0 ? (w_q8_u128 + static_cast<size_t>(row0) * cols16) : w_q8_u128;
+    const uint4* w_r1 = has_row1 ? (w_r0 + cols16) : w_r0;
+    const float* s_r0 = has_row0 ? (w_sc64 + static_cast<size_t>(row0) * cols64) : w_sc64;
+    const float* s_r1 = has_row1 ? (s_r0 + cols64) : s_r0;
+
+    float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
+    float a4 = 0.0f, a5 = 0.0f, a6 = 0.0f, a7 = 0.0f;
+    float b0 = 0.0f, b1 = 0.0f, b2 = 0.0f, b3 = 0.0f;
+    float b4 = 0.0f, b5 = 0.0f, b6 = 0.0f, b7 = 0.0f;
+
+    for (int k16_base = 0; k16_base < cols16; k16_base += 64) {
+        const int rem16 = cols16 - k16_base;
+        const int tile16 = (rem16 < 64) ? rem16 : 64;
+        const int k64_base = k16_base >> 2;
+        const int tile64 = tile16 >> 2;
+
+        if (k16_base > 0) __syncthreads();
+        for (int t = 0; t < B; ++t) {
+            if (tid < tile16) {
+                smem_x[t][tid] = x_q8_u128[static_cast<size_t>(t) * cols16 + k16_base + tid];
+            }
+            if (tid < tile64) {
+                smem_xsc[t][tid] = x_sc64[static_cast<size_t>(t) * cols64 + k64_base + tid];
+            }
+        }
+        __syncthreads();
+
+        if (has_row0) {
+            for (int c16 = lane; c16 < tile16; c16 += 32) {
+                const int c64 = c16 >> 2;
+                const uint4 w0 = w_r0[k16_base + c16];
+                const float ws0 = s_r0[k64_base + c64];
+                const uint4 w1 = has_row1 ? w_r1[k16_base + c16] : w0;
+                const float ws1 = has_row1 ? s_r1[k64_base + c64] : 0.0f;
+
+                if (B > 0) { uint4 xq = smem_x[0][c16]; float xs = smem_xsc[0][c64]; a0 += static_cast<float>(dp4a_u128(w0, xq)) * (ws0 * xs); if (has_row1) b0 += static_cast<float>(dp4a_u128(w1, xq)) * (ws1 * xs); }
+                if (B > 1) { uint4 xq = smem_x[1][c16]; float xs = smem_xsc[1][c64]; a1 += static_cast<float>(dp4a_u128(w0, xq)) * (ws0 * xs); if (has_row1) b1 += static_cast<float>(dp4a_u128(w1, xq)) * (ws1 * xs); }
+                if (B > 2) { uint4 xq = smem_x[2][c16]; float xs = smem_xsc[2][c64]; a2 += static_cast<float>(dp4a_u128(w0, xq)) * (ws0 * xs); if (has_row1) b2 += static_cast<float>(dp4a_u128(w1, xq)) * (ws1 * xs); }
+                if (B > 3) { uint4 xq = smem_x[3][c16]; float xs = smem_xsc[3][c64]; a3 += static_cast<float>(dp4a_u128(w0, xq)) * (ws0 * xs); if (has_row1) b3 += static_cast<float>(dp4a_u128(w1, xq)) * (ws1 * xs); }
+                if (B > 4) { uint4 xq = smem_x[4][c16]; float xs = smem_xsc[4][c64]; a4 += static_cast<float>(dp4a_u128(w0, xq)) * (ws0 * xs); if (has_row1) b4 += static_cast<float>(dp4a_u128(w1, xq)) * (ws1 * xs); }
+                if (B > 5) { uint4 xq = smem_x[5][c16]; float xs = smem_xsc[5][c64]; a5 += static_cast<float>(dp4a_u128(w0, xq)) * (ws0 * xs); if (has_row1) b5 += static_cast<float>(dp4a_u128(w1, xq)) * (ws1 * xs); }
+                if (B > 6) { uint4 xq = smem_x[6][c16]; float xs = smem_xsc[6][c64]; a6 += static_cast<float>(dp4a_u128(w0, xq)) * (ws0 * xs); if (has_row1) b6 += static_cast<float>(dp4a_u128(w1, xq)) * (ws1 * xs); }
+                if (B > 7) { uint4 xq = smem_x[7][c16]; float xs = smem_xsc[7][c64]; a7 += static_cast<float>(dp4a_u128(w0, xq)) * (ws0 * xs); if (has_row1) b7 += static_cast<float>(dp4a_u128(w1, xq)) * (ws1 * xs); }
+            }
+        }
+    }
+
+    if (!has_row0) return;
+    a0 = warp_sum(a0); b0 = warp_sum(b0);
+    a1 = warp_sum(a1); b1 = warp_sum(b1);
+    a2 = warp_sum(a2); b2 = warp_sum(b2);
+    a3 = warp_sum(a3); b3 = warp_sum(b3);
+    a4 = warp_sum(a4); b4 = warp_sum(b4);
+    a5 = warp_sum(a5); b5 = warp_sum(b5);
+    a6 = warp_sum(a6); b6 = warp_sum(b6);
+    a7 = warp_sum(a7); b7 = warp_sum(b7);
+
+    if (lane == 0) {
+        auto write_pair = [&](int t, float v0, float v1) {
+            if (t < B) {
+                float* dst = y_base + static_cast<size_t>(t) * y_stride;
+                dst[row0] = v0;
+                if (has_row1) dst[row0 + 1] = v1;
+            }
+        };
+        write_pair(0, a0, b0); write_pair(1, a1, b1);
+        write_pair(2, a2, b2); write_pair(3, a3, b3);
+        write_pair(4, a4, b4); write_pair(5, a5, b5);
+        write_pair(6, a6, b6); write_pair(7, a7, b7);
+    }
+}
+
+extern "C" __global__ void mtp_tapmix(
+    const float* __restrict__ taps,
+    int32_t tstride,
+    float a0, float a1, float a2, float a3,
+    int32_t n_floats,
+    float* __restrict__ out) {
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n_floats) return;
+    out[i] = a0 * taps[i]
+           + a1 * taps[static_cast<size_t>(tstride) + i]
+           + a2 * taps[2u * static_cast<size_t>(tstride) + i]
+           + a3 * taps[3u * static_cast<size_t>(tstride) + i];
+}
+
+extern "C" __global__ void mtp_copy_anchor(
+    const float* __restrict__ taps,   // [4, tap_cap, D]
+    int32_t tap_cap,
+    int32_t tok_idx,
+    float* __restrict__ anchor_out) { // [4, D]
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    const int j = blockIdx.y; // 0..3
+    if (i >= kD) return;
+    anchor_out[static_cast<size_t>(j) * kD + i] =
+        taps[(static_cast<size_t>(j) * tap_cap + tok_idx) * kD + i];
+}
+
+// Grid: `(8, n_toks)`, Block: `128`
+extern "C" __global__ void mtp_ctx_store(
+    const float* __restrict__ kv,               // [n_toks, 2048]
+    const uint32_t* __restrict__ knorm_bf16_p,  // [64]
+    const float* __restrict__ inv_freq64,       // [64]
+    int32_t pos0,
+    int32_t ring,                               // `0` = linear (`max_ctx`), `>0` = ring
+    uint16_t* __restrict__ kc_fp16,
+    uint16_t* __restrict__ vc_fp16) {
+    __shared__ float smem_hd[128];
+    const int h = blockIdx.x;
+    const int t = blockIdx.y;
+    const int d = threadIdx.x;
+    const int pos = pos0 + t;
+
+    float k_val = head_norm_neox_rope128(
+        kv[static_cast<size_t>(t) * 2048u + h * 128 + d],
+        knorm_bf16_p,
+        inv_freq64,
+        pos,
+        smem_hd);
+    float v_val = kv[static_cast<size_t>(t) * 2048u + 1024u + h * 128 + d];
+    const int row = (ring > 0) ? (pos % ring) : pos;
+    const size_t at = static_cast<size_t>(row) * 1024u + h * 128 + d;
+    kc_fp16[at] = f32_to_fp16_bits(k_val);
+    vc_fp16[at] = f32_to_fp16_bits(v_val);
+}
+
+// Initializes `dr_x [8, D]` (`row 0 = embed_rmsnorm(next_tok)`, `rows 1..7 = mask_embed`),
+// zeroes `dr_state [256]`, and sets `dr_res[0..2] = (next_tok, 1.0f)` in ONE CTA!
+extern "C" __global__ void mtp_init_draft(
+    const uint32_t* __restrict__ embed_bf16_pairs,
+    const uint32_t* __restrict__ embed_norm_bf16_pairs,
+    const float* __restrict__ mask_embed_f32, // [D]
+    int32_t next_tok,
+    float* __restrict__ dr_x,                 // [8, D]
+    float* __restrict__ dr_state,             // [256]
+    uint32_t* __restrict__ dr_res) {          // [16]
+    __shared__ float smem_red[8];
+    const int tid = threadIdx.x;
+    const uint32_t* row = embed_bf16_pairs + static_cast<size_t>(next_tok) * (kD / 2);
+
+    dr_state[tid] = 0.0f;
+    float sq = 0.0f;
+    for (int idx = tid; idx < kD / 2; idx += 256) {
+        uint32_t pair = row[idx];
+        float v0 = bf16_to_f32(static_cast<uint16_t>(pair & 0xFFFFu));
+        float v1 = bf16_to_f32(static_cast<uint16_t>(pair >> 16));
+        dr_x[idx * 2] = v0;
+        dr_x[idx * 2 + 1] = v1;
+        sq += v0 * v0 + v1 * v1;
+    }
+    sq = warp_sum(sq);
+    if ((tid & 31) == 0) smem_red[tid >> 5] = sq;
+    __syncthreads();
+    if (tid < 32) {
+        float bsum = (tid < 8) ? smem_red[tid] : 0.0f;
+        bsum = warp_sum(bsum);
+        if (tid == 0) smem_red[0] = ptx_rsqrt(bsum * (1.0f / static_cast<float>(kD)) + 1e-6f);
+    }
+    __syncthreads();
+    const float scale = smem_red[0];
+    for (int idx = tid; idx < kD / 2; idx += 256) {
+        uint32_t nw = embed_norm_bf16_pairs[idx];
+        dr_x[idx * 2] *= scale * bf16_to_f32(static_cast<uint16_t>(nw & 0xFFFFu));
+        dr_x[idx * 2 + 1] *= scale * bf16_to_f32(static_cast<uint16_t>(nw >> 16));
+    }
+    for (int i = tid; i < kD; i += 256) {
+        float mv = mask_embed_f32[i];
+        #pragma unroll
+        for (int r = 1; r < 8; ++r) {
+            dr_x[r * kD + i] = mv;
+        }
+    }
+    if (tid == 0) {
+        dr_res[0] = static_cast<uint32_t>(next_tok);
+        dr_res[1] = __float_as_uint(1.0f);
+    }
+}
+
+// Grid: `(32, 8)`, Block: `128`
+extern "C" __global__ void mtp_qk_norm_rope(
+    float* __restrict__ qkv,                  // [8, 5120]
+    const uint32_t* __restrict__ qn_bf16_p,   // [64]
+    const uint32_t* __restrict__ kn_bf16_p,   // [64]
+    const float* __restrict__ inv_freq64,     // [64]
+    int32_t pos0) {
+    __shared__ float smem_hd[128];
+    const int hh = blockIdx.x; // 0..31 (`0..23` = Q, `24..31` = K)
+    const int t = blockIdx.y;  // 0..7
+    const int d = threadIdx.x; // 0..127
+
+    float* p = qkv + static_cast<size_t>(t) * 5120u + ((hh < 24) ? (hh * 128) : (3072 + (hh - 24) * 128));
+    float r = head_norm_neox_rope128(
+        p[d],
+        (hh < 24) ? qn_bf16_p : kn_bf16_p,
+        inv_freq64,
+        pos0 + t,
+        smem_hd);
+    p[d] = r;
+}
+
+// Bidirectional Context (`[lo..p)`) + 8-Row Draft Block Online-Softmax GQA!
+// Grid: `(24, 8)`, Block: `256` (`8` warps/CTA, `4,672` B SMEM, `<= 40` regs!)
+extern "C" __global__ void mtp_attn(
+    const float* __restrict__ qkv,            // [8, 5120]
+    const uint16_t* __restrict__ kc_fp16,     // [cap, 1024]
+    const uint16_t* __restrict__ vc_fp16,     // [cap, 1024]
+    int32_t ring,
+    int32_t lo,
+    int32_t hi,                               // `p = ctx_end`
+    float* __restrict__ att_out) {            // [8, 3072]
+    __shared__ float smem_q[128];
+    __shared__ float smem_m[8];
+    __shared__ float smem_l[8];
+    __shared__ float smem_o[8][128];
+
+    const int h = blockIdx.x; // 0..23
+    const int t = blockIdx.y; // 0..7
+    const int kvh = h / 3;
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+
+    if (tid < 128) {
+        smem_q[tid] = qkv[static_cast<size_t>(t) * 5120u + h * 128 + tid];
+    }
+    __syncthreads();
+
+    const float q0 = smem_q[lane * 4];
+    const float q1 = smem_q[lane * 4 + 1];
+    const float q2 = smem_q[lane * 4 + 2];
+    const float q3 = smem_q[lane * 4 + 3];
+    const float scale = 0.08838834764831845f; // 1 / sqrt(128)
+
+    const int nc = hi - lo;
+    const int total_keys = nc + 8;
+
+    float m_w = -1e30f;
+    float l_w = 0.0f;
+    float o0 = 0.0f, o1 = 0.0f, o2 = 0.0f, o3 = 0.0f;
+
+    for (int j = warp_id; j < total_keys; j += 8) {
+        float k0, k1, k2, k3;
+        float v0, v1, v2, v3;
+        if (j < nc) {
+            const int cpos = lo + j;
+            const int row = (ring > 0) ? (cpos % ring) : cpos;
+            const uint64_t* kp = reinterpret_cast<const uint64_t*>(
+                kc_fp16 + static_cast<size_t>(row) * 1024u + kvh * 128);
+            const uint64_t* vp = reinterpret_cast<const uint64_t*>(
+                vc_fp16 + static_cast<size_t>(row) * 1024u + kvh * 128);
+            uint64_t kw = kp[lane];
+            uint64_t vw = vp[lane];
+            k0 = fp16_bits_to_f32(static_cast<uint16_t>(kw & 0xFFFFu));
+            k1 = fp16_bits_to_f32(static_cast<uint16_t>((kw >> 16) & 0xFFFFu));
+            k2 = fp16_bits_to_f32(static_cast<uint16_t>((kw >> 32) & 0xFFFFu));
+            k3 = fp16_bits_to_f32(static_cast<uint16_t>((kw >> 48) & 0xFFFFu));
+            v0 = fp16_bits_to_f32(static_cast<uint16_t>(vw & 0xFFFFu));
+            v1 = fp16_bits_to_f32(static_cast<uint16_t>((vw >> 16) & 0xFFFFu));
+            v2 = fp16_bits_to_f32(static_cast<uint16_t>((vw >> 32) & 0xFFFFu));
+            v3 = fp16_bits_to_f32(static_cast<uint16_t>((vw >> 48) & 0xFFFFu));
+        } else {
+            const float* b_row = qkv + static_cast<size_t>(j - nc) * 5120u;
+            const float4 kv4 = reinterpret_cast<const float4*>(b_row + 3072 + kvh * 128)[lane];
+            const float4 vv4 = reinterpret_cast<const float4*>(b_row + 4096 + kvh * 128)[lane];
+            k0 = kv4.x; k1 = kv4.y; k2 = kv4.z; k3 = kv4.w;
+            v0 = vv4.x; v1 = vv4.y; v2 = vv4.z; v3 = vv4.w;
+        }
+
+        float dot = warp_sum(q0 * k0 + q1 * k1 + q2 * k2 + q3 * k3) * scale;
+        float m_new = (dot > m_w) ? dot : m_w;
+        float alpha = (l_w > 0.0f) ? ptx_exp(m_w - m_new) : 0.0f;
+        float p = ptx_exp(dot - m_new);
+        l_w = l_w * alpha + p;
+        m_w = m_new;
+        o0 = o0 * alpha + p * v0;
+        o1 = o1 * alpha + p * v1;
+        o2 = o2 * alpha + p * v2;
+        o3 = o3 * alpha + p * v3;
+    }
+
+    if (lane == 0) {
+        smem_m[warp_id] = m_w;
+        smem_l[warp_id] = l_w;
+    }
+    smem_o[warp_id][lane * 4] = o0;
+    smem_o[warp_id][lane * 4 + 1] = o1;
+    smem_o[warp_id][lane * 4 + 2] = o2;
+    smem_o[warp_id][lane * 4 + 3] = o3;
+    __syncthreads();
+
+    if (tid < 128) {
+        float m_max = smem_m[0];
+        #pragma unroll
+        for (int w = 1; w < 8; ++w) {
+            if (smem_m[w] > m_max) m_max = smem_m[w];
+        }
+        float denom = 0.0f;
+        float sum_d = 0.0f;
+        #pragma unroll
+        for (int w = 0; w < 8; ++w) {
+            float s = (smem_l[w] > 0.0f) ? ptx_exp(smem_m[w] - m_max) : 0.0f;
+            denom += smem_l[w] * s;
+            sum_d += smem_o[w][tid] * s;
+        }
+        att_out[static_cast<size_t>(t) * 3072u + h * 128 + tid] = sum_d * ptx_rcp(fmaxf(denom, 1e-20f));
+    }
+}
+
+extern "C" __global__ void mtp_add_inplace(
+    float* __restrict__ x,
+    const float* __restrict__ o,
+    int32_t n) {
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) x[i] += o[i];
+}
+
+extern "C" __global__ void mtp_silu_mul(
+    const float* __restrict__ gu, // [8, 18432]
+    float* __restrict__ act) {    // [8, 9216]
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= 8 * 9216) return;
+    const int t = i / 9216;
+    const int j = i - t * 9216;
+    const float g = gu[static_cast<size_t>(t) * 18432u + j];
+    const float u = gu[static_cast<size_t>(t) * 18432u + 9216u + j];
+    act[i] = (g * ptx_sigmoid(g)) * u;
+}
+
+extern "C" __global__ void mtp_concat_frnn(
+    const float* __restrict__ hidden_rows1_7, // [7, 2304]
+    const float* __restrict__ frnn,           // [2304]
+    float* __restrict__ x2_out) {             // [7, 4608]
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= 7 * 4608) return;
+    const int t = i / 4608;
+    const int j = i - t * 4608;
+    x2_out[i] = (j < kD) ? hidden_rows1_7[static_cast<size_t>(t) * kD + j] : frnn[j - kD];
+}
+
+extern "C" __global__ void mtp_add_bias_rows(
+    float* __restrict__ y,
+    const float* __restrict__ bias,
+    int32_t cols,
+    int32_t total) {
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < total) y[i] += bias[i % cols];
+}
+
+// Markov RNN Step Part 1 (`Grid (96, 1)`, `Block 256`):
+// `raw = ctxm + J01 @ [state; w1[prev]]` (`w1` read via 32-bit `uint32_t` pairs!)
+extern "C" __global__ void mtp_markov_raw(
+    const float* __restrict__ ctxm_row,           // [768]
+    const float* __restrict__ j01,                // [768, 512]
+    const uint32_t* __restrict__ w1_bf16_pairs,   // [201024, 128]
+    const float* __restrict__ state,              // [256]
+    const int32_t* __restrict__ prev_tok_ptr,
+    float* __restrict__ raw_out,                  // [768]
+    const float* __restrict__ cum_ptr) {
+    if (*cum_ptr < 0.0f) return;
+    __shared__ float smem_in[512];
+
+    const int tid = threadIdx.x; // 0..255
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int o = blockIdx.x * 8 + warp_id;
+
+    smem_in[tid] = state[tid];
+    if (tid < 128) {
+        const size_t base = static_cast<size_t>(*prev_tok_ptr) * 128u;
+        uint32_t pair = w1_bf16_pairs[base + tid];
+        smem_in[256 + tid * 2] = bf16_to_f32(static_cast<uint16_t>(pair & 0xFFFFu));
+        smem_in[256 + tid * 2 + 1] = bf16_to_f32(static_cast<uint16_t>(pair >> 16));
+    }
+    __syncthreads();
+
+    const float* j_row = j01 + static_cast<size_t>(o) * 512u;
+    float s = 0.0f;
+    #pragma unroll
+    for (int k = lane; k < 512; k += 32) {
+        s += j_row[k] * smem_in[k];
+    }
+    s = warp_sum(s);
+    if (lane == 0) {
+        raw_out[o] = s + ctxm_row[o];
+    }
+}
+
+// Markov RNN Step Part 2 + Fused `Q8_64` Quantization of `lat [256]` (`Grid (1, 1)`, `Block 256`)!
+extern "C" __global__ void mtp_markov_step_q8(
+    const float* __restrict__ raw,     // [768]
+    float* __restrict__ state,         // [256]
+    uint32_t* __restrict__ lat_q8_u32, // [64] (`256` i8)
+    float* __restrict__ lat_sc64,      // [4]
+    const float* __restrict__ cum_ptr) {
+    if (*cum_ptr < 0.0f) return;
+    __shared__ float smem_lat[256];
+
+    const int tid = threadIdx.x; // 0..255
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+
+    float gate = ptx_sigmoid(raw[tid]);
+    state[tid] = gate * state[tid] + (1.0f - gate) * ptx_tanh(raw[256 + tid]);
+    smem_lat[tid] = ptx_tanh(raw[512 + tid]);
+    __syncthreads();
+
+    if (warp_id < 4) {
+        float y0 = smem_lat[warp_id * 64 + lane * 2];
+        float y1 = smem_lat[warp_id * 64 + lane * 2 + 1];
+        float amax = fmaxf(fabsf(y0), fabsf(y1));
+        #pragma unroll
+        for (int mask = 16; mask > 0; mask >>= 1) {
+            amax = fmaxf(amax, __shfl_xor_sync(0xFFFFFFFFu, amax, mask));
+        }
+        float inv = (amax > 0.0f) ? (127.0f * ptx_rcp(amax)) : 0.0f;
+        int q0 = __float2int_rn(y0 * inv);
+        int q1 = __float2int_rn(y1 * inv);
+        if (q0 < -127) q0 = -127;
+        if (q0 > 127) q0 = 127;
+        if (q1 < -127) q1 = -127;
+        if (q1 > 127) q1 = 127;
+        uint32_t pair16 = static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q0)))
+            | (static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q1))) << 8);
+        uint32_t pack32 = pair16 | (__shfl_xor_sync(0xFFFFFFFFu, pair16, 1) << 16);
+        if ((lane & 1) == 0) {
+            lat_q8_u32[warp_id * 16 + (lane >> 1)] = pack32;
+        }
+        if (lane == 0) {
+            lat_sc64[warp_id] = amax * (1.0f / 127.0f);
+        }
+    }
+}
+
+// Planar `Q8_64` `__dp4a` Markov Fold Head (`Grid (ceil(VOCAB / 64), 1)`, `Block 256`):
+// 4 lanes per vocab row (`64` cols/lane x `4` = `256` cols), softcap `30.0`, block max + sum_exp!
+extern "C" __global__ void mtp_fold_mv_q8(
+    const uint4* __restrict__ fold_q8_u128, // [VOCAB, 16]
+    const float* __restrict__ fold_sc64,    // [VOCAB, 4]
+    const uint4* __restrict__ lat_q8_u128,  // [16]
+    const float* __restrict__ lat_sc64,     // [4]
+    const float* __restrict__ fold_b,       // [VOCAB]
+    const float* __restrict__ base_logits,  // [VOCAB]
+    float* __restrict__ part_out,           // [nb, 3]
+    const float* __restrict__ cum_ptr) {
+    if (*cum_ptr < 0.0f) return;
+    __shared__ uint4 smem_lq[16];
+    __shared__ float smem_lsc[4];
+    __shared__ float smem_bv[8];
+    __shared__ float smem_bz[8];
+    __shared__ int smem_bi[8];
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    if (tid < 16) smem_lq[tid] = lat_q8_u128[tid];
+    if (tid < 4) smem_lsc[tid] = lat_sc64[tid];
+    __syncthreads();
+
+    const int q = lane & 3;
+    const int r = (blockIdx.x * 8 + warp_id) * 8 + (lane >> 2);
+    float s = 0.0f;
+    if (r < kVocab) {
+        const uint4* wr = fold_q8_u128 + static_cast<size_t>(r) * 16u + q * 4;
+        int d = dp4a_u128(wr[0], smem_lq[q * 4]);
+        d += dp4a_u128(wr[1], smem_lq[q * 4 + 1]);
+        d += dp4a_u128(wr[2], smem_lq[q * 4 + 2]);
+        d += dp4a_u128(wr[3], smem_lq[q * 4 + 3]);
+        s = static_cast<float>(d) * (fold_sc64[static_cast<size_t>(r) * 4u + q] * smem_lsc[q]);
+    }
+    s += __shfl_xor_sync(0xFFFFFFFFu, s, 1);
+    s += __shfl_xor_sync(0xFFFFFFFFu, s, 2);
+
+    float v = (r < kVocab && q == 0)
+        ? (30.0f * ptx_tanh((s + fold_b[r] + base_logits[r]) * (1.0f / 30.0f)))
+        : -1e30f;
+    float m = v;
+    int mi = r;
+    #pragma unroll
+    for (int mask = 16; mask > 0; mask >>= 1) {
+        float v2 = __shfl_xor_sync(0xFFFFFFFFu, m, mask);
+        int i2 = __shfl_xor_sync(0xFFFFFFFFu, mi, mask);
+        if (v2 > m || (v2 == m && i2 < mi)) {
+            m = v2;
+            mi = i2;
+        }
+    }
+    if (lane == 0) {
+        smem_bv[warp_id] = m;
+        smem_bi[warp_id] = mi;
+    }
+    __syncthreads();
+
+    m = smem_bv[0];
+    mi = smem_bi[0];
+    #pragma unroll
+    for (int k = 1; k < 8; ++k) {
+        if (smem_bv[k] > m || (smem_bv[k] == m && smem_bi[k] < mi)) {
+            m = smem_bv[k];
+            mi = smem_bi[k];
+        }
+    }
+    float z = (r < kVocab && q == 0) ? ptx_exp(v - m) : 0.0f;
+    z = warp_sum(z);
+    if (lane == 0) smem_bz[warp_id] = z;
+    __syncthreads();
+
+    if (tid == 0) {
+        float zs = 0.0f;
+        #pragma unroll
+        for (int k = 0; k < 8; ++k) zs += smem_bz[k];
+        part_out[blockIdx.x * 3] = m;
+        part_out[blockIdx.x * 3 + 1] = __int_as_float(mi);
+        part_out[blockIdx.x * 3 + 2] = zs;
+    }
+}
+
+extern "C" __global__ void mtp_fold_fin(
+    const float* __restrict__ part, // [nb, 3]
+    int32_t nb,
+    int32_t* __restrict__ best_out,
+    float* __restrict__ sumexp_out,
+    float* __restrict__ cum_inout,
+    float tau,
+    int32_t is_last) {
+    if (*cum_inout < 0.0f) return;
+    __shared__ float smem_bv[8];
+    __shared__ int smem_bi[8];
+    __shared__ float smem_z[8];
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+
+    float v = -1e30f;
+    int idx = 0x7fffffff;
+    for (int b = tid; b < nb; b += 256) {
+        float v2 = part[b * 3];
+        int i2 = __float_as_int(part[b * 3 + 1]);
+        if (v2 > v || (v2 == v && i2 < idx)) {
+            v = v2;
+            idx = i2;
+        }
+    }
+    #pragma unroll
+    for (int mask = 16; mask > 0; mask >>= 1) {
+        float v2 = __shfl_xor_sync(0xFFFFFFFFu, v, mask);
+        int i2 = __shfl_xor_sync(0xFFFFFFFFu, idx, mask);
+        if (v2 > v || (v2 == v && i2 < idx)) {
+            v = v2;
+            idx = i2;
+        }
+    }
+    if (lane == 0) {
+        smem_bv[warp_id] = v;
+        smem_bi[warp_id] = idx;
+    }
+    __syncthreads();
+
+    v = smem_bv[0];
+    idx = smem_bi[0];
+    #pragma unroll
+    for (int w = 1; w < 8; ++w) {
+        if (smem_bv[w] > v || (smem_bv[w] == v && smem_bi[w] < idx)) {
+            v = smem_bv[w];
+            idx = smem_bi[w];
+        }
+    }
+    float z = 0.0f;
+    for (int b = tid; b < nb; b += 256) {
+        z += part[b * 3 + 2] * ptx_exp(part[b * 3] - v);
+    }
+    z = warp_sum(z);
+    if (lane == 0) smem_z[warp_id] = z;
+    __syncthreads();
+
+    if (tid == 0) {
+        float total_z = 0.0f;
+        #pragma unroll
+        for (int w = 0; w < 8; ++w) total_z += smem_z[w];
+        float c = (*cum_inout) * ptx_rcp(fmaxf(total_z, 1.0f));
+        *best_out = idx;
+        *sumexp_out = total_z;
+        *cum_inout = (c < tau || is_last) ? -1.0f : c;
     }
 }
