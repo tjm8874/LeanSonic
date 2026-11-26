@@ -204,6 +204,18 @@ struct KernelFns {
     mtp_markov_step_q8: CUfunction,
     mtp_fold_mv_q8: CUfunction,
     mtp_fold_fin: CUfunction,
+    // v0.6.0 0-ULP fused glue & coalesced controller kernels (`Issue #11`)
+    depth_mix_rmsnorm_quant_q8_64_b: Option<CUfunction>,
+    depth_mix_rmsnorm_d_quant_q8_16_b: Option<CUfunction>,
+    rmsnorm_d_quant_q8_16_b: Option<CUfunction>,
+    ctrl_apply_coalesced_b: Option<CUfunction>,
+    gqa_rel_sink_attn_q8_b: Option<CUfunction>,
+    gqa_attn_combine_q8: Option<CUfunction>,
+    short_conv4_save: Option<CUfunction>,
+    short_conv4_save_b: Option<CUfunction>,
+    loop_pass_setup_b: Option<CUfunction>,
+    q8_dp4a_qkv3_gemv: Option<CUfunction>,
+    short_conv4_kv2: Option<CUfunction>,
 }
 
 unsafe impl Send for KernelFns {}
@@ -217,6 +229,7 @@ pub struct Inkling2GpuEngine {
     final_norm: DeviceBuf,
     unembed_q8: PlanarQ8Gpu,
     output_query: DeviceBuf,
+    d_all_msg_queries: DeviceBuf,
     layers: Vec<LayerGpu>,
     expert_weights: Vec<[TierBuf; 2]>,
     slots: Vec<SlotStateGpu>,
@@ -307,6 +320,8 @@ pub struct Inkling2GpuEngine {
     prefill_graph: Option<CapturedGraphExec>,
     pub enable_cuda_graph: bool,
 }
+
+unsafe impl Send for Inkling2GpuEngine {}
 
 #[inline]
 fn bf16_to_f32(b: u16) -> f32 {
@@ -603,6 +618,22 @@ impl Inkling2GpuEngine {
                 &[24, D],
             )
             .as_f32_slice();
+
+        let mut all_mq_bytes = Vec::with_capacity(12 * 4 * D * 4);
+        for j in 0..12 {
+            let rows = [
+                &cross_q[2 * j * D..(2 * j + 1) * D],
+                &cross_kvq[2 * j * D..(2 * j + 1) * D],
+                &cross_kvq[(2 * j + 1) * D..(2 * j + 2) * D],
+                &cross_q[(2 * j + 1) * D..(2 * j + 2) * D],
+            ];
+            for r in rows {
+                for &f in r {
+                    all_mq_bytes.extend_from_slice(&f.to_le_bytes());
+                }
+            }
+        }
+        let d_all_msg_queries = DeviceBuf::from_host_bytes(&ctx, &all_mq_bytes)?;
 
         let mut layers = Vec::with_capacity(N_LAYER);
         let mut expert_views = Vec::with_capacity(N_LAYER);
@@ -1026,7 +1057,7 @@ impl Inkling2GpuEngine {
             d_blocks: DeviceBuf::alloc_zeroed(&ctx, 6 * D * 4)?,
             d_prelude_block0: DeviceBuf::alloc_zeroed(&ctx, D * 4)?,
             d_bank: DeviceBuf::alloc_zeroed(&ctx, 2 * D * 4)?,
-            d_msgs: DeviceBuf::alloc_zeroed(&ctx, 4 * D * 4)?,
+            d_msgs: DeviceBuf::alloc_zeroed(&ctx, 48 * D * 4)?,
             d_inputs: DeviceBuf::alloc_zeroed(&ctx, 3 * D * 4)?,
             d_ctrl_g: DeviceBuf::alloc_zeroed(&ctx, 3 * RANK * 4)?,
             d_qrgs: DeviceBuf::alloc_zeroed(&ctx, SWA_ALL_ROWS * 4)?,
@@ -1069,7 +1100,10 @@ impl Inkling2GpuEngine {
             d_b_blocks: DeviceBuf::alloc_zeroed(&ctx, 6 * MAX_BATCH_TOKENS * D * 4)?,
             d_b_prelude_block0: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * D * 4)?,
             d_b_bank: DeviceBuf::alloc_zeroed(&ctx, 2 * MAX_BATCH_TOKENS * D * 4)?,
-            d_b_msgs: DeviceBuf::alloc_zeroed(&ctx, 4 * MAX_BATCH_TOKENS * D * 4)?,
+            d_b_msgs: DeviceBuf::alloc_zeroed(
+                &ctx,
+                (48 * MAX_SPEC_TOKENS).max(4 * MAX_BATCH_TOKENS) * D * 4,
+            )?,
             d_b_inputs: DeviceBuf::alloc_zeroed(&ctx, 3 * MAX_BATCH_TOKENS * D * 4)?,
             d_b_ctrl_g: DeviceBuf::alloc_zeroed(&ctx, 3 * MAX_BATCH_TOKENS * RANK * 4)?,
             d_b_qrgs: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * SWA_ALL_ROWS * 4)?,
@@ -1111,6 +1145,7 @@ impl Inkling2GpuEngine {
             final_norm,
             unembed_q8,
             output_query,
+            d_all_msg_queries,
             layers,
             slots,
             expert_weights: Vec::with_capacity(N_LAYER),
@@ -1296,6 +1331,18 @@ impl Inkling2GpuEngine {
             mtp_markov_step_q8: get_fn("mtp_markov_step_q8")?,
             mtp_fold_mv_q8: get_fn("mtp_fold_mv_q8")?,
             mtp_fold_fin: get_fn("mtp_fold_fin")?,
+            depth_mix_rmsnorm_quant_q8_64_b: get_fn("ink2_depth_mix_rmsnorm_quant_q8_64_b").ok(),
+            depth_mix_rmsnorm_d_quant_q8_16_b: get_fn("ink2_depth_mix_rmsnorm_d_quant_q8_16_b")
+                .ok(),
+            rmsnorm_d_quant_q8_16_b: get_fn("ink2_rmsnorm_d_quant_q8_16_b").ok(),
+            ctrl_apply_coalesced_b: get_fn("ink2_ctrl_apply_coalesced_b").ok(),
+            gqa_rel_sink_attn_q8_b: get_fn("ink2_gqa_rel_sink_attn_q8_b").ok(),
+            gqa_attn_combine_q8: get_fn("ink2_gqa_attn_combine_q8").ok(),
+            short_conv4_save: get_fn("ink2_short_conv4_save").ok(),
+            short_conv4_save_b: get_fn("ink2_short_conv4_save_b").ok(),
+            loop_pass_setup_b: get_fn("ink2_loop_pass_setup_b").ok(),
+            q8_dp4a_qkv3_gemv: get_fn("ink2_q8_dp4a_qkv3_gemv").ok(),
+            short_conv4_kv2: get_fn("ink2_short_conv4_kv2").ok(),
         })
     }
 
@@ -1394,14 +1441,27 @@ impl Inkling2GpuEngine {
 
         let mut p_gain = ctrl.gain.ptr;
         let mut p_forget = ctrl.forget.ptr;
-        let mut args2: [*mut c_void; 5] = [
-            (&mut p_cur as *mut _) as *mut c_void,
-            (&mut p_msg as *mut _) as *mut c_void,
-            (&mut p_g as *mut _) as *mut c_void,
-            (&mut p_gain as *mut _) as *mut c_void,
-            (&mut p_forget as *mut _) as *mut c_void,
-        ];
-        self.launch(stream, self.fns.ctrl_apply, (9, n_ctrls), 256, &mut args2)
+        if let Some(f_coal) = self.fns.ctrl_apply_coalesced_b {
+            let mut b_one = 1i32;
+            let mut args2: [*mut c_void; 6] = [
+                (&mut p_cur as *mut _) as *mut c_void,
+                (&mut p_msg as *mut _) as *mut c_void,
+                (&mut p_g as *mut _) as *mut c_void,
+                (&mut p_gain as *mut _) as *mut c_void,
+                (&mut p_forget as *mut _) as *mut c_void,
+                (&mut b_one as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, f_coal, (36, n_ctrls), 64, &mut args2)
+        } else {
+            let mut args2: [*mut c_void; 5] = [
+                (&mut p_cur as *mut _) as *mut c_void,
+                (&mut p_msg as *mut _) as *mut c_void,
+                (&mut p_g as *mut _) as *mut c_void,
+                (&mut p_gain as *mut _) as *mut c_void,
+                (&mut p_forget as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, self.fns.ctrl_apply, (9, n_ctrls), 256, &mut args2)
+        }
     }
 
     fn enqueue_rmsnorm_quant_q8_64(
@@ -1563,7 +1623,7 @@ impl Inkling2GpuEngine {
             (&mut c as *mut _) as *mut c_void,
             (&mut sc as *mut _) as *mut c_void,
         ];
-        // 16 rows per 256-thread CTA (2 rows/warp = 38 regs <= 42 SM120 full occupancy!)
+        // 16 rows per 256-thread CTA (2 rows/warp = 38 regs <= 42 SM120 full occupancy, 16x SMEM reuse!)
         let grid_x = (rows as u32).div_ceil(16);
         self.launch(stream, self.fns.q8_dp4a_gemv, (grid_x, 1), 256, &mut args)
     }
@@ -1580,6 +1640,8 @@ impl Inkling2GpuEngine {
         kv_cap: i32,
         is_global: i32,
         attn_out_ptr: CUdeviceptr,
+        out_q8_ptr: CUdeviceptr,
+        out_sc64_ptr: CUdeviceptr,
         b_len: usize,
     ) -> Result<(), String> {
         let mut pqrgs = qrgs_ptr;
@@ -1613,22 +1675,42 @@ impl Inkling2GpuEngine {
             &mut split_args,
         )?;
         let mut gi = self.attn_split_g as i32;
-        let mut pout = attn_out_ptr;
-        let mut comb_args: [*mut c_void; 6] = [
-            (&mut pml as *mut _) as *mut c_void,
-            (&mut po as *mut _) as *mut c_void,
-            (&mut pqrgs as *mut _) as *mut c_void,
-            (&mut qstride as *mut _) as *mut c_void,
-            (&mut gi as *mut _) as *mut c_void,
-            (&mut pout as *mut _) as *mut c_void,
-        ];
-        self.launch(
-            stream,
-            self.fns.gqa_attn_combine.unwrap(),
-            (24, b_len as u32),
-            128,
-            &mut comb_args,
-        )
+        if let Some(f_comb_q8) = self.fns.gqa_attn_combine_q8 {
+            let mut pq8 = out_q8_ptr;
+            let mut psc = out_sc64_ptr;
+            let mut comb_args: [*mut c_void; 7] = [
+                (&mut pml as *mut _) as *mut c_void,
+                (&mut po as *mut _) as *mut c_void,
+                (&mut pqrgs as *mut _) as *mut c_void,
+                (&mut qstride as *mut _) as *mut c_void,
+                (&mut gi as *mut _) as *mut c_void,
+                (&mut pq8 as *mut _) as *mut c_void,
+                (&mut psc as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, f_comb_q8, (24, b_len as u32), 128, &mut comb_args)
+        } else {
+            let mut pout = attn_out_ptr;
+            let mut comb_args: [*mut c_void; 6] = [
+                (&mut pml as *mut _) as *mut c_void,
+                (&mut po as *mut _) as *mut c_void,
+                (&mut pqrgs as *mut _) as *mut c_void,
+                (&mut qstride as *mut _) as *mut c_void,
+                (&mut gi as *mut _) as *mut c_void,
+                (&mut pout as *mut _) as *mut c_void,
+            ];
+            self.launch(
+                stream,
+                self.fns.gqa_attn_combine.unwrap(),
+                (24, b_len as u32),
+                128,
+                &mut comb_args,
+            )?;
+            if b_len == 1 {
+                self.enqueue_quant_q8_64(stream, attn_out_ptr, 3072)
+            } else {
+                self.enqueue_quant_q8_64_b(stream, attn_out_ptr, 3072, b_len)
+            }
+        }
     }
 
     fn enqueue_visit(
@@ -1637,14 +1719,77 @@ impl Inkling2GpuEngine {
         il: usize,
         slot_idx: usize,
         n_blocks: &mut usize,
-        has_msgs: bool,
+        msg_base_ptr: CUdeviceptr,
     ) -> Result<(), String> {
         let l = &self.layers[il];
         let st = &self.slots[slot_idx];
         let d_bytes = (D * 4) as u64;
+        let has_msgs = msg_base_ptr != 0;
+        let distinct_k_v = l.global || has_msgs;
+        let norm_count: u32 = if distinct_k_v { 3 } else { 1 };
 
-        // 1. Attention inputs `[xq, xk, xv]` (`broadcast3` eliminates extra `copy_d` launches!)
-        if let Some(ref aq) = l.attn_query {
+        // 1–3. Attention inputs `[xq, xk, xv]` + optional Loop Controller + `RMSNorm + Q8_64 Quant`!
+        if !has_msgs {
+            if let Some(ref aq) = l.attn_query {
+                let n_q: u32 = if l.global { 3 } else { 1 };
+                if let Some(f_fused) = self.fns.depth_mix_rmsnorm_quant_q8_64_b {
+                    let mut pb = self.d_blocks.ptr;
+                    let mut nb = *n_blocks as i32;
+                    let mut sb = 1i32;
+                    let mut bo = 0i32;
+                    let mut bout = 1i32;
+                    let mut pc = self.d_cur.ptr;
+                    let mut ac = 1i32;
+                    let mut pq = aq.ptr;
+                    let mut pg = l.norms_packed.ptr;
+                    let mut pq8 = self.d_act_q8_64.ptr;
+                    let mut psc = self.d_act_sc_64.ptr;
+                    let mut args: [*mut c_void; 11] = [
+                        (&mut pb as *mut _) as *mut c_void,
+                        (&mut nb as *mut _) as *mut c_void,
+                        (&mut sb as *mut _) as *mut c_void,
+                        (&mut bo as *mut _) as *mut c_void,
+                        (&mut bout as *mut _) as *mut c_void,
+                        (&mut pc as *mut _) as *mut c_void,
+                        (&mut ac as *mut _) as *mut c_void,
+                        (&mut pq as *mut _) as *mut c_void,
+                        (&mut pg as *mut _) as *mut c_void,
+                        (&mut pq8 as *mut _) as *mut c_void,
+                        (&mut psc as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, f_fused, (n_q, 1), 256, &mut args)?;
+                } else {
+                    let mut pb = self.d_blocks.ptr;
+                    let mut nb = *n_blocks as i32;
+                    let mut pc = self.d_cur.ptr;
+                    let mut ac = 1i32;
+                    let mut pq = aq.ptr;
+                    let mut pout = self.d_inputs.ptr;
+                    let mut b3 = 0i32;
+                    let mut args: [*mut c_void; 7] = [
+                        (&mut pb as *mut _) as *mut c_void,
+                        (&mut nb as *mut _) as *mut c_void,
+                        (&mut pc as *mut _) as *mut c_void,
+                        (&mut ac as *mut _) as *mut c_void,
+                        (&mut pq as *mut _) as *mut c_void,
+                        (&mut pout as *mut _) as *mut c_void,
+                        (&mut b3 as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, self.fns.depth_mix, (n_q, 1), 256, &mut args)?;
+                    self.enqueue_rmsnorm_quant_q8_64(
+                        stream,
+                        self.d_inputs.ptr,
+                        l.norms_packed.ptr,
+                        norm_count,
+                    )?;
+                }
+            } else {
+                // Layer 0 (`il == 0`): `!l.global && !has_msgs`, quantize `d_cur` directly (`0` `copy_d` launches!)
+                debug_assert!(!distinct_k_v);
+                self.enqueue_rmsnorm_quant_q8_64(stream, self.d_cur.ptr, l.norms_packed.ptr, 1)?;
+            }
+        } else {
+            let aq = l.attn_query.as_ref().unwrap();
             let n_q: u32 = if l.global { 3 } else { 1 };
             let mut pb = self.d_blocks.ptr;
             let mut nb = *n_blocks as i32;
@@ -1652,7 +1797,7 @@ impl Inkling2GpuEngine {
             let mut ac = 1i32;
             let mut pq = aq.ptr;
             let mut pout = self.d_inputs.ptr;
-            let mut b3 = i32::from(!l.global && has_msgs);
+            let mut b3 = i32::from(!l.global);
             let mut args: [*mut c_void; 7] = [
                 (&mut pb as *mut _) as *mut c_void,
                 (&mut nb as *mut _) as *mut c_void,
@@ -1663,34 +1808,20 @@ impl Inkling2GpuEngine {
                 (&mut b3 as *mut _) as *mut c_void,
             ];
             self.launch(stream, self.fns.depth_mix, (n_q, 1), 256, &mut args)?;
-        } else {
-            self.enqueue_copy_d(stream, self.d_cur.ptr, self.d_inputs.ptr)?;
-            if l.global || has_msgs {
-                self.enqueue_copy_d(stream, self.d_cur.ptr, self.d_inputs.ptr + d_bytes)?;
-                self.enqueue_copy_d(stream, self.d_cur.ptr, self.d_inputs.ptr + 2 * d_bytes)?;
-            }
-        }
-
-        // 2. Batched Loop Core Controller (`pass > 0`) on ALL 3 `inputs[0..3]` in ONE launch pair!
-        if has_msgs {
             self.enqueue_ctrl_n(
                 stream,
                 self.d_inputs.ptr,
-                self.d_msgs.ptr,
+                msg_base_ptr,
                 l.ctrl3.as_ref().unwrap(),
                 3,
             )?;
+            self.enqueue_rmsnorm_quant_q8_64(
+                stream,
+                self.d_inputs.ptr,
+                l.norms_packed.ptr,
+                norm_count,
+            )?;
         }
-
-        // 3. Fused Batched Input `RMSNorm + Q8_64 Quant` + Planar `Q8_64` `__dp4a` Projections!
-        let distinct_k_v = l.global || has_msgs;
-        let norm_count: u32 = if distinct_k_v { 3 } else { 1 };
-        self.enqueue_rmsnorm_quant_q8_64(
-            stream,
-            self.d_inputs.ptr,
-            l.norms_packed.ptr,
-            norm_count,
-        )?;
 
         let k_raw_ptr: CUdeviceptr;
         let v_raw_ptr: CUdeviceptr;
@@ -1707,6 +1838,64 @@ impl Inkling2GpuEngine {
             )?;
             k_raw_ptr = self.d_qrgs.ptr + (SWA_K_OFFSET as u64) * 4;
             v_raw_ptr = self.d_qrgs.ptr + (SWA_V_OFFSET as u64) * 4;
+        } else if let Some(f_qkv3) = self.fns.q8_dp4a_qkv3_gemv {
+            let (wk_codes, wk_sc, rk, wv_codes, wv_sc, rv) = if l.global {
+                let wk = l.wk_glob_q8.as_ref().unwrap();
+                let wv = l.wv_glob_q8.as_ref().unwrap();
+                (
+                    wk.codes.ptr,
+                    wk.scales64.ptr,
+                    1056i32,
+                    wv.codes.ptr,
+                    wv.scales64.ptr,
+                    1056i32,
+                )
+            } else {
+                (
+                    l.wq_all_q8.codes.ptr + (SWA_K_OFFSET * D) as u64,
+                    l.wq_all_q8.scales64.ptr + (SWA_K_OFFSET * (D / 64) * 4) as u64,
+                    1024i32,
+                    l.wq_all_q8.codes.ptr + (SWA_V_OFFSET * D) as u64,
+                    l.wq_all_q8.scales64.ptr + (SWA_V_OFFSET * (D / 64) * 4) as u64,
+                    1024i32,
+                )
+            };
+            let mut pwq = l.wq_all_q8.codes.ptr;
+            let mut pwqs = l.wq_all_q8.scales64.ptr;
+            let mut rq = QRGS_ROWS as i32;
+            let mut pyq = self.d_qrgs.ptr;
+            let mut pwk = wk_codes;
+            let mut pwks = wk_sc;
+            let mut rk_mut = rk;
+            let mut pyk = self.d_k_raw.ptr;
+            let mut pwv = wv_codes;
+            let mut pwvs = wv_sc;
+            let mut rv_mut = rv;
+            let mut pyv = self.d_v_raw.ptr;
+            let mut px = self.d_act_q8_64.ptr;
+            let mut pxs = self.d_act_sc_64.ptr;
+            let mut args: [*mut c_void; 14] = [
+                (&mut pwq as *mut _) as *mut c_void,
+                (&mut pwqs as *mut _) as *mut c_void,
+                (&mut rq as *mut _) as *mut c_void,
+                (&mut pyq as *mut _) as *mut c_void,
+                (&mut pwk as *mut _) as *mut c_void,
+                (&mut pwks as *mut _) as *mut c_void,
+                (&mut rk_mut as *mut _) as *mut c_void,
+                (&mut pyk as *mut _) as *mut c_void,
+                (&mut pwv as *mut _) as *mut c_void,
+                (&mut pwvs as *mut _) as *mut c_void,
+                (&mut rv_mut as *mut _) as *mut c_void,
+                (&mut pyv as *mut _) as *mut c_void,
+                (&mut px as *mut _) as *mut c_void,
+                (&mut pxs as *mut _) as *mut c_void,
+            ];
+            let grid_x = (QRGS_ROWS as u32).div_ceil(16)
+                + (rk as u32).div_ceil(16)
+                + (rv as u32).div_ceil(16);
+            self.launch(stream, f_qkv3, (grid_x, 1), 256, &mut args)?;
+            k_raw_ptr = self.d_k_raw.ptr;
+            v_raw_ptr = self.d_v_raw.ptr;
         } else if l.global {
             self.enqueue_q8_gemv_slice_at(
                 stream,
@@ -1769,32 +1958,60 @@ impl Inkling2GpuEngine {
             v_raw_ptr = self.d_v_raw.ptr;
         }
 
-        // 5. K & V Short-Conv4
-        for (raw_ptr, conv_w, hist_ptr, dst_ptr) in [
-            (k_raw_ptr, l.k_conv4.ptr, st.hist_k, self.d_k_conv.ptr),
-            (v_raw_ptr, l.v_conv4.ptr, st.hist_v, self.d_v_conv.ptr),
-        ] {
-            let mut p_cur = raw_ptr;
-            let mut p_w = conv_w;
-            let mut p_dyn = if l.global { raw_ptr + 1024 * 4 } else { 0 };
-            let mut p_hist = hist_ptr;
-            let mut p_out = dst_ptr;
-            let mut p_res: CUdeviceptr = 0;
-            let mut ch = 1024i32;
+        // 5. K & V Short-Conv4 (fused `(4, 2)` launch when `short_conv4_kv2` is available!)
+        if let Some(f_kv2) = self.fns.short_conv4_kv2 {
+            let mut pk = k_raw_ptr;
+            let mut pwk = l.k_conv4.ptr;
+            let mut pdk = if l.global { k_raw_ptr + 1024 * 4 } else { 0 };
+            let mut phk = st.hist_k;
+            let mut pok = self.d_k_conv.ptr;
+            let mut pv = v_raw_ptr;
+            let mut pwv = l.v_conv4.ptr;
+            let mut pdv = if l.global { v_raw_ptr + 1024 * 4 } else { 0 };
+            let mut phv = st.hist_v;
+            let mut pov = self.d_v_conv.ptr;
             let mut hd = i32::from(l.global);
-            let mut dr = 0i32;
-            let mut args: [*mut c_void; 9] = [
-                (&mut p_cur as *mut _) as *mut c_void,
-                (&mut p_w as *mut _) as *mut c_void,
-                (&mut p_dyn as *mut _) as *mut c_void,
-                (&mut p_hist as *mut _) as *mut c_void,
-                (&mut p_out as *mut _) as *mut c_void,
-                (&mut p_res as *mut _) as *mut c_void,
-                (&mut ch as *mut _) as *mut c_void,
+            let mut args: [*mut c_void; 11] = [
+                (&mut pk as *mut _) as *mut c_void,
+                (&mut pwk as *mut _) as *mut c_void,
+                (&mut pdk as *mut _) as *mut c_void,
+                (&mut phk as *mut _) as *mut c_void,
+                (&mut pok as *mut _) as *mut c_void,
+                (&mut pv as *mut _) as *mut c_void,
+                (&mut pwv as *mut _) as *mut c_void,
+                (&mut pdv as *mut _) as *mut c_void,
+                (&mut phv as *mut _) as *mut c_void,
+                (&mut pov as *mut _) as *mut c_void,
                 (&mut hd as *mut _) as *mut c_void,
-                (&mut dr as *mut _) as *mut c_void,
             ];
-            self.launch(stream, self.fns.short_conv4, (4, 1), 256, &mut args)?;
+            self.launch(stream, f_kv2, (4, 2), 256, &mut args)?;
+        } else {
+            for (raw_ptr, conv_w, hist_ptr, dst_ptr) in [
+                (k_raw_ptr, l.k_conv4.ptr, st.hist_k, self.d_k_conv.ptr),
+                (v_raw_ptr, l.v_conv4.ptr, st.hist_v, self.d_v_conv.ptr),
+            ] {
+                let mut p_cur = raw_ptr;
+                let mut p_w = conv_w;
+                let mut p_dyn = if l.global { raw_ptr + 1024 * 4 } else { 0 };
+                let mut p_hist = hist_ptr;
+                let mut p_out = dst_ptr;
+                let mut p_res: CUdeviceptr = 0;
+                let mut ch = 1024i32;
+                let mut hd = i32::from(l.global);
+                let mut dr = 0i32;
+                let mut args: [*mut c_void; 9] = [
+                    (&mut p_cur as *mut _) as *mut c_void,
+                    (&mut p_w as *mut _) as *mut c_void,
+                    (&mut p_dyn as *mut _) as *mut c_void,
+                    (&mut p_hist as *mut _) as *mut c_void,
+                    (&mut p_out as *mut _) as *mut c_void,
+                    (&mut p_res as *mut _) as *mut c_void,
+                    (&mut ch as *mut _) as *mut c_void,
+                    (&mut hd as *mut _) as *mut c_void,
+                    (&mut dr as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, self.fns.short_conv4, (4, 1), 256, &mut args)?;
+            }
         }
 
         // 6. Q/R/K Clip + V Head-RMSNorm + Log-Scaling + FP16 KV Cache Write
@@ -1830,33 +2047,60 @@ impl Inkling2GpuEngine {
             self.launch(stream, self.fns.prep_qkv_and_cache, (5, 1), 256, &mut args)?;
         }
 
-        // 7. GQA Relative-Bias + Sink Attention
+        // 7. GQA Relative-Bias + Sink Attention + In-Register `Q8_64` Epilogue!
         if self.attn_split_g == 0 {
-            let mut pq = q_ptr;
-            let mut pr = r_ptr;
-            let mut pg = gate_ptr;
-            let mut ps = sink_ptr;
-            let mut prp = l.rel_proj.ptr;
-            let mut pkc = st.k_cache.ptr;
-            let mut pvc = st.v_cache.ptr;
-            let mut ppos = self.d_pos.ptr;
-            let mut cap = st.kv_cap as i32;
-            let mut ig = i32::from(l.global);
-            let mut pout = self.d_attn_out.ptr;
-            let mut args: [*mut c_void; 11] = [
-                (&mut pq as *mut _) as *mut c_void,
-                (&mut pr as *mut _) as *mut c_void,
-                (&mut pg as *mut _) as *mut c_void,
-                (&mut ps as *mut _) as *mut c_void,
-                (&mut prp as *mut _) as *mut c_void,
-                (&mut pkc as *mut _) as *mut c_void,
-                (&mut pvc as *mut _) as *mut c_void,
-                (&mut ppos as *mut _) as *mut c_void,
-                (&mut cap as *mut _) as *mut c_void,
-                (&mut ig as *mut _) as *mut c_void,
-                (&mut pout as *mut _) as *mut c_void,
-            ];
-            self.launch(stream, self.fns.gqa_rel_sink_attn, (24, 1), 256, &mut args)?;
+            if let Some(f_attn_q8) = self.fns.gqa_rel_sink_attn_q8_b {
+                let mut pqrgs = self.d_qrgs.ptr;
+                let mut qstride = SWA_ALL_ROWS as i32;
+                let mut prp = l.rel_proj.ptr;
+                let mut pkc = st.k_cache.ptr;
+                let mut pvc = st.v_cache.ptr;
+                let mut ppos = self.d_pos.ptr;
+                let mut cap = st.kv_cap as i32;
+                let mut ig = i32::from(l.global);
+                let mut pq8 = self.d_act_q8_64.ptr;
+                let mut psc = self.d_act_sc_64.ptr;
+                let mut args: [*mut c_void; 10] = [
+                    (&mut pqrgs as *mut _) as *mut c_void,
+                    (&mut qstride as *mut _) as *mut c_void,
+                    (&mut prp as *mut _) as *mut c_void,
+                    (&mut pkc as *mut _) as *mut c_void,
+                    (&mut pvc as *mut _) as *mut c_void,
+                    (&mut ppos as *mut _) as *mut c_void,
+                    (&mut cap as *mut _) as *mut c_void,
+                    (&mut ig as *mut _) as *mut c_void,
+                    (&mut pq8 as *mut _) as *mut c_void,
+                    (&mut psc as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, f_attn_q8, (24, 1), 256, &mut args)?;
+            } else {
+                let mut pq = q_ptr;
+                let mut pr = r_ptr;
+                let mut pg = gate_ptr;
+                let mut ps = sink_ptr;
+                let mut prp = l.rel_proj.ptr;
+                let mut pkc = st.k_cache.ptr;
+                let mut pvc = st.v_cache.ptr;
+                let mut ppos = self.d_pos.ptr;
+                let mut cap = st.kv_cap as i32;
+                let mut ig = i32::from(l.global);
+                let mut pout = self.d_attn_out.ptr;
+                let mut args: [*mut c_void; 11] = [
+                    (&mut pq as *mut _) as *mut c_void,
+                    (&mut pr as *mut _) as *mut c_void,
+                    (&mut pg as *mut _) as *mut c_void,
+                    (&mut ps as *mut _) as *mut c_void,
+                    (&mut prp as *mut _) as *mut c_void,
+                    (&mut pkc as *mut _) as *mut c_void,
+                    (&mut pvc as *mut _) as *mut c_void,
+                    (&mut ppos as *mut _) as *mut c_void,
+                    (&mut cap as *mut _) as *mut c_void,
+                    (&mut ig as *mut _) as *mut c_void,
+                    (&mut pout as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, self.fns.gqa_rel_sink_attn, (24, 1), 256, &mut args)?;
+                self.enqueue_quant_q8_64(stream, self.d_attn_out.ptr, 3072)?;
+            }
         } else {
             self.enqueue_gqa_attn_split_impl(
                 stream,
@@ -1868,21 +2112,51 @@ impl Inkling2GpuEngine {
                 st.kv_cap as i32,
                 i32::from(l.global),
                 self.d_attn_out.ptr,
+                self.d_act_q8_64.ptr,
+                self.d_act_sc_64.ptr,
                 1,
             )?;
         }
 
-        // 8. `wo` Planar `Q8_64` `__dp4a` Projection + `attn_sconv` in-place into `d_cur`!
-        self.enqueue_quant_q8_64(stream, self.d_attn_out.ptr, 3072)?;
+        // 8. `wo` Planar `Q8_64` `__dp4a` Projection + `attn_sconv` (+ fused block-start save!)
         self.enqueue_q8_gemv_slice_at(stream, &l.wo_q8, 0, D as i32, 0, self.d_wo_out.ptr, 0.0)?;
 
         let is_block_start = il.is_multiple_of(6);
-        if is_block_start {
+        let save_blk_ptr = if is_block_start {
             let blk_dst = self.d_blocks.ptr + (*n_blocks as u64) * d_bytes;
-            self.enqueue_copy_d(stream, self.d_cur.ptr, blk_dst)?;
             *n_blocks += 1;
-        }
-        {
+            blk_dst
+        } else {
+            0
+        };
+        if let Some(f_sc_save) = self.fns.short_conv4_save {
+            let mut p_cur = self.d_wo_out.ptr;
+            let mut p_w = l.attn_conv4.ptr;
+            let mut p_dyn: CUdeviceptr = 0;
+            let mut p_hist = st.hist_attn;
+            let mut p_out = self.d_cur.ptr;
+            let mut p_res = if is_block_start { 0 } else { self.d_cur.ptr };
+            let mut p_save = save_blk_ptr;
+            let mut ch = D as i32;
+            let mut hd = 0i32;
+            let mut dr = i32::from(!is_block_start);
+            let mut args: [*mut c_void; 10] = [
+                (&mut p_cur as *mut _) as *mut c_void,
+                (&mut p_w as *mut _) as *mut c_void,
+                (&mut p_dyn as *mut _) as *mut c_void,
+                (&mut p_hist as *mut _) as *mut c_void,
+                (&mut p_out as *mut _) as *mut c_void,
+                (&mut p_res as *mut _) as *mut c_void,
+                (&mut p_save as *mut _) as *mut c_void,
+                (&mut ch as *mut _) as *mut c_void,
+                (&mut hd as *mut _) as *mut c_void,
+                (&mut dr as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, f_sc_save, (9, 1), 256, &mut args)?;
+        } else {
+            if save_blk_ptr != 0 {
+                self.enqueue_copy_d(stream, self.d_cur.ptr, save_blk_ptr)?;
+            }
             let mut p_cur = self.d_wo_out.ptr;
             let mut p_w = l.attn_conv4.ptr;
             let mut p_dyn: CUdeviceptr = 0;
@@ -1906,8 +2180,45 @@ impl Inkling2GpuEngine {
             self.launch(stream, self.fns.short_conv4, (9, 1), 256, &mut args)?;
         }
 
-        // 9. MLP Depth Mix + Loop Controller 3 + `mlp_norm`
-        {
+        // 9. Fused MLP Prologue (`depth_mix + rmsnorm_d + quant_q8_16` when `!has_msgs`)
+        let wants_mlp_q8_16 =
+            matches!(l.expert_scales, ExpertScales::Nvfp4 { .. }) && self.use_moe_dp4a;
+        let mut mlp_h_ready = false;
+        let mut mlp_q8_16_ready = false;
+        if !has_msgs {
+            if let Some(f_mlp_fused) = self.fns.depth_mix_rmsnorm_d_quant_q8_16_b {
+                let mut pb = self.d_blocks.ptr;
+                let mut nb = *n_blocks as i32;
+                let mut sb = 1i32;
+                let mut bo = 0i32;
+                let mut pc = self.d_cur.ptr;
+                let mut ac = 1i32;
+                let mut pq = l.mlp_query.ptr;
+                let mut pg = l.mlp_norm.ptr;
+                let mut pout = self.d_mlp_h.ptr;
+                let mut dq = i32::from(wants_mlp_q8_16);
+                let mut pq8 = self.d_act_q8_16.ptr;
+                let mut psc = self.d_act_sc_16.ptr;
+                let mut args: [*mut c_void; 12] = [
+                    (&mut pb as *mut _) as *mut c_void,
+                    (&mut nb as *mut _) as *mut c_void,
+                    (&mut sb as *mut _) as *mut c_void,
+                    (&mut bo as *mut _) as *mut c_void,
+                    (&mut pc as *mut _) as *mut c_void,
+                    (&mut ac as *mut _) as *mut c_void,
+                    (&mut pq as *mut _) as *mut c_void,
+                    (&mut pg as *mut _) as *mut c_void,
+                    (&mut pout as *mut _) as *mut c_void,
+                    (&mut dq as *mut _) as *mut c_void,
+                    (&mut pq8 as *mut _) as *mut c_void,
+                    (&mut psc as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, f_mlp_fused, (1, 1), 256, &mut args)?;
+                mlp_h_ready = true;
+                mlp_q8_16_ready = wants_mlp_q8_16;
+            }
+        }
+        if !mlp_h_ready {
             let mut pb = self.d_blocks.ptr;
             let mut nb = *n_blocks as i32;
             let mut pc = self.d_cur.ptr;
@@ -1925,28 +2236,46 @@ impl Inkling2GpuEngine {
                 (&mut b3 as *mut _) as *mut c_void,
             ];
             self.launch(stream, self.fns.depth_mix, (1, 1), 256, &mut args)?;
-        }
-        if has_msgs {
-            self.enqueue_ctrl_n(
-                stream,
-                self.d_mlp_h.ptr,
-                self.d_msgs.ptr + 3 * d_bytes,
-                l.ctrl_mlp.as_ref().unwrap(),
-                1,
-            )?;
-        }
-        {
-            let mut pin = self.d_mlp_h.ptr;
-            let mut pg = l.mlp_norm.ptr;
-            let mut pout = self.d_mlp_h.ptr;
-            let mut hg = 1i32;
-            let mut args: [*mut c_void; 4] = [
-                (&mut pin as *mut _) as *mut c_void,
-                (&mut pg as *mut _) as *mut c_void,
-                (&mut pout as *mut _) as *mut c_void,
-                (&mut hg as *mut _) as *mut c_void,
-            ];
-            self.launch(stream, self.fns.rmsnorm_d, (1, 1), 256, &mut args)?;
+            if has_msgs {
+                self.enqueue_ctrl_n(
+                    stream,
+                    self.d_mlp_h.ptr,
+                    msg_base_ptr + 3 * d_bytes,
+                    l.ctrl_mlp.as_ref().unwrap(),
+                    1,
+                )?;
+            }
+            if wants_mlp_q8_16 {
+                if let Some(f_rn_q8) = self.fns.rmsnorm_d_quant_q8_16_b {
+                    let mut pin = self.d_mlp_h.ptr;
+                    let mut pg = l.mlp_norm.ptr;
+                    let mut pout = self.d_mlp_h.ptr;
+                    let mut pq8 = self.d_act_q8_16.ptr;
+                    let mut psc = self.d_act_sc_16.ptr;
+                    let mut args: [*mut c_void; 5] = [
+                        (&mut pin as *mut _) as *mut c_void,
+                        (&mut pg as *mut _) as *mut c_void,
+                        (&mut pout as *mut _) as *mut c_void,
+                        (&mut pq8 as *mut _) as *mut c_void,
+                        (&mut psc as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, f_rn_q8, (1, 1), 256, &mut args)?;
+                    mlp_q8_16_ready = true;
+                }
+            }
+            if !mlp_q8_16_ready {
+                let mut pin = self.d_mlp_h.ptr;
+                let mut pg = l.mlp_norm.ptr;
+                let mut pout = self.d_mlp_h.ptr;
+                let mut hg = 1i32;
+                let mut args: [*mut c_void; 4] = [
+                    (&mut pin as *mut _) as *mut c_void,
+                    (&mut pg as *mut _) as *mut c_void,
+                    (&mut pout as *mut _) as *mut c_void,
+                    (&mut hg as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, self.fns.rmsnorm_d, (1, 1), 256, &mut args)?;
+            }
         }
 
         // 10. Exact BF16 Router + Warp-Butterfly TopK8 + Wide `uint4` Full-GPU MoE!
@@ -1977,7 +2306,9 @@ impl Inkling2GpuEngine {
         match &l.expert_scales {
             ExpertScales::Nvfp4 { s13, a13, s2, a2 } => {
                 if self.use_moe_dp4a {
-                    self.enqueue_quant_q8_16(stream, self.d_mlp_h.ptr, 1, D)?;
+                    if !mlp_q8_16_ready {
+                        self.enqueue_quant_q8_16(stream, self.d_mlp_h.ptr, 1, D)?;
+                    }
                     let mut pw13 = w13.ptr();
                     let mut ps13 = s13.ptr;
                     let mut pa13 = a13.ptr;
@@ -2165,63 +2496,66 @@ impl Inkling2GpuEngine {
 
         let mut n_blocks = 0usize;
         for il in 0..6 {
-            self.enqueue_visit(stream, il, il, &mut n_blocks, false)?;
+            self.enqueue_visit(stream, il, il, &mut n_blocks, 0)?;
         }
         debug_assert_eq!(n_blocks, 1);
-        self.enqueue_copy_d(stream, self.d_cur.ptr, self.d_prelude_x.ptr)?;
-        self.enqueue_copy_d(stream, self.d_blocks.ptr, self.d_prelude_block0.ptr)?;
+        if let Some(f_setup) = self.fns.loop_pass_setup_b {
+            let mut p_cur = self.d_cur.ptr;
+            let mut p_blk = self.d_blocks.ptr;
+            let mut p_px = self.d_prelude_x.ptr;
+            let mut p_pb0 = self.d_prelude_block0.ptr;
+            let mut p_bank = self.d_bank.ptr;
+            let mut bi = 1i32;
+            let mut mode = 0i32;
+            let mut args: [*mut c_void; 7] = [
+                (&mut p_cur as *mut _) as *mut c_void,
+                (&mut p_blk as *mut _) as *mut c_void,
+                (&mut p_px as *mut _) as *mut c_void,
+                (&mut p_pb0 as *mut _) as *mut c_void,
+                (&mut p_bank as *mut _) as *mut c_void,
+                (&mut bi as *mut _) as *mut c_void,
+                (&mut mode as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, f_setup, (9, 1), 256, &mut args)?;
+        } else {
+            self.enqueue_copy_d(stream, self.d_cur.ptr, self.d_prelude_x.ptr)?;
+            self.enqueue_copy_d(stream, self.d_blocks.ptr, self.d_prelude_block0.ptr)?;
+        }
 
         for pass in 0..3 {
             if pass > 0 {
-                self.enqueue_copy_d(stream, self.d_blocks.ptr + 2 * d_bytes, self.d_bank.ptr)?;
-                self.enqueue_copy_d(stream, self.d_cur.ptr, self.d_bank.ptr + d_bytes)?;
-                self.enqueue_copy_d(stream, self.d_prelude_x.ptr, self.d_cur.ptr)?;
-                self.enqueue_copy_d(stream, self.d_prelude_block0.ptr, self.d_blocks.ptr)?;
-                n_blocks = 1;
-            }
-            for ip in 6..18 {
-                let slot = if pass == 0 {
-                    ip
-                } else {
-                    N_LAYER + (pass - 1) * 12 + (ip - 6)
-                };
-                if pass > 0 {
-                    let mq = self.layers[ip].msg_query.as_ref().unwrap();
-                    let mut pb = self.d_bank.ptr;
-                    let mut nb = 2i32;
-                    let mut pc: CUdeviceptr = 0;
-                    let mut ac = 0i32;
-                    let mut pq = mq.ptr;
-                    let mut pout = self.d_msgs.ptr;
-                    let mut b3 = 0i32;
+                if let Some(f_setup) = self.fns.loop_pass_setup_b {
+                    let mut p_cur = self.d_cur.ptr;
+                    let mut p_blk = self.d_blocks.ptr;
+                    let mut p_px = self.d_prelude_x.ptr;
+                    let mut p_pb0 = self.d_prelude_block0.ptr;
+                    let mut p_bank = self.d_bank.ptr;
+                    let mut bi = 1i32;
+                    let mut mode = 1i32;
                     let mut args: [*mut c_void; 7] = [
-                        (&mut pb as *mut _) as *mut c_void,
-                        (&mut nb as *mut _) as *mut c_void,
-                        (&mut pc as *mut _) as *mut c_void,
-                        (&mut ac as *mut _) as *mut c_void,
-                        (&mut pq as *mut _) as *mut c_void,
-                        (&mut pout as *mut _) as *mut c_void,
-                        (&mut b3 as *mut _) as *mut c_void,
+                        (&mut p_cur as *mut _) as *mut c_void,
+                        (&mut p_blk as *mut _) as *mut c_void,
+                        (&mut p_px as *mut _) as *mut c_void,
+                        (&mut p_pb0 as *mut _) as *mut c_void,
+                        (&mut p_bank as *mut _) as *mut c_void,
+                        (&mut bi as *mut _) as *mut c_void,
+                        (&mut mode as *mut _) as *mut c_void,
                     ];
-                    self.launch(stream, self.fns.depth_mix, (4, 1), 256, &mut args)?;
+                    self.launch(stream, f_setup, (9, 1), 256, &mut args)?;
+                } else {
+                    self.enqueue_copy_d(stream, self.d_blocks.ptr + 2 * d_bytes, self.d_bank.ptr)?;
+                    self.enqueue_copy_d(stream, self.d_cur.ptr, self.d_bank.ptr + d_bytes)?;
+                    self.enqueue_copy_d(stream, self.d_prelude_x.ptr, self.d_cur.ptr)?;
+                    self.enqueue_copy_d(stream, self.d_prelude_block0.ptr, self.d_blocks.ptr)?;
                 }
-                self.enqueue_visit(stream, ip, slot, &mut n_blocks, pass > 0)?;
-            }
-        }
-
-        for il in 18..24 {
-            self.enqueue_visit(stream, il, il, &mut n_blocks, false)?;
-        }
-        debug_assert_eq!(n_blocks, 4);
-
-        if prefill_only {
-            if self.drafter.is_some() {
-                let mut pb = self.d_blocks.ptr;
-                let mut nb = n_blocks as i32;
-                let mut pc = self.d_cur.ptr;
-                let mut ac = 1i32;
-                let mut pq = self.output_query.ptr;
-                let mut pout = self.d_mlp_h.ptr;
+                n_blocks = 1;
+                // Precompute ALL `12 * 4 = 48` cross-pass messages for this pass in ONE `48`-CTA launch!
+                let mut pb = self.d_bank.ptr;
+                let mut nb = 2i32;
+                let mut pc: CUdeviceptr = 0;
+                let mut ac = 0i32;
+                let mut pq = self.d_all_msg_queries.ptr;
+                let mut pout = self.d_msgs.ptr;
                 let mut b3 = 0i32;
                 let mut args: [*mut c_void; 7] = [
                     (&mut pb as *mut _) as *mut c_void,
@@ -2232,18 +2566,88 @@ impl Inkling2GpuEngine {
                     (&mut pout as *mut _) as *mut c_void,
                     (&mut b3 as *mut _) as *mut c_void,
                 ];
-                self.launch(stream, self.fns.depth_mix, (1, 1), 256, &mut args)?;
-                let mut pin = self.d_mlp_h.ptr;
-                let mut pg = self.final_norm.ptr;
-                let mut p_tap3 = self.d_taps.ptr + (3 * MAX_BATCH_TOKENS * D * 4) as u64;
-                let mut hg = 1i32;
-                let mut rn_args: [*mut c_void; 4] = [
-                    (&mut pin as *mut _) as *mut c_void,
-                    (&mut pg as *mut _) as *mut c_void,
-                    (&mut p_tap3 as *mut _) as *mut c_void,
-                    (&mut hg as *mut _) as *mut c_void,
-                ];
-                self.launch(stream, self.fns.rmsnorm_d, (1, 1), 256, &mut rn_args)?;
+                self.launch(stream, self.fns.depth_mix, (48, 1), 256, &mut args)?;
+            }
+            for ip in 6..18 {
+                let slot = if pass == 0 {
+                    ip
+                } else {
+                    N_LAYER + (pass - 1) * 12 + (ip - 6)
+                };
+                let msg_ptr = if pass > 0 {
+                    self.d_msgs.ptr + ((ip - 6) * 4) as u64 * d_bytes
+                } else {
+                    0
+                };
+                self.enqueue_visit(stream, ip, slot, &mut n_blocks, msg_ptr)?;
+            }
+        }
+
+        for il in 18..24 {
+            self.enqueue_visit(stream, il, il, &mut n_blocks, 0)?;
+        }
+        debug_assert_eq!(n_blocks, 4);
+
+        if prefill_only {
+            if self.drafter.is_some() {
+                if let Some(f_mlp_fused) = self.fns.depth_mix_rmsnorm_d_quant_q8_16_b {
+                    let mut pb = self.d_blocks.ptr;
+                    let mut nb = n_blocks as i32;
+                    let mut sb = 1i32;
+                    let mut bo = 0i32;
+                    let mut pc = self.d_cur.ptr;
+                    let mut ac = 1i32;
+                    let mut pq = self.output_query.ptr;
+                    let mut pg = self.final_norm.ptr;
+                    let mut p_tap3 = self.d_taps.ptr + (3 * MAX_BATCH_TOKENS * D * 4) as u64;
+                    let mut dq = 0i32;
+                    let mut z_q8: CUdeviceptr = 0;
+                    let mut z_sc: CUdeviceptr = 0;
+                    let mut args: [*mut c_void; 12] = [
+                        (&mut pb as *mut _) as *mut c_void,
+                        (&mut nb as *mut _) as *mut c_void,
+                        (&mut sb as *mut _) as *mut c_void,
+                        (&mut bo as *mut _) as *mut c_void,
+                        (&mut pc as *mut _) as *mut c_void,
+                        (&mut ac as *mut _) as *mut c_void,
+                        (&mut pq as *mut _) as *mut c_void,
+                        (&mut pg as *mut _) as *mut c_void,
+                        (&mut p_tap3 as *mut _) as *mut c_void,
+                        (&mut dq as *mut _) as *mut c_void,
+                        (&mut z_q8 as *mut _) as *mut c_void,
+                        (&mut z_sc as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, f_mlp_fused, (1, 1), 256, &mut args)?;
+                } else {
+                    let mut pb = self.d_blocks.ptr;
+                    let mut nb = n_blocks as i32;
+                    let mut pc = self.d_cur.ptr;
+                    let mut ac = 1i32;
+                    let mut pq = self.output_query.ptr;
+                    let mut pout = self.d_mlp_h.ptr;
+                    let mut b3 = 0i32;
+                    let mut args: [*mut c_void; 7] = [
+                        (&mut pb as *mut _) as *mut c_void,
+                        (&mut nb as *mut _) as *mut c_void,
+                        (&mut pc as *mut _) as *mut c_void,
+                        (&mut ac as *mut _) as *mut c_void,
+                        (&mut pq as *mut _) as *mut c_void,
+                        (&mut pout as *mut _) as *mut c_void,
+                        (&mut b3 as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, self.fns.depth_mix, (1, 1), 256, &mut args)?;
+                    let mut pin = self.d_mlp_h.ptr;
+                    let mut pg = self.final_norm.ptr;
+                    let mut p_tap3 = self.d_taps.ptr + (3 * MAX_BATCH_TOKENS * D * 4) as u64;
+                    let mut hg = 1i32;
+                    let mut rn_args: [*mut c_void; 4] = [
+                        (&mut pin as *mut _) as *mut c_void,
+                        (&mut pg as *mut _) as *mut c_void,
+                        (&mut p_tap3 as *mut _) as *mut c_void,
+                        (&mut hg as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, self.fns.rmsnorm_d, (1, 1), 256, &mut rn_args)?;
+                }
             }
             let mut pp = self.d_pos.ptr;
             let mut args: [*mut c_void; 1] = [(&mut pp as *mut _) as *mut c_void];
@@ -2252,7 +2656,36 @@ impl Inkling2GpuEngine {
         }
 
         // Output Depth Mix + Fused `final_norm + Q8_64` + Planar `Q8_64` `unembed` (`softcap = 30.0`) + ArgMax
-        {
+        if let (true, Some(f_fused)) = (
+            self.drafter.is_none(),
+            self.fns.depth_mix_rmsnorm_quant_q8_64_b,
+        ) {
+            let mut pb = self.d_blocks.ptr;
+            let mut nb = n_blocks as i32;
+            let mut sb = 1i32;
+            let mut bo = 0i32;
+            let mut bout = 1i32;
+            let mut pc = self.d_cur.ptr;
+            let mut ac = 1i32;
+            let mut pq = self.output_query.ptr;
+            let mut pg = self.final_norm.ptr;
+            let mut pq8 = self.d_act_q8_64.ptr;
+            let mut psc = self.d_act_sc_64.ptr;
+            let mut args: [*mut c_void; 11] = [
+                (&mut pb as *mut _) as *mut c_void,
+                (&mut nb as *mut _) as *mut c_void,
+                (&mut sb as *mut _) as *mut c_void,
+                (&mut bo as *mut _) as *mut c_void,
+                (&mut bout as *mut _) as *mut c_void,
+                (&mut pc as *mut _) as *mut c_void,
+                (&mut ac as *mut _) as *mut c_void,
+                (&mut pq as *mut _) as *mut c_void,
+                (&mut pg as *mut _) as *mut c_void,
+                (&mut pq8 as *mut _) as *mut c_void,
+                (&mut psc as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, f_fused, (1, 1), 256, &mut args)?;
+        } else {
             let mut pb = self.d_blocks.ptr;
             let mut nb = n_blocks as i32;
             let mut pc = self.d_cur.ptr;
@@ -2270,21 +2703,21 @@ impl Inkling2GpuEngine {
                 (&mut b3 as *mut _) as *mut c_void,
             ];
             self.launch(stream, self.fns.depth_mix, (1, 1), 256, &mut args)?;
+            if self.drafter.is_some() {
+                let mut pin = self.d_mlp_h.ptr;
+                let mut pg = self.final_norm.ptr;
+                let mut p_tap3 = self.d_taps.ptr + (3 * MAX_BATCH_TOKENS * D * 4) as u64;
+                let mut hg = 1i32;
+                let mut rn_args: [*mut c_void; 4] = [
+                    (&mut pin as *mut _) as *mut c_void,
+                    (&mut pg as *mut _) as *mut c_void,
+                    (&mut p_tap3 as *mut _) as *mut c_void,
+                    (&mut hg as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, self.fns.rmsnorm_d, (1, 1), 256, &mut rn_args)?;
+            }
+            self.enqueue_rmsnorm_quant_q8_64(stream, self.d_mlp_h.ptr, self.final_norm.ptr, 1)?;
         }
-        if self.drafter.is_some() {
-            let mut pin = self.d_mlp_h.ptr;
-            let mut pg = self.final_norm.ptr;
-            let mut p_tap3 = self.d_taps.ptr + (3 * MAX_BATCH_TOKENS * D * 4) as u64;
-            let mut hg = 1i32;
-            let mut rn_args: [*mut c_void; 4] = [
-                (&mut pin as *mut _) as *mut c_void,
-                (&mut pg as *mut _) as *mut c_void,
-                (&mut p_tap3 as *mut _) as *mut c_void,
-                (&mut hg as *mut _) as *mut c_void,
-            ];
-            self.launch(stream, self.fns.rmsnorm_d, (1, 1), 256, &mut rn_args)?;
-        }
-        self.enqueue_rmsnorm_quant_q8_64(stream, self.d_mlp_h.ptr, self.final_norm.ptr, 1)?;
         self.enqueue_q8_gemv_slice_at(
             stream,
             &self.unembed_q8,
@@ -2759,11 +3192,28 @@ impl Inkling2GpuEngine {
             (&mut p_forget as *mut _) as *mut c_void,
             (&mut b_i32 as *mut _) as *mut c_void,
         ];
-        let (apply, token_tiles) = match self.fns.ctrl_apply_t8_b {
-            Some(f) if b_len >= 16 => (f, b_u32.div_ceil(8)),
-            _ => (self.fns.ctrl_apply_b, b_u32),
-        };
-        self.launch(stream, apply, (9, n_ctrls * token_tiles), 256, &mut args2)
+        if b_len >= 16 {
+            if let Some(f_t8) = self.fns.ctrl_apply_t8_b {
+                return self.launch(
+                    stream,
+                    f_t8,
+                    (9, n_ctrls * b_u32.div_ceil(8)),
+                    256,
+                    &mut args2,
+                );
+            }
+        }
+        if let Some(f_coal) = self.fns.ctrl_apply_coalesced_b {
+            self.launch(stream, f_coal, (36, n_ctrls * b_u32), 64, &mut args2)
+        } else {
+            self.launch(
+                stream,
+                self.fns.ctrl_apply_b,
+                (9, n_ctrls * b_u32),
+                256,
+                &mut args2,
+            )
+        }
     }
 
     fn enqueue_rmsnorm_quant_q8_64_b(
@@ -2897,7 +3347,7 @@ impl Inkling2GpuEngine {
         slot_idx: usize,
         b_len: usize,
         n_blocks: &mut usize,
-        has_msgs: bool,
+        msg_base_ptr: CUdeviceptr,
         record_seq: bool,
     ) -> Result<(), String> {
         let l = &self.layers[il];
@@ -2906,14 +3356,90 @@ impl Inkling2GpuEngine {
         let b_i32 = b_len as i32;
         let bd_floats = b_len * D;
         let bd_bytes = (bd_floats * 4) as u64;
+        let has_msgs = msg_base_ptr != 0;
+        let distinct_k_v = l.global || has_msgs;
+        let norm_count: u32 = if distinct_k_v { 3 } else { 1 };
         let slot_seq_base = if record_seq {
             self.d_conv_seq.ptr + (slot_idx * CONV_SEQ_SLOT_FLOATS * 4) as u64
         } else {
             0
         };
 
-        // 1. Batched Attention inputs `[xq, xk, xv]` (`[3, b_len, D]`)
-        if let Some(ref aq) = l.attn_query {
+        // 1–3. Batched Attention inputs `[xq, xk, xv]` + optional Loop Controller + `RMSNorm + Q8_64`!
+        if !has_msgs {
+            if let Some(ref aq) = l.attn_query {
+                let n_q: u32 = if l.global { 3 } else { 1 };
+                if let Some(f_fused) = self.fns.depth_mix_rmsnorm_quant_q8_64_b {
+                    let mut pb = self.d_b_blocks.ptr;
+                    let mut nb = *n_blocks as i32;
+                    let mut sb = b_i32;
+                    let mut bo = 0i32;
+                    let mut bout = b_i32;
+                    let mut pc = self.d_b_cur.ptr;
+                    let mut ac = 1i32;
+                    let mut pq = aq.ptr;
+                    let mut pg = l.norms_packed.ptr;
+                    let mut pq8 = self.d_b_act_q8_64.ptr;
+                    let mut psc = self.d_b_act_sc_64.ptr;
+                    let mut args: [*mut c_void; 11] = [
+                        (&mut pb as *mut _) as *mut c_void,
+                        (&mut nb as *mut _) as *mut c_void,
+                        (&mut sb as *mut _) as *mut c_void,
+                        (&mut bo as *mut _) as *mut c_void,
+                        (&mut bout as *mut _) as *mut c_void,
+                        (&mut pc as *mut _) as *mut c_void,
+                        (&mut ac as *mut _) as *mut c_void,
+                        (&mut pq as *mut _) as *mut c_void,
+                        (&mut pg as *mut _) as *mut c_void,
+                        (&mut pq8 as *mut _) as *mut c_void,
+                        (&mut psc as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, f_fused, (n_q, b_u32), 256, &mut args)?;
+                } else {
+                    let mut pb = self.d_b_blocks.ptr;
+                    let mut nb = *n_blocks as i32;
+                    let mut sb = b_i32;
+                    let mut bo = 0i32;
+                    let mut bout = b_i32;
+                    let mut pc = self.d_b_cur.ptr;
+                    let mut ac = 1i32;
+                    let mut pq = aq.ptr;
+                    let mut pout = self.d_b_inputs.ptr;
+                    let mut b3 = 0i32;
+                    let mut args: [*mut c_void; 10] = [
+                        (&mut pb as *mut _) as *mut c_void,
+                        (&mut nb as *mut _) as *mut c_void,
+                        (&mut sb as *mut _) as *mut c_void,
+                        (&mut bo as *mut _) as *mut c_void,
+                        (&mut bout as *mut _) as *mut c_void,
+                        (&mut pc as *mut _) as *mut c_void,
+                        (&mut ac as *mut _) as *mut c_void,
+                        (&mut pq as *mut _) as *mut c_void,
+                        (&mut pout as *mut _) as *mut c_void,
+                        (&mut b3 as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, self.fns.depth_mix_b, (n_q, b_u32), 256, &mut args)?;
+                    self.enqueue_rmsnorm_quant_q8_64_b(
+                        stream,
+                        self.d_b_inputs.ptr,
+                        l.norms_packed.ptr,
+                        norm_count,
+                        b_len,
+                    )?;
+                }
+            } else {
+                // Layer 0 (`il == 0`): `!l.global && !has_msgs`, quantize `d_b_cur` directly (`0` `copy_d` launches!)
+                debug_assert!(!distinct_k_v);
+                self.enqueue_rmsnorm_quant_q8_64_b(
+                    stream,
+                    self.d_b_cur.ptr,
+                    l.norms_packed.ptr,
+                    1,
+                    b_len,
+                )?;
+            }
+        } else {
+            let aq = l.attn_query.as_ref().unwrap();
             let n_q: u32 = if l.global { 3 } else { 1 };
             let mut pb = self.d_b_blocks.ptr;
             let mut nb = *n_blocks as i32;
@@ -2924,7 +3450,7 @@ impl Inkling2GpuEngine {
             let mut ac = 1i32;
             let mut pq = aq.ptr;
             let mut pout = self.d_b_inputs.ptr;
-            let mut b3 = i32::from(!l.global && has_msgs);
+            let mut b3 = i32::from(!l.global);
             let mut args: [*mut c_void; 10] = [
                 (&mut pb as *mut _) as *mut c_void,
                 (&mut nb as *mut _) as *mut c_void,
@@ -2938,46 +3464,22 @@ impl Inkling2GpuEngine {
                 (&mut b3 as *mut _) as *mut c_void,
             ];
             self.launch(stream, self.fns.depth_mix_b, (n_q, b_u32), 256, &mut args)?;
-        } else {
-            self.enqueue_copy_n(stream, self.d_b_cur.ptr, self.d_b_inputs.ptr, bd_floats)?;
-            if l.global || has_msgs {
-                self.enqueue_copy_n(
-                    stream,
-                    self.d_b_cur.ptr,
-                    self.d_b_inputs.ptr + bd_bytes,
-                    bd_floats,
-                )?;
-                self.enqueue_copy_n(
-                    stream,
-                    self.d_b_cur.ptr,
-                    self.d_b_inputs.ptr + 2 * bd_bytes,
-                    bd_floats,
-                )?;
-            }
-        }
-
-        // 2. Batched Loop Core Controller (`pass > 0`)
-        if has_msgs {
             self.enqueue_ctrl_n_b(
                 stream,
                 self.d_b_inputs.ptr,
-                self.d_b_msgs.ptr,
+                msg_base_ptr,
                 l.ctrl3.as_ref().unwrap(),
                 3,
                 b_len,
             )?;
+            self.enqueue_rmsnorm_quant_q8_64_b(
+                stream,
+                self.d_b_inputs.ptr,
+                l.norms_packed.ptr,
+                norm_count,
+                b_len,
+            )?;
         }
-
-        // 3. Fused Batched `RMSNorm + Q8_64` + `ink2_q8_dp4a_gemm_b`
-        let distinct_k_v = l.global || has_msgs;
-        let norm_count: u32 = if distinct_k_v { 3 } else { 1 };
-        self.enqueue_rmsnorm_quant_q8_64_b(
-            stream,
-            self.d_b_inputs.ptr,
-            l.norms_packed.ptr,
-            norm_count,
-            b_len,
-        )?;
 
         let k_raw_ptr: CUdeviceptr;
         let k_in_stride: i32;
@@ -3171,35 +3673,62 @@ impl Inkling2GpuEngine {
             )?;
         }
 
-        // 6. Batched GQA Relative-Bias + Sink Attention
+        // 6. Batched GQA Relative-Bias + Sink Attention + In-Register `Q8_64` Epilogue!
         if self.attn_split_g == 0 {
-            let mut pqrgs = self.d_b_qrgs.ptr;
-            let mut qstride = SWA_ALL_ROWS as i32;
-            let mut prp = l.rel_proj.ptr;
-            let mut pkc = st.k_cache.ptr;
-            let mut pvc = st.v_cache.ptr;
-            let mut ppos = self.d_pos.ptr;
-            let mut cap = st.kv_cap as i32;
-            let mut ig = i32::from(l.global);
-            let mut pout = self.d_b_attn_out.ptr;
-            let mut args: [*mut c_void; 9] = [
-                (&mut pqrgs as *mut _) as *mut c_void,
-                (&mut qstride as *mut _) as *mut c_void,
-                (&mut prp as *mut _) as *mut c_void,
-                (&mut pkc as *mut _) as *mut c_void,
-                (&mut pvc as *mut _) as *mut c_void,
-                (&mut ppos as *mut _) as *mut c_void,
-                (&mut cap as *mut _) as *mut c_void,
-                (&mut ig as *mut _) as *mut c_void,
-                (&mut pout as *mut _) as *mut c_void,
-            ];
-            self.launch(
-                stream,
-                self.fns.gqa_rel_sink_attn_b,
-                (24, b_u32),
-                256,
-                &mut args,
-            )?;
+            if let Some(f_attn_q8) = self.fns.gqa_rel_sink_attn_q8_b {
+                let mut pqrgs = self.d_b_qrgs.ptr;
+                let mut qstride = SWA_ALL_ROWS as i32;
+                let mut prp = l.rel_proj.ptr;
+                let mut pkc = st.k_cache.ptr;
+                let mut pvc = st.v_cache.ptr;
+                let mut ppos = self.d_pos.ptr;
+                let mut cap = st.kv_cap as i32;
+                let mut ig = i32::from(l.global);
+                let mut pq8 = self.d_b_act_q8_64.ptr;
+                let mut psc = self.d_b_act_sc_64.ptr;
+                let mut args: [*mut c_void; 10] = [
+                    (&mut pqrgs as *mut _) as *mut c_void,
+                    (&mut qstride as *mut _) as *mut c_void,
+                    (&mut prp as *mut _) as *mut c_void,
+                    (&mut pkc as *mut _) as *mut c_void,
+                    (&mut pvc as *mut _) as *mut c_void,
+                    (&mut ppos as *mut _) as *mut c_void,
+                    (&mut cap as *mut _) as *mut c_void,
+                    (&mut ig as *mut _) as *mut c_void,
+                    (&mut pq8 as *mut _) as *mut c_void,
+                    (&mut psc as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, f_attn_q8, (24, b_u32), 256, &mut args)?;
+            } else {
+                let mut pqrgs = self.d_b_qrgs.ptr;
+                let mut qstride = SWA_ALL_ROWS as i32;
+                let mut prp = l.rel_proj.ptr;
+                let mut pkc = st.k_cache.ptr;
+                let mut pvc = st.v_cache.ptr;
+                let mut ppos = self.d_pos.ptr;
+                let mut cap = st.kv_cap as i32;
+                let mut ig = i32::from(l.global);
+                let mut pout = self.d_b_attn_out.ptr;
+                let mut args: [*mut c_void; 9] = [
+                    (&mut pqrgs as *mut _) as *mut c_void,
+                    (&mut qstride as *mut _) as *mut c_void,
+                    (&mut prp as *mut _) as *mut c_void,
+                    (&mut pkc as *mut _) as *mut c_void,
+                    (&mut pvc as *mut _) as *mut c_void,
+                    (&mut ppos as *mut _) as *mut c_void,
+                    (&mut cap as *mut _) as *mut c_void,
+                    (&mut ig as *mut _) as *mut c_void,
+                    (&mut pout as *mut _) as *mut c_void,
+                ];
+                self.launch(
+                    stream,
+                    self.fns.gqa_rel_sink_attn_b,
+                    (24, b_u32),
+                    256,
+                    &mut args,
+                )?;
+                self.enqueue_quant_q8_64_b(stream, self.d_b_attn_out.ptr, 3072, b_len)?;
+            }
         } else {
             self.enqueue_gqa_attn_split_impl(
                 stream,
@@ -3211,12 +3740,13 @@ impl Inkling2GpuEngine {
                 st.kv_cap as i32,
                 i32::from(l.global),
                 self.d_b_attn_out.ptr,
+                self.d_b_act_q8_64.ptr,
+                self.d_b_act_sc_64.ptr,
                 b_len,
             )?;
         }
 
-        // 7. `wo` Batched `Q8_64` GEMM + `attn_sconv`
-        self.enqueue_quant_q8_64_b(stream, self.d_b_attn_out.ptr, 3072, b_len)?;
+        // 7. `wo` Batched `Q8_64` GEMM + `attn_sconv` (+ fused block-start save!)
         self.enqueue_q8_gemm_slice_at(
             stream,
             &l.wo_q8,
@@ -3230,12 +3760,57 @@ impl Inkling2GpuEngine {
         )?;
 
         let is_block_start = il.is_multiple_of(6);
-        if is_block_start {
+        let save_blk_ptr = if is_block_start {
             let blk_dst = self.d_b_blocks.ptr + (*n_blocks as u64) * bd_bytes;
-            self.enqueue_copy_n(stream, self.d_b_cur.ptr, blk_dst, bd_floats)?;
             *n_blocks += 1;
-        }
-        {
+            blk_dst
+        } else {
+            0
+        };
+        if let Some(f_sc_save_b) = self.fns.short_conv4_save_b {
+            let mut p_cur = self.d_b_wo_out.ptr;
+            let mut ins = D as i32;
+            let mut p_w = l.attn_conv4.ptr;
+            let mut p_dyn: CUdeviceptr = 0;
+            let mut df4 = 0i32;
+            let mut p_hist = st.hist_attn;
+            let mut p_out = self.d_b_cur.ptr;
+            let mut outs = D as i32;
+            let mut p_res = if is_block_start { 0 } else { self.d_b_cur.ptr };
+            let mut ress = D as i32;
+            let mut p_save = save_blk_ptr;
+            let mut p_seq = if record_seq {
+                slot_seq_base + (2048 * CONV_SEQ_STEPS * 4) as u64
+            } else {
+                0
+            };
+            let mut ch = D as i32;
+            let mut bi = b_i32;
+            let mut hd = 0i32;
+            let mut dr = i32::from(!is_block_start);
+            let mut args: [*mut c_void; 16] = [
+                (&mut p_cur as *mut _) as *mut c_void,
+                (&mut ins as *mut _) as *mut c_void,
+                (&mut p_w as *mut _) as *mut c_void,
+                (&mut p_dyn as *mut _) as *mut c_void,
+                (&mut df4 as *mut _) as *mut c_void,
+                (&mut p_hist as *mut _) as *mut c_void,
+                (&mut p_out as *mut _) as *mut c_void,
+                (&mut outs as *mut _) as *mut c_void,
+                (&mut p_res as *mut _) as *mut c_void,
+                (&mut ress as *mut _) as *mut c_void,
+                (&mut p_save as *mut _) as *mut c_void,
+                (&mut p_seq as *mut _) as *mut c_void,
+                (&mut ch as *mut _) as *mut c_void,
+                (&mut bi as *mut _) as *mut c_void,
+                (&mut hd as *mut _) as *mut c_void,
+                (&mut dr as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, f_sc_save_b, (9, 1), 256, &mut args)?;
+        } else {
+            if save_blk_ptr != 0 {
+                self.enqueue_copy_n(stream, self.d_b_cur.ptr, save_blk_ptr, bd_floats)?;
+            }
             let mut p_cur = self.d_b_wo_out.ptr;
             let mut ins = D as i32;
             let mut p_w = l.attn_conv4.ptr;
@@ -3275,8 +3850,44 @@ impl Inkling2GpuEngine {
             self.launch(stream, self.fns.short_conv4_b, (9, 1), 256, &mut args)?;
         }
 
-        // 8. Batched MLP Depth Mix + Loop Controller 3 + `mlp_norm`
-        {
+        // 8. Fused Batched MLP Prologue (`depth_mix + rmsnorm_d + quant_q8_16` when `!has_msgs`)
+        let wants_mlp_q8_16 = matches!(l.expert_scales, ExpertScales::Nvfp4 { .. });
+        let mut mlp_h_ready = false;
+        let mut mlp_q8_16_ready = false;
+        if !has_msgs {
+            if let Some(f_mlp_fused) = self.fns.depth_mix_rmsnorm_d_quant_q8_16_b {
+                let mut pb = self.d_b_blocks.ptr;
+                let mut nb = *n_blocks as i32;
+                let mut sb = b_i32;
+                let mut bo = 0i32;
+                let mut pc = self.d_b_cur.ptr;
+                let mut ac = 1i32;
+                let mut pq = l.mlp_query.ptr;
+                let mut pg = l.mlp_norm.ptr;
+                let mut pout = self.d_b_mlp_h.ptr;
+                let mut dq = i32::from(wants_mlp_q8_16);
+                let mut pq8 = self.d_b_act_q8_16.ptr;
+                let mut psc = self.d_b_act_sc_16.ptr;
+                let mut args: [*mut c_void; 12] = [
+                    (&mut pb as *mut _) as *mut c_void,
+                    (&mut nb as *mut _) as *mut c_void,
+                    (&mut sb as *mut _) as *mut c_void,
+                    (&mut bo as *mut _) as *mut c_void,
+                    (&mut pc as *mut _) as *mut c_void,
+                    (&mut ac as *mut _) as *mut c_void,
+                    (&mut pq as *mut _) as *mut c_void,
+                    (&mut pg as *mut _) as *mut c_void,
+                    (&mut pout as *mut _) as *mut c_void,
+                    (&mut dq as *mut _) as *mut c_void,
+                    (&mut pq8 as *mut _) as *mut c_void,
+                    (&mut psc as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, f_mlp_fused, (1, b_u32), 256, &mut args)?;
+                mlp_h_ready = true;
+                mlp_q8_16_ready = wants_mlp_q8_16;
+            }
+        }
+        if !mlp_h_ready {
             let mut pb = self.d_b_blocks.ptr;
             let mut nb = *n_blocks as i32;
             let mut sb = b_i32;
@@ -3300,29 +3911,47 @@ impl Inkling2GpuEngine {
                 (&mut b3 as *mut _) as *mut c_void,
             ];
             self.launch(stream, self.fns.depth_mix_b, (1, b_u32), 256, &mut args)?;
-        }
-        if has_msgs {
-            self.enqueue_ctrl_n_b(
-                stream,
-                self.d_b_mlp_h.ptr,
-                self.d_b_msgs.ptr + 3 * bd_bytes,
-                l.ctrl_mlp.as_ref().unwrap(),
-                1,
-                b_len,
-            )?;
-        }
-        {
-            let mut pin = self.d_b_mlp_h.ptr;
-            let mut pg = l.mlp_norm.ptr;
-            let mut pout = self.d_b_mlp_h.ptr;
-            let mut hg = 1i32;
-            let mut args: [*mut c_void; 4] = [
-                (&mut pin as *mut _) as *mut c_void,
-                (&mut pg as *mut _) as *mut c_void,
-                (&mut pout as *mut _) as *mut c_void,
-                (&mut hg as *mut _) as *mut c_void,
-            ];
-            self.launch(stream, self.fns.rmsnorm_d_b, (b_u32, 1), 256, &mut args)?;
+            if has_msgs {
+                self.enqueue_ctrl_n_b(
+                    stream,
+                    self.d_b_mlp_h.ptr,
+                    msg_base_ptr + 3 * bd_bytes,
+                    l.ctrl_mlp.as_ref().unwrap(),
+                    1,
+                    b_len,
+                )?;
+            }
+            if wants_mlp_q8_16 {
+                if let Some(f_rn_q8) = self.fns.rmsnorm_d_quant_q8_16_b {
+                    let mut pin = self.d_b_mlp_h.ptr;
+                    let mut pg = l.mlp_norm.ptr;
+                    let mut pout = self.d_b_mlp_h.ptr;
+                    let mut pq8 = self.d_b_act_q8_16.ptr;
+                    let mut psc = self.d_b_act_sc_16.ptr;
+                    let mut args: [*mut c_void; 5] = [
+                        (&mut pin as *mut _) as *mut c_void,
+                        (&mut pg as *mut _) as *mut c_void,
+                        (&mut pout as *mut _) as *mut c_void,
+                        (&mut pq8 as *mut _) as *mut c_void,
+                        (&mut psc as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, f_rn_q8, (1, b_u32), 256, &mut args)?;
+                    mlp_q8_16_ready = true;
+                }
+            }
+            if !mlp_q8_16_ready {
+                let mut pin = self.d_b_mlp_h.ptr;
+                let mut pg = l.mlp_norm.ptr;
+                let mut pout = self.d_b_mlp_h.ptr;
+                let mut hg = 1i32;
+                let mut args: [*mut c_void; 4] = [
+                    (&mut pin as *mut _) as *mut c_void,
+                    (&mut pg as *mut _) as *mut c_void,
+                    (&mut pout as *mut _) as *mut c_void,
+                    (&mut hg as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, self.fns.rmsnorm_d_b, (b_u32, 1), 256, &mut args)?;
+            }
         }
 
         // 9. Batched BF16 Router + TopK8 + Zero-Atomic Grouped-Expert MoE + Combine!
@@ -3383,7 +4012,9 @@ impl Inkling2GpuEngine {
         let [w13, w2] = &self.expert_weights[il];
         match &l.expert_scales {
             ExpertScales::Nvfp4 { s13, a13, s2, a2 } => {
-                self.enqueue_quant_q8_16_b(stream, self.d_b_mlp_h.ptr, b_len, D)?;
+                if !mlp_q8_16_ready {
+                    self.enqueue_quant_q8_16_b(stream, self.d_b_mlp_h.ptr, b_len, D)?;
+                }
                 let mut pw13 = w13.ptr();
                 let mut ps13 = s13.ptr;
                 let mut pa13 = a13.ptr;
@@ -3582,39 +4213,110 @@ impl Inkling2GpuEngine {
 
         let mut n_blocks = 0usize;
         for il in 0..6 {
-            self.enqueue_batch_visit(stream, il, il, b_len, &mut n_blocks, false, record_seq)?;
+            self.enqueue_batch_visit(stream, il, il, b_len, &mut n_blocks, 0, record_seq)?;
         }
         debug_assert_eq!(n_blocks, 1);
-        self.enqueue_copy_n(stream, self.d_b_cur.ptr, self.d_b_prelude_x.ptr, bd_floats)?;
-        self.enqueue_copy_n(
-            stream,
-            self.d_b_blocks.ptr,
-            self.d_b_prelude_block0.ptr,
-            bd_floats,
-        )?;
+        if let Some(f_setup) = self.fns.loop_pass_setup_b {
+            let mut p_cur = self.d_b_cur.ptr;
+            let mut p_blk = self.d_b_blocks.ptr;
+            let mut p_px = self.d_b_prelude_x.ptr;
+            let mut p_pb0 = self.d_b_prelude_block0.ptr;
+            let mut p_bank = self.d_b_bank.ptr;
+            let mut bi = b_i32;
+            let mut mode = 0i32;
+            let mut args: [*mut c_void; 7] = [
+                (&mut p_cur as *mut _) as *mut c_void,
+                (&mut p_blk as *mut _) as *mut c_void,
+                (&mut p_px as *mut _) as *mut c_void,
+                (&mut p_pb0 as *mut _) as *mut c_void,
+                (&mut p_bank as *mut _) as *mut c_void,
+                (&mut bi as *mut _) as *mut c_void,
+                (&mut mode as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, f_setup, (9, b_u32), 256, &mut args)?;
+        } else {
+            self.enqueue_copy_n(stream, self.d_b_cur.ptr, self.d_b_prelude_x.ptr, bd_floats)?;
+            self.enqueue_copy_n(
+                stream,
+                self.d_b_blocks.ptr,
+                self.d_b_prelude_block0.ptr,
+                bd_floats,
+            )?;
+        }
 
+        let precompute_all_msgs = b_len <= MAX_SPEC_TOKENS;
         for pass in 0..3 {
             if pass > 0 {
-                self.enqueue_copy_n(
-                    stream,
-                    self.d_b_blocks.ptr + 2 * bd_bytes,
-                    self.d_b_bank.ptr,
-                    bd_floats,
-                )?;
-                self.enqueue_copy_n(
-                    stream,
-                    self.d_b_cur.ptr,
-                    self.d_b_bank.ptr + bd_bytes,
-                    bd_floats,
-                )?;
-                self.enqueue_copy_n(stream, self.d_b_prelude_x.ptr, self.d_b_cur.ptr, bd_floats)?;
-                self.enqueue_copy_n(
-                    stream,
-                    self.d_b_prelude_block0.ptr,
-                    self.d_b_blocks.ptr,
-                    bd_floats,
-                )?;
+                if let Some(f_setup) = self.fns.loop_pass_setup_b {
+                    let mut p_cur = self.d_b_cur.ptr;
+                    let mut p_blk = self.d_b_blocks.ptr;
+                    let mut p_px = self.d_b_prelude_x.ptr;
+                    let mut p_pb0 = self.d_b_prelude_block0.ptr;
+                    let mut p_bank = self.d_b_bank.ptr;
+                    let mut bi = b_i32;
+                    let mut mode = 1i32;
+                    let mut args: [*mut c_void; 7] = [
+                        (&mut p_cur as *mut _) as *mut c_void,
+                        (&mut p_blk as *mut _) as *mut c_void,
+                        (&mut p_px as *mut _) as *mut c_void,
+                        (&mut p_pb0 as *mut _) as *mut c_void,
+                        (&mut p_bank as *mut _) as *mut c_void,
+                        (&mut bi as *mut _) as *mut c_void,
+                        (&mut mode as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, f_setup, (9, b_u32), 256, &mut args)?;
+                } else {
+                    self.enqueue_copy_n(
+                        stream,
+                        self.d_b_blocks.ptr + 2 * bd_bytes,
+                        self.d_b_bank.ptr,
+                        bd_floats,
+                    )?;
+                    self.enqueue_copy_n(
+                        stream,
+                        self.d_b_cur.ptr,
+                        self.d_b_bank.ptr + bd_bytes,
+                        bd_floats,
+                    )?;
+                    self.enqueue_copy_n(
+                        stream,
+                        self.d_b_prelude_x.ptr,
+                        self.d_b_cur.ptr,
+                        bd_floats,
+                    )?;
+                    self.enqueue_copy_n(
+                        stream,
+                        self.d_b_prelude_block0.ptr,
+                        self.d_b_blocks.ptr,
+                        bd_floats,
+                    )?;
+                }
                 n_blocks = 1;
+                if precompute_all_msgs {
+                    let mut pb = self.d_b_bank.ptr;
+                    let mut nb = 2i32;
+                    let mut sb = b_i32;
+                    let mut bo = 0i32;
+                    let mut bout = b_i32;
+                    let mut pc: CUdeviceptr = 0;
+                    let mut ac = 0i32;
+                    let mut pq = self.d_all_msg_queries.ptr;
+                    let mut pout = self.d_b_msgs.ptr;
+                    let mut b3 = 0i32;
+                    let mut args: [*mut c_void; 10] = [
+                        (&mut pb as *mut _) as *mut c_void,
+                        (&mut nb as *mut _) as *mut c_void,
+                        (&mut sb as *mut _) as *mut c_void,
+                        (&mut bo as *mut _) as *mut c_void,
+                        (&mut bout as *mut _) as *mut c_void,
+                        (&mut pc as *mut _) as *mut c_void,
+                        (&mut ac as *mut _) as *mut c_void,
+                        (&mut pq as *mut _) as *mut c_void,
+                        (&mut pout as *mut _) as *mut c_void,
+                        (&mut b3 as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, self.fns.depth_mix_b, (48, b_u32), 256, &mut args)?;
+                }
             }
             for ip in 6..18 {
                 let slot = if pass == 0 {
@@ -3622,7 +4324,11 @@ impl Inkling2GpuEngine {
                 } else {
                     N_LAYER + (pass - 1) * 12 + (ip - 6)
                 };
-                if pass > 0 {
+                let msg_ptr = if pass == 0 {
+                    0
+                } else if precompute_all_msgs {
+                    self.d_b_msgs.ptr + ((ip - 6) * 4) as u64 * bd_bytes
+                } else {
                     let mq = self.layers[ip].msg_query.as_ref().unwrap();
                     let mut pb = self.d_b_bank.ptr;
                     let mut nb = 2i32;
@@ -3647,107 +4353,57 @@ impl Inkling2GpuEngine {
                         (&mut b3 as *mut _) as *mut c_void,
                     ];
                     self.launch(stream, self.fns.depth_mix_b, (4, b_u32), 256, &mut args)?;
-                }
+                    self.d_b_msgs.ptr
+                };
                 self.enqueue_batch_visit(
                     stream,
                     ip,
                     slot,
                     b_len,
                     &mut n_blocks,
-                    pass > 0,
+                    msg_ptr,
                     record_seq,
                 )?;
             }
         }
 
         for il in 18..24 {
-            self.enqueue_batch_visit(stream, il, il, b_len, &mut n_blocks, false, record_seq)?;
+            self.enqueue_batch_visit(stream, il, il, b_len, &mut n_blocks, 0, record_seq)?;
         }
         debug_assert_eq!(n_blocks, 4);
 
         if self.drafter.is_some() {
             // Compute `tap 3` (`final_norm(output_query_mix)`) across all `b_len` tokens!
-            let mut pb = self.d_b_blocks.ptr;
-            let mut nb = n_blocks as i32;
-            let mut sb = b_i32;
-            let mut bo = 0i32;
-            let mut bout = b_i32;
-            let mut pc = self.d_b_cur.ptr;
-            let mut ac = 1i32;
-            let mut pq = self.output_query.ptr;
-            let mut pout = self.d_b_mlp_h.ptr;
-            let mut b3 = 0i32;
-            let mut args: [*mut c_void; 10] = [
-                (&mut pb as *mut _) as *mut c_void,
-                (&mut nb as *mut _) as *mut c_void,
-                (&mut sb as *mut _) as *mut c_void,
-                (&mut bo as *mut _) as *mut c_void,
-                (&mut bout as *mut _) as *mut c_void,
-                (&mut pc as *mut _) as *mut c_void,
-                (&mut ac as *mut _) as *mut c_void,
-                (&mut pq as *mut _) as *mut c_void,
-                (&mut pout as *mut _) as *mut c_void,
-                (&mut b3 as *mut _) as *mut c_void,
-            ];
-            self.launch(stream, self.fns.depth_mix_b, (1, b_u32), 256, &mut args)?;
-            let mut pin = self.d_b_mlp_h.ptr;
-            let mut pg = self.final_norm.ptr;
-            let mut p_tap3 = self.d_taps.ptr + (3 * MAX_BATCH_TOKENS * D * 4) as u64;
-            let mut hg = 1i32;
-            let mut rn_args: [*mut c_void; 4] = [
-                (&mut pin as *mut _) as *mut c_void,
-                (&mut pg as *mut _) as *mut c_void,
-                (&mut p_tap3 as *mut _) as *mut c_void,
-                (&mut hg as *mut _) as *mut c_void,
-            ];
-            self.launch(stream, self.fns.rmsnorm_d_b, (b_u32, 1), 256, &mut rn_args)?;
-        }
-
-        match head_mode {
-            BatchHeadMode::None => {}
-            BatchHeadMode::LastOnly => {
+            let p_tap3_dst = self.d_taps.ptr + (3 * MAX_BATCH_TOKENS * D * 4) as u64;
+            if let Some(f_mlp_fused) = self.fns.depth_mix_rmsnorm_d_quant_q8_16_b {
                 let mut pb = self.d_b_blocks.ptr;
                 let mut nb = n_blocks as i32;
                 let mut sb = b_i32;
-                let mut bo = (b_len - 1) as i32;
-                let mut bout = 1i32;
+                let mut bo = 0i32;
                 let mut pc = self.d_b_cur.ptr;
                 let mut ac = 1i32;
                 let mut pq = self.output_query.ptr;
-                let mut pout = self.d_mlp_h.ptr;
-                let mut b3 = 0i32;
-                let mut args: [*mut c_void; 10] = [
+                let mut pg = self.final_norm.ptr;
+                let mut p_tap3 = p_tap3_dst;
+                let mut dq = 0i32;
+                let mut z_q8: CUdeviceptr = 0;
+                let mut z_sc: CUdeviceptr = 0;
+                let mut args: [*mut c_void; 12] = [
                     (&mut pb as *mut _) as *mut c_void,
                     (&mut nb as *mut _) as *mut c_void,
                     (&mut sb as *mut _) as *mut c_void,
                     (&mut bo as *mut _) as *mut c_void,
-                    (&mut bout as *mut _) as *mut c_void,
                     (&mut pc as *mut _) as *mut c_void,
                     (&mut ac as *mut _) as *mut c_void,
                     (&mut pq as *mut _) as *mut c_void,
-                    (&mut pout as *mut _) as *mut c_void,
-                    (&mut b3 as *mut _) as *mut c_void,
+                    (&mut pg as *mut _) as *mut c_void,
+                    (&mut p_tap3 as *mut _) as *mut c_void,
+                    (&mut dq as *mut _) as *mut c_void,
+                    (&mut z_q8 as *mut _) as *mut c_void,
+                    (&mut z_sc as *mut _) as *mut c_void,
                 ];
-                self.launch(stream, self.fns.depth_mix_b, (1, 1), 256, &mut args)?;
-                self.enqueue_rmsnorm_quant_q8_64(stream, self.d_mlp_h.ptr, self.final_norm.ptr, 1)?;
-                self.enqueue_q8_gemv_slice_at(
-                    stream,
-                    &self.unembed_q8,
-                    0,
-                    VOCAB as i32,
-                    0,
-                    self.d_logits.ptr,
-                    30.0,
-                )?;
-                let mut pl = self.d_logits.ptr;
-                let mut pt = self.d_token_out.ptr;
-                let mut am_args: [*mut c_void; 2] = [
-                    (&mut pl as *mut _) as *mut c_void,
-                    (&mut pt as *mut _) as *mut c_void,
-                ];
-                self.launch(stream, self.fns.argmax_b, (1, 1), 256, &mut am_args)?;
-            }
-            BatchHeadMode::AllHeads => {
+                self.launch(stream, f_mlp_fused, (1, b_u32), 256, &mut args)?;
+            } else {
                 let mut pb = self.d_b_blocks.ptr;
                 let mut nb = n_blocks as i32;
                 let mut sb = b_i32;
@@ -3771,13 +4427,156 @@ impl Inkling2GpuEngine {
                     (&mut b3 as *mut _) as *mut c_void,
                 ];
                 self.launch(stream, self.fns.depth_mix_b, (1, b_u32), 256, &mut args)?;
-                self.enqueue_rmsnorm_quant_q8_64_b(
+                let mut pin = self.d_b_mlp_h.ptr;
+                let mut pg = self.final_norm.ptr;
+                let mut p_tap3 = p_tap3_dst;
+                let mut hg = 1i32;
+                let mut rn_args: [*mut c_void; 4] = [
+                    (&mut pin as *mut _) as *mut c_void,
+                    (&mut pg as *mut _) as *mut c_void,
+                    (&mut p_tap3 as *mut _) as *mut c_void,
+                    (&mut hg as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, self.fns.rmsnorm_d_b, (b_u32, 1), 256, &mut rn_args)?;
+            }
+        }
+
+        match head_mode {
+            BatchHeadMode::None => {}
+            BatchHeadMode::LastOnly => {
+                if let Some(f_fused) = self.fns.depth_mix_rmsnorm_quant_q8_64_b {
+                    let mut pb = self.d_b_blocks.ptr;
+                    let mut nb = n_blocks as i32;
+                    let mut sb = b_i32;
+                    let mut bo = (b_len - 1) as i32;
+                    let mut bout = 1i32;
+                    let mut pc = self.d_b_cur.ptr;
+                    let mut ac = 1i32;
+                    let mut pq = self.output_query.ptr;
+                    let mut pg = self.final_norm.ptr;
+                    let mut pq8 = self.d_act_q8_64.ptr;
+                    let mut psc = self.d_act_sc_64.ptr;
+                    let mut args: [*mut c_void; 11] = [
+                        (&mut pb as *mut _) as *mut c_void,
+                        (&mut nb as *mut _) as *mut c_void,
+                        (&mut sb as *mut _) as *mut c_void,
+                        (&mut bo as *mut _) as *mut c_void,
+                        (&mut bout as *mut _) as *mut c_void,
+                        (&mut pc as *mut _) as *mut c_void,
+                        (&mut ac as *mut _) as *mut c_void,
+                        (&mut pq as *mut _) as *mut c_void,
+                        (&mut pg as *mut _) as *mut c_void,
+                        (&mut pq8 as *mut _) as *mut c_void,
+                        (&mut psc as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, f_fused, (1, 1), 256, &mut args)?;
+                } else {
+                    let mut pb = self.d_b_blocks.ptr;
+                    let mut nb = n_blocks as i32;
+                    let mut sb = b_i32;
+                    let mut bo = (b_len - 1) as i32;
+                    let mut bout = 1i32;
+                    let mut pc = self.d_b_cur.ptr;
+                    let mut ac = 1i32;
+                    let mut pq = self.output_query.ptr;
+                    let mut pout = self.d_mlp_h.ptr;
+                    let mut b3 = 0i32;
+                    let mut args: [*mut c_void; 10] = [
+                        (&mut pb as *mut _) as *mut c_void,
+                        (&mut nb as *mut _) as *mut c_void,
+                        (&mut sb as *mut _) as *mut c_void,
+                        (&mut bo as *mut _) as *mut c_void,
+                        (&mut bout as *mut _) as *mut c_void,
+                        (&mut pc as *mut _) as *mut c_void,
+                        (&mut ac as *mut _) as *mut c_void,
+                        (&mut pq as *mut _) as *mut c_void,
+                        (&mut pout as *mut _) as *mut c_void,
+                        (&mut b3 as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, self.fns.depth_mix_b, (1, 1), 256, &mut args)?;
+                    self.enqueue_rmsnorm_quant_q8_64(
+                        stream,
+                        self.d_mlp_h.ptr,
+                        self.final_norm.ptr,
+                        1,
+                    )?;
+                }
+                self.enqueue_q8_gemv_slice_at(
                     stream,
-                    self.d_b_mlp_h.ptr,
-                    self.final_norm.ptr,
-                    1,
-                    b_len,
+                    &self.unembed_q8,
+                    0,
+                    VOCAB as i32,
+                    0,
+                    self.d_logits.ptr,
+                    30.0,
                 )?;
+                let mut pl = self.d_logits.ptr;
+                let mut pt = self.d_token_out.ptr;
+                let mut am_args: [*mut c_void; 2] = [
+                    (&mut pl as *mut _) as *mut c_void,
+                    (&mut pt as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, self.fns.argmax_b, (1, 1), 256, &mut am_args)?;
+            }
+            BatchHeadMode::AllHeads => {
+                if let Some(f_fused) = self.fns.depth_mix_rmsnorm_quant_q8_64_b {
+                    let mut pb = self.d_b_blocks.ptr;
+                    let mut nb = n_blocks as i32;
+                    let mut sb = b_i32;
+                    let mut bo = 0i32;
+                    let mut bout = b_i32;
+                    let mut pc = self.d_b_cur.ptr;
+                    let mut ac = 1i32;
+                    let mut pq = self.output_query.ptr;
+                    let mut pg = self.final_norm.ptr;
+                    let mut pq8 = self.d_b_act_q8_64.ptr;
+                    let mut psc = self.d_b_act_sc_64.ptr;
+                    let mut args: [*mut c_void; 11] = [
+                        (&mut pb as *mut _) as *mut c_void,
+                        (&mut nb as *mut _) as *mut c_void,
+                        (&mut sb as *mut _) as *mut c_void,
+                        (&mut bo as *mut _) as *mut c_void,
+                        (&mut bout as *mut _) as *mut c_void,
+                        (&mut pc as *mut _) as *mut c_void,
+                        (&mut ac as *mut _) as *mut c_void,
+                        (&mut pq as *mut _) as *mut c_void,
+                        (&mut pg as *mut _) as *mut c_void,
+                        (&mut pq8 as *mut _) as *mut c_void,
+                        (&mut psc as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, f_fused, (1, b_u32), 256, &mut args)?;
+                } else {
+                    let mut pb = self.d_b_blocks.ptr;
+                    let mut nb = n_blocks as i32;
+                    let mut sb = b_i32;
+                    let mut bo = 0i32;
+                    let mut bout = b_i32;
+                    let mut pc = self.d_b_cur.ptr;
+                    let mut ac = 1i32;
+                    let mut pq = self.output_query.ptr;
+                    let mut pout = self.d_b_mlp_h.ptr;
+                    let mut b3 = 0i32;
+                    let mut args: [*mut c_void; 10] = [
+                        (&mut pb as *mut _) as *mut c_void,
+                        (&mut nb as *mut _) as *mut c_void,
+                        (&mut sb as *mut _) as *mut c_void,
+                        (&mut bo as *mut _) as *mut c_void,
+                        (&mut bout as *mut _) as *mut c_void,
+                        (&mut pc as *mut _) as *mut c_void,
+                        (&mut ac as *mut _) as *mut c_void,
+                        (&mut pq as *mut _) as *mut c_void,
+                        (&mut pout as *mut _) as *mut c_void,
+                        (&mut b3 as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, self.fns.depth_mix_b, (1, b_u32), 256, &mut args)?;
+                    self.enqueue_rmsnorm_quant_q8_64_b(
+                        stream,
+                        self.d_b_mlp_h.ptr,
+                        self.final_norm.ptr,
+                        1,
+                        b_len,
+                    )?;
+                }
                 self.enqueue_q8_gemm_slice_at(
                     stream,
                     &self.unembed_q8,

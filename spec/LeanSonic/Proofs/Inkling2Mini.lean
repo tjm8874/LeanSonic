@@ -624,4 +624,242 @@ def kInk2CtrlApplyT8B : KernelResourceSpec :=
 theorem ink2_ctrl_down_r8_b_valid : ValidSm120Kernel kInk2CtrlDownR8B := by decide
 theorem ink2_ctrl_apply_t8_b_valid : ValidSm120Kernel kInk2CtrlApplyT8B := by decide
 
+/-! ## 11. Measured `ptxas -arch=sm_120a` Cycle 5 (`v0.6.0`) 0-ULP Glue Fusion & Coalesced Controller Kernels -/
+
+/-- Fused `depth_mix` + `rmsnorm_quant_q8_64` (`35` regs, `9,704` B SMEM -> `6` CTAs = `48` warps/SM, `64` KiB L1!). -/
+def kInk2DepthMixRmsnormQuantQ8B : KernelResourceSpec :=
+  { name := "ink2_depth_mix_rmsnorm_quant_q8_64_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 35          -- aligns to 40 -> 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536 (48 warps/SM!)
+    userSmemPerCtaBytes := 9704     -- 6 * (9704 + 1024) = 64,368 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Fused `depth_mix` + `rmsnorm_d` + `quant_q8_16_packed` (`33` regs, `9,704` B SMEM -> `6` CTAs = `48` warps/SM!). -/
+def kInk2DepthMixRmsnormDQuantQ8B : KernelResourceSpec :=
+  { name := "ink2_depth_mix_rmsnorm_d_quant_q8_16_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 33          -- aligns to 40 -> 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536
+    userSmemPerCtaBytes := 9704     -- 6 * (9704 + 1024) = 64,368 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Fused `rmsnorm_d` + `quant_q8_16_packed` (`26` regs, `9,248` B SMEM -> `6` CTAs = `48` warps/SM!). -/
+def kInk2RmsnormDQuantQ8B : KernelResourceSpec :=
+  { name := "ink2_rmsnorm_d_quant_q8_16_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 26          -- aligns to 32 -> 8,192 regs/CTA; 6 CTAs = 49,152 <= 65,536
+    userSmemPerCtaBytes := 9248     -- 6 * (9248 + 1024) = 61,632 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Coalesced `512B`-Burst Controller Apply (`64` threads, `52` regs, `9,472` B SMEM -> `6` CTAs, `64` KiB L1!). -/
+def kInk2CtrlApplyCoalescedB : KernelResourceSpec :=
+  { name := "ink2_ctrl_apply_coalesced_b"
+    threadsPerCta := 64
+    rawRegsPerThread := 52          -- aligns to 56 -> 3,584 regs/CTA; 6 CTAs = 21,504 <= 65,536
+    userSmemPerCtaBytes := 9472     -- 6 * (9472 + 1024) = 62,976 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- GQA Relative-Bias + Sink Attention + In-Register `Q8_64` Epilogue (`40` regs, `8,856` B SMEM -> `6` CTAs!). -/
+def kInk2GqaRelSinkAttnQ8B : KernelResourceSpec :=
+  { name := "ink2_gqa_rel_sink_attn_q8_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 40          -- 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536 (48 warps/SM!)
+    userSmemPerCtaBytes := 8856     -- 6 * (8856 + 1024) = 59,280 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Split-KV Combine + In-Register `Q8_64` Epilogue (`128` threads, `40` regs -> `12` CTAs = `48` warps/SM!). -/
+def kInk2GqaAttnCombineQ8 : KernelResourceSpec :=
+  { name := "ink2_gqa_attn_combine_q8"
+    threadsPerCta := 128
+    rawRegsPerThread := 40          -- 5,120 regs/CTA; 12 CTAs = 61,440 <= 65,536 (48 warps/SM!)
+    userSmemPerCtaBytes := 24       -- 12 * (24 + 1024) = 12,576 B <= 16 KiB carveout -> 112 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 12
+>>>>>>> Stashed changes
+    clusterCtas := 1
+    minRequiredL1KiB := 112
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+<<<<<<< Updated upstream
+theorem ink2_ctrl_down_r8_b_valid : ValidSm120Kernel kInk2CtrlDownR8B := by decide
+theorem ink2_ctrl_apply_t8_b_valid : ValidSm120Kernel kInk2CtrlApplyT8B := by decide
+=======
+/-- Causal 4-Tap Short-Conv + Fused Block-Start Save (`26` regs -> `6` CTAs = `48` warps/SM, `120` KiB L1!). -/
+def kInk2ShortConv4Save : KernelResourceSpec :=
+  { name := "ink2_short_conv4_save"
+    threadsPerCta := 256
+    rawRegsPerThread := 26          -- aligns to 32 -> 8,192 regs/CTA; 6 CTAs = 49,152 <= 65,536
+    userSmemPerCtaBytes := 0        -- 6 * 1024 = 6,144 B <= 8 KiB carveout -> 120 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Batched Causal 4-Tap Short-Conv + Fused Block-Start Save (`64` regs -> `4` CTAs = `32` warps/SM, `120` KiB L1!). -/
+def kInk2ShortConv4SaveB : KernelResourceSpec :=
+  { name := "ink2_short_conv4_save_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 64          -- 16,384 regs/CTA; 4 CTAs = 65,536 <= 65,536
+    userSmemPerCtaBytes := 0        -- 4 * 1024 = 4,096 B <= 8 KiB carveout -> 120 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Fused Prelude Save & Loop Pass Transition (`20` regs -> `6` CTAs = `48` warps/SM, `120` KiB L1!). -/
+def kInk2LoopPassSetupB : KernelResourceSpec :=
+  { name := "ink2_loop_pass_setup_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 20          -- aligns to 24 -> 6,144 regs/CTA; 6 CTAs = 36,864 <= 65,536
+    userSmemPerCtaBytes := 0        -- 6 * 1024 = 6,144 B <= 8 KiB carveout -> 120 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- SM-Wave-Balanced 4-Rows/CTA Planar `Q8_64` `__dp4a` GEMV (`64` threads, `38` regs, `3,264` B SMEM -> `14` CTAs/SM!). -/
+def kInk2Q8Dp4aGemv4r : KernelResourceSpec :=
+  { name := "ink2_q8_dp4a_gemv_4r"
+    threadsPerCta := 64
+    rawRegsPerThread := 38          -- aligns to 40 -> 2,560 regs/CTA; 14 CTAs = 35,840 <= 65,536
+    userSmemPerCtaBytes := 3264     -- 14 * (3264 + 1024) = 60,032 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 14
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Fused 3-Projection `(Q, K, V)` Planar `Q8_64` `__dp4a` GEMV (`256` threads, `34` regs, `2,448` B SMEM -> `6` CTAs = `48` warps/SM!). -/
+def kInk2Q8Dp4aQkv3Gemv : KernelResourceSpec :=
+  { name := "ink2_q8_dp4a_qkv3_gemv"
+    threadsPerCta := 256
+    rawRegsPerThread := 34          -- aligns to 40 -> 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536 (48 warps/SM!)
+    userSmemPerCtaBytes := 2448     -- 6 * (2448 + 1024) = 20,832 B <= 32 KiB carveout -> 96 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- SM-Wave-Balanced 2-Warps/CTA NVFP4 `__dp4a` MoE Down (`64` threads, `39` regs, `11,520` B SMEM -> `5` CTAs/SM!). -/
+def kInk2MoeNvfp4Dp4aDown2w : KernelResourceSpec :=
+  { name := "ink2_moe_nvfp4_dp4a_down_2w"
+    threadsPerCta := 64
+    rawRegsPerThread := 39          -- aligns to 40 -> 2,560 regs/CTA; 5 CTAs = 12,800 <= 65,536
+    userSmemPerCtaBytes := 11520    -- 5 * (11520 + 1024) = 62,720 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 5
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- SM-Wave-Balanced 2-Warps/CTA MXFP8 MoE Down (`64` threads, `40` regs -> `24` CTAs = `48` warps/SM!). -/
+def kInk2MoeMxfp8Down2w : KernelResourceSpec :=
+  { name := "ink2_moe_mxfp8_down_2w"
+    threadsPerCta := 64
+    rawRegsPerThread := 40          -- 2,560 regs/CTA; 24 CTAs = 61,440 <= 65,536 (48 warps/SM!)
+    userSmemPerCtaBytes := 0        -- 24 * 1024 = 24,576 B <= 32 KiB carveout -> 96 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 24
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Fused Dual K+V Causal 4-Tap Short-Conv (`26` regs -> `6` CTAs = `48` warps/SM, `120` KiB L1!). -/
+def kInk2ShortConv4Kv2 : KernelResourceSpec :=
+  { name := "ink2_short_conv4_kv2"
+    threadsPerCta := 256
+    rawRegsPerThread := 26          -- aligns to 32 -> 8,192 regs/CTA; 6 CTAs = 49,152 <= 65,536
+    userSmemPerCtaBytes := 0        -- 6 * 1024 = 6,144 B <= 8 KiB carveout -> 120 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def cycle5GlueFusionKernelSuite : List KernelResourceSpec :=
+  [ kInk2DepthMixRmsnormQuantQ8B
+  , kInk2DepthMixRmsnormDQuantQ8B
+  , kInk2RmsnormDQuantQ8B
+  , kInk2CtrlApplyCoalescedB
+  , kInk2GqaRelSinkAttnQ8B
+  , kInk2GqaAttnCombineQ8
+  , kInk2ShortConv4Save
+  , kInk2ShortConv4SaveB
+  , kInk2LoopPassSetupB
+  , kInk2Q8Dp4aGemv4r
+  , kInk2Q8Dp4aQkv3Gemv
+  , kInk2MoeNvfp4Dp4aDown2w
+  , kInk2MoeMxfp8Down2w
+  , kInk2ShortConv4Kv2 ]
+
+theorem ink2_depth_mix_rmsnorm_quant_q8_64_b_valid :
+    ValidSm120Kernel kInk2DepthMixRmsnormQuantQ8B := by decide
+theorem ink2_depth_mix_rmsnorm_d_quant_q8_16_b_valid :
+    ValidSm120Kernel kInk2DepthMixRmsnormDQuantQ8B := by decide
+theorem ink2_rmsnorm_d_quant_q8_16_b_valid :
+    ValidSm120Kernel kInk2RmsnormDQuantQ8B := by decide
+theorem ink2_ctrl_apply_coalesced_b_valid :
+    ValidSm120Kernel kInk2CtrlApplyCoalescedB := by decide
+theorem ink2_gqa_rel_sink_attn_q8_b_valid :
+    ValidSm120Kernel kInk2GqaRelSinkAttnQ8B := by decide
+theorem ink2_gqa_attn_combine_q8_valid :
+    ValidSm120Kernel kInk2GqaAttnCombineQ8 := by decide
+theorem ink2_short_conv4_save_valid :
+    ValidSm120Kernel kInk2ShortConv4Save := by decide
+theorem ink2_short_conv4_save_b_valid :
+    ValidSm120Kernel kInk2ShortConv4SaveB := by decide
+theorem ink2_loop_pass_setup_b_valid :
+    ValidSm120Kernel kInk2LoopPassSetupB := by decide
+theorem ink2_q8_dp4a_gemv_4r_valid :
+    ValidSm120Kernel kInk2Q8Dp4aGemv4r := by decide
+theorem ink2_q8_dp4a_qkv3_gemv_valid :
+    ValidSm120Kernel kInk2Q8Dp4aQkv3Gemv := by decide
+theorem ink2_moe_nvfp4_dp4a_down_2w_valid :
+    ValidSm120Kernel kInk2MoeNvfp4Dp4aDown2w := by decide
+theorem ink2_moe_mxfp8_down_2w_valid :
+    ValidSm120Kernel kInk2MoeMxfp8Down2w := by decide
+theorem ink2_short_conv4_kv2_valid :
+    ValidSm120Kernel kInk2ShortConv4Kv2 := by decide
+
+theorem cycle5_glue_fusion_all_kernels_valid :
+    (cycle5GlueFusionKernelSuite.all checkSm120Kernel) = true := by
+  decide
+
 end LeanSonic.Proofs

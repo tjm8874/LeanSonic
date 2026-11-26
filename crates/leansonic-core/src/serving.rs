@@ -161,12 +161,14 @@ pub struct GenerationRequest {
     pub prompt: String,
     pub max_tokens: usize,
     pub stream: bool,
+    pub reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct GenerationOutput {
     pub model: String,
     pub text: String,
+    pub reasoning_content: String,
     pub token_ids: Vec<usize>,
     /// Exact IEEE-754 `f32::to_bits()` hidden-state digest proving `0-ULP` `-p == serve` parity.
     pub step_logit_bits: Vec<u32>,
@@ -174,6 +176,45 @@ pub struct GenerationOutput {
     pub finish_reason: FinishReason,
     pub usage: OpenAiUsage,
     pub elapsed_ms: f64,
+}
+
+/// Pluggable execution backend for `leansonic serve` (`SyntheticServingBackend` for CPU `0-ULP`
+/// verification, or Blackwell GPU `Inkling2GpuEngine` / `Qwen38GpuEngine` when `--weights` is given).
+pub trait ServingBackend: Send + Sync {
+    fn backend_label(&self) -> String;
+    fn model_ids(&self) -> Vec<String>;
+    fn generate(
+        &self,
+        req: &GenerationRequest,
+        slot_id: usize,
+        on_delta: &mut dyn FnMut(&str),
+    ) -> Result<GenerationOutput, String>;
+}
+
+pub struct SyntheticServingBackend;
+
+impl ServingBackend for SyntheticServingBackend {
+    fn backend_label(&self) -> String {
+        "synthetic-0ulp-cpu".to_string()
+    }
+
+    fn model_ids(&self) -> Vec<String> {
+        vec![
+            "inkling-2-mini".to_string(),
+            "qwen3.8-flash-next".to_string(),
+        ]
+    }
+
+    fn generate(
+        &self,
+        req: &GenerationRequest,
+        slot_id: usize,
+        on_delta: &mut dyn FnMut(&str),
+    ) -> Result<GenerationOutput, String> {
+        Ok(execute_generation_on_slot(req, slot_id, |_, piece| {
+            on_delta(piece);
+        }))
+    }
 }
 
 pub fn resolve_program(model_id: &str) -> (String, VisitProgram) {
@@ -308,6 +349,7 @@ where
     GenerationOutput {
         model: canonical_model,
         text,
+        reasoning_content: String::new(),
         token_ids: generated_ids,
         step_logit_bits,
         prefill_chunks_executed,
@@ -501,6 +543,7 @@ pub fn parse_openai_generation_request(
         .or_else(|| extract_json_usize(body, "max_tokens"))
         .unwrap_or(SERVE_DEFAULT_MAX_NEW_TOKENS);
     let stream = extract_json_bool(body, "stream").unwrap_or(false);
+    let reasoning_effort = extract_json_string(body, "reasoning_effort");
 
     if let Some(raw_prompt) = extract_json_string(body, "prompt") {
         return Ok(GenerationRequest {
@@ -508,6 +551,7 @@ pub fn parse_openai_generation_request(
             prompt: raw_prompt,
             max_tokens,
             stream,
+            reasoning_effort,
         });
     }
 
@@ -541,6 +585,7 @@ pub fn parse_openai_generation_request(
         prompt: parts.join("\n"),
         max_tokens,
         stream,
+        reasoning_effort,
     })
 }
 
@@ -604,7 +649,12 @@ fn read_bounded_http_line(
     }
 }
 
-fn handle_http_connection(mut stream: TcpStream, leases: &SlotLeaseManager, default_model: &str) {
+fn handle_http_connection(
+    mut stream: TcpStream,
+    leases: &SlotLeaseManager,
+    default_model: &str,
+    backend: &dyn ServingBackend,
+) {
     let _ = stream.set_read_timeout(Some(HTTP_READ_TIMEOUT));
     let mut reader = BufReader::new(match stream.try_clone() {
         Ok(s) => s,
@@ -698,19 +748,25 @@ fn handle_http_connection(mut stream: TcpStream, leases: &SlotLeaseManager, defa
     match (method, path) {
         ("GET", "/health") => {
             let active = leases.active_count();
+            let backend_lbl = json_escape(&backend.backend_label());
             let payload = format!(
-                "{{\"status\":\"ok\",\"engine\":\"LeanSonic\",\"active_slots\":{active},\"max_slots\":{SERVE_MAX_HTTP_STREAMS}}}"
+                "{{\"status\":\"ok\",\"engine\":\"LeanSonic\",\"backend\":\"{backend_lbl}\",\"active_slots\":{active},\"max_slots\":{SERVE_MAX_HTTP_STREAMS}}}"
             );
             write_json_response(&mut stream, "200 OK", &payload);
         }
         ("GET", "/v1/models") => {
             let created = unix_timestamp_secs();
-            let payload = format!(
-                "{{\"object\":\"list\",\"data\":[\
-                 {{\"id\":\"inkling-2-mini\",\"object\":\"model\",\"created\":{created},\"owned_by\":\"leansonic\"}},\
-                 {{\"id\":\"qwen3.8-flash-next\",\"object\":\"model\",\"created\":{created},\"owned_by\":\"leansonic\"}}\
-                 ]}}"
-            );
+            let models: Vec<String> = backend
+                .model_ids()
+                .into_iter()
+                .map(|id| {
+                    format!(
+                        "{{\"id\":\"{}\",\"object\":\"model\",\"created\":{created},\"owned_by\":\"leansonic\"}}",
+                        json_escape(&id)
+                    )
+                })
+                .collect();
+            let payload = format!("{{\"object\":\"list\",\"data\":[{}]}}", models.join(","));
             write_json_response(&mut stream, "200 OK", &payload);
         }
         ("POST", "/v1/chat/completions") | ("POST", "/v1/completions") => {
@@ -767,8 +823,8 @@ fn handle_http_connection(mut stream: TcpStream, leases: &SlotLeaseManager, defa
                 let _ = stream.flush();
 
                 let mut write_failed = false;
-                let out = execute_generation_on_slot(&req, lease.slot_id, |_, piece| {
-                    if write_failed {
+                let gen_res = backend.generate(&req, lease.slot_id, &mut |piece| {
+                    if write_failed || piece.is_empty() {
                         return;
                     }
                     guard
@@ -789,42 +845,76 @@ fn handle_http_connection(mut stream: TcpStream, leases: &SlotLeaseManager, defa
                     }
                 });
 
-                if !write_failed {
-                    guard
-                        .transition(SseFrameKind::FinishChunk(out.finish_reason))
-                        .expect("valid SSE finish chunk transition");
-                    let fin_str = out.finish_reason.as_openai_str();
-                    let finish_frame = if is_chat {
-                        format!(
-                            "data: {{\"id\":\"{req_id}\",\"object\":\"chat.completion.chunk\",\"created\":{created},\"model\":\"{}\",\"choices\":[{{\"index\":0,\"delta\":{{}},\"finish_reason\":\"{fin_str}\"}}],\"usage\":{{\"prompt_tokens\":{},\"completion_tokens\":{},\"total_tokens\":{}}}}}\n\n",
-                            out.model,
-                            out.usage.prompt_tokens,
-                            out.usage.completion_tokens,
-                            out.usage.total_tokens
-                        )
-                    } else {
-                        format!(
-                            "data: {{\"id\":\"{req_id}\",\"object\":\"text_completion\",\"created\":{created},\"model\":\"{}\",\"choices\":[{{\"index\":0,\"text\":\"\",\"finish_reason\":\"{fin_str}\"}}]}}\n\n",
-                            out.model
-                        )
-                    };
-                    let _ = stream.write_all(finish_frame.as_bytes());
+                match gen_res {
+                    Ok(out) if !write_failed => {
+                        guard
+                            .transition(SseFrameKind::FinishChunk(out.finish_reason))
+                            .expect("valid SSE finish chunk transition");
+                        let fin_str = out.finish_reason.as_openai_str();
+                        let finish_frame = if is_chat {
+                            format!(
+                                "data: {{\"id\":\"{req_id}\",\"object\":\"chat.completion.chunk\",\"created\":{created},\"model\":\"{}\",\"choices\":[{{\"index\":0,\"delta\":{{}},\"finish_reason\":\"{fin_str}\"}}],\"usage\":{{\"prompt_tokens\":{},\"completion_tokens\":{},\"total_tokens\":{}}}}}\n\n",
+                                out.model,
+                                out.usage.prompt_tokens,
+                                out.usage.completion_tokens,
+                                out.usage.total_tokens
+                            )
+                        } else {
+                            format!(
+                                "data: {{\"id\":\"{req_id}\",\"object\":\"text_completion\",\"created\":{created},\"model\":\"{}\",\"choices\":[{{\"index\":0,\"text\":\"\",\"finish_reason\":\"{fin_str}\"}}]}}\n\n",
+                                out.model
+                            )
+                        };
+                        let _ = stream.write_all(finish_frame.as_bytes());
 
-                    guard
-                        .transition(SseFrameKind::DoneSentinel)
-                        .expect("valid SSE [DONE] sentinel transition");
-                    debug_assert!(guard.is_terminated());
-                    let _ = stream.write_all(b"data: [DONE]\n\n");
-                    let _ = stream.flush();
+                        guard
+                            .transition(SseFrameKind::DoneSentinel)
+                            .expect("valid SSE [DONE] sentinel transition");
+                        debug_assert!(guard.is_terminated());
+                        let _ = stream.write_all(b"data: [DONE]\n\n");
+                        let _ = stream.flush();
+                    }
+                    Err(err_msg) if !write_failed => {
+                        let err_frame = format!(
+                            "data: {{\"error\":{{\"message\":\"{}\",\"type\":\"server_error\"}}}}\n\ndata: [DONE]\n\n",
+                            json_escape(&err_msg)
+                        );
+                        let _ = stream.write_all(err_frame.as_bytes());
+                        let _ = stream.flush();
+                    }
+                    _ => {}
                 }
             } else {
-                let out = execute_generation_on_slot(&req, lease.slot_id, |_, _| {});
+                let out = match backend.generate(&req, lease.slot_id, &mut |_| {}) {
+                    Ok(o) => o,
+                    Err(err_msg) => {
+                        let status = if err_msg.contains("exceed") || err_msg.contains("empty") {
+                            "400 Bad Request"
+                        } else {
+                            "500 Internal Server Error"
+                        };
+                        let err = format!(
+                            "{{\"error\":{{\"message\":\"{}\",\"type\":\"server_error\"}}}}",
+                            json_escape(&err_msg)
+                        );
+                        write_json_response(&mut stream, status, &err);
+                        return;
+                    }
+                };
                 let escaped_text = json_escape(&out.text);
+                let reasoning_kv = if out.reasoning_content.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        ",\"reasoning_content\":\"{}\"",
+                        json_escape(&out.reasoning_content)
+                    )
+                };
                 let fin_str = out.finish_reason.as_openai_str();
                 let resp = if is_chat {
                     format!(
                         "{{\"id\":\"{req_id}\",\"object\":\"chat.completion\",\"created\":{created},\"model\":\"{}\",\
-                         \"choices\":[{{\"index\":0,\"message\":{{\"role\":\"assistant\",\"content\":\"{escaped_text}\"}},\"finish_reason\":\"{fin_str}\"}}],\
+                         \"choices\":[{{\"index\":0,\"message\":{{\"role\":\"assistant\",\"content\":\"{escaped_text}\"{reasoning_kv}}},\"finish_reason\":\"{fin_str}\"}}],\
                          \"usage\":{{\"prompt_tokens\":{},\"completion_tokens\":{},\"total_tokens\":{}}}}}",
                         out.model,
                         out.usage.prompt_tokens,
@@ -855,10 +945,11 @@ fn handle_http_connection(mut stream: TcpStream, leases: &SlotLeaseManager, defa
     }
 }
 
-/// Bind and run the OpenAI-compatible HTTP/SSE server until `shutdown` is set.
-pub fn serve_openai_http_with_listener(
+/// Bind and run the OpenAI-compatible HTTP/SSE server with a custom `ServingBackend` until `shutdown` is set.
+pub fn serve_openai_http_with_listener_and_backend(
     listener: TcpListener,
     default_model: String,
+    backend: Arc<dyn ServingBackend>,
     shutdown: Arc<AtomicBool>,
 ) -> std::io::Result<()> {
     let leases = Arc::new(SlotLeaseManager::new());
@@ -872,29 +963,55 @@ pub fn serve_openai_http_with_listener(
             }
             let leases_ref = Arc::clone(&leases);
             let model_ref = default_model.clone();
+            let backend_ref = Arc::clone(&backend);
             thread::spawn(move || {
-                handle_http_connection(stream, &leases_ref, &model_ref);
+                handle_http_connection(stream, &leases_ref, &model_ref, backend_ref.as_ref());
             });
         }
     }
     Ok(())
 }
 
-pub fn serve_openai_http(host: &str, port: u16, default_model: &str) -> std::io::Result<()> {
+/// Bind and run the OpenAI-compatible HTTP/SSE server until `shutdown` is set.
+pub fn serve_openai_http_with_listener(
+    listener: TcpListener,
+    default_model: String,
+    shutdown: Arc<AtomicBool>,
+) -> std::io::Result<()> {
+    serve_openai_http_with_listener_and_backend(
+        listener,
+        default_model,
+        Arc::new(SyntheticServingBackend),
+        shutdown,
+    )
+}
+
+pub fn serve_openai_http_with_backend(
+    host: &str,
+    port: u16,
+    default_model: &str,
+    backend: Arc<dyn ServingBackend>,
+) -> std::io::Result<()> {
     let addr = format!("{host}:{port}");
     let listener = TcpListener::bind(&addr)?;
     println!("=== LeanSonic OpenAI-Compatible Server Listening on http://{addr} ===");
     println!("  Default Model      : {default_model}");
+    println!("  Execution Backend  : {}", backend.backend_label());
     println!(
         "  Max Concurrent Slots: {SERVE_MAX_HTTP_STREAMS} (Lean 4 DisjointSlotStateBands verified)"
     );
     println!("  Prefill Chunk Size : {PREFILL_CHUNK_TOKENS} tokens (0-ULP -p == serve parity)");
     println!("  Endpoints          : GET /health | GET /v1/models | POST /v1/chat/completions | POST /v1/completions");
-    serve_openai_http_with_listener(
+    serve_openai_http_with_listener_and_backend(
         listener,
         default_model.to_string(),
+        backend,
         Arc::new(AtomicBool::new(false)),
     )
+}
+
+pub fn serve_openai_http(host: &str, port: u16, default_model: &str) -> std::io::Result<()> {
+    serve_openai_http_with_backend(host, port, default_model, Arc::new(SyntheticServingBackend))
 }
 
 #[cfg(test)]
@@ -926,6 +1043,7 @@ mod tests {
                 prompt: prompt_text.to_string(),
                 max_tokens: 6,
                 stream: false,
+                reasoning_effort: None,
             },
             |_, _| {},
         );
@@ -942,6 +1060,7 @@ mod tests {
                 prompt: prompt_text.to_string(),
                 max_tokens: 6,
                 stream: false,
+                reasoning_effort: None,
             },
             37,
             |_, _| {},
