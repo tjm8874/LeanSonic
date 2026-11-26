@@ -98,6 +98,19 @@ cargo run --release -p leansonic-cli -- serve --host 127.0.0.1 --port 8080 --mod
 cargo run --release -p leansonic-cli -- tune
 ```
 
+#### Inkling のテキスト推論用モデルを作る
+
+テキスト推論だけに使う場合は、画像エンコーダーを除いてモデルファイルを小さくできます。言語モデルの重みは元の精度で保存します。変換には Python 3.9 以降と、出力用に約19 GBの空き容量が必要です。
+
+```bash
+src=/path/to/official/Inkling-2-Mini
+dst=inkling-text
+shard=model-00001-of-00001.safetensors
+mkdir "$dst" && python3 tools/pack_inkling_text.py "$src/$shard" "$dst/$shard" && cp -R "$src/tiktoken" "$dst/"
+```
+
+作成したディレクトリを `--weights` に指定します。DSpark を使う場合は、公式モデルの `mtp.safetensors` も同じディレクトリにコピーしてください。画像入力には元のチェックポイントが必要です。
+
 ### 2. OpenAI API 互換エンドポイントの呼び出し（`/v1/models`, `/v1/chat/completions`, SSE）
 
 Lean 4（`ServingAndPrompt.lean`）で帰納法により完全性を証明した SSE 状態機械（`SseProtocolGuard`）と、`2048`-token チャンク Prefill 分離則により、`leansonic -p` と複数スロット同時稼働時の `serve` が **`0-ULP` で完全一致**します。

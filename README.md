@@ -131,6 +131,19 @@ leansonic eval-kld --weights "$MODEL_DIR" --ref inkling2-bf16-base.kld
 
 The command prints JSON with model and reference perplexity, mean/median/p99/maximum per-position KL divergence, and top-1 agreement. It resets the GPU engine for each reference chunk, prefills through its midpoint, and scores each remaining next token using the reference prefix. KL uses the reference log-probability cutoff of −16. Use `--chunks N` to score the first N chunks. Use `--start-chunk I --chunks 1` to replay a zero-based chunk. The `ref_ppl` field uses the probabilities stored in the reference file. Its lowest code covers logits at least 16 below the row maximum when the row is clipped. The `ref_floor_targets` field counts scored next tokens with code zero. See the [reference build and checksums](docs/inkling-reference.md) to reproduce the 100-chunk file and compare with the generator’s perplexity.
 
+#### Prepare a smaller text-only Inkling checkpoint
+
+For a text-only deployment, omit the vision tower and keep the language tensors at their original precision. The converter needs Python 3.9+ and about 19 GB of free disk space for the output.
+
+```bash
+src=/path/to/official/Inkling-2-Mini
+dst=inkling-text
+shard=model-00001-of-00001.safetensors
+mkdir "$dst" && python3 tools/pack_inkling_text.py "$src/$shard" "$dst/$shard" && cp -R "$src/tiktoken" "$dst/"
+```
+
+Pass the new directory to `--weights`. To use the DSpark drafter, also copy `mtp.safetensors` from the official model into that directory. Image inference requires the original checkpoint.
+
 ### 2. Query the OpenAI-Compatible Server (`GET /v1/models`, `POST /v1/chat/completions`, SSE)
 
 ```bash
