@@ -3806,10 +3806,10 @@ mod tests {
         let mut bytes = vec![0; 1 + 3 * cols * 2];
         let mut expected_codes = Vec::new();
         let mut expected_scales = Vec::new();
-        for (block, target) in bytes[1..].chunks_exact_mut(128).enumerate() {
+        for (block, target) in bytes[1..].as_chunks_mut::<128>().0.iter_mut().enumerate() {
             let peak = [0.0_f32, 1.0, 2.0, 0.5, 4.0, 8.0][block];
             expected_scales.extend_from_slice(&(peak * (1.0 / 127.0)).to_le_bytes());
-            for (i, word) in target.chunks_exact_mut(2).enumerate() {
+            for (i, word) in target.as_chunks_mut::<2>().0.iter_mut().enumerate() {
                 let sign = if i % 2 == 0 { 1.0 } else { -1.0 };
                 let value = peak * sign;
                 word.copy_from_slice(&((value.to_bits() >> 16) as u16).to_le_bytes());
