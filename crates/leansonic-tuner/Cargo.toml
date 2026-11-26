@@ -1,0 +1,11 @@
+[package]
+name = "leansonic-tuner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Layer 2 Blackwell SM120 discrete cliff pruner & whole-model roofline ranker"
+
+[dependencies]
+leansonic-core = { path = "../leansonic-core" }

@@ -1,0 +1,10 @@
+[package]
+name = "leansonic-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Minimalist Lean 4-verified Blackwell LLM inference runtime core (Inkling-2 & Qwen3.8/4)"
+
+[dependencies]

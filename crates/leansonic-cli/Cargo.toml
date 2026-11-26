@@ -1,0 +1,16 @@
+[package]
+name = "leansonic-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "LeanSonic CLI for schedule inspection, 0-ULP parity gate, and Blackwell roofline tuning"
+
+[[bin]]
+name = "leansonic"
+path = "src/main.rs"
+
+[dependencies]
+leansonic-core = { path = "../leansonic-core" }
+leansonic-tuner = { path = "../leansonic-tuner" }
