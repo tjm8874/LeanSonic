@@ -1,3 +1,5 @@
+mod eval_kld;
+
 use std::env;
 use std::io::{self, Write};
 use std::path::Path;
@@ -34,6 +36,7 @@ fn print_help() {
         "  leansonic -p \"<prompt>\" [--weights <dir>] [--effort none|low|high] [--max-tokens N] [--json]"
     );
     println!("  leansonic bench --weights <dir> --tokens <id1,id2|@file|synth:N> [--gen N] [--repeat R] [--no-graph]");
+    println!("  leansonic eval-kld --weights <dir> --ref <reference.kld> [--chunks N]");
     println!("  leansonic serve [--host 127.0.0.1] [--port 8080] [--model inkling-2-mini]");
     println!(
         "  leansonic info            Print Lean-verified SM120, Hybrid Pool & Offload constants"
@@ -554,6 +557,13 @@ fn main() -> ExitCode {
             }
         },
         Some("bench") => match cmd_bench(&args[2..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("[ERROR] {e}");
+                ExitCode::FAILURE
+            }
+        },
+        Some("eval-kld") => match eval_kld::run(&args[2..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("[ERROR] {e}");

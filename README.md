@@ -123,6 +123,14 @@ cargo run --release -p leansonic-cli -- serve --host 127.0.0.1 --port 8080 --mod
 cargo run --release -p leansonic-cli -- tune
 ```
 
+To compare real Inkling-2-Mini logits with a llama.cpp `_logits_` reference on a Blackwell GPU, run:
+
+```bash
+leansonic eval-kld --weights "$MODEL_DIR" --ref inkling2-bf16-base.kld
+```
+
+The command prints JSON with model and reference perplexity, mean/median/p99/maximum per-position KL divergence, and top-1 agreement. It resets the GPU engine for each reference chunk, prefills through its midpoint, and scores each remaining next token using the reference prefix. KL uses the reference log-probability cutoff of −16. Use `--chunks N` to score the first N chunks. The Inkling reference uses the official quantized experts dequantized to BF16.
+
 ### 2. Query the OpenAI-Compatible Server (`GET /v1/models`, `POST /v1/chat/completions`, SSE)
 
 ```bash
