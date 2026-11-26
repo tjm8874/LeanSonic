@@ -19,8 +19,9 @@ pub const TOK_CONTENT_THINKING: u32 = 200_008;
 pub const TOK_END_MESSAGE: u32 = 200_010;
 
 pub struct TiktokenBpe {
-    encoder: HashMap<Vec<u8>, u32>,
-    decoder: Vec<Vec<u8>>,
+    encoder: HashMap<Box<[u8]>, u32>,
+    decoder: Vec<std::ops::Range<usize>>,
+    token_bytes: Vec<u8>,
 }
 
 impl TiktokenBpe {
@@ -36,9 +37,11 @@ impl TiktokenBpe {
     }
 
     pub fn from_tiktoken_str(content: &str) -> io::Result<Self> {
-        let mut encoder = HashMap::with_capacity(200_100);
-        let mut max_rank = 0u32;
-        let mut entries = Vec::with_capacity(200_000);
+        // The official vocabulary has just under 200k entries. Bound the hint for small files.
+        let count = (content.len() / 8).min(200_100);
+        let mut encoder = HashMap::with_capacity(count);
+        let mut decoder = Vec::with_capacity(count);
+        let mut token_bytes = Vec::new();
 
         for line in content.lines() {
             let line = line.trim();
@@ -54,17 +57,21 @@ impl TiktokenBpe {
                 .trim()
                 .parse()
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-            max_rank = max_rank.max(rank);
-            entries.push((bytes, rank));
+            let start = token_bytes.len();
+            token_bytes.extend_from_slice(&bytes);
+            let index = rank as usize;
+            if index >= decoder.len() {
+                decoder.resize(index + 1, 0..0);
+            }
+            decoder[index] = start..token_bytes.len();
+            encoder.insert(bytes.into_boxed_slice(), rank);
         }
 
-        let mut decoder = vec![Vec::new(); (max_rank as usize) + 1];
-        for (bytes, rank) in entries {
-            decoder[rank as usize] = bytes.clone();
-            encoder.insert(bytes, rank);
-        }
-
-        Ok(Self { encoder, decoder })
+        Ok(Self {
+            encoder,
+            decoder,
+            token_bytes,
+        })
     }
 
     /// Standard byte-pair merge over pre-segmented chunks (whitespace/word/punct pieces).
@@ -134,21 +141,15 @@ impl TiktokenBpe {
     pub fn decode_tokens(&self, tokens: &[u32]) -> String {
         let mut bytes = Vec::with_capacity(tokens.len() * 4);
         for &t in tokens {
-            let idx = t as usize;
-            if idx < self.decoder.len() && !self.decoder[idx].is_empty() {
-                bytes.extend_from_slice(&self.decoder[idx]);
-            }
+            bytes.extend_from_slice(self.decode_token_bytes(t));
         }
         String::from_utf8_lossy(&bytes).into_owned()
     }
 
     pub fn decode_token_bytes(&self, token: u32) -> &[u8] {
-        let idx = token as usize;
-        if idx < self.decoder.len() {
-            &self.decoder[idx]
-        } else {
-            &[]
-        }
+        self.decoder
+            .get(token as usize)
+            .map_or(&[], |range| &self.token_bytes[range.clone()])
     }
 }
 
@@ -219,7 +220,9 @@ fn decode_base64(input: &str) -> Option<Vec<u8>> {
     if bytes.is_empty() || !bytes.len().is_multiple_of(4) {
         return None;
     }
-    let mut out = Vec::with_capacity(bytes.len() * 3 / 4);
+    let padding =
+        usize::from(bytes[bytes.len() - 1] == b'=') + usize::from(bytes[bytes.len() - 2] == b'=');
+    let mut out = Vec::with_capacity(bytes.len() / 4 * 3 - padding);
     let mut idx = 0;
     while idx + 4 <= bytes.len() {
         let chunk = &bytes[idx..idx + 4];
@@ -242,6 +245,14 @@ fn decode_base64(input: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decode_sparse_unordered_ranks_and_split_utf8() {
+        let bpe = TiktokenBpe::from_tiktoken_str("gg== 8\n4w== 2\ngQ== 5\n").unwrap();
+        assert_eq!(bpe.decode_tokens(&[2, 5, 8]), "あ");
+        assert!(bpe.decode_token_bytes(3).is_empty());
+        assert!(bpe.decode_token_bytes(99).is_empty());
+    }
 
     #[test]
     fn base64_and_bpe_roundtrip() {
