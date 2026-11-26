@@ -171,7 +171,9 @@ struct KernelFns {
     quant_q8_64_b: CUfunction,
     depth_mix_b: CUfunction,
     ctrl_down_b: CUfunction,
+    ctrl_down_r8_b: Option<CUfunction>,
     ctrl_apply_b: CUfunction,
+    ctrl_apply_t8_b: Option<CUfunction>,
     q8_dp4a_gemm_b: CUfunction,
     short_conv4_b: CUfunction,
     prep_qkv_and_cache_b: CUfunction,
@@ -1261,7 +1263,9 @@ impl Inkling2GpuEngine {
             quant_q8_64_b: get_fn("ink2_quant_q8_64_b")?,
             depth_mix_b: get_fn("ink2_depth_mix_b")?,
             ctrl_down_b: get_fn("ink2_ctrl_down_b")?,
+            ctrl_down_r8_b: get_fn("ink2_ctrl_down_r8_b").ok(),
             ctrl_apply_b: get_fn("ink2_ctrl_apply_b")?,
+            ctrl_apply_t8_b: get_fn("ink2_ctrl_apply_t8_b").ok(),
             q8_dp4a_gemm_b: get_fn("ink2_q8_dp4a_gemm_b")?,
             short_conv4_b: get_fn("ink2_short_conv4_b")?,
             prep_qkv_and_cache_b: get_fn("ink2_prep_qkv_and_cache_b")?,
@@ -2731,10 +2735,16 @@ impl Inkling2GpuEngine {
             (&mut p_g as *mut _) as *mut c_void,
             (&mut b_i32 as *mut _) as *mut c_void,
         ];
+        // A short batch has too few blocks to amortize an eight-wide tile.
+        // Optional symbols also support previously built external cubins.
+        let (down, rank_blocks) = match self.fns.ctrl_down_r8_b {
+            Some(f) if b_len >= 16 => (f, 8),
+            _ => (self.fns.ctrl_down_b, 64),
+        };
         self.launch(
             stream,
-            self.fns.ctrl_down_b,
-            (64, n_ctrls * b_u32),
+            down,
+            (rank_blocks, n_ctrls * b_u32),
             256,
             &mut args1,
         )?;
@@ -2749,13 +2759,11 @@ impl Inkling2GpuEngine {
             (&mut p_forget as *mut _) as *mut c_void,
             (&mut b_i32 as *mut _) as *mut c_void,
         ];
-        self.launch(
-            stream,
-            self.fns.ctrl_apply_b,
-            (9, n_ctrls * b_u32),
-            256,
-            &mut args2,
-        )
+        let (apply, token_tiles) = match self.fns.ctrl_apply_t8_b {
+            Some(f) if b_len >= 16 => (f, b_u32.div_ceil(8)),
+            _ => (self.fns.ctrl_apply_b, b_u32),
+        };
+        self.launch(stream, apply, (9, n_ctrls * token_tiles), 256, &mut args2)
     }
 
     fn enqueue_rmsnorm_quant_q8_64_b(
