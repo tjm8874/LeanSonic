@@ -361,15 +361,24 @@ pub fn repack_bf16_to_planar_q8_64(
                     let dst_s = &mut s_chunk[r * cols64 * 4..(r + 1) * cols64 * 4];
                     for b in 0..cols64 {
                         let sub = &w_row[b * 64..(b + 1) * 64];
-                        let mut amax = 0.0f32;
                         let mut fvals = [0.0f32; 64];
-                        for (i, &u) in sub.iter().enumerate() {
-                            let fv = bf16_to_f32(u);
-                            fvals[i] = fv;
-                            let av = fv.abs();
-                            if av > amax {
-                                amax = av;
+                        for (v, &u) in fvals.iter_mut().zip(sub) {
+                            *v = bf16_to_f32(u);
+                        }
+                        for half in [1, 2, 4, 8, 16, 32] {
+                            for block in fvals.chunks_exact_mut(2 * half) {
+                                let (low, high) = block.split_at_mut(half);
+                                for (a, b) in low.iter_mut().zip(high) {
+                                    let diff = *a - *b;
+                                    *a += *b;
+                                    *b = diff;
+                                }
                             }
+                        }
+                        let mut amax = 0.0f32;
+                        for value in &mut fvals {
+                            *value *= 0.125;
+                            amax = amax.max(value.abs());
                         }
                         let sc = amax * (1.0 / 127.0);
                         let inv = if amax > 0.0 { 127.0 / amax } else { 0.0 };

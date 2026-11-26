@@ -208,6 +208,21 @@ extern "C" __global__ void ink2_rmsnorm_d(
 
 // Fused Batched RMSNorm (`[count, 2304]` with BF16 gamma) + Planar `Q8_64` Quantizer!
 // Grid: `(count, 1)`, Block: `256` threads (`8` warps; `1` warp quantizes `1` 64-elem block!).
+// Orthonormal Walsh-Hadamard transform on one planar Q8 block.
+__device__ __forceinline__ float hadamard_warp(float x, int lane) {
+    #pragma unroll
+    for (int mask = 1; mask < 32; mask *= 2) {
+        float other = __shfl_xor_sync(0xffffffffu, x, mask);
+        x = (lane & mask) ? other - x : x + other;
+    }
+    return x;
+}
+__device__ __forceinline__ void hadamard_pairs(float &a, float &b, int lane) {
+    float diff = a - b;
+    a = hadamard_warp(a + b, lane) * 0.125f;
+    b = hadamard_warp(diff, lane) * 0.125f;
+}
+
 extern "C" __global__ void ink2_rmsnorm_quant_q8_64(
     const float* __restrict__ inp_base,            // [count, 2304]
     const uint32_t* __restrict__ gamma_bf16_pairs, // [count, 1152]
@@ -246,6 +261,7 @@ extern "C" __global__ void ink2_rmsnorm_quant_q8_64(
         int base = blk * 64 + lane * 2;
         float y0 = inp[base] * k * bf16_to_f32(static_cast<uint16_t>(gw & 0xFFFFu));
         float y1 = inp[base + 1] * k * bf16_to_f32(static_cast<uint16_t>(gw >> 16));
+        hadamard_pairs(y0, y1, lane);
         float amax = fmaxf(fabsf(y0), fabsf(y1));
         #pragma unroll
         for (int mask = 16; mask > 0; mask >>= 1) {
@@ -1099,7 +1115,12 @@ extern "C" __global__ void ink2_quant_q8_64(
     const int warp_id = tid >> 5;
     const int lane = tid & 31;
 
-    float v = x[blk * 64 + tid];
+    __shared__ float transformed[64];
+    float tx = hadamard_warp(x[blk * 64 + tid], lane);
+    transformed[tid] = tx;
+    __syncthreads();
+    float peer = transformed[tid ^ 32];
+    float v = (warp_id == 0 ? tx + peer : peer - tx) * 0.125f;
     float amax = fabsf(v);
     #pragma unroll
     for (int mask = 16; mask > 0; mask >>= 1) {
@@ -1547,6 +1568,7 @@ extern "C" __global__ void ink2_rmsnorm_quant_q8_64_b(
         int base = blk * 64 + lane * 2;
         float y0 = inp[base] * k * bf16_to_f32(static_cast<uint16_t>(gw & 0xFFFFu));
         float y1 = inp[base + 1] * k * bf16_to_f32(static_cast<uint16_t>(gw >> 16));
+        hadamard_pairs(y0, y1, lane);
         float amax = fmaxf(fabsf(y0), fabsf(y1));
         #pragma unroll
         for (int mask = 16; mask > 0; mask >>= 1) {
@@ -1586,7 +1608,12 @@ extern "C" __global__ void ink2_quant_q8_64_b(
     const int lane = tid & 31;
 
     const float* x = x_base + static_cast<size_t>(b) * cols;
-    float v = x[blk * 64 + tid];
+    __shared__ float transformed[64];
+    float tx = hadamard_warp(x[blk * 64 + tid], lane);
+    transformed[tid] = tx;
+    __syncthreads();
+    float peer = transformed[tid ^ 32];
+    float v = (warp_id == 0 ? tx + peer : peer - tx) * 0.125f;
     float amax = fabsf(v);
     #pragma unroll
     for (int mask = 16; mask > 0; mask >>= 1) {
@@ -3299,6 +3326,7 @@ extern "C" __global__ void mtp_markov_step_q8(
     if (warp_id < 4) {
         float y0 = smem_lat[warp_id * 64 + lane * 2];
         float y1 = smem_lat[warp_id * 64 + lane * 2 + 1];
+        hadamard_pairs(y0, y1, lane);
         float amax = fmaxf(fabsf(y0), fabsf(y1));
         #pragma unroll
         for (int mask = 16; mask > 0; mask >>= 1) {
