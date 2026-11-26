@@ -244,4 +244,103 @@ theorem simt_and_mma_16bx2_0ulp_eq {α : Type} (fadd : α → α → α) (p0 p1 
 /-- Concrete MoE Dual-Regime Switching Threshold (`routedPairs >= 128`). -/
 def moeGroupedMmaMinPairs : Nat := 128
 
+/-! ## 7. Measured `ptxas -arch=sm_120a` Wave 1 Production `Inkling-2-Mini` Kernels -/
+
+/-- Planar `Q8_64` SMEM-Staged 2-Rows/Warp `__dp4a` GEMV (`38` regs -> `6` CTAs = `48` warps/SM!). -/
+def kInk2Q8Dp4aGemv : KernelResourceSpec :=
+  { name := "ink2_q8_dp4a_gemv"
+    threadsPerCta := 256
+    rawRegsPerThread := 38          -- aligns to 40 -> 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536 (100% 48w/SM!)
+    userSmemPerCtaBytes := 3264     -- 6 * (3264 + 1024) = 25,728 B <= 32 KiB carveout -> 96 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Wide `uint4` (`16B` `LDG.E.128`) `__dp4a` NVFP4 MoE Up+SITU (`40` regs -> `6` CTAs = `48` warps/SM!). -/
+def kInk2MoeNvfp4Dp4aUpSitu : KernelResourceSpec :=
+  { name := "ink2_moe_nvfp4_dp4a_up_situ"
+    threadsPerCta := 256
+    rawRegsPerThread := 40          -- 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536 (100% 48w/SM!)
+    userSmemPerCtaBytes := 2912     -- 6 * (2912 + 1024) = 23,616 B <= 32 KiB carveout -> 96 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Wide `uint4` (`16B` `LDG.E.128`) `__dp4a` NVFP4 MoE Down (`39` regs, `4` CTAs/SM -> `64` KiB L1!). -/
+def kInk2MoeNvfp4Dp4aDown : KernelResourceSpec :=
+  { name := "ink2_moe_nvfp4_dp4a_down"
+    threadsPerCta := 256
+    rawRegsPerThread := 39          -- aligns to 40 -> 10,240 regs/CTA; 4 CTAs = 40,960 <= 65,536
+    userSmemPerCtaBytes := 11520    -- 4 * (11520 + 1024) = 50,176 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Unit-Stride `512B` Coalesced MXFP8 MoE Down (`40` regs -> `6` CTAs = `48` warps/SM, `128` KiB L1!). -/
+def kInk2MoeMxfp8Down : KernelResourceSpec :=
+  { name := "ink2_moe_mxfp8_down"
+    threadsPerCta := 256
+    rawRegsPerThread := 40
+    userSmemPerCtaBytes := 0        -- 6 * 1024 = 6,144 B <= 8 KiB carveout -> 120 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- 8-Warp Split-KV Online-Softmax GQA + 1024 Rel-Bias + Sink (`40` regs, `5` CTAs/SM -> `64` KiB L1!). -/
+def kInk2GqaRelSinkAttn : KernelResourceSpec :=
+  { name := "ink2_gqa_rel_sink_attn"
+    threadsPerCta := 256
+    rawRegsPerThread := 40
+    userSmemPerCtaBytes := 8832     -- 5 * (8832 + 1024) = 49,280 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 5
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Fused Batched RMSNorm + Planar `Q8_64` Quantizer (`28` regs -> `6` CTAs = `48` warps/SM!). -/
+def kInk2RmsnormQuantQ8 : KernelResourceSpec :=
+  { name := "ink2_rmsnorm_quant_q8_64"
+    threadsPerCta := 256
+    rawRegsPerThread := 28
+    userSmemPerCtaBytes := 32       -- 6 * (32 + 1024) = 6,336 B <= 8 KiB carveout -> 120 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def wave1Inkling2KernelSuite : List KernelResourceSpec :=
+  [ kInk2Q8Dp4aGemv
+  , kInk2MoeNvfp4Dp4aUpSitu
+  , kInk2MoeNvfp4Dp4aDown
+  , kInk2MoeMxfp8Down
+  , kInk2GqaRelSinkAttn
+  , kInk2RmsnormQuantQ8 ]
+
+theorem ink2_q8_dp4a_gemv_valid : ValidSm120Kernel kInk2Q8Dp4aGemv := by decide
+theorem ink2_moe_nvfp4_dp4a_up_situ_valid : ValidSm120Kernel kInk2MoeNvfp4Dp4aUpSitu := by decide
+theorem ink2_moe_nvfp4_dp4a_down_valid : ValidSm120Kernel kInk2MoeNvfp4Dp4aDown := by decide
+theorem ink2_moe_mxfp8_down_valid : ValidSm120Kernel kInk2MoeMxfp8Down := by decide
+theorem ink2_gqa_rel_sink_attn_valid : ValidSm120Kernel kInk2GqaRelSinkAttn := by decide
+theorem ink2_rmsnorm_quant_q8_valid : ValidSm120Kernel kInk2RmsnormQuantQ8 := by decide
+
+theorem wave1_inkling2_all_kernels_valid :
+    (wave1Inkling2KernelSuite.all checkSm120Kernel) = true := by
+  decide
+
 end LeanSonic.Proofs
