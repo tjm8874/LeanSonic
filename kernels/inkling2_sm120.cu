@@ -4597,6 +4597,67 @@ extern "C" __global__ void ink2_short_conv4_save_b(
     h[2] = h2;
 }
 
+
+// Each warp owns eight time steps in 32 channels. Later tiles read their
+// three causal predecessors from the input. Only the first tile owns hist3.
+// The launcher uses this kernel for B >= 64, with separate input and output.
+extern "C" __global__ void ink2_short_conv4_wide_b(
+    const float* __restrict__ cur_base,
+    int32_t in_stride,
+    const float4* __restrict__ w_conv4,
+    const float4* __restrict__ dyn_base,
+    int32_t dyn_f4_stride,
+    float* __restrict__ hist3,
+    float* out_base,
+    int32_t out_stride,
+    const float* res_base,
+    int32_t res_stride,
+    float* __restrict__ save_prev_base,
+    float* __restrict__ seq_out,
+    int32_t channels,
+    int32_t B,
+    int32_t has_dyn,
+    int32_t do_res_add) {
+    constexpr int rows = 8;
+    const int c = blockIdx.x * 32 + threadIdx.x % 32;
+    const int first = (blockIdx.y * 8 + threadIdx.x / 32) * rows;
+    if (c >= channels || first >= B) return;
+    const float* x = cur_base + c;
+    float* h = hist3 + c * 3;
+    float h0, h1, h2;
+    if (first == 0) {
+        h0 = h[0];
+        h1 = h[1];
+        h2 = h[2];
+        if (seq_out) {
+            seq_out[c] = h0;
+            seq_out[channels + c] = h1;
+            seq_out[2 * channels + c] = h2;
+        }
+        h[0] = x[static_cast<size_t>(B - 3) * in_stride];
+        h[1] = x[static_cast<size_t>(B - 2) * in_stride];
+        h[2] = x[static_cast<size_t>(B - 1) * in_stride];
+    } else {
+        h0 = x[static_cast<size_t>(first - 3) * in_stride];
+        h1 = x[static_cast<size_t>(first - 2) * in_stride];
+        h2 = x[static_cast<size_t>(first - 1) * in_stride];
+    }
+    const float4 w = w_conv4[c];
+    for (int b = first; b < min(first + rows, B); ++b) {
+        const float cur = x[static_cast<size_t>(b) * in_stride];
+        const size_t dst = static_cast<size_t>(b) * out_stride + c;
+        if (save_prev_base) save_prev_base[dst] = out_base[dst];
+        if (seq_out) seq_out[static_cast<size_t>(3 + b) * channels + c] = cur;
+        const float4 dyn = has_dyn ? dyn_base[static_cast<size_t>(b) * dyn_f4_stride + c / 128]
+                                   : make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+        const float res = do_res_add ? res_base[static_cast<size_t>(b) * res_stride + c] : 0.0f;
+        out_base[dst] = eval_conv4_step(w, h0, h1, h2, cur, has_dyn, dyn, do_res_add, res);
+        h0 = h1;
+        h1 = h2;
+        h2 = cur;
+    }
+}
+
 // Fused Prelude Save (`mode == 0`) & Loop Pass Transition (`mode == 1`) (`Grid: (9, B)`, `Block: 256`):
 extern "C" __global__ void ink2_loop_pass_setup_b(
     float* __restrict__ cur_buf,            // [B, D]

@@ -216,6 +216,7 @@ struct KernelFns {
     gqa_attn_combine_q8: Option<CUfunction>,
     short_conv4_save: Option<CUfunction>,
     short_conv4_save_b: Option<CUfunction>,
+    short_conv4_wide_b: Option<CUfunction>,
     loop_pass_setup_b: Option<CUfunction>,
     q8_dp4a_qkv3_gemv: Option<CUfunction>,
     short_conv4_kv2: Option<CUfunction>,
@@ -1423,6 +1424,7 @@ impl Inkling2GpuEngine {
             gqa_attn_combine_q8: get_fn("ink2_gqa_attn_combine_q8").ok(),
             short_conv4_save: get_fn("ink2_short_conv4_save").ok(),
             short_conv4_save_b: get_fn("ink2_short_conv4_save_b").ok(),
+            short_conv4_wide_b: get_fn("ink2_short_conv4_wide_b").ok(),
             loop_pass_setup_b: get_fn("ink2_loop_pass_setup_b").ok(),
             q8_dp4a_qkv3_gemv: get_fn("ink2_q8_dp4a_qkv3_gemv").ok(),
             short_conv4_kv2: get_fn("ink2_short_conv4_kv2").ok(),
@@ -3430,6 +3432,30 @@ impl Inkling2GpuEngine {
         )
     }
 
+    fn launch_batch_conv(
+        &self,
+        stream: CUstream,
+        legacy: CUfunction,
+        channels: u32,
+        batch: u32,
+        args: &mut [*mut c_void],
+    ) -> Result<(), String> {
+        let Some(kernel) = self.fns.short_conv4_wide_b.filter(|_| batch >= 64) else {
+            return self.launch(stream, legacy, (channels.div_ceil(256), 1), 256, args);
+        };
+        let grid = (channels.div_ceil(32), batch.div_ceil(64));
+        if args.len() == 16 {
+            return self.launch(stream, kernel, grid, 256, args);
+        }
+        // The original no-save kernel omits the save pointer at argument ten.
+        let mut no_save: CUdeviceptr = 0;
+        let mut wide = [core::ptr::null_mut(); 16];
+        wide[..10].copy_from_slice(&args[..10]);
+        wide[10] = (&mut no_save as *mut CUdeviceptr).cast();
+        wide[11..].copy_from_slice(&args[10..]);
+        self.launch(stream, kernel, grid, 256, &mut wide)
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn enqueue_batch_visit(
         &self,
@@ -3726,7 +3752,7 @@ impl Inkling2GpuEngine {
                 (&mut hd as *mut _) as *mut c_void,
                 (&mut dr as *mut _) as *mut c_void,
             ];
-            self.launch(stream, self.fns.short_conv4_b, (4, 1), 256, &mut args)?;
+            self.launch_batch_conv(stream, self.fns.short_conv4_b, 1024, b_u32, &mut args)?;
         }
 
         // 5. Batched Q/R/K Clip + V RMSNorm + KV Cache Write (Ring-Hazard-Free via `1088 >= 1024 + 64`!)
@@ -3901,7 +3927,7 @@ impl Inkling2GpuEngine {
                 (&mut hd as *mut _) as *mut c_void,
                 (&mut dr as *mut _) as *mut c_void,
             ];
-            self.launch(stream, f_sc_save_b, (9, 1), 256, &mut args)?;
+            self.launch_batch_conv(stream, f_sc_save_b, 2304, b_u32, &mut args)?;
         } else {
             if save_blk_ptr != 0 {
                 self.enqueue_copy_n(stream, self.prefill.d_b_cur.ptr, save_blk_ptr, bd_floats)?;
@@ -3946,7 +3972,7 @@ impl Inkling2GpuEngine {
                 (&mut hd as *mut _) as *mut c_void,
                 (&mut dr as *mut _) as *mut c_void,
             ];
-            self.launch(stream, self.fns.short_conv4_b, (9, 1), 256, &mut args)?;
+            self.launch_batch_conv(stream, self.fns.short_conv4_b, 2304, b_u32, &mut args)?;
         }
 
         // 8. Fused Batched MLP Prologue (`depth_mix + rmsnorm_d + quant_q8_16` when `!has_msgs`)
@@ -4278,7 +4304,7 @@ impl Inkling2GpuEngine {
                 (&mut hd as *mut _) as *mut c_void,
                 (&mut dr as *mut _) as *mut c_void,
             ];
-            self.launch(stream, self.fns.short_conv4_b, (9, 1), 256, &mut args)?;
+            self.launch_batch_conv(stream, self.fns.short_conv4_b, 2304, b_u32, &mut args)?;
         }
 
         if self.drafter.is_some() {
