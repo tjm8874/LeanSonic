@@ -1,0 +1,31 @@
+{
+  "schema": "leansonic.targets.v1",
+  "source": "Issue #8 and docs/goals/leansonic-fastest-engine/goal.md (target table). Model: Inkling-2-Mini, FP16 KV, single request. null = record only (計測して記録).",
+  "units": {
+    "prefill_2k": "tok/s", "prefill_16k": "tok/s", "decode_short": "tok/s", "decode_16k": "tok/s",
+    "spec_avg": "tok/s (mean of conv/struct/prose)", "vram_gib": "GiB (max)", "long_128k_decode": "tok/s",
+    "c64_total": "tok/s", "kld_mean": "nats (max)"
+  },
+  "skus": {
+    "rtx_pro_5000": {
+      "match": "RTX PRO 5000",
+      "prefill_2k": 14000, "prefill_16k": 14000, "decode_short": 220, "decode_16k": 185,
+      "spec_avg": 310, "vram_gib": 16.6, "long_128k_decode": 113, "c64_total": 1340, "kld_mean": 0.003
+    },
+    "rtx_pro_4500": {
+      "match": "RTX PRO 4500",
+      "prefill_2k": 11500, "prefill_16k": 11500, "decode_short": 149, "decode_16k": 125,
+      "spec_avg": 210, "vram_gib": 16.6, "long_128k_decode": 77, "c64_total": 910, "kld_mean": 0.003
+    },
+    "rtx_5070_ti": {
+      "match": "RTX 5070 Ti",
+      "prefill_2k": 3700, "prefill_16k": 5300, "decode_short": 105, "decode_16k": 85,
+      "spec_avg": 100, "vram_gib": null, "long_128k_decode": null, "c64_total": null, "kld_mean": 0.003
+    },
+    "rtx_5060_ti": {
+      "match": "RTX 5060 Ti",
+      "prefill_2k": 1800, "prefill_16k": 1800, "decode_short": 45, "decode_16k": 40,
+      "spec_avg": null, "vram_gib": null, "long_128k_decode": null, "c64_total": null, "kld_mean": 0.003
+    }
+  }
+}

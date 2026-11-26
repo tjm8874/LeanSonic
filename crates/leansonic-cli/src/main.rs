@@ -1,3 +1,4 @@
+mod bench_matrix;
 mod eval_kld;
 
 use std::env;
@@ -56,6 +57,8 @@ fn print_help() {
         "  leansonic -p \"<prompt>\" [--weights <dir>] [--spec 0..7] [--effort none|low|high] [--max-tokens N] [--show-thinking] [--json]"
     );
     println!("  leansonic bench --weights <dir> --tokens <id1,id2|@file|synth:N> [--spec 0..7] [--gen N] [--repeat R] [--no-graph]");
+    println!("  leansonic bench-matrix --weights <dir> [--gpus all|0,1] [--n 5] [--ctx 20480] [--spec-prompts <dir>] [--quick] [--out <json>]");
+    println!("  leansonic bench-matrix --merge <a.json> <b.json> ...   Combine per-host results into one 4-GPU table");
     println!("  leansonic eval-kld --weights <dir> --ref <reference.kld> [--start-chunk INDEX] [--chunks COUNT]");
     println!("  leansonic serve [--host 127.0.0.1] [--port 8080] [--model inkling-2-mini]");
     println!(
@@ -1030,6 +1033,13 @@ fn main() -> ExitCode {
             }
         },
         Some("bench") => match cmd_bench(&args[2..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("[ERROR] {e}");
+                ExitCode::FAILURE
+            }
+        },
+        Some("bench-matrix") => match bench_matrix::run(&args[2..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("[ERROR] {e}");
