@@ -266,7 +266,7 @@ impl LayerWorkspace {
 struct PrefillBuffers {
     capacity: usize,
     bytes_per_row: usize,
-    d_taps: DeviceBuf,
+    d_taps: Option<DeviceBuf>,
     d_attn_part_ml: DeviceBuf,
     d_attn_part_o: DeviceBuf,
     d_b_cur: DeviceBuf,
@@ -293,7 +293,12 @@ struct PrefillBuffers {
 }
 
 impl PrefillBuffers {
-    fn new(ctx: &Arc<CudaContextHandle>, capacity: usize, splits: usize) -> Result<Self, String> {
+    fn new(
+        ctx: &Arc<CudaContextHandle>,
+        capacity: usize,
+        splits: usize,
+        has_drafter: bool,
+    ) -> Result<Self, String> {
         let mut bytes = 0;
         let mut allocate = |size| {
             bytes += size;
@@ -301,7 +306,11 @@ impl PrefillBuffers {
         };
         Ok(Self {
             capacity,
-            d_taps: allocate(capacity * 4 * D * 4)?,
+            d_taps: if has_drafter {
+                Some(allocate(capacity * 4 * D * 4)?)
+            } else {
+                None
+            },
             d_attn_part_ml: allocate((capacity * N_HEAD * splits * 2 * 4).max(4))?,
             d_attn_part_o: allocate((capacity * N_HEAD * splits * HD * 4).max(4))?,
             d_b_cur: allocate(capacity * D * 4)?,
@@ -1169,7 +1178,7 @@ impl Inkling2GpuEngine {
             d_act_sc_64: DeviceBuf::alloc_zeroed(&ctx, 3 * 48 * 4)?,
             d_act_q8_16: DeviceBuf::alloc_zeroed(&ctx, TOP_K * FF)?,
             d_act_sc_16: DeviceBuf::alloc_zeroed(&ctx, TOP_K * (FF / 16) * 4)?,
-            prefill: PrefillBuffers::new(&ctx, EXPERT_PAGE, attn_split_g)?,
+            prefill: PrefillBuffers::new(&ctx, EXPERT_PAGE, attn_split_g, drafter.is_some())?,
             d_b_exp_counts: DeviceBuf::alloc_zeroed(&ctx, N_EXP * 4)?,
             d_spec_logits: DeviceBuf::alloc_zeroed(&ctx, MAX_SPEC_TOKENS * VOCAB * 4)?,
             d_spec_tokens_out: DeviceBuf::alloc_zeroed(&ctx, MAX_SPEC_TOKENS * 4)?,
@@ -1323,7 +1332,12 @@ impl Inkling2GpuEngine {
     }
 
     fn resize_prefill(&mut self, capacity: usize) -> Result<(), String> {
-        let buffers = PrefillBuffers::new(&self.ctx, capacity, self.attn_split_g)?;
+        let buffers = PrefillBuffers::new(
+            &self.ctx,
+            capacity,
+            self.attn_split_g,
+            self.drafter.is_some(),
+        )?;
         let mut replacements = Vec::new();
         let cap = self.max_ctx.min(EXTENT + capacity);
         for (index, slot) in self.slots.iter().enumerate() {
@@ -2574,10 +2588,9 @@ impl Inkling2GpuEngine {
             self.launch(stream, self.fns.short_conv4, (9, 1), 256, &mut args)?;
         }
 
-        if self.drafter.is_some() {
+        if let Some(taps) = &self.prefill.d_taps {
             if let Some(tap_idx) = TAP_SLOTS.iter().position(|&s| s == slot_idx) {
-                let dst =
-                    self.prefill.d_taps.ptr + (tap_idx * self.prefill.capacity * D * 4) as u64;
+                let dst = taps.ptr + (tap_idx * self.prefill.capacity * D * 4) as u64;
                 self.enqueue_copy_d(stream, self.d_cur.ptr, dst)?;
             }
         }
@@ -2706,7 +2719,7 @@ impl Inkling2GpuEngine {
         debug_assert_eq!(n_blocks, 4);
 
         if prefill_only {
-            if self.drafter.is_some() {
+            if let Some(taps) = &self.prefill.d_taps {
                 if let Some(f_mlp_fused) = self.fns.depth_mix_rmsnorm_d_quant_q8_16_b {
                     let mut pb = self.d_blocks.ptr;
                     let mut nb = n_blocks as i32;
@@ -2716,8 +2729,7 @@ impl Inkling2GpuEngine {
                     let mut ac = 1i32;
                     let mut pq = self.output_query.ptr;
                     let mut pg = self.final_norm.ptr;
-                    let mut p_tap3 =
-                        self.prefill.d_taps.ptr + (3 * self.prefill.capacity * D * 4) as u64;
+                    let mut p_tap3 = taps.ptr + (3 * self.prefill.capacity * D * 4) as u64;
                     let mut dq = 0i32;
                     let mut z_q8: CUdeviceptr = 0;
                     let mut z_sc: CUdeviceptr = 0;
@@ -2756,8 +2768,7 @@ impl Inkling2GpuEngine {
                     self.launch(stream, self.fns.depth_mix, (1, 1), 256, &mut args)?;
                     let mut pin = self.d_mlp_h.ptr;
                     let mut pg = self.final_norm.ptr;
-                    let mut p_tap3 =
-                        self.prefill.d_taps.ptr + (3 * self.prefill.capacity * D * 4) as u64;
+                    let mut p_tap3 = taps.ptr + (3 * self.prefill.capacity * D * 4) as u64;
                     let mut hg = 1i32;
                     let mut rn_args: [*mut c_void; 4] = [
                         (&mut pin as *mut _) as *mut c_void,
@@ -2822,11 +2833,10 @@ impl Inkling2GpuEngine {
                 (&mut b3 as *mut _) as *mut c_void,
             ];
             self.launch(stream, self.fns.depth_mix, (1, 1), 256, &mut args)?;
-            if self.drafter.is_some() {
+            if let Some(taps) = &self.prefill.d_taps {
                 let mut pin = self.d_mlp_h.ptr;
                 let mut pg = self.final_norm.ptr;
-                let mut p_tap3 =
-                    self.prefill.d_taps.ptr + (3 * self.prefill.capacity * D * 4) as u64;
+                let mut p_tap3 = taps.ptr + (3 * self.prefill.capacity * D * 4) as u64;
                 let mut hg = 1i32;
                 let mut rn_args: [*mut c_void; 4] = [
                     (&mut pin as *mut _) as *mut c_void,
@@ -2862,6 +2872,23 @@ impl Inkling2GpuEngine {
         Ok(())
     }
 
+    fn enqueue_drafter_context(&mut self, rows: usize) -> Result<(), String> {
+        if let Some(drafter) = &mut self.drafter {
+            let taps = self
+                .prefill
+                .d_taps
+                .as_ref()
+                .ok_or("missing DSpark tap storage")?;
+            drafter.enqueue_add_ctx(
+                self.ctx.compute_stream,
+                taps.ptr,
+                self.prefill.capacity,
+                rows,
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn forward_greedy_token(&mut self, token: u32) -> Result<u32, String> {
         if self.host_pos >= self.max_ctx {
             return Err(format!("sequence exceeded max_ctx ({})", self.max_ctx));
@@ -2883,14 +2910,7 @@ impl Inkling2GpuEngine {
         } else {
             self.enqueue_step_impl(self.ctx.compute_stream, false)?;
         }
-        if let Some(ref mut d) = self.drafter {
-            d.enqueue_add_ctx(
-                self.ctx.compute_stream,
-                self.prefill.d_taps.ptr,
-                self.prefill.capacity,
-                1,
-            )?;
-        }
+        self.enqueue_drafter_context(1)?;
         self.ctx.sync_compute()?;
         let mut out_tok = 0i32;
         unsafe {
@@ -2944,14 +2964,7 @@ impl Inkling2GpuEngine {
                     } else {
                         self.enqueue_step_impl(self.ctx.compute_stream, true)?;
                     }
-                    if let Some(ref mut d) = self.drafter {
-                        d.enqueue_add_ctx(
-                            self.ctx.compute_stream,
-                            self.prefill.d_taps.ptr,
-                            self.prefill.capacity,
-                            1,
-                        )?;
-                    }
+                    self.enqueue_drafter_context(1)?;
                 }
                 self.host_pos += n_prefix;
             }
@@ -3006,14 +3019,7 @@ impl Inkling2GpuEngine {
                 head_mode,
                 false,
             )?;
-            if let Some(ref mut d) = self.drafter {
-                d.enqueue_add_ctx(
-                    self.ctx.compute_stream,
-                    self.prefill.d_taps.ptr,
-                    self.prefill.capacity,
-                    chunk_len,
-                )?;
-            }
+            self.enqueue_drafter_context(chunk_len)?;
             self.host_pos += chunk_len;
             offset += chunk_len;
 
@@ -3217,14 +3223,7 @@ impl Inkling2GpuEngine {
             if keep < b_len {
                 self.rewind_speculative(keep, b_len)?;
             }
-            if let Some(ref mut d) = self.drafter {
-                d.enqueue_add_ctx(
-                    self.ctx.compute_stream,
-                    self.prefill.d_taps.ptr,
-                    self.prefill.capacity,
-                    keep,
-                )?;
-            }
+            self.enqueue_drafter_context(keep)?;
 
             let mut hit_stop = false;
             for &accepted_tok in &verify_in[..keep] {
@@ -4319,10 +4318,9 @@ impl Inkling2GpuEngine {
             self.launch(stream, self.fns.short_conv4_b, (9, 1), 256, &mut args)?;
         }
 
-        if self.drafter.is_some() {
+        if let Some(taps) = &self.prefill.d_taps {
             if let Some(tap_idx) = TAP_SLOTS.iter().position(|&s| s == slot_idx) {
-                let dst =
-                    self.prefill.d_taps.ptr + (tap_idx * self.prefill.capacity * D * 4) as u64;
+                let dst = taps.ptr + (tap_idx * self.prefill.capacity * D * 4) as u64;
                 self.enqueue_copy_n(stream, self.prefill.d_b_cur.ptr, dst, bd_floats)?;
             }
         }
@@ -4524,9 +4522,9 @@ impl Inkling2GpuEngine {
         }
         debug_assert_eq!(n_blocks, 4);
 
-        if self.drafter.is_some() {
+        if let Some(taps) = &self.prefill.d_taps {
             // Compute `tap 3` (`final_norm(output_query_mix)`) across all `b_len` tokens!
-            let p_tap3_dst = self.prefill.d_taps.ptr + (3 * self.prefill.capacity * D * 4) as u64;
+            let p_tap3_dst = taps.ptr + (3 * self.prefill.capacity * D * 4) as u64;
             if let Some(f_mlp_fused) = self.fns.depth_mix_rmsnorm_d_quant_q8_16_b {
                 let mut pb = self.prefill.d_b_blocks.ptr;
                 let mut nb = n_blocks as i32;
