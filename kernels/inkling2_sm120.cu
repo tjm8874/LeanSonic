@@ -2412,100 +2412,136 @@ __device__ __forceinline__ float accum_nvfp4_pair(float acc, uint4 pk, uint4 xq0
     return __fmaf_rn(f1, s1, __fmaf_rn(f0, s0, acc));
 }
 
-// Tile-8 Grouped-Expert NVFP4 `__dp4a` Up+SITU (`Grid (72, 128)`, `Block 256`):
-// Stages up to `8` tokens in SMEM (`23,296` B <= `64` KiB carveout at `2` CTAs/SM) and
-// processes `4` row-groups (`16` `m` outputs) per CTA with exact `u16 = lane` FMA parity!
+// Each CTA processes 32 interleaved gate/up rows for one expert. The signed
+// integer MMA produces 16 rows x 8 tokens per warp, one K=16 scale group at
+// a time. Keep the public kernel symbol and argument layout for existing cubins.
 extern "C" __global__ void ink2_moe_nvfp4_dp4a_grouped_up_situ(
-    const uint4* __restrict__ w13_u128,    // [128, 2304, 72]
-    const uint32_t* __restrict__ s13_u32,  // [128, 2304, 36]
-    const float* __restrict__ a13,         // [128]
-    const uint4* __restrict__ x_q8_u128,   // [B, 144]
-    const float* __restrict__ x_sc16,      // [B, 144]
-    const int32_t* __restrict__ exp_counts,// [128]
-    const int32_t* __restrict__ exp_toks,  // [128, 64]
-    const int32_t* __restrict__ exp_pairs, // [128, 64]
-    float* __restrict__ act_out) {         // [B * 8, 1152]
-    const int ex = blockIdx.y;
-    const int cnt = exp_counts[ex];
-    if (cnt == 0) return;
+    const uint4* __restrict__ w13_u128,
+    const uint32_t* __restrict__ s13_u32,
+    const float* __restrict__ a13,
+    const uint4* __restrict__ x_q8_u128,
+    const float* __restrict__ x_sc16,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_toks,
+    const int32_t* __restrict__ exp_pairs,
+    float* __restrict__ act_out) {
+    const int expert = blockIdx.y;
+    const int count = exp_counts[expert];
+    if (count == 0) return;
 
-    __shared__ uint4 smem_xq[8][144];
-    __shared__ float smem_xsc[8][144];
-    __shared__ float smem_gu[8][8];
-    __shared__ int32_t smem_pairs[8];
-
+    constexpr int rows = 16;
+    constexpr int tokens = 8;
+    constexpr int groups = kD / 16;
     const int tid = threadIdx.x;
-    const int warp_id = tid >> 5;
-    const int lane = tid & 31;
-    const int is_up = warp_id & 1;
-    const float amax_sc = a13[ex] * (1.0f / 2688.0f);
+    const int warp = tid / 32;
+    const int lane = tid % 32;
+    const int row = lane / 4;
+    const int fragment = lane % 4;
+    const float expert_scale = a13[expert] * (1.0f / 2688.0f);
+    const auto* x_words = reinterpret_cast<const uint32_t*>(x_q8_u128);
 
-    for (int t_base = 0; t_base < cnt; t_base += 8) {
-        const int rem = cnt - t_base;
-        const int tile_t = (rem < 8) ? rem : 8;
-        if (t_base > 0) __syncthreads();
-        if (tid < tile_t) {
-            smem_pairs[tid] = exp_pairs[ex * 64 + t_base + tid];
+    // Pad the shared row strides so corresponding fragments of neighboring
+    // weight rows do not all address the same shared-memory bank.
+    __shared__ uint4 weights[rows][groups / 2 + 1];
+    __shared__ float scales[rows][groups + 1];
+    __shared__ float partials[8][rows * tokens];
+    __shared__ float projections[rows][tokens];
+
+    for (int tile = 0; tile < 2; ++tile) {
+        const int first_row = blockIdx.x * 32 + tile * rows;
+        const int offset = expert * (2 * kFf) + first_row;
+        for (int i = tid; i < rows * (groups / 2); i += 256) {
+            weights[i / (groups / 2)][i % (groups / 2)] = w13_u128[offset * (groups / 2) + i];
         }
-        for (int t = 0; t < tile_t; ++t) {
-            const int tok = exp_toks[ex * 64 + t_base + t];
-            if (tid < 144) {
-                smem_xq[t][tid] = x_q8_u128[static_cast<size_t>(tok) * 144u + tid];
-                smem_xsc[t][tid] = x_sc16[static_cast<size_t>(tok) * 144u + tid];
+        for (int i = tid; i < rows * (groups / 4); i += 256) {
+            const uint32_t packed = s13_u32[offset * (groups / 4) + i];
+            #pragma unroll
+            for (int byte = 0; byte < 4; ++byte) {
+                scales[i / (groups / 4)][4 * (i % (groups / 4)) + byte] =
+                    e4m3_byte_to_f32((packed >> (8 * byte)) & 255u) * 0.5f;
             }
         }
         __syncthreads();
 
-        for (int rg = 0; rg < 4; ++rg) {
-            const int m = (blockIdx.x * 4 + rg) * 4 + (warp_id >> 1);
-            const int r = m * 2 + is_up;
-            const size_t row_idx = static_cast<size_t>(ex) * (2u * kFf) + r;
-            const uint4* r_u128 = w13_u128 + row_idx * 72u;
-            const uint32_t* r_sc = s13_u32 + row_idx * 36u;
+        for (int first = 0; first < count; first += tokens) {
+            const int live = min(tokens, count - first);
+            // All lanes participate in MMA. Replicate the final valid column
+            // in a short tile and suppress its extra outputs at the store.
+            const int token = exp_toks[expert * 64 + first + min(row, live - 1)];
+            float sum[4] = {};
+            float left[4] = {};
 
-            float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
-            float a4 = 0.0f, a5 = 0.0f, a6 = 0.0f, a7 = 0.0f;
+            // The DP4A kernel assigned K pairs to 32 lanes. Each warp here
+            // owns four of those lanes. Visit them in XOR-reduction order
+            // (0,16,8,24 relative to warp), preserving each FP32 addition.
+            #pragma unroll
+            for (int step = 0; step < 4; ++step) {
+                const int k_lane = warp + (step % 2) * 16 + (step / 2) * 8;
+                float acc[4] = {};
+                for (int pair = k_lane; pair < groups / 2; pair += 32) {
+                    #pragma unroll
+                    for (int half = 0; half < 2; ++half) {
+                        const int k = 2 * pair + half;
+                        const int part = 4 * k + fragment;
+                        const auto* top = reinterpret_cast<const uint16_t*>(weights[row]);
+                        const auto* bottom = reinterpret_cast<const uint16_t*>(weights[row + 8]);
+                        const unsigned a0 = decode_4x_e2m1_nibbles16_to_2x_s8(top[part]);
+                        const unsigned a1 = decode_4x_e2m1_nibbles16_to_2x_s8(bottom[part]);
+                        const unsigned b = x_words[(token * groups + k) * 4 + fragment];
+                        int d0, d1, d2, d3;
+                        asm volatile("mma.sync.aligned.m16n8k16.row.col.s32.s8.s8.s32 "
+                                     "{%0,%1,%2,%3},{%4,%5},{%6},{0,0,0,0};"
+                                     : "=r"(d0), "=r"(d1), "=r"(d2), "=r"(d3)
+                                     : "r"(a0), "r"(a1), "r"(b));
 
-            for (int u16 = lane; u16 < 72; u16 += 32) {
-                const uint4 pk = r_u128[u16];
-                const uint32_t sc4 = r_sc[u16 >> 1];
-                const int sh = (u16 & 1) * 16;
-                const float ws0 = e4m3_byte_to_f32((sc4 >> sh) & 0xFFu) * 0.5f;
-                const float ws1 = e4m3_byte_to_f32((sc4 >> (sh + 8)) & 0xFFu) * 0.5f;
-                const int c0 = u16 * 2;
-                const int c1 = c0 + 1;
-
-                if (tile_t > 0) a0 = accum_nvfp4_pair(a0, pk, smem_xq[0][c0], __fmul_rn(ws0, smem_xsc[0][c0]), smem_xq[0][c1], __fmul_rn(ws1, smem_xsc[0][c1]));
-                if (tile_t > 1) a1 = accum_nvfp4_pair(a1, pk, smem_xq[1][c0], __fmul_rn(ws0, smem_xsc[1][c0]), smem_xq[1][c1], __fmul_rn(ws1, smem_xsc[1][c1]));
-                if (tile_t > 2) a2 = accum_nvfp4_pair(a2, pk, smem_xq[2][c0], __fmul_rn(ws0, smem_xsc[2][c0]), smem_xq[2][c1], __fmul_rn(ws1, smem_xsc[2][c1]));
-                if (tile_t > 3) a3 = accum_nvfp4_pair(a3, pk, smem_xq[3][c0], __fmul_rn(ws0, smem_xsc[3][c0]), smem_xq[3][c1], __fmul_rn(ws1, smem_xsc[3][c1]));
-                if (tile_t > 4) a4 = accum_nvfp4_pair(a4, pk, smem_xq[4][c0], __fmul_rn(ws0, smem_xsc[4][c0]), smem_xq[4][c1], __fmul_rn(ws1, smem_xsc[4][c1]));
-                if (tile_t > 5) a5 = accum_nvfp4_pair(a5, pk, smem_xq[5][c0], __fmul_rn(ws0, smem_xsc[5][c0]), smem_xq[5][c1], __fmul_rn(ws1, smem_xsc[5][c1]));
-                if (tile_t > 6) a6 = accum_nvfp4_pair(a6, pk, smem_xq[6][c0], __fmul_rn(ws0, smem_xsc[6][c0]), smem_xq[6][c1], __fmul_rn(ws1, smem_xsc[6][c1]));
-                if (tile_t > 7) a7 = accum_nvfp4_pair(a7, pk, smem_xq[7][c0], __fmul_rn(ws0, smem_xsc[7][c0]), smem_xq[7][c1], __fmul_rn(ws1, smem_xsc[7][c1]));
+                        const float w0 = scales[row][k];
+                        const float w1 = scales[row + 8][k];
+                        const float xs = x_sc16[token * groups + k];
+                        const float x0 = __shfl_sync(0xffffffffu, xs, 8 * fragment);
+                        const float x1 = __shfl_sync(0xffffffffu, xs, 8 * fragment + 4);
+                        acc[0] = __fmaf_rn(float(d0), __fmul_rn(w0, x0), acc[0]);
+                        acc[1] = __fmaf_rn(float(d1), __fmul_rn(w0, x1), acc[1]);
+                        acc[2] = __fmaf_rn(float(d2), __fmul_rn(w1, x0), acc[2]);
+                        acc[3] = __fmaf_rn(float(d3), __fmul_rn(w1, x1), acc[3]);
+                    }
+                }
+                #pragma unroll
+                for (int i = 0; i < 4; ++i) {
+                    if (step % 2 == 0) {
+                        left[i] = acc[i];
+                    } else if (step == 1) {
+                        sum[i] = left[i] + acc[i];
+                    } else {
+                        sum[i] += left[i] + acc[i];
+                    }
+                }
             }
+            const int dst = row * tokens + 2 * fragment;
+            partials[warp][dst] = sum[0];
+            partials[warp][dst + 1] = sum[1];
+            partials[warp][dst + 64] = sum[2];
+            partials[warp][dst + 65] = sum[3];
+            __syncthreads();
 
-            a0 = warp_sum(a0); a1 = warp_sum(a1); a2 = warp_sum(a2); a3 = warp_sum(a3);
-            a4 = warp_sum(a4); a5 = warp_sum(a5); a6 = warp_sum(a6); a7 = warp_sum(a7);
-
-            if (rg > 0) __syncthreads();
-            if (lane == 0) {
-                if (tile_t > 0) smem_gu[0][warp_id] = a0 * amax_sc;
-                if (tile_t > 1) smem_gu[1][warp_id] = a1 * amax_sc;
-                if (tile_t > 2) smem_gu[2][warp_id] = a2 * amax_sc;
-                if (tile_t > 3) smem_gu[3][warp_id] = a3 * amax_sc;
-                if (tile_t > 4) smem_gu[4][warp_id] = a4 * amax_sc;
-                if (tile_t > 5) smem_gu[5][warp_id] = a5 * amax_sc;
-                if (tile_t > 6) smem_gu[6][warp_id] = a6 * amax_sc;
-                if (tile_t > 7) smem_gu[7][warp_id] = a7 * amax_sc;
+            if (tid < rows * tokens) {
+                const float s0 = partials[0][tid] + partials[4][tid];
+                const float s1 = partials[1][tid] + partials[5][tid];
+                const float s2 = partials[2][tid] + partials[6][tid];
+                const float s3 = partials[3][tid] + partials[7][tid];
+                projections[tid / tokens][tid % tokens] = ((s0 + s2) + (s1 + s3)) * expert_scale;
             }
             __syncthreads();
-            if (is_up == 0 && lane < tile_t) {
-                float g = smem_gu[lane][warp_id];
-                float u = smem_gu[lane][warp_id + 1];
-                float situ = 4.0f * ptx_tanh(g * 0.25f) * ptx_sigmoid(g) * 25.0f * ptx_tanh(u * 0.04f);
-                act_out[static_cast<size_t>(smem_pairs[lane]) * kFf + m] = situ;
+
+            const int m = tid / tokens;
+            const int t = tid % tokens;
+            if (m < rows / 2 && t < live) {
+                const float g = projections[2 * m][t];
+                const float u = projections[2 * m + 1][t];
+                const float situ = 4.0f * ptx_tanh(g * 0.25f) * ptx_sigmoid(g) * 25.0f * ptx_tanh(u * 0.04f);
+                const int dest = exp_pairs[expert * 64 + first + t];
+                act_out[dest * kFf + first_row / 2 + m] = situ;
             }
+            __syncthreads();
         }
     }
 }
