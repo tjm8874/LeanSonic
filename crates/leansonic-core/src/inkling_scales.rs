@@ -222,7 +222,7 @@ mod tests {
             assert!(pack_gpu_tile::<BITS, BASE>(&values, &mut packed));
             assert_eq!(packed.len(), values.len() * BITS / 8);
             packed.extend_from_slice(&[0; 4]);
-            for (index, original) in values.chunks_exact(4).enumerate() {
+            for (index, original) in values.as_chunks::<4>().0.iter().enumerate() {
                 let bit = index * 4 * BITS;
                 let byte = (bit / 32) * 4;
                 let lo = u32::from_le_bytes(packed[byte..byte + 4].try_into().unwrap());
