@@ -3156,6 +3156,31 @@ impl Inkling2GpuEngine {
         Ok(out_i32.into_iter().map(|v| v as u32).collect())
     }
 
+    /// Benchmark-only: move the decode position to `pos` without prefilling the rows in between.
+    /// Those KV rows hold whatever the cache contains (zeros after load), so the logits are not
+    /// meaningful, but each decode step reads exactly as many KV rows as a real `pos`-token
+    /// context does. Used by `bench` (`LEANSONIC_BENCH_DECODE_AT`) to time long-context decode
+    /// without a multi-minute prefill.
+    pub fn bench_jump_position(&mut self, pos: usize) -> Result<(), String> {
+        if pos < self.host_pos || pos >= self.max_ctx {
+            return Err(format!(
+                "bench_jump_position: {pos} must be in [{}, {})",
+                self.host_pos, self.max_ctx
+            ));
+        }
+        self.ctx.bind_current()?;
+        self.ctx.sync_compute()?;
+        let p = pos as i32;
+        unsafe {
+            check_cu(
+                (self.ctx.api.cuMemcpyHtoD_v2)(self.d_pos.ptr, (&p as *const i32).cast(), 4),
+                "HtoD(bench pos)",
+            )?;
+        }
+        self.host_pos = pos;
+        Ok(())
+    }
+
     /// `O(1)` Rewind of all 48 slots' `short_conv4` histories + `*d_pos` / `host_pos` (`keep < b_len`).
     pub fn rewind_speculative(&mut self, keep: usize, b_len: usize) -> Result<(), String> {
         if keep < b_len {

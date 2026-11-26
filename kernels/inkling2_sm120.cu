@@ -137,6 +137,24 @@ __device__ __forceinline__ void kv_load4_t(
     kv_load4(cache, kInt8 ? scale : nullptr, row, kvh, lane, x0, x1, x2, x3);
 }
 
+// Raw INT8 KV word (4 values) + its per-row/head scale, for software-pipelined loops.
+__device__ __forceinline__ void kv_raw_i8(
+    const uint16_t* __restrict__ cache, const float* __restrict__ scale,
+    int row, int kvh, int lane, uint32_t& w, float& sc) {
+    w = reinterpret_cast<const uint32_t*>(
+        reinterpret_cast<const int8_t*>(cache) + static_cast<size_t>(row) * 1024u + kvh * 128)[lane];
+    sc = scale[static_cast<size_t>(row) * 8u + kvh];
+}
+
+// Same dequantization as `kv_load4` (INT8 branch).
+__device__ __forceinline__ void kv_dequant_i8(
+    uint32_t w, float sc, float& x0, float& x1, float& x2, float& x3) {
+    x0 = __fmul_rn(static_cast<float>(static_cast<int8_t>(w & 0xFFu)), sc);
+    x1 = __fmul_rn(static_cast<float>(static_cast<int8_t>((w >> 8) & 0xFFu)), sc);
+    x2 = __fmul_rn(static_cast<float>(static_cast<int8_t>((w >> 16) & 0xFFu)), sc);
+    x3 = __fmul_rn(static_cast<float>(static_cast<int8_t>((w >> 24) & 0xFFu)), sc);
+}
+
 __device__ __forceinline__ uint32_t kv_q8(float x, float inv) {
     int q = __float2int_rn(__fmul_rn(x, inv));
     q = q > 127 ? 127 : (q < -127 ? -127 : q);
@@ -3759,39 +3777,96 @@ __device__ __forceinline__ void gqa_attn_split_body(
         }
         __syncthreads();
 
-        for (int jj = warp_id; jj < kChunk; jj += 8) {
-            const int j = j0 + jj;
-            if (j >= n) break;
-            const int slot_row = is_global ? j : (j % kv_cap);
-            float k0, k1, k2, k3, v0, v1, v2, v3;
-            kv_load4_t<kInt8>(k_cache_fp16, k_scale, slot_row, kvh, lane, k0, k1, k2, k3);
-            kv_load4_t<kInt8>(v_cache_fp16, v_scale, slot_row, kvh, lane, v0, v1, v2, v3);
-            float dots[3];
-            #pragma unroll
-            for (int hh = 0; hh < 3; ++hh) {
-                dots[hh] = qa[hh][0] * k0 + qa[hh][1] * k1 + qa[hh][2] * k2 + qa[hh][3] * k3;
+        if constexpr (kInt8) {
+            // Depth-1 software pipeline on the raw INT8 words (+4 regs): row jj+8's K/V words and
+            // scales are in flight while row jj is computed. Per-row arithmetic and row order are
+            // identical to the generic loop below, so the result does not change.
+            int jj = warp_id;
+            int j = j0 + jj;
+            uint32_t wk = 0u, wv = 0u;
+            float sk = 0.0f, sv = 0.0f;
+            if (jj < kChunk && j < n) {
+                kv_raw_i8(k_cache_fp16, k_scale, is_global ? j : (j % kv_cap), kvh, lane, wk, sk);
+                kv_raw_i8(v_cache_fp16, v_scale, is_global ? j : (j % kv_cap), kvh, lane, wv, sv);
             }
-            #pragma unroll
-            for (int mask = 16; mask > 0; mask >>= 1) {
+            while (jj < kChunk && j < n) {
+                const int jn = jj + 8;
+                const int jnx = j0 + jn;
+                uint32_t nwk = 0u, nwv = 0u;
+                float nsk = 0.0f, nsv = 0.0f;
+                if (jn < kChunk && jnx < n) {
+                    kv_raw_i8(k_cache_fp16, k_scale, is_global ? jnx : (jnx % kv_cap), kvh, lane, nwk, nsk);
+                    kv_raw_i8(v_cache_fp16, v_scale, is_global ? jnx : (jnx % kv_cap), kvh, lane, nwv, nsv);
+                }
+                float k0, k1, k2, k3, v0, v1, v2, v3;
+                kv_dequant_i8(wk, sk, k0, k1, k2, k3);
+                kv_dequant_i8(wv, sv, v0, v1, v2, v3);
+                float dots[3];
                 #pragma unroll
                 for (int hh = 0; hh < 3; ++hh) {
-                    dots[hh] += __shfl_xor_sync(0xFFFFFFFFu, dots[hh], mask);
+                    dots[hh] = qa[hh][0] * k0 + qa[hh][1] * k1 + qa[hh][2] * k2 + qa[hh][3] * k3;
                 }
+                #pragma unroll
+                for (int mask = 16; mask > 0; mask >>= 1) {
+                    #pragma unroll
+                    for (int hh = 0; hh < 3; ++hh) {
+                        dots[hh] += __shfl_xor_sync(0xFFFFFFFFu, dots[hh], mask);
+                    }
+                }
+                #pragma unroll
+                for (int hh = 0; hh < 3; ++hh) {
+                    // Deterministic G-way online-softmax update shared identically across B=1 and B>=1.
+                    float dot = __fmul_rn(dots[hh], scale);
+                    if (pos - j < kExtent) dot = __fadd_rn(dot, smem_rel[hh][jj]);
+                    const float m_new = (dot > m_w[hh]) ? dot : m_w[hh];
+                    const float alpha = ptx_exp(m_w[hh] - m_new);
+                    const float p = ptx_exp(dot - m_new);
+                    l_w[hh] = l_w[hh] * alpha + p;
+                    m_w[hh] = m_new;
+                    o[hh][0] = o[hh][0] * alpha + p * v0;
+                    o[hh][1] = o[hh][1] * alpha + p * v1;
+                    o[hh][2] = o[hh][2] * alpha + p * v2;
+                    o[hh][3] = o[hh][3] * alpha + p * v3;
+                }
+                wk = nwk; wv = nwv; sk = nsk; sv = nsv;
+                jj = jn;
+                j = jnx;
             }
-            #pragma unroll
-            for (int hh = 0; hh < 3; ++hh) {
-                // Deterministic G-way online-softmax update shared identically across B=1 and B>=1.
-                float dot = __fmul_rn(dots[hh], scale);
-                if (pos - j < kExtent) dot = __fadd_rn(dot, smem_rel[hh][jj]);
-                const float m_new = (dot > m_w[hh]) ? dot : m_w[hh];
-                const float alpha = ptx_exp(m_w[hh] - m_new);
-                const float p = ptx_exp(dot - m_new);
-                l_w[hh] = l_w[hh] * alpha + p;
-                m_w[hh] = m_new;
-                o[hh][0] = o[hh][0] * alpha + p * v0;
-                o[hh][1] = o[hh][1] * alpha + p * v1;
-                o[hh][2] = o[hh][2] * alpha + p * v2;
-                o[hh][3] = o[hh][3] * alpha + p * v3;
+        } else {
+            for (int jj = warp_id; jj < kChunk; jj += 8) {
+                const int j = j0 + jj;
+                if (j >= n) break;
+                const int slot_row = is_global ? j : (j % kv_cap);
+                float k0, k1, k2, k3, v0, v1, v2, v3;
+                kv_load4_t<kInt8>(k_cache_fp16, k_scale, slot_row, kvh, lane, k0, k1, k2, k3);
+                kv_load4_t<kInt8>(v_cache_fp16, v_scale, slot_row, kvh, lane, v0, v1, v2, v3);
+                float dots[3];
+                #pragma unroll
+                for (int hh = 0; hh < 3; ++hh) {
+                    dots[hh] = qa[hh][0] * k0 + qa[hh][1] * k1 + qa[hh][2] * k2 + qa[hh][3] * k3;
+                }
+                #pragma unroll
+                for (int mask = 16; mask > 0; mask >>= 1) {
+                    #pragma unroll
+                    for (int hh = 0; hh < 3; ++hh) {
+                        dots[hh] += __shfl_xor_sync(0xFFFFFFFFu, dots[hh], mask);
+                    }
+                }
+                #pragma unroll
+                for (int hh = 0; hh < 3; ++hh) {
+                    // Deterministic G-way online-softmax update shared identically across B=1 and B>=1.
+                    float dot = __fmul_rn(dots[hh], scale);
+                    if (pos - j < kExtent) dot = __fadd_rn(dot, smem_rel[hh][jj]);
+                    const float m_new = (dot > m_w[hh]) ? dot : m_w[hh];
+                    const float alpha = ptx_exp(m_w[hh] - m_new);
+                    const float p = ptx_exp(dot - m_new);
+                    l_w[hh] = l_w[hh] * alpha + p;
+                    m_w[hh] = m_new;
+                    o[hh][0] = o[hh][0] * alpha + p * v0;
+                    o[hh][1] = o[hh][1] * alpha + p * v1;
+                    o[hh][2] = o[hh][2] * alpha + p * v2;
+                    o[hh][3] = o[hh][3] * alpha + p * v3;
+                }
             }
         }
         __syncthreads();
