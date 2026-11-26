@@ -5,10 +5,14 @@
 //! and Hybrid GDN + QSA + Engram MoE (`Qwen3.8-Flash-Next` / `Qwen4`) on NVIDIA Blackwell.
 
 pub mod bytecode;
+pub mod cuda_ffi;
 pub mod engine;
 pub mod generated_spec;
+pub mod inkling2_gpu;
 pub mod kernels;
 pub mod offload;
+pub mod safetensors;
 pub mod serving;
 pub mod state_pool;
+pub mod tiktoken;
 pub mod weights;

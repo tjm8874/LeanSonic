@@ -104,20 +104,15 @@ __device__ __forceinline__ Half22Pair split_fp32_to_22bit_fp16(float q_f32) {
 // 5. Verified 3-Op `__byte_perm` LUT: Packed 4-bit `E2M1` -> Exact `2x int8`
 //    Proven lossless across all 16 codes in `LeanSonic.Proofs.e2m1_all_16_codes_exact`.
 // ----------------------------------------------------------------------------
-__device__ __forceinline__ uint32_t decode_4x_e2m1_low_nibbles_to_2x_s8(uint32_t nibbles4) {
-    // Each byte of `nibbles4` holds a 4-bit E2M1 code in `0..15`.
-    // Selector bit 2 (0..7) indexes `{Lo, Hi}`, while bit 3 selects positive vs negative LUT!
-    uint32_t pos = __byte_perm(
-        verified::kE2M1LutPosLo,
-        verified::kE2M1LutPosHi,
-        nibbles4 & 0x07070707u);
-    uint32_t neg = __byte_perm(
-        verified::kE2M1LutNegLo,
-        verified::kE2M1LutNegHi,
-        nibbles4 & 0x07070707u);
-    // Byte-wise sign select using bit 3 (`0x08`) expanded to `0xFF` mask per byte
-    uint32_t sign_bit = (nibbles4 & 0x08080808u) >> 3;
-    uint32_t sign_mask = sign_bit * 0xFFu;
+__device__ __forceinline__ uint32_t decode_4x_e2m1_nibbles16_to_2x_s8(uint32_t nibbles_lo16) {
+    uint32_t sel = nibbles_lo16 & 0x7777u;
+    uint32_t pos = __byte_perm(verified::kE2M1LutPosLo, verified::kE2M1LutPosHi, sel);
+    uint32_t neg = __byte_perm(verified::kE2M1LutNegLo, verified::kE2M1LutNegHi, sel);
+    uint32_t s4 = ((nibbles_lo16 >> 3) & 0x1u)
+                | (((nibbles_lo16 >> 7) & 0x1u) << 8)
+                | (((nibbles_lo16 >> 11) & 0x1u) << 16)
+                | (((nibbles_lo16 >> 15) & 0x1u) << 24);
+    uint32_t sign_mask = s4 * 0xFFu;
     return (pos & ~sign_mask) | (neg & sign_mask);
 }
 

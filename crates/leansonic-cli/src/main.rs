@@ -1,6 +1,8 @@
 use std::env;
 use std::io::{self, Write};
+use std::path::Path;
 use std::process::ExitCode;
+use std::time::Instant;
 
 use leansonic_core::bytecode::VisitProgram;
 use leansonic_core::engine::{
@@ -13,28 +15,31 @@ use leansonic_core::generated_spec::{
     SERVE_DEFAULT_MAX_NEW_TOKENS, SERVE_MAX_HTTP_STREAMS, SPEC_VERIFY_WINDOW,
     SPILLED_LATE_WAIT_OVERLAP_OPS, SPILLED_PING_PONG_BUFFERS, SWA_RING_CAPACITY_TOKENS,
 };
+use leansonic_core::inkling2_gpu::Inkling2GpuEngine;
 use leansonic_core::serving::{
     execute_generation_on_slot, json_escape, run_single_prompt, serve_openai_http,
     GenerationRequest,
 };
+use leansonic_core::tiktoken::{TiktokenBpe, TOK_END_SAMPLING};
 use leansonic_tuner::{
     compute_decode_ceiling_tok_s, compute_spilled_engram_ceiling_tok_s, rank_valid_candidates,
     BlackwellSkuProfile, CandidateKnob, ModelRooflineInput, SpilledEngramRooflineInput,
 };
 
 fn print_help() {
-    println!("LeanSonic v0.1.0 — Lean 4-Verified Blackwell Inference Engine & OpenAI Server");
+    println!("LeanSonic v0.2.0 — Lean 4-Verified Blackwell Inference Engine & OpenAI Server");
     println!();
     println!("USAGE:");
-    println!("  leansonic -p \"<prompt>\" [--model inkling-2-mini|qwen3.8-flash-next] [--max-tokens N] [--json]");
+    println!(
+        "  leansonic -p \"<prompt>\" [--weights <dir>] [--effort none|low|high] [--max-tokens N] [--json]"
+    );
+    println!("  leansonic bench --weights <dir> --tokens <id1,id2|@file|synth:N> [--gen N] [--repeat R] [--no-graph]");
     println!("  leansonic serve [--host 127.0.0.1] [--port 8080] [--model inkling-2-mini]");
     println!(
-        "  leansonic info            Print Lean-verified SM120, Hybrid Pool & Serving constants"
+        "  leansonic info            Print Lean-verified SM120, Hybrid Pool & Offload constants"
     );
     println!("  leansonic schedules       Compile & validate Inkling-2-mini and Qwen3.8-Flash-Next schedules");
-    println!(
-        "  leansonic verify-parity   Run Gate 3 48-visit C=1==C=64 & `-p`==`serve` 0-ULP checks"
-    );
+    println!("  leansonic verify-parity   Run Gate 3 4-way 0-ULP invariance checks");
     println!("  leansonic tune            Run Layer 2 SM120 cliff pruning & whole-model roofline ceilings");
 }
 
@@ -81,7 +86,9 @@ fn cmd_schedules() -> Result<(), String> {
 fn cmd_prompt(args: &[String]) -> Result<(), String> {
     let mut prompt: Option<String> = None;
     let mut model = "inkling-2-mini".to_string();
-    let mut max_tokens = 16usize;
+    let mut weights_dir: Option<String> = None;
+    let mut effort = "none".to_string();
+    let mut max_tokens = 64usize;
     let mut emit_json = false;
 
     let mut i = 0usize;
@@ -94,6 +101,18 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
             "-m" | "--model" => {
                 i += 1;
                 model = args.get(i).cloned().ok_or("missing value after --model")?;
+            }
+            "-w" | "--weights" => {
+                i += 1;
+                weights_dir = Some(
+                    args.get(i)
+                        .cloned()
+                        .ok_or("missing value after --weights")?,
+                );
+            }
+            "--effort" => {
+                i += 1;
+                effort = args.get(i).cloned().ok_or("missing value after --effort")?;
             }
             "-n" | "--max-tokens" => {
                 i += 1;
@@ -114,6 +133,69 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
     }
 
     let prompt_text = prompt.ok_or("missing prompt string after `-p` / `--prompt`")?;
+
+    // Real Blackwell GPU execution when `--weights <dir>` is supplied!
+    if let Some(dir_str) = weights_dir {
+        let dir = Path::new(&dir_str);
+        let tok = TiktokenBpe::from_model_dir(dir)
+            .map_err(|e| format!("load tiktoken from {}: {e}", dir.display()))?;
+        let prompt_ids = tok.format_inkling2_chat(&prompt_text, &effort);
+        let max_ctx = env::var("LEANSONIC_CTX")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(8192);
+        let mut gpu = Inkling2GpuEngine::load_from_dir(dir, max_ctx, true)?;
+
+        let (mut next, prefill_ms) = gpu.prefill_tokens(&prompt_ids)?;
+        let t_gen = Instant::now();
+        let mut generated = Vec::with_capacity(max_tokens);
+        let mut full_text = String::new();
+        for _ in 0..max_tokens {
+            if next == TOK_END_SAMPLING {
+                break;
+            }
+            generated.push(next);
+            if next < 199_998 {
+                let piece = String::from_utf8_lossy(tok.decode_token_bytes(next)).into_owned();
+                if !emit_json {
+                    print!("{piece}");
+                    let _ = io::stdout().flush();
+                }
+                full_text.push_str(&piece);
+            }
+            if generated.len() < max_tokens {
+                next = gpu.forward_greedy_token(next)?;
+            }
+        }
+        let gen_ms = t_gen.elapsed().as_secs_f64() * 1000.0;
+        let gen_tok_s = (generated.len() as f64) / (gen_ms / 1000.0).max(1e-9);
+        if emit_json {
+            println!(
+                "{{\"model\":\"inkling-2-mini\",\"gpu\":\"{}\",\"text\":\"{}\",\"prompt_tokens\":{},\"completion_tokens\":{},\"prefill_ms\":{:.2},\"decode_ms\":{:.2},\"decode_tok_s\":{:.2}}}",
+                json_escape(&gpu.ctx.device_name),
+                json_escape(&full_text),
+                prompt_ids.len(),
+                generated.len(),
+                prefill_ms,
+                gen_ms,
+                gen_tok_s
+            );
+        } else {
+            println!();
+            eprintln!(
+                "[leansonic -p GPU] {} | prompt={} toks ({:.1} ms, {:.1} tok/s) | gen={} toks ({:.1} ms, {:.1} tok/s)",
+                gpu.ctx.device_name,
+                prompt_ids.len(),
+                prefill_ms,
+                (prompt_ids.len() as f64) / (prefill_ms / 1000.0).max(1e-9),
+                generated.len(),
+                gen_ms,
+                gen_tok_s
+            );
+        }
+        return Ok(());
+    }
+
     let req = GenerationRequest {
         model,
         prompt: prompt_text,
@@ -165,6 +247,138 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
             tok_s
         );
     }
+    Ok(())
+}
+
+fn parse_bench_tokens(spec: &str) -> Result<Vec<u32>, String> {
+    if let Some(n_str) = spec.strip_prefix("synth:") {
+        let n: usize = n_str
+            .parse()
+            .map_err(|_| format!("bad synth length: {n_str}"))?;
+        return Ok((0..n).map(|i| ((i * 7 + 100) % 50_000) as u32).collect());
+    }
+    let raw = if let Some(path) = spec.strip_prefix('@') {
+        std::fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?
+    } else {
+        spec.to_string()
+    };
+    raw.trim()
+        .split(',')
+        .map(|s| {
+            s.trim()
+                .parse::<u32>()
+                .map_err(|_| format!("invalid token ID `{s}`"))
+        })
+        .collect()
+}
+
+fn cmd_bench(args: &[String]) -> Result<(), String> {
+    let mut weights_dir: Option<String> = None;
+    let mut tokens_spec: Option<String> = None;
+    let mut n_gen = 32usize;
+    let mut repeat = 1usize;
+    let mut use_graph = true;
+
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-w" | "--weights" => {
+                i += 1;
+                weights_dir = args.get(i).cloned();
+            }
+            "-t" | "--tokens" => {
+                i += 1;
+                tokens_spec = args.get(i).cloned();
+            }
+            "-g" | "--gen" => {
+                i += 1;
+                n_gen = args
+                    .get(i)
+                    .ok_or("missing value after --gen")?
+                    .parse()
+                    .map_err(|_| "bad --gen")?;
+            }
+            "-r" | "--repeat" => {
+                i += 1;
+                repeat = args
+                    .get(i)
+                    .ok_or("missing value after --repeat")?
+                    .parse()
+                    .map_err(|_| "bad --repeat")?;
+            }
+            "--no-graph" => {
+                use_graph = false;
+            }
+            other => return Err(format!("unrecognized `bench` flag `{other}`")),
+        }
+        i += 1;
+    }
+
+    let dir = weights_dir.ok_or("missing --weights <model_dir>")?;
+    let tspec = tokens_spec.ok_or("missing --tokens <csv|@file|synth:N>")?;
+    let prompt_ids = parse_bench_tokens(&tspec)?;
+    let max_ctx = env::var("LEANSONIC_CTX")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(8192)
+        .max(prompt_ids.len() + n_gen + 64);
+
+    let mut gpu = Inkling2GpuEngine::load_from_dir(dir, max_ctx, use_graph)?;
+
+    for run_idx in 0..repeat {
+        gpu.reset()?;
+        let (mut next, prefill_ms) = gpu.prefill_tokens(&prompt_ids)?;
+        let prefill_tok_s = (prompt_ids.len() as f64) / (prefill_ms / 1000.0).max(1e-9);
+        let logits = gpu.read_last_logits()?;
+        let mut top_idx: Vec<usize> = (0..logits.len()).collect();
+        top_idx.sort_by(|&a, &b| logits[b].total_cmp(&logits[a]));
+        let top5: Vec<String> = top_idx[..5]
+            .iter()
+            .map(|&idx| format!("{idx}:{:.3}", logits[idx]))
+            .collect();
+        let sum_logits: f32 = logits.iter().sum();
+
+        println!(
+            "[run {run_idx}] prefill {} tokens: {:.2} ms, {:.1} tok/s",
+            prompt_ids.len(),
+            prefill_ms,
+            prefill_tok_s
+        );
+        println!(
+            "tok {:>6} -> {} (first [{:.4} {:.4} {:.4}] sum {:.4})",
+            prompt_ids.last().unwrap(),
+            top5.join(" "),
+            logits[0],
+            logits[1],
+            logits[2],
+            sum_logits
+        );
+
+        if n_gen > 0 {
+            let mut out_ids = Vec::with_capacity(n_gen);
+            let t_dec = Instant::now();
+            for step in 0..n_gen {
+                out_ids.push(next);
+                if step + 1 < n_gen {
+                    next = gpu.forward_greedy_token(next)?;
+                } else {
+                    // Measure `n_gen` full decode forward steps accurately!
+                    let _ = gpu.forward_greedy_token(next)?;
+                }
+            }
+            let dec_ms = t_dec.elapsed().as_secs_f64() * 1000.0;
+            let dec_tok_s = (n_gen as f64) / (dec_ms / 1000.0).max(1e-9);
+            println!(
+                "[run {run_idx}] generated {n_gen} tokens: {:.2} ms ({:.2} ms/tok, {:.1} tok/s)",
+                dec_ms,
+                dec_ms / (n_gen as f64),
+                dec_tok_s
+            );
+            let csv: Vec<String> = out_ids.iter().map(u32::to_string).collect();
+            println!("{}", csv.join(","));
+        }
+    }
+
     Ok(())
 }
 
@@ -287,7 +501,6 @@ fn cmd_tune() {
     let ceil = compute_decode_ceiling_tok_s(&sku, &inkling_128k_spec8);
     println!("  Inkling-2-Mini 128K (C=1, W=8, E[acc+1]=5.8) Streaming Ceiling: {ceil:.1} tok/s");
 
-    // Qwen3.8-Flash-Next (51B Engram Host DMA hidden behind Visits 0..1 on RTX PRO 5000)
     let (qwen_engram_tok_s, qwen_exposed_pct) = compute_spilled_engram_ceiling_tok_s(
         &sku,
         &SpilledEngramRooflineInput {
@@ -295,7 +508,7 @@ fn cmd_tune() {
             overlap_hideable_vram_fraction: 0.15,
             spilled_pcie_bytes_per_step: 0.0,
             dtod_promoted_bytes_per_step: 0.0,
-            engram_pcie_bytes_per_step: 262_144.0, // 64 rows × 4 KiB N-gram gather
+            engram_pcie_bytes_per_step: 262_144.0,
             emitted_tokens_per_step: 5.2,
         },
     );
@@ -303,7 +516,6 @@ fn cmd_tune() {
         "  Qwen3.8-Flash-Next + 51B Host Engram Ceiling : {qwen_engram_tok_s:.1} tok/s (exposed PCIe stall: {qwen_exposed_pct:.2}%)"
     );
 
-    // Spilled Inkling-2-Mini on RTX 5070 Ti 16GB (PCIe Gen4 x16 + DtoD promotion)
     let sku_spilled = BlackwellSkuProfile::rtx_5070_ti_300w();
     let (spilled_tok_s, spilled_exposed_pct) = compute_spilled_engram_ceiling_tok_s(
         &sku_spilled,
@@ -335,6 +547,13 @@ fn main() -> ExitCode {
 
     match args.get(1).map(|s| s.as_str()) {
         Some("prompt") => match cmd_prompt(&args[2..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("[ERROR] {e}");
+                ExitCode::FAILURE
+            }
+        },
+        Some("bench") => match cmd_bench(&args[2..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("[ERROR] {e}");

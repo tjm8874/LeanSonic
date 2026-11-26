@@ -50,10 +50,8 @@ void moe_simt_reg64_kernel(
         #pragma unroll
         for (int q = 0; q < 4; ++q) {
             uint32_t raw = w_pack[q];
-            uint32_t lo_nibs = raw & 0x0F0F0F0Fu;
-            uint32_t hi_nibs = (raw >> 4) & 0x0F0F0F0Fu;
-            uint32_t w2x_lo = ptx::decode_4x_e2m1_low_nibbles_to_2x_s8(lo_nibs);
-            uint32_t w2x_hi = ptx::decode_4x_e2m1_low_nibbles_to_2x_s8(hi_nibs);
+            uint32_t w2x_lo = ptx::decode_4x_e2m1_nibbles16_to_2x_s8(raw & 0xFFFFu);
+            uint32_t w2x_hi = ptx::decode_4x_e2m1_nibbles16_to_2x_s8(raw >> 16);
 
             int32_t acc8 = __dp4a(static_cast<int32_t>(w2x_lo), x_words[q * 2], 0);
             acc8 = __dp4a(static_cast<int32_t>(w2x_hi), x_words[q * 2 + 1], acc8);
@@ -110,8 +108,8 @@ void moe_grouped_mma_int8_kernel(
         #pragma unroll
         for (int q = 0; q < 4; ++q) {
             uint32_t raw = w_pack[q];
-            uint32_t w2x_lo = ptx::decode_4x_e2m1_low_nibbles_to_2x_s8(raw & 0x0F0F0F0Fu);
-            uint32_t w2x_hi = ptx::decode_4x_e2m1_low_nibbles_to_2x_s8((raw >> 4) & 0x0F0F0F0Fu);
+            uint32_t w2x_lo = ptx::decode_4x_e2m1_nibbles16_to_2x_s8(raw & 0xFFFFu);
+            uint32_t w2x_hi = ptx::decode_4x_e2m1_nibbles16_to_2x_s8(raw >> 16);
             int32_t acc8 = __dp4a(static_cast<int32_t>(w2x_lo), x_words[q * 2], 0);
             acc8 = __dp4a(static_cast<int32_t>(w2x_hi), x_words[q * 2 + 1], acc8);
             q_partials[q] = __fmul_rn(static_cast<float>(acc8), 0.5f);
