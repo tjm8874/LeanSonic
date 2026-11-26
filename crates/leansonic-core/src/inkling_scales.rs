@@ -92,7 +92,14 @@ fn expand<const B: usize>(
     tail: &mut &[u8],
     out: &mut [u8],
 ) -> Result<(), String> {
-    let escape = (1u8 << B) - 1;
+    const BYTE_ONES: u64 = 0x0101_0101_0101_0101;
+    let code_mask = (1u64 << B) - 1;
+    let four_codes = (1u64 << (4 * B)) - 1;
+    let two_codes = ((1u64 << (2 * B)) - 1) * 0x0000_0001_0000_0001;
+    let one_code = code_mask * 0x0001_0001_0001_0001;
+    let escapes = code_mask * BYTE_ONES;
+    let base_low = u64::from(base & 127) * BYTE_ONES;
+    let base_high = u64::from(base & 128) * BYTE_ONES;
     for (group, row) in groups
         .as_chunks::<B>()
         .0
@@ -102,15 +109,21 @@ fn expand<const B: usize>(
         let mut bytes = [0; 8];
         bytes[..B].copy_from_slice(group);
         let word = u64::from_le_bytes(bytes);
-        for (lane, v) in row.iter_mut().enumerate() {
-            let code = ((word >> (lane * B)) as u8) & escape;
-            *v = if code == escape {
-                let (first, rest) = tail.split_first().ok_or("missing scale exception")?;
-                *tail = rest;
-                *first
-            } else {
-                base + code
-            };
+        // Separate the fields four at a time, then two, then one per byte.
+        let halves = (word & four_codes) | ((word >> (4 * B)) << 32);
+        let pairs = (halves & two_codes) | (((halves >> (2 * B)) & two_codes) << 16);
+        let lanes = (pairs & one_code) | (((pairs >> B) & one_code) << 8);
+        // Codes and base_low are each at most 127 per byte, so the add
+        // cannot carry between lanes. Restore bit 7 after the addition.
+        *row = ((lanes + base_low) ^ base_high).to_le_bytes();
+        // XOR maps each escape to zero. Adding 127 sets bit 7 in every
+        // nonzero lane. Visit only the exceptions, in original byte order.
+        let mut hits = !((lanes ^ escapes) + 127 * BYTE_ONES) & (128 * BYTE_ONES);
+        while hits != 0 {
+            let (first, rest) = tail.split_first().ok_or("missing scale exception")?;
+            row[hits.trailing_zeros() as usize / 8] = *first;
+            *tail = rest;
+            hits &= hits - 1;
         }
     }
     Ok(())
@@ -205,6 +218,40 @@ mod tests {
             })
             .unwrap();
             assert_eq!(copied, count);
+        }
+    }
+
+    #[test]
+    fn all_exception_patterns_preserve_the_order_and_values() {
+        for bits in 1..=7 {
+            let span = (1u8 << bits) - 1;
+            for base in [0, 127, 128, 255 - span + 1] {
+                let mut values = Vec::new();
+                let mut escapes = 0;
+                for mask in 0..=255u8 {
+                    for lane in 0..8u8 {
+                        if mask & (1 << lane) != 0 {
+                            values.push(if base > 0 { lane % base } else { 255 - lane });
+                            escapes += 1;
+                        } else {
+                            values.push(base + mask.wrapping_add(lane) % span);
+                        }
+                    }
+                }
+                let plan = ScalePacking {
+                    base,
+                    bits,
+                    count: values.len(),
+                    escapes,
+                };
+                let mut frame = Vec::new();
+                plan.write(&values, &mut frame).unwrap();
+                unpack_scales(&frame, values.len(), |offset, tile| {
+                    assert_eq!(tile, &values[offset..offset + tile.len()]);
+                    Ok(())
+                })
+                .unwrap();
+            }
         }
     }
 
