@@ -89,6 +89,7 @@ struct Score {
     nll_ref: f64,
     kld: f64,
     same_top: bool,
+    target_at_ref_floor: bool,
 }
 
 fn score_row(logits: &[f32], row: &[u8], target: usize) -> Result<Score> {
@@ -109,10 +110,11 @@ fn score_row(logits: &[f32], row: &[u8], target: usize) -> Result<Score> {
     let max = logits[top];
     let sum: f64 = logits.iter().map(|&v| f64::from((v - max).exp())).sum();
     let lse = max + sum.ln() as f32;
-    let lp = |i: usize| {
+    let code = |i: usize| {
         let start = 8 + 2 * i;
-        scale * f32::from(u16::from_le_bytes([row[start], row[start + 1]])) + min_lp
+        u16::from_le_bytes([row[start], row[start + 1]])
     };
+    let lp = |i| scale * f32::from(code(i)) + min_lp;
     let mut ref_top = 0;
     let mut ref_max = f32::NEG_INFINITY;
     let mut kld = 0.0;
@@ -135,6 +137,7 @@ fn score_row(logits: &[f32], row: &[u8], target: usize) -> Result<Score> {
         nll_ref: -f64::from(lp(target)),
         kld,
         same_top: top == ref_top,
+        target_at_ref_floor: code(target) == 0,
     })
 }
 
@@ -168,6 +171,7 @@ pub fn run(args: &[String]) -> Result<()> {
     let mut row = vec![0; row_bytes(VOCAB)];
     let mut klds = Vec::new();
     let (mut sum_nll, mut sum_ref, mut matches) = (0.0, 0.0, 0usize);
+    let mut ref_floor_targets = 0usize;
     let mut worst = (f64::NEG_INFINITY, start, 0);
     for chunk in start..start + chunks {
         let ids = reference.next_tokens()?;
@@ -187,6 +191,7 @@ pub fn run(args: &[String]) -> Result<()> {
             sum_nll += s.nll;
             sum_ref += s.nll_ref;
             matches += usize::from(s.same_top);
+            ref_floor_targets += usize::from(s.target_at_ref_floor);
             if pos + 2 < reference.ctx {
                 engine.forward_greedy_token(target)?;
             }
@@ -210,7 +215,7 @@ pub fn run(args: &[String]) -> Result<()> {
             "{{\"chunks\":{},\"context\":{},\"rows\":{},\"ppl\":{},\"ref_ppl\":{},",
             "\"mean_kld\":{},\"median_kld\":{},\"p99_kld\":{},\"max_kld\":{},",
             "\"start_chunk\":{},\"max_kld_chunk\":{},\"max_kld_position\":{},",
-            "\"top1_matches\":{},\"top1_agreement\":{}}}"
+            "\"ref_floor_targets\":{},\"top1_matches\":{},\"top1_agreement\":{}}}"
         ),
         chunks,
         reference.ctx,
@@ -224,6 +229,7 @@ pub fn run(args: &[String]) -> Result<()> {
         start,
         worst.1,
         worst.2,
+        ref_floor_targets,
         matches,
         matches as f64 / n
     );
@@ -246,10 +252,10 @@ mod tests {
         assert_eq!(row.len(), row_bytes(3));
         let logits = [logp, logp, 0.0];
         let exact = score_row(&logits, &row, 0).unwrap();
-        assert!(exact.kld.abs() < 1e-6 && exact.same_top);
+        assert!(exact.kld.abs() < 1e-6 && exact.same_top && exact.target_at_ref_floor);
         assert!((exact.nll + 0.25f64.ln()).abs() < 1e-6);
         let swapped = score_row(&[0.0, logp, logp], &row, 2).unwrap();
-        assert!(!swapped.same_top);
+        assert!(!swapped.same_top && !swapped.target_at_ref_floor);
         assert!((swapped.kld - 0.25 * 2f64.ln()).abs() < 1e-6);
         assert!(score_row(&[f32::NAN, logp, logp], &row, 2).is_err());
     }
