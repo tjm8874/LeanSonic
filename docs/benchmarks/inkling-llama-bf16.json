@@ -1,0 +1,475 @@
+{
+  "model": "Inkling-2-Mini",
+  "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+  "power_limit_w": 350,
+  "driver": "595.99.02",
+  "nvcc": "13.0.88",
+  "LeanSonic": "f5bda42aa0c58834af5d900c5ae465805e7f9b92",
+  "llama.cpp": "29b52d398b294509746ec0a3f28948a3107c0213",
+  "model_file_bytes": {
+    "LeanSonic": 19526019168,
+    "llama.cpp_BF16": 52226509568
+  },
+  "prompt": "inputs/inkling-readme1024.ids",
+  "prompt_sha256": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843",
+  "forced": "inputs/inkling-continuation32.ids",
+  "forced_sha256": "424005ba620148c43483b62cced3f11cbc90f3c01cef01cb3abbb03264020e27",
+  "protocol": "One sequence, context 8192, GPU greedy selection without drafting. A=LeanSonic native sm_120a, B=llama.cpp BF16 49/49 layers offloaded. Five cycles of A-B-B-A. Each leg is a fresh process with five requests. Warm samples omit the first request. Fixed 32-token continuation, one actual forward and greedy sampler call per token. Timers exclude model load and reset. All 100 requests predicted all 32 supplied tokens.",
+  "aggregation": "Compute a median across eight warm requests per engine in each cycle, then average the five cycle medians. Resample the five paired percent changes with replacement 10000 times (seed 12345) for the percentile interval. GPU process memory sampled at approximately 0.4 s including load.",
+  "summary": {
+    "prefill_ms": {
+      "mean_cycle_medians_LeanSonic": 455.65022999999997,
+      "mean_cycle_medians_llama": 598.1937700000001,
+      "paired_mean_change_pct": -23.828994768552555,
+      "ci95_pct": [
+        -23.891104568630297,
+        -23.766884968474812
+      ]
+    },
+    "decode_32_ms": {
+      "mean_cycle_medians_LeanSonic": 340.91388,
+      "mean_cycle_medians_llama": 566.04022,
+      "paired_mean_change_pct": -39.77213783906071,
+      "ci95_pct": [
+        -39.79406834062926,
+        -39.75020733749216
+      ]
+    },
+    "sampled_process_mib": [
+      17658,
+      53004
+    ]
+  },
+  "ABBA": [
+    [
+      {
+        "samples_ms": [
+          [
+            454.3488,
+            340.6911
+          ],
+          [
+            454.6051,
+            340.6476
+          ],
+          [
+            454.5348,
+            340.79
+          ],
+          [
+            454.6521,
+            340.8413
+          ]
+        ],
+        "highest_sampled_process_MiB": 17658
+      },
+      {
+        "samples_ms": [
+          [
+            602.1155,
+            566.1243
+          ],
+          [
+            599.474,
+            565.1289
+          ],
+          [
+            596.042,
+            565.9548
+          ],
+          [
+            594.9184,
+            565.6894
+          ]
+        ],
+        "highest_sampled_process_MiB": 53004
+      },
+      {
+        "samples_ms": [
+          [
+            601.8802,
+            565.7927
+          ],
+          [
+            598.8351,
+            566.1319
+          ],
+          [
+            595.4358,
+            565.3293
+          ],
+          [
+            595.9192,
+            566.5293
+          ]
+        ],
+        "highest_sampled_process_MiB": 53004
+      },
+      {
+        "samples_ms": [
+          [
+            454.4311,
+            340.7987
+          ],
+          [
+            454.7425,
+            340.8513
+          ],
+          [
+            454.6573,
+            340.8731
+          ],
+          [
+            455.2009,
+            340.8319
+          ]
+        ],
+        "highest_sampled_process_MiB": 17658
+      }
+    ],
+    [
+      {
+        "samples_ms": [
+          [
+            455.0558,
+            340.9704
+          ],
+          [
+            455.3745,
+            340.8821
+          ],
+          [
+            455.7054,
+            340.9453
+          ],
+          [
+            455.7043,
+            340.9743
+          ]
+        ],
+        "highest_sampled_process_MiB": 17658
+      },
+      {
+        "samples_ms": [
+          [
+            601.5497,
+            566.4165
+          ],
+          [
+            598.4877,
+            566.2461
+          ],
+          [
+            596.1342,
+            566.0371
+          ],
+          [
+            595.631,
+            565.2907
+          ]
+        ],
+        "highest_sampled_process_MiB": 53004
+      },
+      {
+        "samples_ms": [
+          [
+            602.5278,
+            566.6281
+          ],
+          [
+            601.6986,
+            566.8408
+          ],
+          [
+            594.7977,
+            565.7309
+          ],
+          [
+            598.4737,
+            565.8658
+          ]
+        ],
+        "highest_sampled_process_MiB": 53004
+      },
+      {
+        "samples_ms": [
+          [
+            455.1105,
+            340.7776
+          ],
+          [
+            455.2934,
+            340.7139
+          ],
+          [
+            455.3787,
+            340.7586
+          ],
+          [
+            455.4689,
+            340.6393
+          ]
+        ],
+        "highest_sampled_process_MiB": 17658
+      }
+    ],
+    [
+      {
+        "samples_ms": [
+          [
+            455.2655,
+            341.0059
+          ],
+          [
+            455.6349,
+            341.0906
+          ],
+          [
+            455.4876,
+            341.0717
+          ],
+          [
+            456.2994,
+            341.0101
+          ]
+        ],
+        "highest_sampled_process_MiB": 17658
+      },
+      {
+        "samples_ms": [
+          [
+            600.8472,
+            565.5043
+          ],
+          [
+            598.0414,
+            565.2005
+          ],
+          [
+            596.3184,
+            567.3523
+          ],
+          [
+            597.2972,
+            566.3127
+          ]
+        ],
+        "highest_sampled_process_MiB": 53004
+      },
+      {
+        "samples_ms": [
+          [
+            604.833,
+            566.5131
+          ],
+          [
+            601.5136,
+            565.5778
+          ],
+          [
+            594.7381,
+            565.9181
+          ],
+          [
+            596.8334,
+            565.7408
+          ]
+        ],
+        "highest_sampled_process_MiB": 53004
+      },
+      {
+        "samples_ms": [
+          [
+            455.3086,
+            340.9732
+          ],
+          [
+            455.8653,
+            340.9614
+          ],
+          [
+            456.0713,
+            340.9704
+          ],
+          [
+            455.9189,
+            340.9186
+          ]
+        ],
+        "highest_sampled_process_MiB": 17658
+      }
+    ],
+    [
+      {
+        "samples_ms": [
+          [
+            455.7084,
+            340.978
+          ],
+          [
+            456.1411,
+            340.9439
+          ],
+          [
+            456.2834,
+            340.9459
+          ],
+          [
+            456.578,
+            341.0291
+          ]
+        ],
+        "highest_sampled_process_MiB": 17658
+      },
+      {
+        "samples_ms": [
+          [
+            601.4066,
+            566.4716
+          ],
+          [
+            599.405,
+            565.4445
+          ],
+          [
+            596.3543,
+            565.0397
+          ],
+          [
+            598.4057,
+            566.3466
+          ]
+        ],
+        "highest_sampled_process_MiB": 53004
+      },
+      {
+        "samples_ms": [
+          [
+            604.9892,
+            566.9793
+          ],
+          [
+            601.7473,
+            565.5906
+          ],
+          [
+            595.3148,
+            565.5547
+          ],
+          [
+            595.7275,
+            566.5691
+          ]
+        ],
+        "highest_sampled_process_MiB": 53004
+      },
+      {
+        "samples_ms": [
+          [
+            455.8536,
+            340.9773
+          ],
+          [
+            456.0395,
+            340.9966
+          ],
+          [
+            456.363,
+            340.9712
+          ],
+          [
+            456.3658,
+            341.018
+          ]
+        ],
+        "highest_sampled_process_MiB": 17658
+      }
+    ],
+    [
+      {
+        "samples_ms": [
+          [
+            455.7666,
+            340.9073
+          ],
+          [
+            456.1283,
+            341.0056
+          ],
+          [
+            456.281,
+            340.9438
+          ],
+          [
+            456.2862,
+            340.9639
+          ]
+        ],
+        "highest_sampled_process_MiB": 17658
+      },
+      {
+        "samples_ms": [
+          [
+            601.5827,
+            567.0561
+          ],
+          [
+            598.7399,
+            565.6338
+          ],
+          [
+            598.21,
+            567.0563
+          ],
+          [
+            595.9032,
+            566.2229
+          ]
+        ],
+        "highest_sampled_process_MiB": 53004
+      },
+      {
+        "samples_ms": [
+          [
+            602.4179,
+            566.5525
+          ],
+          [
+            599.6693,
+            565.5753
+          ],
+          [
+            594.8139,
+            566.6268
+          ],
+          [
+            595.2052,
+            565.5798
+          ]
+        ],
+        "highest_sampled_process_MiB": 53004
+      },
+      {
+        "samples_ms": [
+          [
+            456.1507,
+            340.9612
+          ],
+          [
+            456.4245,
+            340.9529
+          ],
+          [
+            456.4543,
+            340.9901
+          ],
+          [
+            456.5847,
+            340.9459
+          ]
+        ],
+        "highest_sampled_process_MiB": 17658
+      }
+    ]
+  ]
+}

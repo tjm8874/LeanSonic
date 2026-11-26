@@ -196,6 +196,25 @@ impl MappedSafeTensors {
         })
     }
 
+    /// Reclaim this process's file-backed pages between completed load phases.
+    /// Tensor views remain valid and can fault their bytes back from the file.
+    pub(crate) fn discard_resident_pages(&self) {
+        #[cfg(target_os = "linux")]
+        {
+            use std::ffi::c_void;
+            unsafe extern "C" {
+                fn madvise(addr: *mut c_void, length: usize, advice: i32) -> i32;
+            }
+            const MADV_DONTNEED: i32 = 4;
+            let bytes = self.mmap.as_slice();
+            // SAFETY: the live, read-only private file mapping starts on a page boundary.
+            // The advice is optional. A failure only leaves more mapped pages resident.
+            unsafe {
+                madvise(bytes.as_ptr().cast_mut().cast(), bytes.len(), MADV_DONTNEED);
+            }
+        }
+    }
+
     pub fn get(&self, name: &str) -> Option<TensorView<'_>> {
         let info = self.tensors.get(name)?;
         let raw = self.mmap.as_slice();
@@ -608,6 +627,37 @@ fn parse_safetensors_header(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn tensor_view_survives_releasing_resident_pages() {
+        use std::io::Write;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("leansonic-mmap-{}-{stamp}", std::process::id()));
+        let header = br#"{"weight":{"dtype":"U8","shape":[8192],"data_offsets":[0,8192]}}"#;
+        let values: Vec<u8> = (0..8192).map(|i| (i % 251) as u8).collect();
+        let mut file = std::fs::File::create_new(&path).unwrap();
+        file.write_all(&(header.len() as u64).to_le_bytes())
+            .unwrap();
+        file.write_all(header).unwrap();
+        file.write_all(&values).unwrap();
+        drop(file);
+
+        let tensors = MappedSafeTensors::open(&path).unwrap();
+        std::fs::remove_file(path).unwrap();
+        let view = tensors.require("weight", "U8", &[8192]);
+        for _ in 0..2 {
+            assert_eq!(view.data, values);
+            tensors.discard_resident_pages();
+        }
+        assert_eq!(view.data, values);
+    }
 
     #[test]
     fn parses_safetensors_header_with_metadata() {

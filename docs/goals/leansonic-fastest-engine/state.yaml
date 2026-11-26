@@ -69,7 +69,7 @@ visual_board:
     url: null
     command: "node <skill-path>/surfaces/local-goal-board/scripts/local-goal-board.mjs --goal docs/goals/leansonic-fastest-engine"
 
-active_task: T002
+active_task: T011
 
 tasks:
   - id: T001
@@ -105,7 +105,7 @@ tasks:
   - id: T002
     type: worker
     assignee: Worker
-    status: active
+    status: done
     reasoning_hint: medium
     objective: "goal oracle の `leansonic bench-matrix` サブコマンドを実装する。目標表を docs/benchmarks/targets.json に置き、指定 GPU で bench を実行し、ABBA N>=5 の中央値と 95% ブートストラップ CI から、各セルの PASS/FAIL と差分を表と JSON で出力する"
     inputs:
@@ -129,11 +129,31 @@ tasks:
     stop_if:
       - "Need files outside allowed_files."
       - "Verification fails twice."
-    receipt: null
+    receipt:
+      result: done
+      summary: "#36 で bench-matrix を実装しマージ。84f67c9（G=16）を PRO 5000 / 4500 で N=5 計測。Prefill 2K は 1,447 / 1,080（目標の約 10%）、Decode 16K は 137 / 117、投機（実プロンプト）は 210 / 176、VRAM は 17.26 / 17.18 GiB。16GB の 2 枚は Codex の検証と競合して未計測。"
+      note: "notes/T002-bench-matrix.md"
+      changed_files:
+        - "crates/leansonic-cli/src/bench_matrix.rs"
+        - "crates/leansonic-cli/src/main.rs"
+        - "docs/benchmarks/targets.json"
+        - "docs/benchmarks/README.md"
+      commands:
+        - cmd: "cargo test --workspace"
+          status: pass
+        - cmd: "cargo clippy --workspace --all-targets -- -D warnings"
+          status: pass
+        - cmd: "cargo fmt --check"
+          status: pass
+        - cmd: "leansonic bench-matrix --gpus 1 / --gpus 0 on cuda01 (N=5)"
+          status: pass
+      follow_ups:
+        - "5070 Ti / 5060 Ti を cudaserver が空いたら計測する"
+        - "long_128k_decode / c64_total / kld_mean のセルを T011 / T010 / T005 で追加する"
   - id: T003
     type: judge
     assignee: Judge
-    status: queued
+    status: done
     reasoning_hint: high
     objective: "PR #9（split-KV + GQA グルーピング）を審査し、数値変更として KLD ゲートで扱うか、opt-in のまま入れるか、既定値をどうするかを決め、マージまでの残作業を確定する"
     inputs:
@@ -146,17 +166,20 @@ tasks:
     expected_output:
       - "Decision（採用条件）"
       - "T004 の allowed_files / verify / stop_if の確定版"
-    receipt: null
+    receipt:
+      result: done
+      decision: "PR #9 は spec との一貫性（verify が別カーネル）、SMEM の宣言（14,976 B）、KLD の比較方法の 3 点を直してから統合する（Codex の審査コメント）"
+      summary: "Codex が #9 で審査し、Gemini が #37 で反映して統合した"
   - id: T004
     type: worker
     assignee: Worker
-    status: queued
+    status: done
     reasoning_hint: high
     objective: "T003 の判定に従い、PR #9 を仕上げる（Lean 証明・生成ヘッダの更新・SASS 監査・ABBA N>=5 を 4 GPU で実施）"
     inputs:
       - "T003 receipt"
     constraints:
-      - "Owner AI: Claude"
+      - "Owner AI: Gemini（当初は Claude。#37 で Gemini が統合）"
       - "凍結コアは変更しない"
     allowed_files:
       - "kernels/inkling2_sm120.cu"
@@ -176,7 +199,16 @@ tasks:
       - "Need files outside allowed_files."
       - "Verification fails twice."
       - "Gate 3 の扱いにゲート閾値の変更が必要になる"
-    receipt: null
+    receipt:
+      result: done
+      summary: "Gemini が #37 で split-KV を統合（B=1 の decode と verify / prefill で共通のカーネル、Lean 証明、SASS 監査、ABBA）。Claude が --spec 0 と --spec 7 の一致を 6 プロンプト × G=0/16 で独立に確認（notes/T002-bench-matrix.md）"
+      changed_files:
+        - "kernels/inkling2_sm120.cu"
+        - "crates/leansonic-core/src/inkling2_gpu.rs"
+        - "spec/LeanSonic/Proofs/Inkling2Mini.lean"
+      commands:
+        - cmd: "#37 merged with Gate 1-4"
+          status: pass
   - id: T005
     type: worker
     assignee: Worker
@@ -216,7 +248,7 @@ tasks:
       - "cuda-optimization スキル reference 05 / 08（Basalt PR #690）"
       - "T005 のハーネス（数値変更の判定用）"
     constraints:
-      - "Owner AI: Gemini"
+      - "Owner AI: Gemini（Codex が #32 NVFP4 int8 MMA と #34 Q8 K16 MMA で第 1 段階を実施済み。PRO 5000 の Prefill 2K は 1,447 tok/s）"
       - "Decode が退行しないこと（Decode Comes First）"
       - "部分和は SIMT と同じ木の順序で __fadd_rn（C=1 と C=64 で 0-ULP の batch 不変性）"
       - "SMEM は CTA あたり 63 KiB 以下（64 KiB carveout を超えない）"
@@ -334,7 +366,7 @@ tasks:
   - id: T011
     type: worker
     assignee: Worker
-    status: queued
+    status: active
     reasoning_hint: high
     objective: "長文 128K と INT8 / FP8 KV（#14）: 4 段の cp.async.cg と二重バッファの dequant で INT8 KV を実装し、128K の Decode >= 113 / Prefill >= 9,300（PRO 5000）、16GB 機でも 128K で起動できるようにする"
     inputs:
@@ -358,7 +390,7 @@ tasks:
   - id: T012
     type: worker
     assignee: Worker
-    status: queued
+    status: done
     reasoning_hint: medium
     objective: "堅牢性 3 件（#15）: NVRTC builtins の探索とエラー案内、q8 GEMV の cols 上限ガード、serve の HTTP 上限とタイムアウト。あわせて起動時にデバイス名と UUID を JSON で出力する"
     inputs:
@@ -375,7 +407,16 @@ tasks:
     stop_if:
       - "Need files outside allowed_files."
       - "Verification fails twice."
-    receipt: null
+    receipt:
+      result: done
+      summary: "#37 で 3 件とも反映: libnvrtc-builtins の RTLD_GLOBAL 自動読み込み（cudaserver で環境変数なしで起動を確認）、Q8_64 GEMV/GEMM の cols<=3072 ガードと act_slot*cols、HTTP の 10 秒タイムアウト・16 KiB ヘッダ上限（431）・Content-Length の厳格な検証（400）"
+      changed_files:
+        - "crates/leansonic-core/src/cuda_ffi.rs"
+        - "crates/leansonic-core/src/inkling2_gpu.rs"
+        - "crates/leansonic-core/src/serving.rs"
+      commands:
+        - cmd: "#37 merged with Gate 1-4"
+          status: pass
   - id: T013
     type: worker
     assignee: Worker

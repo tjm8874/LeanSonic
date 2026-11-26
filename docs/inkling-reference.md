@@ -41,3 +41,32 @@ c++ -O2 -std=c++17 -ffp-contract=off \
 ```
 
 On PRO 5000 the two schedules chose different next tokens at 18 of the 1,020 positions in these four chunks. At chunk 69, position 353, the 512-token call predicted token 1057. The streaming schedule and the published oracle both predicted 2952. These chunks were selected to investigate known errors. Use the original 100-chunk oracle for the project’s quality gate. [Experiment and per-schedule results](https://github.com/tjm8874/LeanSonic/issues/35#issuecomment-7201276035)
+
+## Compare single-request latency with the BF16 reference
+
+On an RTX PRO 5000 72 GB, LeanSonic at `f5bda42` processed the 1,024-token README prompt in 455.65 ms and the 32 subsequent steps in 340.91 ms. The pinned llama.cpp BF16 build took 598.19 ms and 566.04 ms, respectively. Both predicted the same 32 token IDs on every request. Across the separate WikiText evaluation, LeanSonic agreed with the BF16 oracle at 24,880 of 25,500 positions. [Quality receipt](benchmarks/inkling-adaptive-prefill.json)
+
+| Measurement | LeanSonic native SM120a | llama.cpp BF16 |
+| --- | ---: | ---: |
+| Prefill, 1,024 tokens | 455.65 ms | 598.19 ms |
+| Decode, 32 fixed tokens | 340.91 ms | 566.04 ms |
+| Highest sampled process GPU memory | 17,658 MiB | 53,004 MiB |
+| Model file | 19,526,019,168 B | 52,226,509,568 B |
+
+Use the official weights and the BF16 expansion built above. The following commands assume the LeanSonic repository is the current directory and the three environment variables point to the official model, pinned llama.cpp checkout, and its CUDA build directory.
+
+```bash
+cargo build --release -p leansonic-core --example inkling_fixed_decode
+nvcc -O3 -arch=sm_120a --cubin kernels/inkling2_sm120.cu -o /tmp/inkling-bench.cubin
+c++ -std=c++17 -O2 tools/benchmark_inkling_bf16.cpp \
+  -I"$LLAMA_SRC/include" -I"$LLAMA_SRC/ggml/include" -L"$LLAMA_BUILD/bin" \
+  -Wl,-rpath,"$LLAMA_BUILD/bin" -lllama -lggml -lggml-base -o /tmp/benchmark_inkling_bf16
+inputs=docs/benchmarks/inputs
+export LEANSONIC_CUBIN_PATH=/tmp/inkling-bench.cubin
+target/release/examples/inkling_fixed_decode "$MODEL_DIR" \
+  "$inputs/inkling-readme1024.ids" "$inputs/inkling-continuation32.ids"
+/tmp/benchmark_inkling_bf16 official-bf16.gguf \
+  "$inputs/inkling-readme1024.ids" "$inputs/inkling-continuation32.ids"
+```
+
+Each executable prints the request number, prefill and decode milliseconds, count of matching greedy predictions and first predicted ID. A fresh process runs one warm-up and four measured requests. For the table we ran five LeanSonic–llama.cpp–llama.cpp–LeanSonic cycles on the same idle GPU, with an 8,192-token context and drafting disabled. Each process used the fixed continuation even while checking its own greedy predictions. The paired reduction was 23.83% for prefill (95% bootstrap interval 23.77–23.89%) and 39.77% for decode (39.75–39.79%). The raw samples and aggregation method are in the [comparison receipt](benchmarks/inkling-llama-bf16.json).
