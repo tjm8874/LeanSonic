@@ -63,7 +63,7 @@ impl ScalePacking {
         writer.write_all(&header)?;
         let escape = (1u8 << self.bits) - 1;
         let mut tail = Vec::with_capacity(self.escapes);
-        for group in values.chunks_exact(8) {
+        for group in values.as_chunks::<8>().0 {
             let mut word = 0u64;
             for (lane, &v) in group.iter().enumerate() {
                 let delta = v.wrapping_sub(self.base);
@@ -93,7 +93,12 @@ fn expand<const B: usize>(
     out: &mut [u8],
 ) -> Result<(), String> {
     let escape = (1u8 << B) - 1;
-    for (group, row) in groups.chunks_exact(B).zip(out.chunks_exact_mut(8)) {
+    for (group, row) in groups
+        .as_chunks::<B>()
+        .0
+        .iter()
+        .zip(out.as_chunks_mut::<8>().0)
+    {
         let mut bytes = [0; 8];
         bytes[..B].copy_from_slice(group);
         let word = u64::from_le_bytes(bytes);
