@@ -3,7 +3,10 @@
 //! Reads `<model_dir>/tiktoken/tokenizer.model` (`<base64> <rank>` lines, 199,998 BPE merges)
 //! with zero external crates and formats chat messages identically to `chat_template.jinja`.
 
-use std::collections::HashMap;
+mod pieces;
+
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap};
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -80,7 +83,7 @@ impl TiktokenBpe {
             return Vec::new();
         }
         let mut out = Vec::new();
-        for piece in split_tiktoken_pieces(text) {
+        for piece in pieces::split(text) {
             self.bpe_merge_piece(piece.as_bytes(), &mut out);
         }
         out
@@ -89,6 +92,12 @@ impl TiktokenBpe {
     fn bpe_merge_piece(&self, piece: &[u8], out: &mut Vec<u32>) {
         if let Some(&id) = self.encoder.get(piece) {
             out.push(id);
+            return;
+        }
+        // Re-scanning every remaining pair after each merge is cheap for short
+        // words, but quadratic for long punctuation, whitespace and letter runs.
+        if piece.len() >= 128 {
+            self.merge_long_piece(piece, out);
             return;
         }
         let mut parts: Vec<(usize, usize)> = (0..piece.len()).map(|i| (i, i + 1)).collect();
@@ -114,6 +123,45 @@ impl TiktokenBpe {
             if let Some(&id) = self.encoder.get(&piece[s..e]) {
                 out.push(id);
             }
+        }
+    }
+
+    fn merge_long_piece(&self, piece: &[u8], out: &mut Vec<u32>) {
+        // Each live token spans [start, next[start]). Offsets never move.
+        // Order candidates by (rank, start) to break ties at the leftmost pair.
+        let n = piece.len();
+        let mut next: Vec<usize> = (1..=n).collect();
+        let mut prev: Vec<usize> = (0..n).map(|i| i.saturating_sub(1)).collect();
+        let candidate = |left: usize, mid: usize, end: usize| {
+            self.encoder
+                .get(&piece[left..end])
+                .map(|&rank| Reverse((rank, left, mid, end)))
+        };
+        let initial: Vec<_> = (0..n - 1)
+            .filter_map(|i| candidate(i, i + 1, i + 2))
+            .collect();
+        let mut queue = BinaryHeap::from(initial);
+        while let Some(Reverse((_, left, mid, end))) = queue.pop() {
+            if next[left] != mid || next[mid] != end {
+                continue;
+            }
+            next[left] = end;
+            next[mid] = mid; // invalidate all queued pairs involving the removed token
+            if end < n {
+                prev[end] = left;
+                queue.extend(candidate(left, end, next[end]));
+            }
+            if left > 0 {
+                queue.extend(candidate(prev[left], left, end));
+            }
+        }
+        let mut start = 0;
+        while start < n {
+            let end = next[start];
+            if let Some(&id) = self.encoder.get(&piece[start..end]) {
+                out.push(id);
+            }
+            start = end;
         }
     }
 
@@ -151,58 +199,6 @@ impl TiktokenBpe {
             .get(token as usize)
             .map_or(&[], |range| &self.token_bytes[range.clone()])
     }
-}
-
-/// Lightweight GPT-4 / o200k-compatible piece splitter (`[ \t]?[A-Za-z]+`, digits, non-alnum, newlines).
-fn split_tiktoken_pieces(text: &str) -> Vec<&str> {
-    let mut pieces = Vec::new();
-    let chars: Vec<(usize, char)> = text.char_indices().collect();
-    let n = chars.len();
-    let mut i = 0usize;
-
-    while i < n {
-        let start = chars[i].0;
-        let c = chars[i].1;
-        if c == ' '
-            && i + 1 < n
-            && (chars[i + 1].1.is_alphabetic() || !chars[i + 1].1.is_whitespace())
-        {
-            i += 1;
-            let c2 = chars[i].1;
-            if c2.is_alphabetic() {
-                while i < n && chars[i].1.is_alphabetic() {
-                    i += 1;
-                }
-            } else if c2.is_ascii_digit() {
-                let mut d = 0;
-                while i < n && chars[i].1.is_ascii_digit() && d < 3 {
-                    i += 1;
-                    d += 1;
-                }
-            } else {
-                i += 1;
-            }
-        } else if c.is_alphabetic() {
-            while i < n && chars[i].1.is_alphabetic() {
-                i += 1;
-            }
-        } else if c.is_ascii_digit() {
-            let mut d = 0;
-            while i < n && chars[i].1.is_ascii_digit() && d < 3 {
-                i += 1;
-                d += 1;
-            }
-        } else if c.is_whitespace() {
-            while i < n && chars[i].1.is_whitespace() {
-                i += 1;
-            }
-        } else {
-            i += 1;
-        }
-        let end = if i < n { chars[i].0 } else { text.len() };
-        pieces.push(&text[start..end]);
-    }
-    pieces
 }
 
 fn decode_base64(input: &str) -> Option<Vec<u8>> {
@@ -252,6 +248,45 @@ mod tests {
         assert_eq!(bpe.decode_tokens(&[2, 5, 8]), "あ");
         assert!(bpe.decode_token_bytes(3).is_empty());
         assert!(bpe.decode_token_bytes(99).is_empty());
+    }
+
+    #[test]
+    fn official_ids_for_punctuation_before_a_newline() {
+        // Every entry from tokenizer.model that is a substring of this input.
+        let ranks = "IQ== 0\nLw== 14\nYQ== 64\nYg== 65\nYw== 66\nCg== 198\nYWI= 332\n\
+                     YmM= 31491\nYWJj 33782\nLy8v 69984\nISE= 70042\nISEh 84950\nLy8= 145055\n";
+        let bpe = TiktokenBpe::from_tiktoken_str(ranks).unwrap();
+        assert_eq!(
+            bpe.encode_ordinary("abc!!!///\n"),
+            [33782, 84950, 69984, 198]
+        );
+    }
+
+    #[test]
+    fn long_merges_match_leftmost_rank_order() {
+        let bpe = TiktokenBpe::from_tiktoken_str(
+            "YQ== 0\nYg== 1\nYWI= 2\nYWE= 3\nYmE= 4\nYWJh 5\nYWFhYQ== 6\n",
+        )
+        .unwrap();
+        for n in 2..=12 {
+            for mask in 0..(1 << n) {
+                let bytes: Vec<u8> = (0..n)
+                    .map(|bit| if mask & (1 << bit) == 0 { b'a' } else { b'b' })
+                    .collect();
+                if bpe.encoder.contains_key(bytes.as_slice()) {
+                    continue; // whole-piece vocabulary hits bypass both merge algorithms
+                }
+                let mut want = Vec::new();
+                bpe.bpe_merge_piece(&bytes, &mut want);
+                let mut result = Vec::new();
+                bpe.merge_long_piece(&bytes, &mut result);
+                assert_eq!(result, want);
+            }
+        }
+        assert_eq!(
+            bpe.encode_ordinary(&"a".repeat(257)),
+            [vec![6; 64], vec![0]].concat()
+        );
     }
 
     #[test]

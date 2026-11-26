@@ -713,6 +713,20 @@ def kInk2GqaRelSinkAttnQ8B : KernelResourceSpec :=
 def kInk2GqaRelSinkAttnQ8BI8 : KernelResourceSpec :=
   { kInk2GqaRelSinkAttnQ8B with name := "ink2_gqa_rel_sink_attn_q8_b_i8" }
 
+/-- Latency-staged decode / small-verify variant (#56): `75` regs -> `3` CTAs (`57,600` regs/SM). -/
+def kInk2GqaRelSinkAttnQ8Decode : KernelResourceSpec :=
+  { kInk2GqaRelSinkAttnQ8B with
+    name := "ink2_gqa_rel_sink_attn_q8_decode"
+    rawRegsPerThread := 75
+    ctasPerSm := 3 }
+
+/-- INT8-KV instantiation of the staged decode variant: `72` regs -> `3` CTAs. -/
+def kInk2GqaRelSinkAttnQ8DecodeI8 : KernelResourceSpec :=
+  { kInk2GqaRelSinkAttnQ8B with
+    name := "ink2_gqa_rel_sink_attn_q8_decode_i8"
+    rawRegsPerThread := 72
+    ctasPerSm := 3 }
+
 /-- Split-KV Combine + In-Register `Q8_64` Epilogue (`128` threads, `40` regs -> `12` CTAs = `48` warps/SM!). -/
 def kInk2GqaAttnCombineQ8 : KernelResourceSpec :=
   { name := "ink2_gqa_attn_combine_q8"
@@ -837,6 +851,8 @@ def cycle5GlueFusionKernelSuite : List KernelResourceSpec :=
   , kInk2CtrlApplyCoalescedB
   , kInk2GqaRelSinkAttnQ8B
   , kInk2GqaRelSinkAttnQ8BI8
+  , kInk2GqaRelSinkAttnQ8Decode
+  , kInk2GqaRelSinkAttnQ8DecodeI8
   , kInk2GqaAttnCombineQ8
   , kInk2ShortConv4Save
   , kInk2ShortConv4SaveB
@@ -860,6 +876,12 @@ theorem ink2_gqa_rel_sink_attn_q8_b_valid :
 
 theorem ink2_gqa_rel_sink_attn_q8_b_i8_valid :
     ValidSm120Kernel kInk2GqaRelSinkAttnQ8BI8 := by decide
+
+theorem ink2_gqa_rel_sink_attn_q8_decode_valid :
+    ValidSm120Kernel kInk2GqaRelSinkAttnQ8Decode := by decide
+
+theorem ink2_gqa_rel_sink_attn_q8_decode_i8_valid :
+    ValidSm120Kernel kInk2GqaRelSinkAttnQ8DecodeI8 := by decide
 theorem ink2_gqa_attn_combine_q8_valid :
     ValidSm120Kernel kInk2GqaAttnCombineQ8 := by decide
 theorem ink2_short_conv4_save_valid :
