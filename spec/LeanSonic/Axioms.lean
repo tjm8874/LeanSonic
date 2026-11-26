@@ -291,4 +291,126 @@ def checkHybridStatePool (p : HybridStatePoolSpec) : Bool :=
 abbrev SafeHybridStatePool (p : HybridStatePoolSpec) : Prop :=
   checkHybridStatePool p = true
 
+/-! ## 6. OpenAI-Compatible Serving (`serve`) & Single-Prompt (`-p`) Formal Laws -/
+
+/--
+  Configuration of the unified `-p` (single-shot CLI) and `serve` (OpenAI HTTP/SSE)
+  scheduler on NVIDIA Blackwell.
+-/
+structure ServingSchedulerSpec where
+  maxConcurrentSlots : Nat
+  maxHttpStreams : Nat
+  prefillChunkTokens : Nat
+  kvBlockAlignTokens : Nat
+  decodeRoundsPerPrefillChunk : Nat
+  separatePrefillAndDecodeGemms : Bool
+  maxHttpBodyBytes : Nat
+  defaultMaxNewTokens : Nat
+  deriving Repr, DecidableEq
+
+/--
+  Serving & `-p` Scheduler Safety Invariants:
+  1. `maxHttpStreams <= maxConcurrentSlots`: Admission control prevents slot overflow.
+  2. `prefillChunkTokens` is a positive multiple of `kvBlockAlignTokens` (`64`) and
+     bounded (`<= 4096`) to bound `p95` inter-token latency (ITL) during concurrent prefill.
+  3. `decodeRoundsPerPrefillChunk >= 1`: Guarantees zero decode starvation while chunking long prompts.
+  4. `separatePrefillAndDecodeGemms == true`: Never mixes prefill chunk rows with decode rows in
+     joint GEMMs, guaranteeing `0-ULP` bit-exact equivalence between `leansonic -p` (solo)
+     and `POST /v1/chat/completions` under `C = 1..64` multi-slot load.
+-/
+def checkServingScheduler (s : ServingSchedulerSpec) : Bool :=
+  (s.maxConcurrentSlots >= 1) &&
+  (s.maxHttpStreams >= 1) &&
+  (s.maxHttpStreams <= s.maxConcurrentSlots) &&
+  (s.kvBlockAlignTokens == 64) &&
+  (s.prefillChunkTokens >= 64) &&
+  (s.prefillChunkTokens <= 4096) &&
+  (s.prefillChunkTokens % s.kvBlockAlignTokens == 0) &&
+  (s.decodeRoundsPerPrefillChunk >= 1) &&
+  s.separatePrefillAndDecodeGemms &&
+  (s.maxHttpBodyBytes >= 4096) &&
+  (s.defaultMaxNewTokens >= 1)
+
+abbrev ValidServingScheduler (s : ServingSchedulerSpec) : Prop :=
+  checkServingScheduler s = true
+
+/-- Check pairwise disjointness of `[s * (1 + W), (s + 1) * (1 + W))` state bands across all slots. -/
+def checkAllSlotBandsDisjoint (maxSlots specWindow : Nat) : Bool :=
+  let stride := 1 + specWindow
+  let slots := List.range maxSlots
+  slots.all fun s1 =>
+    slots.all fun s2 =>
+      if s1 == s2 then true
+      else
+        let lo1 := s1 * stride
+        let hi1 := (s1 + 1) * stride
+        let lo2 := s2 * stride
+        let hi2 := (s2 + 1) * stride
+        (hi1 <= lo2) || (hi2 <= lo1)
+
+abbrev DisjointSlotStateBands (maxSlots specWindow : Nat) : Prop :=
+  checkAllSlotBandsDisjoint maxSlots specWindow = true
+
+/-- OpenAI `finish_reason` variants for Chat Completions & Completions endpoints. -/
+inductive FinishReason where
+  | stop
+  | length
+  deriving Repr, DecidableEq
+
+/-- Frame kinds emitted on an OpenAI `text/event-stream` (`stream: true`) response. -/
+inductive SseFrameKind where
+  | roleHeader
+  | contentDelta
+  | finishChunk (reason : FinishReason)
+  | doneSentinel
+  deriving Repr, DecidableEq
+
+/-- Protocol automaton states for OpenAI SSE streaming. -/
+inductive SseAutomatonState where
+  | init
+  | streamingDeltas
+  | awaitingDone
+  | terminated
+  deriving Repr, DecidableEq
+
+/-- Deterministic transition function rejecting malformed SSE frame sequences. -/
+def stepSseAutomaton (st : SseAutomatonState) (frame : SseFrameKind) : Option SseAutomatonState :=
+  match st, frame with
+  | .init, .roleHeader => some .streamingDeltas
+  | .streamingDeltas, .contentDelta => some .streamingDeltas
+  | .streamingDeltas, .finishChunk _ => some .awaitingDone
+  | .awaitingDone, .doneSentinel => some .terminated
+  | _, _ => none
+
+/-- Fold a sequence of SSE frames through the protocol automaton from `st`. -/
+def runSseFrom (st : SseAutomatonState) : List SseFrameKind → Option SseAutomatonState
+  | [] => some st
+  | f :: fs =>
+    match stepSseAutomaton st f with
+    | some st' => runSseFrom st' fs
+    | none => none
+
+/-- A valid OpenAI SSE stream starts at `.init` and ends strictly in `.terminated`. -/
+def ValidSseTranscript (frames : List SseFrameKind) : Prop :=
+  runSseFrom .init frames = some .terminated
+
+/-- Canonical SSE frame sequence emitted by `leansonic serve` for `n` generated tokens. -/
+def buildCanonicalSseTrace (emittedTokens : Nat) (hitStopToken : Bool) : List SseFrameKind :=
+  let reason := if hitStopToken then FinishReason.stop else FinishReason.length
+  [SseFrameKind.roleHeader] ++
+  List.replicate emittedTokens SseFrameKind.contentDelta ++
+  [SseFrameKind.finishChunk reason, SseFrameKind.doneSentinel]
+
+/-- OpenAI token `usage` record (`prompt_tokens + completion_tokens = total_tokens`). -/
+structure OpenAiUsage where
+  promptTokens : Nat
+  completionTokens : Nat
+  totalTokens : Nat
+  deriving Repr, DecidableEq
+
+def mkOpenAiUsage (promptTokens completionTokens : Nat) : OpenAiUsage :=
+  { promptTokens := promptTokens
+    completionTokens := completionTokens
+    totalTokens := promptTokens + completionTokens }
+
 end LeanSonic

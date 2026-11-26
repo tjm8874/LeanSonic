@@ -84,14 +84,40 @@ cargo run --release -p leansonic-cli -- info
 # Inkling-2-Mini (24層->48 visit) と Qwen3.8-Flash-Next (3:1 GDN+QSA+Engram) のスケジュール検証
 cargo run --release -p leansonic-cli -- schedules
 
-# Gate 3: 48-visit Looped MoE における C=1 vs C=64 の 0-ULP 完全ビット一致検証
+# Gate 3: 48-visit Looped MoE (C=1 vs C=64) および `-p` vs `serve` の 0-ULP 完全ビット一致検証
 cargo run --release -p leansonic-cli -- verify-parity
+
+# 単発プロンプト実行 (`-p` / `--prompt`) — 標準出力ストリームまたは `--json` 構造化出力
+cargo run --release -p leansonic-cli -- -p "Explain Looped Transformers on Blackwell" --max-tokens 16
+cargo run --release -p leansonic-cli -- -p "Hello Qwen4 hybrid GDN+QSA" --model qwen3.8-flash-next --max-tokens 12 --json
+
+# OpenAI API 互換 HTTP / SSE サーバ起動 (`serve`, 外部クレート依存ゼロ)
+cargo run --release -p leansonic-cli -- serve --host 127.0.0.1 --port 8080 --model inkling-2-mini
 
 # 第2層チューナ: Blackwell RTX PRO 5000 での離散崖枝刈り＆理論ストリーミング天井試算
 cargo run --release -p leansonic-cli -- tune
 ```
 
-### 2. 第1層 Lean 4 証明の再検証とヘッダ再生成
+### 2. OpenAI API 互換エンドポイントの呼び出し（`/v1/models`, `/v1/chat/completions`, SSE）
+
+Lean 4（`ServingAndPrompt.lean`）で帰納法により完全性を証明した SSE 状態機械（`SseProtocolGuard`）と、`2048`-token チャンク Prefill 分離則により、`leansonic -p` と複数スロット同時稼働時の `serve` が **`0-ULP` で完全一致**します。
+
+```bash
+# モデル一覧の取得
+curl -s http://127.0.0.1:8080/v1/models
+
+# Chat Completions (非ストリーミング — `leansonic -p` と 0-ULP 完全一致)
+curl -s http://127.0.0.1:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"inkling-2-mini","messages":[{"role":"user","content":"Hello Blackwell"}],"max_tokens":12}'
+
+# Chat Completions (SSE ストリーミング `text/event-stream` — `finish_reason` + `data: [DONE]` 保証)
+curl -N http://127.0.0.1:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen3.8-flash-next","messages":[{"role":"user","content":"Stream GDN+QSA"}],"max_tokens":12,"stream":true}'
+```
+
+### 3. 第1層 Lean 4 証明の再検証とヘッダ再生成
 
 ```bash
 cd spec

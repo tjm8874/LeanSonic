@@ -74,5 +74,6 @@ jobs:
           cargo test --workspace
           cargo run --release -p leansonic-cli -- info
           cargo run --release -p leansonic-cli -- schedules
+          cargo run --release -p leansonic-cli -- -p "Hello Blackwell sm_120" --max-tokens 8 --json
           cargo run --release -p leansonic-cli -- verify-parity
           cargo run --release -p leansonic-cli -- tune

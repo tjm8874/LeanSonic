@@ -26,6 +26,12 @@ pub const SWA_RING_CAPACITY_TOKENS: usize = 1088;
 pub const RECURRENT_STATE_SLOTS: usize = 1088;
 pub const MOE_GROUPED_MMA_MIN_PAIRS: usize = 128;
 
+pub const SERVE_MAX_HTTP_STREAMS: usize = 64;
+pub const PREFILL_CHUNK_TOKENS: usize = 2048;
+pub const DECODE_ROUNDS_PER_PREFILL_CHUNK: usize = 1;
+pub const SERVE_MAX_HTTP_BODY_BYTES: usize = 4194304;
+pub const SERVE_DEFAULT_MAX_NEW_TOKENS: usize = 128;
+
 /// Exact doubled (`2x`) NVFP4 `E2M1` lookup table verified in Lean 4 over all 16 4-bit codes.
 pub const E2M1_DOUBLED_INT8_LUT: [i8; 16] =
     [0, 1, 2, 3, 4, 6, 8, 12, 0, -1, -2, -3, -4, -6, -8, -12];

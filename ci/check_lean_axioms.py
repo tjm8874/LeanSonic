@@ -38,6 +38,13 @@ REQUIRED_THEOREMS = [
     "LeanSonic.Proofs.attn_blocklist_smem_safe",
     "LeanSonic.Proofs.e2m1_all_16_codes_exact",
     "LeanSonic.Proofs.simt_and_mma_16bx2_0ulp_eq",
+    "LeanSonic.Proofs.phase1_serving_scheduler_valid",
+    "LeanSonic.Proofs.phase1_slot_bands_disjoint",
+    "LeanSonic.Proofs.canonical_sse_trace_always_valid",
+    "LeanSonic.Proofs.sse_without_done_is_rejected",
+    "LeanSonic.Proofs.sse_frame_after_done_is_rejected",
+    "LeanSonic.Proofs.solo_prompt_eq_serve_batch_slot",
+    "LeanSonic.Proofs.openai_usage_total_exact",
 ]
 
 
@@ -76,7 +83,10 @@ def audit_sources(spec_dir: pathlib.Path) -> list[str]:
 
 
 def audit_kernel_axioms(spec_dir: pathlib.Path) -> list[str]:
-    probe_lines = ["import LeanSonic.Proofs.Inkling2Mini"]
+    probe_lines = [
+        "import LeanSonic.Proofs.Inkling2Mini",
+        "import LeanSonic.Proofs.ServingAndPrompt",
+    ]
     for thm in REQUIRED_THEOREMS:
         probe_lines.append(f"#print axioms {thm}")
     probe_code = "\n".join(probe_lines) + "\n"

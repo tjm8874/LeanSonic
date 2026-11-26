@@ -72,20 +72,21 @@ To run **`Issue → PR → Merge → Release` without human code review** safely
 ```text
 LeanSonic/
 ├── spec/
-│   ├── LeanSonic/Axioms.lean             # [Phase 0 Immutable Core] SM120 laws, 0-ULP & pool specs
-│   ├── LeanSonic/Proofs/Inkling2Mini.lean# [Phase 1 Verified Proofs] Inkling-2 & Qwen3.8 schedules + SM120 suite
-│   └── LeanSonic/Emit.lean               # Verified constant codegen -> Rust & CUDA headers
+│   ├── LeanSonic/Axioms.lean               # [Phase 0 Immutable Core] SM120, 0-ULP & OpenAI SSE/Serve laws
+│   ├── LeanSonic/Proofs/Inkling2Mini.lean  # [Phase 1 Verified Proofs] Inkling-2 & Qwen3.8 schedules + SM120 suite
+│   ├── LeanSonic/Proofs/ServingAndPrompt.lean # [Phase 1 Verified Proofs] Inductive SSE completeness & `-p`==`serve` 0-ULP
+│   └── LeanSonic/Emit.lean                 # Verified constant codegen -> Rust & CUDA headers
 ├── kernels/
-│   ├── include/leansonic_verified.cuh    # Auto-generated from Lean 4 proofs
-│   ├── include/sm120_ptx.cuh             # PTX: cp.async.cg, mma.m16n8k16/k32, PDL, 3-op E2M1 LUT
-│   ├── attn_blocklist_tc.cu              # Unified Full + SWA + QSA Multi-Row Tensor Core Split-KV
-│   ├── moe_dual_regime.cu                # Dual-regime SIMT <-> Grouped MMA 0-ULP MoE
-│   └── loop_residual_blend.cu            # Fused RMSNorm + Loop / 4-Branch GR Blend + Planar Q8
+│   ├── include/leansonic_verified.cuh      # Auto-generated from Lean 4 proofs
+│   ├── include/sm120_ptx.cuh               # PTX: cp.async.cg, mma.m16n8k16/k32, PDL, 3-op E2M1 LUT
+│   ├── attn_blocklist_tc.cu                # Unified Full + SWA + QSA Multi-Row Tensor Core Split-KV
+│   ├── moe_dual_regime.cu                  # Dual-regime SIMT <-> Grouped MMA 0-ULP MoE
+│   └── loop_residual_blend.cu              # Fused RMSNorm + Loop / 4-Branch GR Blend + Planar Q8
 ├── crates/
-│   ├── leansonic-core/                   # Bytecode, HybridSlotPool, Planar SoA weights, 0-ULP engine
-│   ├── leansonic-tuner/                  # Layer 2 SM120 discrete cliff pruner & roofline ranker
-│   └── leansonic-cli/                    # `leansonic` CLI (`info`, `schedules`, `verify-parity`, `tune`)
-└── ci/                                   # [Phase 0 Immutable Core] Gates 0, 1, 2 & 4 verification scripts
+│   ├── leansonic-core/                     # Bytecode, HybridSlotPool, Planar SoA, `-p` & OpenAI `serve`
+│   ├── leansonic-tuner/                    # Layer 2 SM120 discrete cliff pruner & roofline ranker
+│   └── leansonic-cli/                      # `leansonic` CLI (`-p`, `serve`, `info`, `schedules`, `verify-parity`, `tune`)
+└── ci/                                     # [Phase 0 Immutable Core] Gates 0, 1, 2 & 4 verification scripts
 ```
 
 ---
@@ -107,14 +108,38 @@ cargo run --release -p leansonic-cli -- info
 # Validate Inkling-2-Mini (24->48 looped) & Qwen3.8-Flash-Next (3:1 GDN+QSA+Engram) schedules
 cargo run --release -p leansonic-cli -- schedules
 
-# Execute Gate 3 (48-visit C=1 SimtReg64 == C=64 GroupedMmaInt8 0-ULP check)
+# Execute Gate 3 (48-visit C=1 == C=64 AND `-p` == `serve` 0-ULP check)
 cargo run --release -p leansonic-cli -- verify-parity
+
+# Single-shot prompt (`-p` / `--prompt`) — streaming stdout or structured `--json`
+cargo run --release -p leansonic-cli -- -p "Explain Looped Transformers on Blackwell" --max-tokens 16
+cargo run --release -p leansonic-cli -- -p "Hello Qwen4 hybrid GDN+QSA" --model qwen3.8-flash-next --max-tokens 12 --json
+
+# Launch zero-dependency OpenAI-compatible HTTP + SSE server (`serve`)
+cargo run --release -p leansonic-cli -- serve --host 127.0.0.1 --port 8080 --model inkling-2-mini
 
 # Run Layer 2 Blackwell RTX PRO 5000 cliff pruning & streaming ceiling estimator
 cargo run --release -p leansonic-cli -- tune
 ```
 
-### 2. Re-Verify Layer 1 Lean 4 Proofs & Regenerate Headers
+### 2. Query the OpenAI-Compatible Server (`GET /v1/models`, `POST /v1/chat/completions`, SSE)
+
+```bash
+# List verified models
+curl -s http://127.0.0.1:8080/v1/models
+
+# Non-streaming Chat Completions (`0-ULP` bit-exact with `leansonic -p`)
+curl -s http://127.0.0.1:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"inkling-2-mini","messages":[{"role":"user","content":"Hello Blackwell"}],"max_tokens":12}'
+
+# Streaming SSE (`text/event-stream`, guarded by Lean-verified `SseProtocolGuard`)
+curl -N http://127.0.0.1:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen3.8-flash-next","messages":[{"role":"user","content":"Stream GDN+QSA"}],"max_tokens":12,"stream":true}'
+```
+
+### 3. Re-Verify Layer 1 Lean 4 Proofs & Regenerate Headers
 
 ```bash
 cd spec

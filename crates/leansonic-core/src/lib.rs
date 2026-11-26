@@ -8,5 +8,6 @@ pub mod bytecode;
 pub mod engine;
 pub mod generated_spec;
 pub mod kernels;
+pub mod serving;
 pub mod state_pool;
 pub mod weights;
