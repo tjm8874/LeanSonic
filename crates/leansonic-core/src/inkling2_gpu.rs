@@ -213,6 +213,7 @@ struct KernelFns {
     rmsnorm_d_quant_q8_16_b: Option<CUfunction>,
     ctrl_apply_coalesced_b: Option<CUfunction>,
     gqa_rel_sink_attn_q8_b: Option<CUfunction>,
+    gqa_rel_sink_attn_q8_decode: Option<CUfunction>,
     gqa_attn_combine_q8: Option<CUfunction>,
     short_conv4_save: Option<CUfunction>,
     short_conv4_save_b: Option<CUfunction>,
@@ -1467,6 +1468,7 @@ impl Inkling2GpuEngine {
             rmsnorm_d_quant_q8_16_b: get_fn("ink2_rmsnorm_d_quant_q8_16_b").ok(),
             ctrl_apply_coalesced_b: get_fn("ink2_ctrl_apply_coalesced_b").ok(),
             gqa_rel_sink_attn_q8_b: get_fn("ink2_gqa_rel_sink_attn_q8_b").ok(),
+            gqa_rel_sink_attn_q8_decode: get_fn("ink2_gqa_rel_sink_attn_q8_decode").ok(),
             gqa_attn_combine_q8: get_fn("ink2_gqa_attn_combine_q8").ok(),
             short_conv4_save: get_fn("ink2_short_conv4_save").ok(),
             short_conv4_save_b: get_fn("ink2_short_conv4_save_b").ok(),
@@ -2179,7 +2181,11 @@ impl Inkling2GpuEngine {
 
         // 7. GQA Relative-Bias + Sink Attention + In-Register `Q8_64` Epilogue!
         if self.attn_split_g == 0 {
-            if let Some(f_attn_q8) = self.fns.gqa_rel_sink_attn_q8_b {
+            if let Some(f_attn_q8) = self
+                .fns
+                .gqa_rel_sink_attn_q8_decode
+                .or(self.fns.gqa_rel_sink_attn_q8_b)
+            {
                 let mut pqrgs = self.d_qrgs.ptr;
                 let mut qstride = SWA_ALL_ROWS as i32;
                 let mut prp = l.rel_proj.ptr;

@@ -4341,7 +4341,8 @@ extern "C" __global__ void ink2_ctrl_apply_coalesced_b(
 
 // Unified `G=0` Attention + In-Register `Q8_64` Epilogue (`Grid: (24, B)`, `Block: 256`):
 // Eliminates `d_attn_out` DRAM writes/reads and `48` `ink2_quant_q8_64` launches per token/step!
-extern "C" __global__ void ink2_gqa_rel_sink_attn_q8_b(
+template<bool PipelineDecode>
+__device__ __forceinline__ void gqa_rel_sink_attn_q8(
     const float* __restrict__ qrgs_base,        // [B, qrgs_stride]
     int32_t qrgs_stride,
     const uint32_t* __restrict__ rel_proj_bf16, // [16, 512]
@@ -4409,11 +4410,7 @@ extern "C" __global__ void ink2_gqa_rel_sink_attn_q8_b(
     float l_w = (warp_id == 0) ? 1.0f : 0.0f;
     float o0 = 0.0f, o1 = 0.0f, o2 = 0.0f, o3 = 0.0f;
 
-    for (int j = first + warp_id; j < n; j += 8) {
-        const int slot_row = is_global ? j : (j % kv_cap);
-        const uint64_t* kp = reinterpret_cast<const uint64_t*>(
-            k_cache_fp16 + static_cast<size_t>(slot_row) * 1024u + kvh * 128);
-        uint64_t kw = kp[lane];
+    auto score = [&](int j, uint64_t kw) {
         float k0 = fp16_bits_to_f32(static_cast<uint16_t>(kw & 0xFFFFu));
         float k1 = fp16_bits_to_f32(static_cast<uint16_t>((kw >> 16) & 0xFFFFu));
         float k2 = fp16_bits_to_f32(static_cast<uint16_t>((kw >> 32) & 0xFFFFu));
@@ -4424,20 +4421,62 @@ extern "C" __global__ void ink2_gqa_rel_sink_attn_q8_b(
         if (d < kExtent) {
             dot += smem_rel[d];
         }
-
+        return dot;
+    };
+    auto advance_softmax = [&](float dot, float& alpha, float& p) {
         float m_new = (dot > m_w) ? dot : m_w;
-        float alpha = ptx_exp(m_w - m_new);
-        float p = ptx_exp(dot - m_new);
+        alpha = ptx_exp(m_w - m_new);
+        p = ptx_exp(dot - m_new);
         l_w = l_w * alpha + p;
         m_w = m_new;
-
-        const uint64_t* vp = reinterpret_cast<const uint64_t*>(
-            v_cache_fp16 + static_cast<size_t>(slot_row) * 1024u + kvh * 128);
-        uint64_t vw = vp[lane];
+    };
+    auto add_value = [&](uint64_t vw, float alpha, float p) {
         o0 = o0 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>(vw & 0xFFFFu));
         o1 = o1 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>((vw >> 16) & 0xFFFFu));
         o2 = o2 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>((vw >> 32) & 0xFFFFu));
         o3 = o3 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>((vw >> 48) & 0xFFFFu));
+    };
+    int j = first + warp_id;
+    if constexpr (PipelineDecode) {
+        // Only 24 CTAs serve one token. Issue independent K/V loads and
+        // dot products ahead of the sequential online-softmax recurrence.
+        constexpr int steps = 8;
+        for (; j + (steps - 1) * 8 < n; j += steps * 8) {
+            uint64_t keys[steps], values[steps];
+            float scores[steps];
+            #pragma unroll
+            for (int i = 0; i < steps; ++i) {
+                const int position = j + i * 8;
+                const int row = is_global ? position : position % kv_cap;
+                const size_t index = static_cast<size_t>(row) * 1024 + kvh * kHd + lane * 4;
+                keys[i] = *reinterpret_cast<const uint64_t*>(k_cache_fp16 + index);
+                values[i] = *reinterpret_cast<const uint64_t*>(v_cache_fp16 + index);
+            }
+            #pragma unroll
+            for (int i = 0; i < steps; ++i) {
+                scores[i] = score(j + i * 8, keys[i]);
+            }
+            #pragma unroll
+            for (int i = 0; i < steps; ++i) {
+                float alpha, p;
+                advance_softmax(scores[i], alpha, p);
+                add_value(values[i], alpha, p);
+            }
+        }
+    }
+    for (; j < n; j += 8) {
+        const int slot_row = is_global ? j : (j % kv_cap);
+        const uint64_t* kp = reinterpret_cast<const uint64_t*>(
+            k_cache_fp16 + static_cast<size_t>(slot_row) * 1024u + kvh * 128);
+        uint64_t kw = kp[lane];
+        const float dot = score(j, kw);
+        float alpha, p;
+        advance_softmax(dot, alpha, p);
+
+        const uint64_t* vp = reinterpret_cast<const uint64_t*>(
+            v_cache_fp16 + static_cast<size_t>(slot_row) * 1024u + kvh * 128);
+        uint64_t vw = vp[lane];
+        add_value(vw, alpha, p);
     }
 
     if (lane == 0) {
@@ -4469,6 +4508,24 @@ extern "C" __global__ void ink2_gqa_rel_sink_attn_q8_b(
         out_val = (sum_d * ptx_rcp(fmaxf(denom, 1e-20f))) * g;
     }
     quant_head128_epilogue_q8_64(tid, h, b, out_val, smem_qmax, smem_qinv, out_q8_u32, out_sc64);
+}
+
+extern "C" __global__ void ink2_gqa_rel_sink_attn_q8_b(
+    const float* __restrict__ qrgs_base, int32_t qrgs_stride, const uint32_t* __restrict__ rel_proj_bf16,
+    const uint16_t* __restrict__ k_cache_fp16, const uint16_t* __restrict__ v_cache_fp16,
+    const int32_t* __restrict__ pos_ptr, int32_t kv_cap, int32_t is_global,
+    uint32_t* __restrict__ out_q8_u32, float* __restrict__ out_sc64) {
+    gqa_rel_sink_attn_q8<false>(qrgs_base, qrgs_stride, rel_proj_bf16,
+        k_cache_fp16, v_cache_fp16, pos_ptr, kv_cap, is_global, out_q8_u32, out_sc64);
+}
+
+extern "C" __global__ void ink2_gqa_rel_sink_attn_q8_decode(
+    const float* __restrict__ qrgs_base, int32_t qrgs_stride, const uint32_t* __restrict__ rel_proj_bf16,
+    const uint16_t* __restrict__ k_cache_fp16, const uint16_t* __restrict__ v_cache_fp16,
+    const int32_t* __restrict__ pos_ptr, int32_t kv_cap, int32_t is_global,
+    uint32_t* __restrict__ out_q8_u32, float* __restrict__ out_sc64) {
+    gqa_rel_sink_attn_q8<true>(qrgs_base, qrgs_stride, rel_proj_bf16,
+        k_cache_fp16, v_cache_fp16, pos_ptr, kv_cap, is_global, out_q8_u32, out_sc64);
 }
 
 // Split-KV Combine + In-Register `Q8_64` Epilogue (`Grid: (24, B)`, `Block: 128`):
