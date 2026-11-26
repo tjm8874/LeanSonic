@@ -394,6 +394,12 @@ pub struct Inkling2GpuEngine {
     d_attn_out: DeviceBuf,
     /// Split-KV GQA attention (`LEANSONIC_ATTN_SPLIT=G`, `0` = legacy 24-CTA kernel).
     attn_split_g: usize,
+    /// Split count for decode / DSpark verify rows (`b_len <= MAX_SPEC_TOKENS`,
+    /// `LEANSONIC_ATTN_SPLIT_DECODE`, defaults to `attn_split_g`). Decode and verify always share
+    /// it, so `--spec 0` and `--spec K` stay token-identical; prefill chunks keep `attn_split_g`.
+    attn_split_g_decode: usize,
+    d_dec_part_ml: DeviceBuf,
+    d_dec_part_o: DeviceBuf,
     d_wo_out: DeviceBuf,
     d_mlp_h: DeviceBuf,
     d_router_logits: DeviceBuf,
@@ -591,6 +597,18 @@ impl Inkling2GpuEngine {
             .and_then(|v| v.parse::<usize>().ok())
             .unwrap_or(0)
             .min(64);
+        // Long contexts want more splits for the single decode row than prefill chunks do
+        // (prefill already has `b_len` rows of parallelism).
+        let attn_split_g_decode = if attn_split_g > 0 {
+            std::env::var("LEANSONIC_ATTN_SPLIT_DECODE")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .filter(|&g| g > 0)
+                .unwrap_or(attn_split_g)
+                .min(64)
+        } else {
+            0
+        };
         let use_moe_dp4a = std::env::var("LEANSONIC_MOE_DP4A")
             .map(|v| v != "0")
             .unwrap_or(true);
@@ -1199,6 +1217,15 @@ impl Inkling2GpuEngine {
             d_v_conv: DeviceBuf::alloc_zeroed(&ctx, 1024 * 4)?,
             d_attn_out: DeviceBuf::alloc_zeroed(&ctx, 3072 * 4)?,
             attn_split_g,
+            attn_split_g_decode,
+            d_dec_part_ml: DeviceBuf::alloc_zeroed(
+                &ctx,
+                (MAX_SPEC_TOKENS * N_HEAD * attn_split_g_decode * 2 * 4).max(4),
+            )?,
+            d_dec_part_o: DeviceBuf::alloc_zeroed(
+                &ctx,
+                (MAX_SPEC_TOKENS * N_HEAD * attn_split_g_decode * HD * 4).max(4),
+            )?,
             d_wo_out: DeviceBuf::alloc_zeroed(&ctx, D * 4)?,
             d_mlp_h: DeviceBuf::alloc_zeroed(&ctx, D * 4)?,
             d_router_logits: DeviceBuf::alloc_zeroed(&ctx, N_EXP * 4)?,
@@ -1834,8 +1861,21 @@ impl Inkling2GpuEngine {
         let mut ppos = self.d_pos.ptr;
         let mut cap = kv_cap;
         let mut ig = is_global;
-        let mut pml = self.prefill.d_attn_part_ml.ptr;
-        let mut po = self.prefill.d_attn_part_o.ptr;
+        // Decode / verify rows may use their own split count (see `attn_split_g_decode`).
+        let decode_rows = b_len <= MAX_SPEC_TOKENS && self.attn_split_g_decode != self.attn_split_g;
+        let g_split = if decode_rows {
+            self.attn_split_g_decode
+        } else {
+            self.attn_split_g
+        };
+        let (mut pml, mut po) = if decode_rows {
+            (self.d_dec_part_ml.ptr, self.d_dec_part_o.ptr)
+        } else {
+            (
+                self.prefill.d_attn_part_ml.ptr,
+                self.prefill.d_attn_part_o.ptr,
+            )
+        };
         let mut split_args: [*mut c_void; 12] = [
             (&mut pqrgs as *mut _) as *mut c_void,
             (&mut qstride as *mut _) as *mut c_void,
@@ -1850,7 +1890,7 @@ impl Inkling2GpuEngine {
             (&mut pml as *mut _) as *mut c_void,
             (&mut po as *mut _) as *mut c_void,
         ];
-        let g_u32 = self.attn_split_g as u32;
+        let g_u32 = g_split as u32;
         self.launch(
             stream,
             if pks != 0 {
@@ -1864,7 +1904,7 @@ impl Inkling2GpuEngine {
             256,
             &mut split_args,
         )?;
-        let mut gi = self.attn_split_g as i32;
+        let mut gi = g_split as i32;
         if let Some(f_comb_q8) = self.fns.gqa_attn_combine_q8 {
             let mut pq8 = out_q8_ptr;
             let mut psc = out_sc64_ptr;
