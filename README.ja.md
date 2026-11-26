@@ -113,6 +113,8 @@ mkdir "$dst" && python3 tools/pack_inkling_text.py "$src/$shard" "$dst/$shard" &
 
 作成したディレクトリを `--weights` に指定します。DSpark を使う場合は、公式モデルの `mtp.safetensors` も同じディレクトリにコピーしてください。画像入力には元のチェックポイントが必要です。
 
+公式モデルでは、変換コマンドに `--prepack-head` を加えると、さらに436,576,496バイト小さくなります。このオプションはCargoを使い、通常は起動時に計算する出力層のQ8重みとFP32スケールをCPUで事前に保存します。読み込みにはこの形式に対応したLeanSonicが必要です。他のエンジンで使う場合や量子化をやり直す場合に備えて、元のBF16重みも保管してください。
+
 ### 2. OpenAI API 互換エンドポイントの呼び出し（`/v1/models`, `/v1/chat/completions`, SSE）
 
 Lean 4（`ServingAndPrompt.lean`）で帰納法により完全性を証明した SSE 状態機械（`SseProtocolGuard`）と、`2048`-token チャンク Prefill 分離則により、`leansonic -p` と複数スロット同時稼働時の `serve` が **`0-ULP` で完全一致**します。
