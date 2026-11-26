@@ -30,6 +30,16 @@ def attention_matrices():
     return matrices
 
 
+def expert_scale_tensors():
+    tensors = {}
+    for layer in range(24):
+        group, dtype = (16, "F8_E4M3") if layer < 20 else (32, "U8")
+        prefix = f"model.llm.layers.{layer}.mlp.experts."
+        tensors[prefix + "w13_weight_scale"] = (dtype, [128, 2304, 2304 // group])
+        tensors[prefix + "w2_weight_scale"] = (dtype, [128, 2304, 1152 // group])
+    return tensors
+
+
 def build_packer():
     manifest = Path(__file__).resolve().parents[1] / "Cargo.toml"
     build = subprocess.run([
@@ -43,7 +53,8 @@ def build_packer():
     raise ValueError("Cargo did not report the Inkling packer executable")
 
 
-def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack_attention: bool = False) -> tuple[int, int]:
+def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack_attention: bool = False,
+         prepack_scales: bool = False) -> tuple[int, int]:
     """Publish a complete shard atomically without replacing an existing file."""
     if destination.exists():
         raise FileExistsError(f"destination exists: {destination}")
@@ -80,6 +91,11 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
             if prefix + "codes" in header or prefix + "scales" in header:
                 raise ValueError(f"input contains conflicting native tensors for {name}")
 
+        scales = expert_scale_tensors() if prepack_scales else {}
+        for name in scales:
+            if name not in header or name + ".range_v1" in header:
+                raise ValueError(f"missing or conflicting source expert scales for {name}")
+        packer = build_packer() if matrices or scales else None
         output_header = {}
         metadata = header.pop("__metadata__", None)
         if metadata is not None:
@@ -115,8 +131,26 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
                         "dtype": dtype, "shape": dims, "data_offsets": [new_end, new_end + size]
                     }
                     new_end += size
-                spans.append((start, end, (rows, cols)))
+                spans.append((start, end, ([str(rows), str(cols)], rows * cols + rows * (cols // 64) * 4)))
                 continue
+            if name in scales:
+                expected_dtype, expected_shape = scales[name]
+                if info["dtype"] != expected_dtype or shape != expected_shape:
+                    raise ValueError(f"unexpected dimensions or dtype for {name}")
+                src.seek(8 + header_len + start)
+                length = str(end - start)
+                result = subprocess.run([packer, "scale-size", length], stdin=src,
+                                        stdout=subprocess.PIPE, text=True, check=True)
+                size = int(result.stdout)
+                if size <= 0 or size % 8:
+                    raise ValueError(f"invalid packed scale length for {name}")
+                if size < end - start:
+                    output_header[name + ".range_v1"] = {
+                        "dtype": "U8", "shape": [size], "data_offsets": [new_end, new_end + size]
+                    }
+                    spans.append((start, end, (["scale-pack", length], size)))
+                    new_end += size
+                    continue
             output_header[name] = {**info, "data_offsets": [new_end, new_end + end - start]}
             new_end += end - start
             if spans and spans[-1][2] is None and spans[-1][1] == start:
@@ -125,24 +159,23 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
                 spans.append((start, end, None))
         if old_end != total - 8 - header_len:
             raise ValueError("unexpected trailing payload bytes")
-        if not removed and not matrices:
+        if not removed and not matrices and not scales:
             raise ValueError("expected an Inkling shard with vision tensors")
         encoded = json.dumps(output_header, separators=(",", ":"), ensure_ascii=False).encode()
         encoded += b" " * (-len(encoded) % 8)
 
-        packer = build_packer() if matrices else None
         with tempfile.NamedTemporaryFile(dir=destination.parent, prefix=".inkling-") as dst:
             dst.write(struct.pack("<Q", len(encoded)))
             dst.write(encoded)
-            for start, end, dimensions in spans:
+            for start, end, transform in spans:
                 src.seek(8 + header_len + start)
-                if dimensions is not None:
-                    rows, cols = dimensions
+                if transform is not None:
+                    arguments, expected_size = transform
                     dst.flush()
                     offset = dst.tell()
-                    subprocess.run([packer, str(rows), str(cols)], check=True, stdin=src, stdout=dst)
-                    if dst.tell() - offset != rows * cols + rows * (cols // 64) * 4:
-                        raise ValueError("unexpected native projection payload length")
+                    subprocess.run([packer, *arguments], check=True, stdin=src, stdout=dst)
+                    if dst.tell() - offset != expected_size:
+                        raise ValueError("unexpected native tensor payload length")
                     continue
                 remaining = end - start
                 while remaining:
@@ -163,9 +196,11 @@ def main() -> None:
     parser.add_argument("destination", type=Path, help="new text-only safetensors shard")
     parser.add_argument("--prepack-head", action="store_true", help="store LeanSonic native output-head weights (requires Cargo)")
     parser.add_argument("--prepack-attention", action="store_true", help="store native Q8_64 attention projections (requires Cargo)")
+    parser.add_argument("--prepack-scales", action="store_true", help="store lossless packed MoE expert scales (requires Cargo)")
     args = parser.parse_args()
     try:
-        removed, saved = pack(args.source, args.destination, prepack_head=args.prepack_head, prepack_attention=args.prepack_attention)
+        removed, saved = pack(args.source, args.destination, prepack_head=args.prepack_head, prepack_attention=args.prepack_attention,
+                              prepack_scales=args.prepack_scales)
     except (OSError, ValueError, TypeError, KeyError, subprocess.CalledProcessError) as exc:
         parser.exit(1, f"pack failed: {exc}\n")
     print(f"Omitted {removed} vision tensors. Saved {saved:,} bytes.")
