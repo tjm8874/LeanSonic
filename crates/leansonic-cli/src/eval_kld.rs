@@ -52,8 +52,10 @@ impl Reference {
         let mut buf = vec![0; self.ctx * 4];
         self.tokens.read_exact(&mut buf)?;
         let tokens: Vec<_> = buf
-            .chunks_exact(4)
-            .map(|v| u32::from_le_bytes(v.try_into().unwrap()))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|&bytes| u32::from_le_bytes(bytes))
             .collect();
         if tokens.iter().any(|&id| id as usize >= VOCAB) {
             return Err("reference token outside the model vocabulary".into());
