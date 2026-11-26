@@ -148,6 +148,8 @@ Pass the new directory to `--weights`. To use the DSpark drafter, also copy `mtp
 
 Add `--prepack-head` to the packing command to save another 436,576,496 bytes with the official checkpoint. The packer uses Cargo on the CPU to store the vocabulary projection as the same Q8 codes and FP32 scales the Inkling GPU loader normally computes at startup. This package requires a LeanSonic version that supports the native output head. Keep the original BF16 weights for other engines or future quantization experiments.
 
+To prepack the 176 attention projections as well, run the same command with `--prepack-head --prepack-attention`. The official text shard then occupies 17,847,272,800 bytes. If the head is already packed, pass that shard as the source and use `--prepack-attention` alone. Both options require Cargo while building the package.
+
 ### 2. Query the OpenAI-Compatible Server (`GET /v1/models`, `POST /v1/chat/completions`, SSE)
 
 ```bash
