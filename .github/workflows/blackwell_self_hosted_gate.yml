@@ -1,0 +1,38 @@
+name: "Gate 4: Ephemeral Blackwell SM120 SASS & ABBA Benchmark"
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  blackwell-sm120-gate:
+    name: "Blackwell SM120 Cubin SASS & Interleaved ABBA Gate"
+    # SECURITY BOUNDARY:
+    # 1. NEVER execute on external fork PRs (`head.repo.full_name == github.repository`).
+    # 2. Only activate when repository variable `ENABLE_BLACKWELL_RUNNER == 'true'` is set.
+    if: >-
+      vars.ENABLE_BLACKWELL_RUNNER == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, linux, blackwell, sm120]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Compile Blackwell `sm_120a` cubins & enforce 0-spill / 0-CALL SASS gate
+        run: |
+          mkdir -p build_cubin
+          for cu in kernels/*.cu; do
+            base=$(basename "$cu" .cu)
+            nvcc -std=c++17 -O3 -arch=sm_120a -Xptxas="-v,-Werror" -cubin "$cu" -I. -o "build_cubin/${base}.cubin"
+            python3 ci/audit_sass.py --cubin "build_cubin/${base}.cubin"
+          done
+
+      - name: Run 0-ULP Parity & ABBA Statistical Gate
+        run: |
+          cargo run --release -p leansonic-cli -- verify-parity
+          python3 ci/abba_stat_gate.py --self-test

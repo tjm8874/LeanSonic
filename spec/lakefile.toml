@@ -1,0 +1,10 @@
+name = "leansonic-spec"
+version = "0.1.0"
+defaultTargets = ["LeanSonic", "leansonic-gen"]
+
+[[lean_lib]]
+name = "LeanSonic"
+
+[[lean_exe]]
+name = "leansonic-gen"
+root = "LeanSonic.Emit"

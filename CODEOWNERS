@@ -1,0 +1,18 @@
+# ============================================================================
+# LeanSonic Immutable Trust Core (Phase 0 Security Boundary)
+# ============================================================================
+# Autonomous coding agents may ONLY modify mutable implementation & proof files:
+#   - crates/**
+#   - kernels/**
+#   - spec/LeanSonic/Proofs/**
+#   - spec/LeanSonic/Emit.lean
+#
+# Any modification to the Formal Specification Core, CI Gates, Workflows, or
+# Golden Baselines below MUST be rejected by Gate 0 (`ci/check_immutable_core.py`)
+# for autonomous PRs and requires explicit human owner approval.
+
+/CODEOWNERS                        @tjm8874
+/spec/LeanSonic/Axioms.lean        @tjm8874
+/ci/                               @tjm8874
+/.github/                          @tjm8874
+/benches/goldens/                  @tjm8874

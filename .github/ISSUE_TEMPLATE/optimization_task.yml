@@ -1,0 +1,53 @@
+name: Autonomous Optimization Task
+description: Structured optimization or kernel synthesis task for the zero-human-review pipeline
+title: "[OPT] "
+labels: ["autonomous-opt"]
+body:
+  - type: dropdown
+    id: target_model
+    attributes:
+      label: Target Architecture Family
+      options:
+        - Inkling-2-Mini (24L -> 48-Visit Looped MoE)
+        - Qwen3.8-Flash-Next (3:1 GDN + QSA + 4-Branch GR + Engram)
+        - Inkling-2-Mid (Forward Scaling)
+        - Qwen4 (Forward Scaling)
+    validations:
+      required: true
+  - type: dropdown
+    id: target_component
+    attributes:
+      label: Mutable Component Scope
+      options:
+        - kernels/attn_blocklist_tc.cu
+        - kernels/moe_dual_regime.cu
+        - kernels/loop_residual_blend.cu
+        - crates/leansonic-core
+        - crates/leansonic-tuner
+        - spec/LeanSonic/Proofs
+    validations:
+      required: true
+  - type: dropdown
+    id: numerical_contract
+    attributes:
+      label: Gate 3 Numerical Contract
+      options:
+        - "0-ULP Bitwise Identical (C=1 == C=64 BATCH IDENTICAL)"
+        - "Quantization / Approx Change (100-chunk Mean KLD <= 0.003, Max KLD <= 0.05)"
+    validations:
+      required: true
+  - type: input
+    id: min_speedup_pct
+    attributes:
+      label: Minimum Gate 4 Interleaved ABBA Speedup (%)
+      placeholder: "1.5"
+      value: "1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: hypothesis
+    attributes:
+      label: Bottleneck & Mechanism Hypothesis
+      description: Cite Nsight Systems / SASS / Roofline bottleneck metrics only (free-form commands are stripped by Triage sanitization).
+    validations:
+      required: true

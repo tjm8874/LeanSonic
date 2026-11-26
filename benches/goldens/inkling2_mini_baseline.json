@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "phase": "Phase 1 — Inkling-2-Mini & Qwen3.8-Flash-Next Core Foundation",
+  "primary_sku": {
+    "gpu": "NVIDIA RTX PRO 5000 72GB GDDR7",
+    "arch": "sm_120",
+    "sm_count": 110,
+    "power_cap_watts": 300,
+    "sustained_streaming_dram_gbps": 1344.0
+  },
+  "numerical_gates": {
+    "refactor_and_fusion_max_ulp": 0,
+    "c1_vs_c64_batch_identical_ulp": 0,
+    "quant_change_100_chunk_mean_kld_max": 0.003,
+    "quant_change_100_chunk_max_kld_max": 0.05
+  },
+  "reference_targets": {
+    "inkling2_mini_16k_prefill_tok_s": 14121.0,
+    "inkling2_mini_128k_spec1_ms_per_win": 8.59,
+    "inkling2_mini_128k_spec8_tok_s": 178.4,
+    "inkling2_mini_c64_decode_tok_s": 1343.0
+  }
+}

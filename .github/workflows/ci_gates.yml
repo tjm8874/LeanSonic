@@ -1,0 +1,78 @@
+name: "Gates 0-3: Formal Lean 4, SASS Audit & Rust 0-ULP Parity"
+
+on:
+  push:
+    branches: ["main"]
+    tags: ["v*"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  formal-and-runtime-gates:
+    name: "Lean 4 Proofs + Immutable Guard + Rust 0-ULP Gate"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: "Gate 0: Immutable Trust Core Self-Test & PR Scope Check"
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          python3 ci/check_immutable_core.py --self-test
+          if [ -n "$PR_BASE" ] && [ -n "$PR_HEAD" ]; then
+            if echo "$PR_LABELS" | grep -q '"human-core-override"'; then
+              python3 ci/check_immutable_core.py --base "$PR_BASE" --head "$PR_HEAD" --human-override
+            else
+              python3 ci/check_immutable_core.py --base "$PR_BASE" --head "$PR_HEAD"
+            fi
+          fi
+
+      - name: Cache Lean 4 elan toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.elan
+          key: elan-${{ runner.os }}-${{ hashFiles('spec/lean-toolchain') }}
+
+      - name: Install Lean 4 toolchain via elan
+        run: |
+          if [ ! -x "$HOME/.elan/bin/lake" ]; then
+            curl https://elan.lean-lang.org/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
+          fi
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: "Gate 1: Build Lean 4 Proofs, Audit Kernel Axioms & Verify Header Sync"
+        run: |
+          cd spec
+          lake build
+          lake exe leansonic-gen ..
+          cd ..
+          python3 ci/check_lean_axioms.py
+          git diff --exit-code crates/leansonic-core/src/generated_spec.rs kernels/include/leansonic_verified.cuh
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: "Gate 2: CUDA/PTX Static Audit & Rust Clippy (-D warnings)"
+        run: |
+          python3 ci/audit_sass.py --self-test
+          python3 ci/abba_stat_gate.py --self-test
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: "Gate 3: Workspace Tests & 48-Visit C=1 == C=64 0-ULP Parity Gate"
+        run: |
+          cargo test --workspace
+          cargo run --release -p leansonic-cli -- info
+          cargo run --release -p leansonic-cli -- schedules
+          cargo run --release -p leansonic-cli -- verify-parity
+          cargo run --release -p leansonic-cli -- tune

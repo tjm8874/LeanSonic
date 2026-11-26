@@ -1,0 +1,86 @@
+name: "Gate 5: Autonomous Issue Triage, Auto-Merge & Release"
+
+on:
+  issues:
+    types: [labeled]
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Optional SemVer tag to cut (e.g. v0.1.1)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  sanitize-optimization-issue:
+    name: "Untrusted Issue -> Strict Structured Spec Artifact"
+    if: github.event_name == 'issues' && github.event.label.name == 'autonomous-opt'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sanitize Issue into restricted schema (Prompt-Injection Strip)
+        env:
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          body = os.environ.get("ISSUE_BODY", "")
+          allowed_targets = {
+              "kernels/attn_blocklist_tc.cu",
+              "kernels/moe_dual_regime.cu",
+              "kernels/loop_residual_blend.cu",
+              "crates/leansonic-core",
+              "crates/leansonic-tuner",
+              "spec/LeanSonic/Proofs",
+          }
+          found_target = next((t for t in allowed_targets if t in body), "crates/leansonic-core")
+          m = re.search(r"\b(\d+(?:\.\d+)?)\b", body)
+          min_gain = float(m.group(1)) if m else 1.0
+          spec = {
+              "issue": int(os.environ["ISSUE_NUM"]),
+              "mutable_target": found_target,
+              "min_abba_speedup_pct": min(max(min_gain, 0.0), 50.0),
+              "immutable_core_locked": True,
+          }
+          with open("sanitized_task.json", "w", encoding="utf-8") as f:
+              json.dump(spec, f, indent=2)
+          print(json.dumps(spec, indent=2))
+          PY
+
+      - name: Upload sanitized task manifest for isolated Coding Agent
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanitized-opt-task-${{ github.event.issue.number }}
+          path: sanitized_task.json
+
+  automated-release:
+    name: "Build Verified Release Binary & Publish GitHub Release"
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build & verify release binary
+        run: |
+          cargo test --workspace --release
+          cargo build --release -p leansonic-cli
+          ./target/release/leansonic verify-parity
+          tar -czf leansonic-linux-x86_64.tar.gz -C target/release leansonic
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" leansonic-linux-x86_64.tar.gz \
+            --generate-notes \
+            --title "LeanSonic ${GITHUB_REF_NAME}"

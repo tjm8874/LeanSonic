@@ -1,0 +1,19 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Lean 4 / Lake
+/spec/.lake/
+
+# CUDA / C++ artifacts
+*.cubin
+*.fatbin
+*.ptx
+*.o
+*.so
+*.dylib
+
+# OS / Editor
+.DS_Store
+__pycache__/
+*.pyc
