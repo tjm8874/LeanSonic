@@ -978,6 +978,7 @@ extern "C" __global__ void ink2_moe_nvfp4_down(
 // 11. Unit-Stride `512B` Coalesced MXFP8 (`layers 20..23`) MoE (`<= 42` regs!)
 //     `Grid (288, 8)` & `Grid 288` (`100%` SM120 occupancy across all SMs + `512B` PCIe burst!)
 // ----------------------------------------------------------------------------
+template <int Stride = 1>
 __device__ __forceinline__ float dot_mxfp8_u128_exact(uint4 p, const float4* __restrict__ x4_sub) {
     float sub = 0.0f;
     float4 xv0 = x4_sub[0];
@@ -985,17 +986,17 @@ __device__ __forceinline__ float dot_mxfp8_u128_exact(uint4 p, const float4* __r
     sub = __fmaf_rn(e4m3_byte_to_f32((p.x >> 8) & 0xFFu), xv0.y, sub);
     sub = __fmaf_rn(e4m3_byte_to_f32((p.x >> 16) & 0xFFu), xv0.z, sub);
     sub = __fmaf_rn(e4m3_byte_to_f32((p.x >> 24) & 0xFFu), xv0.w, sub);
-    float4 xv1 = x4_sub[1];
+    float4 xv1 = x4_sub[Stride];
     sub = __fmaf_rn(e4m3_byte_to_f32(p.y & 0xFFu), xv1.x, sub);
     sub = __fmaf_rn(e4m3_byte_to_f32((p.y >> 8) & 0xFFu), xv1.y, sub);
     sub = __fmaf_rn(e4m3_byte_to_f32((p.y >> 16) & 0xFFu), xv1.z, sub);
     sub = __fmaf_rn(e4m3_byte_to_f32((p.y >> 24) & 0xFFu), xv1.w, sub);
-    float4 xv2 = x4_sub[2];
+    float4 xv2 = x4_sub[2 * Stride];
     sub = __fmaf_rn(e4m3_byte_to_f32(p.z & 0xFFu), xv2.x, sub);
     sub = __fmaf_rn(e4m3_byte_to_f32((p.z >> 8) & 0xFFu), xv2.y, sub);
     sub = __fmaf_rn(e4m3_byte_to_f32((p.z >> 16) & 0xFFu), xv2.z, sub);
     sub = __fmaf_rn(e4m3_byte_to_f32((p.z >> 24) & 0xFFu), xv2.w, sub);
-    float4 xv3 = x4_sub[3];
+    float4 xv3 = x4_sub[3 * Stride];
     sub = __fmaf_rn(e4m3_byte_to_f32(p.w & 0xFFu), xv3.x, sub);
     sub = __fmaf_rn(e4m3_byte_to_f32((p.w >> 8) & 0xFFu), xv3.y, sub);
     sub = __fmaf_rn(e4m3_byte_to_f32((p.w >> 16) & 0xFFu), xv3.z, sub);
@@ -2640,6 +2641,8 @@ extern "C" __global__ void ink2_moe_mxfp8_grouped_up_situ(
     const int cnt = exp_counts[ex];
     if (cnt == 0) return;
 
+    // Stage four float4 planes so adjacent warp lanes read adjacent 16-byte vectors.
+    constexpr int kPlaneStride = 144;
     __shared__ float4 smem_x4[4][576];     // 36,864 B
     __shared__ float smem_gu[4][8];
     __shared__ int32_t smem_pairs[4];
@@ -2660,7 +2663,7 @@ extern "C" __global__ void ink2_moe_mxfp8_grouped_up_situ(
             const int tok = exp_toks[ex * 64 + t_base + t];
             const float4* src = x4_base + static_cast<size_t>(tok) * 576u;
             for (int i = tid; i < 576; i += 256) {
-                smem_x4[t][i] = src[i];
+                smem_x4[t][(i & 3) * kPlaneStride + (i >> 2)] = src[i];
             }
         }
         __syncthreads();
@@ -2676,11 +2679,10 @@ extern "C" __global__ void ink2_moe_mxfp8_grouped_up_situ(
             for (int u16 = lane; u16 < 144; u16 += 32) {
                 const uint4 p = r_u128[u16];
                 const float es = load_e8m0_scale(r_sc, u16);
-                const int c4 = u16 * 4;
-                if (tile_t > 0) a0 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_x4[0] + c4), es, a0);
-                if (tile_t > 1) a1 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_x4[1] + c4), es, a1);
-                if (tile_t > 2) a2 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_x4[2] + c4), es, a2);
-                if (tile_t > 3) a3 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_x4[3] + c4), es, a3);
+                if (tile_t > 0) a0 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_x4[0] + u16), es, a0);
+                if (tile_t > 1) a1 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_x4[1] + u16), es, a1);
+                if (tile_t > 2) a2 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_x4[2] + u16), es, a2);
+                if (tile_t > 3) a3 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_x4[3] + u16), es, a3);
             }
             a0 = warp_sum(a0); a1 = warp_sum(a1); a2 = warp_sum(a2); a3 = warp_sum(a3);
 
@@ -2714,6 +2716,8 @@ extern "C" __global__ void ink2_moe_mxfp8_grouped_down(
     const int cnt = exp_counts[ex];
     if (cnt == 0) return;
 
+    // Stage four float4 planes so adjacent warp lanes read adjacent 16-byte vectors.
+    constexpr int kPlaneStride = 72;
     __shared__ float4 smem_a4[8][288];     // 36,864 B
     __shared__ int32_t smem_pairs[8];
 
@@ -2732,7 +2736,7 @@ extern "C" __global__ void ink2_moe_mxfp8_grouped_down(
             const int pair_idx = exp_pairs[ex * 64 + t_base + t];
             const float4* src = act4_base + static_cast<size_t>(pair_idx) * 288u;
             for (int i = tid; i < 288; i += 256) {
-                smem_a4[t][i] = src[i];
+                smem_a4[t][(i & 3) * kPlaneStride + (i >> 2)] = src[i];
             }
         }
         __syncthreads();
@@ -2750,15 +2754,14 @@ extern "C" __global__ void ink2_moe_mxfp8_grouped_down(
             for (int u16 = lane; u16 < 72; u16 += 32) {
                 const uint4 p = r_u128[u16];
                 const float es = load_e8m0_scale(r_sc, u16);
-                const int c4 = u16 * 4;
-                if (tile_t > 0) a0 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_a4[0] + c4), es, a0);
-                if (tile_t > 1) a1 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_a4[1] + c4), es, a1);
-                if (tile_t > 2) a2 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_a4[2] + c4), es, a2);
-                if (tile_t > 3) a3 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_a4[3] + c4), es, a3);
-                if (tile_t > 4) a4 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_a4[4] + c4), es, a4);
-                if (tile_t > 5) a5 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_a4[5] + c4), es, a5);
-                if (tile_t > 6) a6 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_a4[6] + c4), es, a6);
-                if (tile_t > 7) a7 = __fmaf_rn(dot_mxfp8_u128_exact(p, smem_a4[7] + c4), es, a7);
+                if (tile_t > 0) a0 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_a4[0] + u16), es, a0);
+                if (tile_t > 1) a1 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_a4[1] + u16), es, a1);
+                if (tile_t > 2) a2 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_a4[2] + u16), es, a2);
+                if (tile_t > 3) a3 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_a4[3] + u16), es, a3);
+                if (tile_t > 4) a4 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_a4[4] + u16), es, a4);
+                if (tile_t > 5) a5 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_a4[5] + u16), es, a5);
+                if (tile_t > 6) a6 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_a4[6] + u16), es, a6);
+                if (tile_t > 7) a7 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_a4[7] + u16), es, a7);
             }
             a0 = warp_sum(a0); a1 = warp_sum(a1); a2 = warp_sum(a2); a3 = warp_sum(a3);
             a4 = warp_sum(a4); a5 = warp_sum(a5); a6 = warp_sum(a6); a7 = warp_sum(a7);
