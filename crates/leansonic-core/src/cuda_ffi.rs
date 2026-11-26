@@ -36,22 +36,51 @@ unsafe extern "C" {
 }
 
 const RTLD_NOW: c_int = 2;
+#[cfg(target_os = "linux")]
+const RTLD_GLOBAL: c_int = 0x100;
+#[cfg(all(unix, not(target_os = "linux")))]
+const RTLD_GLOBAL: c_int = 0x8;
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct CUuuid {
+    pub bytes: [u8; 16],
+}
+
+fn format_cuda_uuid(u: &CUuuid) -> String {
+    let b = &u.bytes;
+    format!(
+        "GPU-{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+        b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]
+    )
+}
 
 #[cfg(unix)]
-unsafe fn open_first_lib(candidates: &[&str]) -> Result<*mut c_void, String> {
+unsafe fn open_first_lib_with_path<'a>(
+    candidates: &[&'a str],
+) -> Result<(*mut c_void, &'a str), String> {
     for &path in candidates {
-        let cstr = CString::new(path).unwrap();
+        let Ok(cstr) = CString::new(path) else {
+            continue;
+        };
         let h = unsafe { dlopen(cstr.as_ptr(), RTLD_NOW) };
         if !h.is_null() {
-            return Ok(h);
+            return Ok((h, path));
         }
     }
     Err(format!("unable to dlopen any of {candidates:?}"))
 }
 
 #[cfg(not(unix))]
-unsafe fn open_first_lib(_candidates: &[&str]) -> Result<*mut c_void, String> {
+unsafe fn open_first_lib_with_path<'a>(
+    _candidates: &[&'a str],
+) -> Result<(*mut c_void, &'a str), String> {
     Err("dynamic CUDA FFI is only supported on Unix/Linux hosts".into())
+}
+
+unsafe fn open_first_lib(candidates: &[&str]) -> Result<*mut c_void, String> {
+    unsafe { open_first_lib_with_path(candidates).map(|(h, _)| h) }
 }
 
 #[cfg(unix)]
@@ -73,6 +102,7 @@ pub struct CudaApi {
     pub cuInit: unsafe extern "C" fn(c_uint) -> CUresult,
     pub cuDeviceGet: unsafe extern "C" fn(*mut CUdevice, c_int) -> CUresult,
     pub cuDeviceGetName: unsafe extern "C" fn(*mut c_char, c_int, CUdevice) -> CUresult,
+    pub cuDeviceGetUuid: Option<unsafe extern "C" fn(*mut CUuuid, CUdevice) -> CUresult>,
     pub cuCtxCreate_v2: unsafe extern "C" fn(*mut CUcontext, c_uint, CUdevice) -> CUresult,
     pub cuCtxSetCurrent: unsafe extern "C" fn(CUcontext) -> CUresult,
     pub cuMemGetInfo_v2: unsafe extern "C" fn(*mut usize, *mut usize) -> CUresult,
@@ -135,6 +165,7 @@ pub struct CudaContextHandle {
     pub device: CUdevice,
     pub ctx: CUcontext,
     pub device_name: String,
+    pub device_uuid: String,
     pub compute_stream: CUstream,
     pub h2d_stream: CUstream,
 }
@@ -152,10 +183,14 @@ impl CudaContextHandle {
             ])?
         };
         let api = unsafe {
+            let get_uuid = load_sym(lib, "cuDeviceGetUuid_v2")
+                .or_else(|_| load_sym(lib, "cuDeviceGetUuid"))
+                .ok();
             Arc::new(CudaApi {
                 cuInit: load_sym(lib, "cuInit")?,
                 cuDeviceGet: load_sym(lib, "cuDeviceGet")?,
                 cuDeviceGetName: load_sym(lib, "cuDeviceGetName")?,
+                cuDeviceGetUuid: get_uuid,
                 cuCtxCreate_v2: load_sym(lib, "cuCtxCreate_v2")?,
                 cuCtxSetCurrent: load_sym(lib, "cuCtxSetCurrent")?,
                 cuMemGetInfo_v2: load_sym(lib, "cuMemGetInfo_v2")?,
@@ -197,6 +232,16 @@ impl CudaContextHandle {
             )?;
             let nul = name_buf.iter().position(|&b| b == 0).unwrap_or(128);
             let device_name = String::from_utf8_lossy(&name_buf[..nul]).into_owned();
+            let device_uuid = if let Some(uuid_fn) = api.cuDeviceGetUuid {
+                let mut raw_uuid = CUuuid::default();
+                if uuid_fn(&mut raw_uuid, dev) == CUDA_SUCCESS {
+                    format_cuda_uuid(&raw_uuid)
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
 
             let mut ctx: CUcontext = core::ptr::null_mut();
             check_cu((api.cuCtxCreate_v2)(&mut ctx, 0, dev), "cuCtxCreate_v2")?;
@@ -216,6 +261,7 @@ impl CudaContextHandle {
                 device: dev,
                 ctx,
                 device_name,
+                device_uuid,
                 compute_stream,
                 h2d_stream,
             }))
@@ -418,6 +464,62 @@ impl Drop for PinnedHostBuf {
     }
 }
 
+fn collect_python_nvidia_lib_dirs() -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    for env_key in ["VIRTUAL_ENV", "CONDA_PREFIX"] {
+        if let Ok(prefix) = std::env::var(env_key) {
+            let lib_root = std::path::Path::new(&prefix).join("lib");
+            if let Ok(entries) = std::fs::read_dir(&lib_root) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    if name.to_string_lossy().starts_with("python") {
+                        let sp = entry.path().join("site-packages").join("nvidia");
+                        for sub in ["cu13", "cuda_nvrtc"] {
+                            let d = sp.join(sub).join("lib");
+                            if d.is_dir() {
+                                dirs.push(d);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    dirs
+}
+
+#[cfg(unix)]
+unsafe fn preload_nvrtc_builtins_from_dir(dir: &std::path::Path) {
+    // Preload `libnvrtc-builtins.so*` with `RTLD_NOW | RTLD_GLOBAL` so `libnvrtc.so.13`'s
+    // internal `dlopen("libnvrtc-builtins.so.13.0", ...)` resolves from the process link map
+    // even on hosts without a system CUDA Toolkit or `LD_LIBRARY_PATH` (Issue #15).
+    for exact in [
+        "libnvrtc-builtins.so.13.0",
+        "libnvrtc-builtins.so.13",
+        "libnvrtc-builtins.so",
+    ] {
+        let p = dir.join(exact);
+        if p.exists() {
+            if let Ok(cstr) = CString::new(p.to_string_lossy().as_bytes()) {
+                let _ = unsafe { dlopen(cstr.as_ptr(), RTLD_NOW | RTLD_GLOBAL) };
+            }
+        }
+    }
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let fname = entry.file_name();
+            if fname.to_string_lossy().starts_with("libnvrtc-builtins.so") {
+                if let Ok(cstr) = CString::new(entry.path().to_string_lossy().as_bytes()) {
+                    let _ = unsafe { dlopen(cstr.as_ptr(), RTLD_NOW | RTLD_GLOBAL) };
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(unix))]
+unsafe fn preload_nvrtc_builtins_from_dir(_dir: &std::path::Path) {}
+
 /// Compile CUDA C++ source to `sm_120` PTX via `libnvrtc.so` at runtime!
 pub fn compile_cuda_to_ptx_nvrtc(cuda_src: &str, arch: &str) -> Result<Vec<u8>, String> {
     type NvrtcCreateProgram = unsafe extern "C" fn(
@@ -434,6 +536,10 @@ pub fn compile_cuda_to_ptx_nvrtc(cuda_src: &str, arch: &str) -> Result<Vec<u8>, 
     type NvrtcGetStr = unsafe extern "C" fn(*mut c_void, *mut c_char) -> c_int;
     type NvrtcDestroy = unsafe extern "C" fn(*mut *mut c_void) -> c_int;
 
+    const HINT: &str = "Hint: set LEANSONIC_CUBIN_PATH=/path/to/sm120a.cubin to skip runtime JIT, \
+        or set LEANSONIC_NVRTC_PATH=/path/to/libnvrtc.so.13 (with libnvrtc-builtins.so.13.0 alongside it).";
+
+    let py_dirs = collect_python_nvidia_lib_dirs();
     let mut candidates: Vec<String> = Vec::new();
     if let Ok(p) = std::env::var("LEANSONIC_NVRTC_PATH") {
         candidates.push(p);
@@ -442,12 +548,28 @@ pub fn compile_cuda_to_ptx_nvrtc(cuda_src: &str, arch: &str) -> Result<Vec<u8>, 
         "libnvrtc.so.13".to_string(),
         "libnvrtc.so".to_string(),
         "/usr/local/cuda/lib64/libnvrtc.so.13".to_string(),
-        "/models/mtp-off-three-engines-5070ti-20261105/libs13/libnvrtc.so.13".to_string(),
+        "/usr/local/cuda-13.0/lib64/libnvrtc.so.13".to_string(),
     ]);
+    for d in &py_dirs {
+        candidates.push(d.join("libnvrtc.so.13").to_string_lossy().into_owned());
+        candidates.push(d.join("libnvrtc.so").to_string_lossy().into_owned());
+    }
+    candidates.push("/models/mtp-off-three-engines-5070ti-20261105/libs13/libnvrtc.so.13".into());
+
     let refs: Vec<&str> = candidates.iter().map(String::as_str).collect();
-    let lib = unsafe { open_first_lib(&refs)? };
+    let (lib, matched_path) =
+        unsafe { open_first_lib_with_path(&refs).map_err(|e| format!("{e}\n{HINT}"))? };
 
     unsafe {
+        if let Some(parent) = std::path::Path::new(matched_path).parent() {
+            if !parent.as_os_str().is_empty() {
+                preload_nvrtc_builtins_from_dir(parent);
+            }
+        }
+        for d in &py_dirs {
+            preload_nvrtc_builtins_from_dir(d);
+        }
+
         let create_prog: NvrtcCreateProgram = load_sym(lib, "nvrtcCreateProgram")?;
         let compile_prog: NvrtcCompileProgram = load_sym(lib, "nvrtcCompileProgram")?;
         let get_ptx_size: NvrtcGetSize = load_sym(lib, "nvrtcGetPTXSize")?;
@@ -468,7 +590,7 @@ pub fn compile_cuda_to_ptx_nvrtc(cuda_src: &str, arch: &str) -> Result<Vec<u8>, 
             core::ptr::null(),
         );
         if rc != 0 {
-            return Err(format!("nvrtcCreateProgram failed ({rc})"));
+            return Err(format!("nvrtcCreateProgram failed ({rc})\n{HINT}"));
         }
 
         let opt_arch = CString::new(format!("--gpu-architecture={arch}")).unwrap();
@@ -482,8 +604,8 @@ pub fn compile_cuda_to_ptx_nvrtc(cuda_src: &str, arch: &str) -> Result<Vec<u8>, 
             let _ = get_log(prog, log_buf.as_mut_ptr().cast());
             let _ = destroy_prog(&mut prog);
             return Err(format!(
-                "NVRTC compile failed ({comp_rc}):\n{}",
-                String::from_utf8_lossy(&log_buf)
+                "NVRTC compile failed ({comp_rc}):\n{}\n{HINT}",
+                String::from_utf8_lossy(&log_buf).trim_end_matches('\0')
             ));
         }
 
