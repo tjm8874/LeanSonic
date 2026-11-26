@@ -699,16 +699,11 @@ def kInk2GqaAttnCombineQ8 : KernelResourceSpec :=
     userSmemPerCtaBytes := 24       -- 12 * (24 + 1024) = 12,576 B <= 16 KiB carveout -> 112 KiB L1!
     smemAlignPadBytes := 0
     ctasPerSm := 12
->>>>>>> Stashed changes
     clusterCtas := 1
     minRequiredL1KiB := 112
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
-<<<<<<< Updated upstream
-theorem ink2_ctrl_down_r8_b_valid : ValidSm120Kernel kInk2CtrlDownR8B := by decide
-theorem ink2_ctrl_apply_t8_b_valid : ValidSm120Kernel kInk2CtrlApplyT8B := by decide
-=======
 /-- Causal 4-Tap Short-Conv + Fused Block-Start Save (`26` regs -> `6` CTAs = `48` warps/SM, `120` KiB L1!). -/
 def kInk2ShortConv4Save : KernelResourceSpec :=
   { name := "ink2_short_conv4_save"
