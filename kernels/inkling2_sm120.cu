@@ -2451,8 +2451,10 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_grouped_up_situ(
         for (int t = 0; t < tile_t; ++t) {
             const int tok = exp_toks[ex * 64 + t_base + t];
             if (tid < 144) {
-                smem_xq[t][tid] = x_q8_u128[static_cast<size_t>(tok) * 144u + tid];
-                smem_xsc[t][tid] = x_sc16[static_cast<size_t>(tok) * 144u + tid];
+                // Split even and odd groups so neighboring lanes read consecutive entries.
+                const int dst = (tid & 1) * 72 + (tid >> 1);
+                smem_xq[t][dst] = x_q8_u128[static_cast<size_t>(tok) * 144u + tid];
+                smem_xsc[t][dst] = x_sc16[static_cast<size_t>(tok) * 144u + tid];
             }
         }
         __syncthreads();
@@ -2473,8 +2475,8 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_grouped_up_situ(
                 const int sh = (u16 & 1) * 16;
                 const float ws0 = e4m3_byte_to_f32((sc4 >> sh) & 0xFFu) * 0.5f;
                 const float ws1 = e4m3_byte_to_f32((sc4 >> (sh + 8)) & 0xFFu) * 0.5f;
-                const int c0 = u16 * 2;
-                const int c1 = c0 + 1;
+                const int c0 = u16;
+                const int c1 = c0 + 72;
 
                 if (tile_t > 0) a0 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_xq[0][c0])) * (ws0 * smem_xsc[0][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_xq[0][c1])) * (ws1 * smem_xsc[0][c1]);
                 if (tile_t > 1) a1 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_xq[1][c0])) * (ws0 * smem_xsc[1][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_xq[1][c1])) * (ws1 * smem_xsc[1][c1]);
@@ -2544,8 +2546,10 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_grouped_down(
         for (int t = 0; t < tile_t; ++t) {
             const int pair_idx = exp_pairs[ex * 64 + t_base + t];
             if (tid < 72) {
-                smem_aq[t][tid] = act_q8_u128[static_cast<size_t>(pair_idx) * 72u + tid];
-                smem_asc[t][tid] = act_sc16[static_cast<size_t>(pair_idx) * 72u + tid];
+                // Split even and odd groups so neighboring lanes read consecutive entries.
+                const int dst = (tid & 1) * 36 + (tid >> 1);
+                smem_aq[t][dst] = act_q8_u128[static_cast<size_t>(pair_idx) * 72u + tid];
+                smem_asc[t][dst] = act_sc16[static_cast<size_t>(pair_idx) * 72u + tid];
             }
         }
         __syncthreads();
@@ -2566,8 +2570,8 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_grouped_down(
                 const int sh = (u16 & 1) * 16;
                 const float ws0 = e4m3_byte_to_f32((sc4 >> sh) & 0xFFu) * 0.5f;
                 const float ws1 = e4m3_byte_to_f32((sc4 >> (sh + 8)) & 0xFFu) * 0.5f;
-                const int c0 = u16 * 2;
-                const int c1 = c0 + 1;
+                const int c0 = u16;
+                const int c1 = c0 + 36;
 
                 if (tile_t > 0) a0 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_aq[0][c0])) * (ws0 * smem_asc[0][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_aq[0][c1])) * (ws1 * smem_asc[0][c1]);
                 if (tile_t > 1) a1 += static_cast<float>(dp4a_nvfp4_lo(pk, smem_aq[1][c0])) * (ws0 * smem_asc[1][c0]) + static_cast<float>(dp4a_nvfp4_hi(pk, smem_aq[1][c1])) * (ws1 * smem_asc[1][c1]);
