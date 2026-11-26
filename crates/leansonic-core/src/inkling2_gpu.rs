@@ -245,6 +245,7 @@ impl LayerWorkspace {
         let mut slice = |cols: usize| {
             let ptr = next;
             next += (capacity * cols * size_of::<f32>()) as u64;
+            debug_assert!(next - pair_output.ptr <= pair_output.byte_len as u64);
             ptr
         };
         Self {
