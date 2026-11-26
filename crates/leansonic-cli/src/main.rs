@@ -16,6 +16,8 @@ use leansonic_core::generated_spec::{
     SPILLED_LATE_WAIT_OVERLAP_OPS, SPILLED_PING_PONG_BUFFERS, SWA_RING_CAPACITY_TOKENS,
 };
 use leansonic_core::inkling2_gpu::Inkling2GpuEngine;
+use leansonic_core::qwen38_gpu::Qwen38GpuEngine;
+use leansonic_core::qwen_bpe::{QwenBpeTokenizer, QWEN_TOK_ENDOFTEXT, QWEN_TOK_IM_END};
 use leansonic_core::serving::{
     execute_generation_on_slot, json_escape, run_single_prompt, serve_openai_http,
     GenerationRequest,
@@ -26,8 +28,20 @@ use leansonic_tuner::{
     BlackwellSkuProfile, CandidateKnob, ModelRooflineInput, SpilledEngramRooflineInput,
 };
 
+fn is_qwen38_weights_dir(dir: &Path, model_flag: &str) -> bool {
+    if model_flag.to_ascii_lowercase().contains("qwen") {
+        return true;
+    }
+    if let Ok(cfg) = std::fs::read_to_string(dir.join("config.json")) {
+        if cfg.contains("qwen4_exp") || cfg.contains("Qwen4Exp") {
+            return true;
+        }
+    }
+    false
+}
+
 fn print_help() {
-    println!("LeanSonic v0.3.0 — Lean 4-Verified Blackwell Inference Engine & OpenAI Server");
+    println!("LeanSonic v0.4.0 — Lean 4-Verified Blackwell Inference Engine & OpenAI Server");
     println!();
     println!("USAGE:");
     println!(
@@ -146,6 +160,65 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
     // Real Blackwell GPU execution when `--weights <dir>` is supplied!
     if let Some(dir_str) = weights_dir {
         let dir = Path::new(&dir_str);
+        if is_qwen38_weights_dir(dir, &model) {
+            let tok = QwenBpeTokenizer::load_from_file(dir.join("tokenizer.json"))
+                .map_err(|e| format!("load tokenizer.json from {}: {e}", dir.display()))?;
+            let prompt_ids = tok.encode_chat_prompt(&prompt_text, &effort);
+            let max_ctx = env::var("LEANSONIC_CTX")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(4096)
+                .max(prompt_ids.len() + max_tokens + 64);
+            let mut gpu = Qwen38GpuEngine::load_from_dir(dir, max_ctx)?;
+            let (next, prefill_ms) = gpu.prefill_tokens(&prompt_ids)?;
+            let t_gen = Instant::now();
+            let mut raw_bytes = Vec::new();
+            let generated = gpu.generate_greedy_tokens(
+                next,
+                max_tokens,
+                &[QWEN_TOK_IM_END, QWEN_TOK_ENDOFTEXT],
+                |tok_id| {
+                    if !tok.is_special_token(tok_id) {
+                        let b = tok.decode_token_bytes(tok_id);
+                        if !emit_json {
+                            let piece = String::from_utf8_lossy(b);
+                            print!("{piece}");
+                            let _ = io::stdout().flush();
+                        }
+                        raw_bytes.extend_from_slice(b);
+                    }
+                },
+            )?;
+            let full_text = String::from_utf8_lossy(&raw_bytes).into_owned();
+            let gen_ms = t_gen.elapsed().as_secs_f64() * 1000.0;
+            let gen_tok_s = (generated.len() as f64) / (gen_ms / 1000.0).max(1e-9);
+            if emit_json {
+                println!(
+                    "{{\"model\":\"qwen3.8-flash-next\",\"gpu\":\"{}\",\"text\":\"{}\",\"prompt_tokens\":{},\"completion_tokens\":{},\"prefill_ms\":{:.2},\"decode_ms\":{:.2},\"decode_tok_s\":{:.2}}}",
+                    json_escape(&gpu.ctx.device_name),
+                    json_escape(&full_text),
+                    prompt_ids.len(),
+                    generated.len(),
+                    prefill_ms,
+                    gen_ms,
+                    gen_tok_s
+                );
+            } else {
+                println!();
+                eprintln!(
+                    "[leansonic -p GPU] {} | prompt={} toks ({:.1} ms, {:.1} tok/s) | gen={} toks ({:.1} ms, {:.1} tok/s)",
+                    gpu.ctx.device_name,
+                    prompt_ids.len(),
+                    prefill_ms,
+                    (prompt_ids.len() as f64) / (prefill_ms / 1000.0).max(1e-9),
+                    generated.len(),
+                    gen_ms,
+                    gen_tok_s
+                );
+            }
+            return Ok(());
+        }
+
         let tok = TiktokenBpe::from_model_dir(dir)
             .map_err(|e| format!("load tiktoken from {}: {e}", dir.display()))?;
         let prompt_ids = tok.format_inkling2_chat(&prompt_text, &effort);
@@ -352,6 +425,61 @@ fn cmd_bench(args: &[String]) -> Result<(), String> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(8192)
         .max(prompt_ids.len() + n_gen + 64);
+
+    let dir_path = Path::new(&dir);
+    if is_qwen38_weights_dir(dir_path, "") {
+        let max_ctx = env::var("LEANSONIC_CTX")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(4096)
+            .max(prompt_ids.len() + n_gen + 64);
+        let mut gpu = Qwen38GpuEngine::load_from_dir_with_opts(dir_path, max_ctx, use_graph)?;
+        for run_idx in 0..repeat {
+            gpu.reset()?;
+            let (next, prefill_ms) = gpu.prefill_tokens(&prompt_ids)?;
+            let prefill_tok_s = (prompt_ids.len() as f64) / (prefill_ms / 1000.0).max(1e-9);
+            let logits = gpu.read_last_logits()?;
+            let mut top_idx: Vec<usize> = (0..logits.len()).collect();
+            top_idx.sort_by(|&a, &b| logits[b].total_cmp(&logits[a]));
+            let top5: Vec<String> = top_idx[..5]
+                .iter()
+                .map(|&idx| format!("{idx}:{:.3}", logits[idx]))
+                .collect();
+            let sum_logits: f32 = logits.iter().sum();
+
+            println!(
+                "[run {run_idx}] prefill {} tokens: {:.2} ms, {:.1} tok/s",
+                prompt_ids.len(),
+                prefill_ms,
+                prefill_tok_s
+            );
+            println!(
+                "tok {:>6} -> {} (first [{:.4} {:.4} {:.4}] sum {:.4})",
+                prompt_ids.last().unwrap(),
+                top5.join(" "),
+                logits[0],
+                logits[1],
+                logits[2],
+                sum_logits
+            );
+
+            if n_gen > 0 {
+                let t_dec = Instant::now();
+                let out_ids = gpu.generate_greedy_tokens(next, n_gen, &[], |_| {})?;
+                let dec_ms = t_dec.elapsed().as_secs_f64() * 1000.0;
+                let dec_tok_s = (n_gen as f64) / (dec_ms / 1000.0).max(1e-9);
+                println!(
+                    "[run {run_idx}] generated {n_gen} tokens: {:.2} ms ({:.2} ms/tok, {:.1} tok/s)",
+                    dec_ms,
+                    dec_ms / (n_gen as f64),
+                    dec_tok_s
+                );
+                let csv: Vec<String> = out_ids.iter().map(u32::to_string).collect();
+                println!("{}", csv.join(","));
+            }
+        }
+        return Ok(());
+    }
 
     let default_spec = if Path::new(&dir).join("mtp.safetensors").exists() {
         7

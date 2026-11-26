@@ -290,13 +290,21 @@ impl DeviceBuf {
     }
 
     pub fn copy_from_host_bytes(&self, src: &[u8]) -> Result<(), String> {
-        assert!(src.len() <= self.byte_len);
+        self.copy_from_host_at(0, src)
+    }
+
+    pub fn copy_from_host_at(&self, offset: usize, src: &[u8]) -> Result<(), String> {
+        assert!(offset.saturating_add(src.len()) <= self.byte_len);
         if src.is_empty() {
             return Ok(());
         }
         unsafe {
             check_cu(
-                (self.ctx.api.cuMemcpyHtoD_v2)(self.ptr, src.as_ptr().cast(), src.len()),
+                (self.ctx.api.cuMemcpyHtoD_v2)(
+                    self.ptr + (offset as u64),
+                    src.as_ptr().cast(),
+                    src.len(),
+                ),
                 "cuMemcpyHtoD_v2",
             )
         }
@@ -336,6 +344,40 @@ unsafe impl Send for PinnedHostBuf {}
 unsafe impl Sync for PinnedHostBuf {}
 
 impl PinnedHostBuf {
+    pub fn alloc_uninit(ctx: &Arc<CudaContextHandle>, byte_len: usize) -> Result<Self, String> {
+        let alloc_len = byte_len.max(16);
+        let mut raw: *mut c_void = core::ptr::null_mut();
+        let mut dptr: CUdeviceptr = 0;
+        unsafe {
+            check_cu(
+                (ctx.api.cuMemHostAlloc)(
+                    &mut raw,
+                    alloc_len,
+                    CU_MEMHOSTALLOC_PORTABLE | CU_MEMHOSTALLOC_DEVICEMAP,
+                ),
+                "cuMemHostAlloc",
+            )?;
+            check_cu(
+                (ctx.api.cuMemHostGetDevicePointer_v2)(&mut dptr, raw, 0),
+                "cuMemHostGetDevicePointer_v2",
+            )?;
+        }
+        Ok(Self {
+            ctx: Arc::clone(ctx),
+            host_ptr: raw.cast::<u8>(),
+            dev_ptr: dptr,
+            byte_len,
+        })
+    }
+
+    pub fn alloc_zeroed(ctx: &Arc<CudaContextHandle>, byte_len: usize) -> Result<Self, String> {
+        let buf = Self::alloc_uninit(ctx, byte_len)?;
+        unsafe {
+            core::ptr::write_bytes(buf.host_ptr, 0, byte_len.max(16));
+        }
+        Ok(buf)
+    }
+
     pub fn from_bytes(ctx: &Arc<CudaContextHandle>, src: &[u8]) -> Result<Self, String> {
         let alloc_len = src.len().max(16);
         let mut raw: *mut c_void = core::ptr::null_mut();

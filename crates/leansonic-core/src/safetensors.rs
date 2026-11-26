@@ -42,6 +42,28 @@ impl<'a> TensorView<'a> {
         );
         mid
     }
+
+    /// Alignment-safe `u16` (`BF16`) decode for shards whose JSON header length is `2 mod 4` or odd.
+    pub fn to_u16_vec(&self) -> Vec<u16> {
+        assert_eq!(self.data.len() % 2, 0, "unaligned u16 byte length");
+        let mut out = Vec::with_capacity(self.data.len() / 2);
+        let (chunks, _) = self.data.as_chunks::<2>();
+        for &c in chunks {
+            out.push(u16::from_le_bytes(c));
+        }
+        out
+    }
+
+    /// Alignment-safe `i64` decode (e.g. `Qwen4Exp` `ple_embedding` metadata buffers).
+    pub fn to_i64_vec(&self) -> Vec<i64> {
+        assert_eq!(self.data.len() % 8, 0, "unaligned i64 byte length");
+        let mut out = Vec::with_capacity(self.data.len() / 8);
+        let (chunks, _) = self.data.as_chunks::<8>();
+        for &c in chunks {
+            out.push(i64::from_le_bytes(c));
+        }
+        out
+    }
 }
 
 #[cfg(unix)]
@@ -213,6 +235,151 @@ impl MappedSafeTensors {
     pub fn is_empty(&self) -> bool {
         self.tensors.is_empty()
     }
+}
+
+/// Multi-shard zero-dependency `safetensors` directory reader (`model.safetensors.index.json`
+/// or single-file `model.safetensors` / `model-00001-of-00001.safetensors`).
+pub struct ShardedSafeTensors {
+    shards: Vec<MappedSafeTensors>,
+    weight_map: HashMap<String, usize>,
+}
+
+impl ShardedSafeTensors {
+    pub fn open_dir(dir: impl AsRef<Path>) -> io::Result<Self> {
+        let dir = dir.as_ref();
+        let idx_path = dir.join("model.safetensors.index.json");
+        if idx_path.exists() {
+            let text = std::fs::read_to_string(&idx_path)?;
+            let raw_map = parse_index_weight_map(&text)?;
+            let mut shard_names: Vec<String> = raw_map.values().cloned().collect();
+            shard_names.sort();
+            shard_names.dedup();
+
+            let mut name_to_idx = HashMap::with_capacity(shard_names.len());
+            let mut shards = Vec::with_capacity(shard_names.len());
+            for (idx, sname) in shard_names.into_iter().enumerate() {
+                let spath = dir.join(&sname);
+                shards.push(MappedSafeTensors::open(&spath)?);
+                name_to_idx.insert(sname, idx);
+            }
+
+            let mut weight_map = HashMap::with_capacity(raw_map.len());
+            for (tname, sname) in raw_map {
+                if let Some(&sidx) = name_to_idx.get(&sname) {
+                    weight_map.insert(tname, sidx);
+                }
+            }
+            return Ok(Self { shards, weight_map });
+        }
+
+        for candidate in ["model.safetensors", "model-00001-of-00001.safetensors"] {
+            let p = dir.join(candidate);
+            if p.exists() {
+                let st = MappedSafeTensors::open(&p)?;
+                let mut weight_map = HashMap::with_capacity(st.tensors.len());
+                for k in st.tensors.keys() {
+                    weight_map.insert(k.clone(), 0);
+                }
+                return Ok(Self {
+                    shards: vec![st],
+                    weight_map,
+                });
+            }
+        }
+
+        Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("no safetensors index or shard found in {}", dir.display()),
+        ))
+    }
+
+    pub fn get(&self, name: &str) -> Option<TensorView<'_>> {
+        let &sidx = self.weight_map.get(name)?;
+        self.shards[sidx].get(name)
+    }
+
+    pub fn require(
+        &self,
+        name: &str,
+        expected_dtype: &str,
+        expected_shape: &[usize],
+    ) -> TensorView<'_> {
+        let &sidx = self
+            .weight_map
+            .get(name)
+            .unwrap_or_else(|| panic!("missing required sharded tensor `{name}`"));
+        self.shards[sidx].require(name, expected_dtype, expected_shape)
+    }
+
+    pub fn num_shards(&self) -> usize {
+        self.shards.len()
+    }
+}
+
+fn parse_index_weight_map(json_text: &str) -> io::Result<HashMap<String, String>> {
+    let b = json_text.as_bytes();
+    let mut i = skip_ws(b, 0);
+    if b.get(i) != Some(&b'{') {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "index.json must start with '{'",
+        ));
+    }
+    i += 1;
+    let mut out = HashMap::new();
+    loop {
+        i = skip_ws(b, i);
+        if b.get(i) == Some(&b'}') {
+            break;
+        }
+        let (top_key, ni) = parse_str(b, i)?;
+        i = skip_ws(b, ni);
+        if b.get(i) != Some(&b':') {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "expected ':' in index.json",
+            ));
+        }
+        i = skip_ws(b, i + 1);
+        if top_key == "weight_map" {
+            if b.get(i) != Some(&b'{') {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "weight_map must be '{'",
+                ));
+            }
+            i += 1;
+            loop {
+                i = skip_ws(b, i);
+                if b.get(i) == Some(&b'}') {
+                    i += 1;
+                    break;
+                }
+                let (tname, ni2) = parse_str(b, i)?;
+                i = skip_ws(b, ni2);
+                if b.get(i) != Some(&b':') {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "expected ':' in weight_map",
+                    ));
+                }
+                i = skip_ws(b, i + 1);
+                let (sname, ni3) = parse_str(b, i)?;
+                out.insert(tname, sname);
+                i = skip_ws(b, ni3);
+                if b.get(i) == Some(&b',') {
+                    i += 1;
+                }
+            }
+        } else {
+            i = skip_json_value(b, i)?;
+        }
+        i = skip_ws(b, i);
+        if b.get(i) == Some(&b',') {
+            i += 1;
+        }
+    }
+    Ok(out)
 }
 
 // Minimal recursive-free scanner for top-level `safetensors` JSON header entries.

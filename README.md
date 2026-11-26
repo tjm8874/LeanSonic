@@ -152,11 +152,12 @@ python3 ci/check_lean_axioms.py
 
 ---
 
-## Roadmap
+## Roadmap & Releases
 
-- [x] **Phase 0 — Immutable Trust Core & 5-Gate CI Harness**: Constructive Lean 4 `sm_120` hardware & `0-ULP` axioms, verified `.rs`/`.cuh` header emitter, Gate 0–4 auditors, and GitHub Actions workflows.
-- [x] **Phase 1 — `Inkling-2-mini` Vertical Slice & `Qwen3.8` Schedule Foundation**: `VisitBytecode` (`24 → 48` looped visits + `3:1` GDN/QSA), `HybridSlotPool` (`64`-aligned SWA ring + `O(1)` GDN speculative rollback), `128B` Planar SoA weights, `0-ULP` dual-regime MoE, and parameterized `sm_120` CUDA/PTX templates.
-- [ ] **Phase 2 — Live Safetensors Checkpoint Loader, `libcuda` Graph Executor & Full Autonomous Loop**: Direct `mmap` weight streaming for `Inkling-2-mini` and `Qwen3.8-Flash-Next`, QSA micro-block indexer kernel, 51B `Engram` host DMA ring, and unattended autonomous optimization PR cycling on Blackwell runners.
+- [x] **Phase 0 & 1 (`v0.1.0`) — Immutable Trust Core, 5-Gate CI & `Inkling-2-Mini` GPU Engine**: Constructive Lean 4 `sm_120` laws, `VisitBytecode` (`24 → 48` looped visits), full-GPU `NVFP4`/`MXFP8`/`Q8_64` `Inkling-2-Mini` (`131.3 tok/s` on `RTX PRO 4500`, `65.9 tok/s` Spilled on `RTX 5070 Ti`).
+- [x] **Cycle 1 (`v0.2.0`) — Multi-Token Batched Prefill**: Planar `Q8_64` `__dp4a` GEMM + Zero-Atomic Grouped MoE (`794.1 tok/s` = `7.14×` on `RTX PRO 4500`, `337.6 tok/s` = `5.55×` on `RTX 5070 Ti`).
+- [x] **Cycle 2 (`v0.3.0`) — Lossless `DSpark` Full-GPU Speculative Decoding**: `mtp.safetensors` GPU drafter + `O(1)` Multi-Token Rewind + `0.0000`-ULP hardware FMA alignment (`326.8 tok/s` = `2.58×` on `RTX PRO 4500`, `132.0 tok/s` = `2.02×` on `RTX 5070 Ti`, `0` Trust Core diff).
+- [x] **Cycle 3 (`v0.4.0`) — Real `106 GB` `Qwen3.8-Flash-Next` / `Qwen4Exp` GPU Engine**: 22-shard `safetensors` `mmap`, `36` Gated DeltaNet + `12` QSA Sparse Attention layers, `4`-Stream Hyper-Connection, `512`-Expert `Top-10` Group-32 4-Bit MoE (3-Tier VRAM / HostPinned / MmapCompact), `29.80 GiB` `320M`-row 3-Gram `Engram`/`PLE` Async Offload, 48-layer CUDA Graph, and `61` machine-checked Lean 4 theorems (`0` Trust Core diff).
 
 ---
 
