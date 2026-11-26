@@ -38,10 +38,19 @@ pub const RANK: usize = 64;
 pub const VOCAB: usize = 200_058;
 pub const PADDED_VOCAB: usize = 201_024;
 pub const GLOBAL_LAYERS: [usize; 4] = [5, 11, 17, 23];
+pub const MAX_BATCH_TOKENS: usize = 64;
+pub const MAX_SPEC_TOKENS: usize = 8;
 const QRGS_ROWS: usize = N_HEAD * HD + N_REL * N_HEAD + N_HEAD * HD + N_HEAD; // 6552
 const SWA_K_OFFSET: usize = QRGS_ROWS; // 6552
 const SWA_V_OFFSET: usize = QRGS_ROWS + N_KV * HD; // 7576
 const SWA_ALL_ROWS: usize = QRGS_ROWS + 2 * N_KV * HD; // 8600
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BatchHeadMode {
+    None,
+    LastOnly,
+    AllHeads,
+}
 
 enum TierBuf {
     Vram(DeviceBuf),
@@ -147,6 +156,28 @@ struct KernelFns {
     copy_d: CUfunction,
     argmax_and_inc_pos: CUfunction,
     inc_pos: CUfunction,
+    // Batched multi-token kernels (`1 <= B <= 64`)
+    embed_rmsnorm_b: CUfunction,
+    rmsnorm_d_b: CUfunction,
+    rmsnorm_quant_q8_64_b: CUfunction,
+    quant_q8_64_b: CUfunction,
+    depth_mix_b: CUfunction,
+    ctrl_down_b: CUfunction,
+    ctrl_apply_b: CUfunction,
+    q8_dp4a_gemm_b: CUfunction,
+    short_conv4_b: CUfunction,
+    prep_qkv_and_cache_b: CUfunction,
+    gqa_rel_sink_attn_b: CUfunction,
+    bf16_gemm_router_b: CUfunction,
+    router_topk8_b: CUfunction,
+    build_expert_groups_b: CUfunction,
+    moe_nvfp4_dp4a_grouped_up_situ: CUfunction,
+    moe_nvfp4_dp4a_grouped_down: CUfunction,
+    moe_mxfp8_grouped_up_situ: CUfunction,
+    moe_mxfp8_grouped_down: CUfunction,
+    moe_combine_top8_b: CUfunction,
+    inc_pos_by: CUfunction,
+    argmax_b: CUfunction,
 }
 
 unsafe impl Send for KernelFns {}
@@ -199,6 +230,38 @@ pub struct Inkling2GpuEngine {
     d_act_sc_64: DeviceBuf, // 3 * 48 * 4 B
     d_act_q8_16: DeviceBuf, // max 8 * 1152 B
     d_act_sc_16: DeviceBuf, // max 8 * 72 * 4 B
+    // Multi-token batch scratch buffers (`1 <= B <= 64`) + Speculative verify buffers (`B <= 8`)
+    d_b_cur: DeviceBuf,
+    d_b_prelude_x: DeviceBuf,
+    d_b_blocks: DeviceBuf,
+    d_b_prelude_block0: DeviceBuf,
+    d_b_bank: DeviceBuf,
+    d_b_msgs: DeviceBuf,
+    d_b_inputs: DeviceBuf,
+    d_b_ctrl_g: DeviceBuf,
+    d_b_qrgs: DeviceBuf,
+    d_b_k_raw: DeviceBuf,
+    d_b_v_raw: DeviceBuf,
+    d_b_k_conv: DeviceBuf,
+    d_b_v_conv: DeviceBuf,
+    d_b_attn_out: DeviceBuf,
+    d_b_wo_out: DeviceBuf,
+    d_b_mlp_h: DeviceBuf,
+    d_b_router_logits: DeviceBuf,
+    d_b_sel_ids: DeviceBuf,
+    d_b_sel_wts: DeviceBuf,
+    d_b_exp_counts: DeviceBuf,
+    d_b_exp_toks: DeviceBuf,
+    d_b_exp_pairs: DeviceBuf,
+    d_b_moe_act: DeviceBuf,
+    d_b_pair_y: DeviceBuf,
+    d_b_moe_y: DeviceBuf,
+    d_b_act_q8_64: DeviceBuf,
+    d_b_act_sc_64: DeviceBuf,
+    d_b_act_q8_16: DeviceBuf,
+    d_b_act_sc_16: DeviceBuf,
+    d_spec_logits: DeviceBuf,
+    d_spec_tokens_out: DeviceBuf,
     host_pos: usize,
     decode_graph: Option<CapturedGraphExec>,
     prefill_graph: Option<CapturedGraphExec>,
@@ -881,6 +944,37 @@ impl Inkling2GpuEngine {
             d_act_sc_64: DeviceBuf::alloc_zeroed(&ctx, 3 * 48 * 4)?,
             d_act_q8_16: DeviceBuf::alloc_zeroed(&ctx, TOP_K * FF)?,
             d_act_sc_16: DeviceBuf::alloc_zeroed(&ctx, TOP_K * (FF / 16) * 4)?,
+            d_b_cur: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * D * 4)?,
+            d_b_prelude_x: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * D * 4)?,
+            d_b_blocks: DeviceBuf::alloc_zeroed(&ctx, 6 * MAX_BATCH_TOKENS * D * 4)?,
+            d_b_prelude_block0: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * D * 4)?,
+            d_b_bank: DeviceBuf::alloc_zeroed(&ctx, 2 * MAX_BATCH_TOKENS * D * 4)?,
+            d_b_msgs: DeviceBuf::alloc_zeroed(&ctx, 4 * MAX_BATCH_TOKENS * D * 4)?,
+            d_b_inputs: DeviceBuf::alloc_zeroed(&ctx, 3 * MAX_BATCH_TOKENS * D * 4)?,
+            d_b_ctrl_g: DeviceBuf::alloc_zeroed(&ctx, 3 * MAX_BATCH_TOKENS * RANK * 4)?,
+            d_b_qrgs: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * SWA_ALL_ROWS * 4)?,
+            d_b_k_raw: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * 1056 * 4)?,
+            d_b_v_raw: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * 1056 * 4)?,
+            d_b_k_conv: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * 1024 * 4)?,
+            d_b_v_conv: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * 1024 * 4)?,
+            d_b_attn_out: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * 3072 * 4)?,
+            d_b_wo_out: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * D * 4)?,
+            d_b_mlp_h: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * D * 4)?,
+            d_b_router_logits: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * N_EXP * 4)?,
+            d_b_sel_ids: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * TOP_K * 4)?,
+            d_b_sel_wts: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * TOP_K * 4)?,
+            d_b_exp_counts: DeviceBuf::alloc_zeroed(&ctx, N_EXP * 4)?,
+            d_b_exp_toks: DeviceBuf::alloc_zeroed(&ctx, N_EXP * MAX_BATCH_TOKENS * 4)?,
+            d_b_exp_pairs: DeviceBuf::alloc_zeroed(&ctx, N_EXP * MAX_BATCH_TOKENS * 4)?,
+            d_b_moe_act: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * TOP_K * FF * 4)?,
+            d_b_pair_y: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * TOP_K * D * 4)?,
+            d_b_moe_y: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * D * 4)?,
+            d_b_act_q8_64: DeviceBuf::alloc_zeroed(&ctx, 3 * MAX_BATCH_TOKENS * 3072)?,
+            d_b_act_sc_64: DeviceBuf::alloc_zeroed(&ctx, 3 * MAX_BATCH_TOKENS * 48 * 4)?,
+            d_b_act_q8_16: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * TOP_K * FF)?,
+            d_b_act_sc_16: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * TOP_K * (FF / 16) * 4)?,
+            d_spec_logits: DeviceBuf::alloc_zeroed(&ctx, MAX_SPEC_TOKENS * VOCAB * 4)?,
+            d_spec_tokens_out: DeviceBuf::alloc_zeroed(&ctx, MAX_SPEC_TOKENS * 4)?,
             ctx,
             fns,
             embed,
@@ -963,6 +1057,27 @@ impl Inkling2GpuEngine {
             copy_d: get_fn("ink2_copy_d")?,
             argmax_and_inc_pos: get_fn("ink2_argmax_and_inc_pos")?,
             inc_pos: get_fn("ink2_inc_pos")?,
+            embed_rmsnorm_b: get_fn("ink2_embed_rmsnorm_b")?,
+            rmsnorm_d_b: get_fn("ink2_rmsnorm_d_b")?,
+            rmsnorm_quant_q8_64_b: get_fn("ink2_rmsnorm_quant_q8_64_b")?,
+            quant_q8_64_b: get_fn("ink2_quant_q8_64_b")?,
+            depth_mix_b: get_fn("ink2_depth_mix_b")?,
+            ctrl_down_b: get_fn("ink2_ctrl_down_b")?,
+            ctrl_apply_b: get_fn("ink2_ctrl_apply_b")?,
+            q8_dp4a_gemm_b: get_fn("ink2_q8_dp4a_gemm_b")?,
+            short_conv4_b: get_fn("ink2_short_conv4_b")?,
+            prep_qkv_and_cache_b: get_fn("ink2_prep_qkv_and_cache_b")?,
+            gqa_rel_sink_attn_b: get_fn("ink2_gqa_rel_sink_attn_b")?,
+            bf16_gemm_router_b: get_fn("ink2_bf16_gemm_router_b")?,
+            router_topk8_b: get_fn("ink2_router_topk8_b")?,
+            build_expert_groups_b: get_fn("ink2_build_expert_groups_b")?,
+            moe_nvfp4_dp4a_grouped_up_situ: get_fn("ink2_moe_nvfp4_dp4a_grouped_up_situ")?,
+            moe_nvfp4_dp4a_grouped_down: get_fn("ink2_moe_nvfp4_dp4a_grouped_down")?,
+            moe_mxfp8_grouped_up_situ: get_fn("ink2_moe_mxfp8_grouped_up_situ")?,
+            moe_mxfp8_grouped_down: get_fn("ink2_moe_mxfp8_grouped_down")?,
+            moe_combine_top8_b: get_fn("ink2_moe_combine_top8_b")?,
+            inc_pos_by: get_fn("ink2_inc_pos_by")?,
+            argmax_b: get_fn("ink2_argmax_b")?,
         })
     }
 
@@ -1889,29 +2004,1163 @@ impl Inkling2GpuEngine {
             return Err(format!("prefill exceeded max_ctx ({})", self.max_ctx));
         }
         let t0 = Instant::now();
-        let n_prefix = tokens.len() - 1;
-        if n_prefix > 0 {
-            unsafe {
-                check_cu(
-                    (self.ctx.api.cuMemcpyHtoDAsync_v2)(
-                        self.d_prefill_tokens.ptr + (self.host_pos * 4) as u64,
-                        tokens.as_ptr().cast(),
-                        n_prefix * 4,
-                        self.ctx.compute_stream,
-                    ),
-                    "HtoD(prefill_tokens)",
+
+        if std::env::var("LEANSONIC_SERIAL_PREFILL")
+            .map(|v| v == "1")
+            .unwrap_or(false)
+        {
+            let n_prefix = tokens.len() - 1;
+            if n_prefix > 0 {
+                unsafe {
+                    check_cu(
+                        (self.ctx.api.cuMemcpyHtoDAsync_v2)(
+                            self.d_prefill_tokens.ptr + (self.host_pos * 4) as u64,
+                            tokens.as_ptr().cast(),
+                            n_prefix * 4,
+                            self.ctx.compute_stream,
+                        ),
+                        "HtoD(prefill_tokens)",
+                    )?;
+                }
+                for _ in 0..n_prefix {
+                    if let Some(ref p_graph) = self.prefill_graph {
+                        p_graph.replay()?;
+                    } else {
+                        self.enqueue_step_impl(self.ctx.compute_stream, true)?;
+                    }
+                }
+                self.host_pos += n_prefix;
+            }
+            let next_tok = self.forward_greedy_token(tokens[n_prefix])?;
+            return Ok((next_tok, t0.elapsed().as_secs_f64() * 1000.0));
+        }
+
+        // Fast Single-Token Shortcut when `tokens.len() == 1`
+        if tokens.len() == 1 {
+            let next_tok = self.forward_greedy_token(tokens[0])?;
+            return Ok((next_tok, t0.elapsed().as_secs_f64() * 1000.0));
+        }
+
+        unsafe {
+            check_cu(
+                (self.ctx.api.cuMemcpyHtoDAsync_v2)(
+                    self.d_prefill_tokens.ptr + (self.host_pos * 4) as u64,
+                    tokens.as_ptr().cast(),
+                    tokens.len() * 4,
+                    self.ctx.compute_stream,
+                ),
+                "HtoD(prefill_tokens_batch)",
+            )?;
+        }
+
+        let mut offset = 0usize;
+        let mut next_tok = 0u32;
+        while offset < tokens.len() {
+            let rem = tokens.len() - offset;
+            let chunk_len = rem.min(MAX_BATCH_TOKENS);
+            let is_last = offset + chunk_len == tokens.len();
+
+            if is_last && chunk_len == 1 {
+                next_tok = self.forward_greedy_token(tokens[offset])?;
+                break;
+            }
+
+            let tok_ptr = self.d_prefill_tokens.ptr + ((self.host_pos) * 4) as u64;
+            let head_mode = if is_last {
+                BatchHeadMode::LastOnly
+            } else {
+                BatchHeadMode::None
+            };
+            self.enqueue_batch_step_impl(self.ctx.compute_stream, tok_ptr, chunk_len, head_mode)?;
+            self.host_pos += chunk_len;
+            offset += chunk_len;
+
+            if is_last {
+                self.ctx.sync_compute()?;
+                let mut out_tok = 0i32;
+                unsafe {
+                    check_cu(
+                        (self.ctx.api.cuMemcpyDtoH_v2)(
+                            (&mut out_tok as *mut i32).cast(),
+                            self.d_token_out.ptr,
+                            4,
+                        ),
+                        "DtoH(batch_token_out)",
+                    )?;
+                }
+                next_tok = out_tok as u32;
+            }
+        }
+
+        Ok((next_tok, t0.elapsed().as_secs_f64() * 1000.0))
+    }
+
+    /// Unified Multi-Token Verification Step (`1 <= tokens.len() <= MAX_SPEC_TOKENS`):
+    /// Computes greedy argmax predictions for ALL `B` input tokens in one forward pass!
+    pub fn forward_verify_batch_tokens(&mut self, tokens: &[u32]) -> Result<Vec<u32>, String> {
+        assert!(!tokens.is_empty() && tokens.len() <= MAX_SPEC_TOKENS);
+        if self.host_pos + tokens.len() > self.max_ctx {
+            return Err(format!("verify batch exceeded max_ctx ({})", self.max_ctx));
+        }
+        let b_len = tokens.len();
+        let tok_ptr = self.d_prefill_tokens.ptr + (self.host_pos * 4) as u64;
+        unsafe {
+            check_cu(
+                (self.ctx.api.cuMemcpyHtoDAsync_v2)(
+                    tok_ptr,
+                    tokens.as_ptr().cast(),
+                    b_len * 4,
+                    self.ctx.compute_stream,
+                ),
+                "HtoD(verify_tokens)",
+            )?;
+        }
+        self.enqueue_batch_step_impl(
+            self.ctx.compute_stream,
+            tok_ptr,
+            b_len,
+            BatchHeadMode::AllHeads,
+        )?;
+        self.ctx.sync_compute()?;
+        self.host_pos += b_len;
+        let mut out_i32 = vec![0i32; b_len];
+        unsafe {
+            check_cu(
+                (self.ctx.api.cuMemcpyDtoH_v2)(
+                    out_i32.as_mut_ptr().cast(),
+                    self.d_spec_tokens_out.ptr,
+                    b_len * 4,
+                ),
+                "DtoH(spec_tokens_out)",
+            )?;
+        }
+        Ok(out_i32.into_iter().map(|v| v as u32).collect())
+    }
+
+    fn enqueue_copy_n(
+        &self,
+        stream: CUstream,
+        src: CUdeviceptr,
+        dst: CUdeviceptr,
+        n_floats: usize,
+    ) -> Result<(), String> {
+        let mut p_src = src;
+        let mut p_dst = dst;
+        let mut n = n_floats as i32;
+        let mut args: [*mut c_void; 3] = [
+            (&mut p_src as *mut _) as *mut c_void,
+            (&mut p_dst as *mut _) as *mut c_void,
+            (&mut n as *mut _) as *mut c_void,
+        ];
+        let grid_x = (n_floats as u32).div_ceil(256);
+        self.launch(stream, self.fns.copy_d, (grid_x, 1), 256, &mut args)
+    }
+
+    fn enqueue_ctrl_n_b(
+        &self,
+        stream: CUstream,
+        cur_ptr: CUdeviceptr,
+        msg_ptr: CUdeviceptr,
+        ctrl: &CtrlGpu,
+        n_ctrls: u32,
+        b_len: usize,
+    ) -> Result<(), String> {
+        let b_u32 = b_len as u32;
+        let mut b_i32 = b_len as i32;
+        let mut p_cur = cur_ptr;
+        let mut p_msg = msg_ptr;
+        let mut p_down = ctrl.down.ptr;
+        let mut p_g = self.d_b_ctrl_g.ptr;
+        let mut args1: [*mut c_void; 5] = [
+            (&mut p_cur as *mut _) as *mut c_void,
+            (&mut p_msg as *mut _) as *mut c_void,
+            (&mut p_down as *mut _) as *mut c_void,
+            (&mut p_g as *mut _) as *mut c_void,
+            (&mut b_i32 as *mut _) as *mut c_void,
+        ];
+        self.launch(
+            stream,
+            self.fns.ctrl_down_b,
+            (64, n_ctrls * b_u32),
+            256,
+            &mut args1,
+        )?;
+
+        let mut p_gain = ctrl.gain.ptr;
+        let mut p_forget = ctrl.forget.ptr;
+        let mut args2: [*mut c_void; 6] = [
+            (&mut p_cur as *mut _) as *mut c_void,
+            (&mut p_msg as *mut _) as *mut c_void,
+            (&mut p_g as *mut _) as *mut c_void,
+            (&mut p_gain as *mut _) as *mut c_void,
+            (&mut p_forget as *mut _) as *mut c_void,
+            (&mut b_i32 as *mut _) as *mut c_void,
+        ];
+        self.launch(
+            stream,
+            self.fns.ctrl_apply_b,
+            (9, n_ctrls * b_u32),
+            256,
+            &mut args2,
+        )
+    }
+
+    fn enqueue_rmsnorm_quant_q8_64_b(
+        &self,
+        stream: CUstream,
+        inp_ptr: CUdeviceptr,
+        gamma_ptr: CUdeviceptr,
+        count: u32,
+        b_len: usize,
+    ) -> Result<(), String> {
+        let mut pin = inp_ptr;
+        let mut pg = gamma_ptr;
+        let mut pq = self.d_b_act_q8_64.ptr;
+        let mut ps = self.d_b_act_sc_64.ptr;
+        let mut b_i32 = b_len as i32;
+        let mut args: [*mut c_void; 5] = [
+            (&mut pin as *mut _) as *mut c_void,
+            (&mut pg as *mut _) as *mut c_void,
+            (&mut pq as *mut _) as *mut c_void,
+            (&mut ps as *mut _) as *mut c_void,
+            (&mut b_i32 as *mut _) as *mut c_void,
+        ];
+        self.launch(
+            stream,
+            self.fns.rmsnorm_quant_q8_64_b,
+            (b_len as u32, count),
+            256,
+            &mut args,
+        )
+    }
+
+    fn enqueue_quant_q8_64_b(
+        &self,
+        stream: CUstream,
+        x_ptr: CUdeviceptr,
+        cols: usize,
+        b_len: usize,
+    ) -> Result<(), String> {
+        let mut px = x_ptr;
+        let mut pq = self.d_b_act_q8_64.ptr;
+        let mut ps = self.d_b_act_sc_64.ptr;
+        let mut c = cols as i32;
+        let mut args: [*mut c_void; 4] = [
+            (&mut px as *mut _) as *mut c_void,
+            (&mut pq as *mut _) as *mut c_void,
+            (&mut ps as *mut _) as *mut c_void,
+            (&mut c as *mut _) as *mut c_void,
+        ];
+        self.launch(
+            stream,
+            self.fns.quant_q8_64_b,
+            ((cols / 64) as u32, b_len as u32),
+            64,
+            &mut args,
+        )
+    }
+
+    fn enqueue_quant_q8_16_b(
+        &self,
+        stream: CUstream,
+        x_ptr: CUdeviceptr,
+        n_vecs: usize,
+        cols: usize,
+    ) -> Result<(), String> {
+        let mut px = x_ptr;
+        let mut pq = self.d_b_act_q8_16.ptr;
+        let mut ps = self.d_b_act_sc_16.ptr;
+        let mut c = cols as i32;
+        let mut args: [*mut c_void; 4] = [
+            (&mut px as *mut _) as *mut c_void,
+            (&mut pq as *mut _) as *mut c_void,
+            (&mut ps as *mut _) as *mut c_void,
+            (&mut c as *mut _) as *mut c_void,
+        ];
+        self.launch(
+            stream,
+            self.fns.quant_q8_16,
+            ((cols / 16) as u32, n_vecs as u32),
+            32,
+            &mut args,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn enqueue_q8_gemm_slice_at(
+        &self,
+        stream: CUstream,
+        w: &PlanarQ8Gpu,
+        row_offset: usize,
+        rows: i32,
+        act_slot: usize,
+        b_len: usize,
+        y_ptr: CUdeviceptr,
+        y_stride: i32,
+        softcap: f32,
+    ) -> Result<(), String> {
+        let cols = w.cols as usize;
+        let mut pw = w.codes.ptr + (row_offset * cols) as u64;
+        let mut pws = w.scales64.ptr + (row_offset * (cols / 64) * 4) as u64;
+        let mut px = self.d_b_act_q8_64.ptr + (act_slot * b_len * cols) as u64;
+        let mut pxs = self.d_b_act_sc_64.ptr + (act_slot * b_len * (cols / 64) * 4) as u64;
+        let mut py = y_ptr;
+        let mut r = rows;
+        let mut c = w.cols;
+        let mut b_i32 = b_len as i32;
+        let mut ys = y_stride;
+        let mut sc = softcap;
+        let mut args: [*mut c_void; 10] = [
+            (&mut pw as *mut _) as *mut c_void,
+            (&mut pws as *mut _) as *mut c_void,
+            (&mut px as *mut _) as *mut c_void,
+            (&mut pxs as *mut _) as *mut c_void,
+            (&mut py as *mut _) as *mut c_void,
+            (&mut r as *mut _) as *mut c_void,
+            (&mut c as *mut _) as *mut c_void,
+            (&mut b_i32 as *mut _) as *mut c_void,
+            (&mut ys as *mut _) as *mut c_void,
+            (&mut sc as *mut _) as *mut c_void,
+        ];
+        let grid_x = (rows as u32).div_ceil(16);
+        let grid_y = (b_len as u32).div_ceil(8);
+        self.launch(
+            stream,
+            self.fns.q8_dp4a_gemm_b,
+            (grid_x, grid_y),
+            256,
+            &mut args,
+        )
+    }
+
+    fn enqueue_batch_visit(
+        &self,
+        stream: CUstream,
+        il: usize,
+        slot_idx: usize,
+        b_len: usize,
+        n_blocks: &mut usize,
+        has_msgs: bool,
+    ) -> Result<(), String> {
+        let l = &self.layers[il];
+        let st = &self.slots[slot_idx];
+        let b_u32 = b_len as u32;
+        let b_i32 = b_len as i32;
+        let bd_floats = b_len * D;
+        let bd_bytes = (bd_floats * 4) as u64;
+
+        // 1. Batched Attention inputs `[xq, xk, xv]` (`[3, b_len, D]`)
+        if let Some(ref aq) = l.attn_query {
+            let n_q: u32 = if l.global { 3 } else { 1 };
+            let mut pb = self.d_b_blocks.ptr;
+            let mut nb = *n_blocks as i32;
+            let mut sb = b_i32;
+            let mut bo = 0i32;
+            let mut bout = b_i32;
+            let mut pc = self.d_b_cur.ptr;
+            let mut ac = 1i32;
+            let mut pq = aq.ptr;
+            let mut pout = self.d_b_inputs.ptr;
+            let mut b3 = i32::from(!l.global && has_msgs);
+            let mut args: [*mut c_void; 10] = [
+                (&mut pb as *mut _) as *mut c_void,
+                (&mut nb as *mut _) as *mut c_void,
+                (&mut sb as *mut _) as *mut c_void,
+                (&mut bo as *mut _) as *mut c_void,
+                (&mut bout as *mut _) as *mut c_void,
+                (&mut pc as *mut _) as *mut c_void,
+                (&mut ac as *mut _) as *mut c_void,
+                (&mut pq as *mut _) as *mut c_void,
+                (&mut pout as *mut _) as *mut c_void,
+                (&mut b3 as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, self.fns.depth_mix_b, (n_q, b_u32), 256, &mut args)?;
+        } else {
+            self.enqueue_copy_n(stream, self.d_b_cur.ptr, self.d_b_inputs.ptr, bd_floats)?;
+            if l.global || has_msgs {
+                self.enqueue_copy_n(
+                    stream,
+                    self.d_b_cur.ptr,
+                    self.d_b_inputs.ptr + bd_bytes,
+                    bd_floats,
+                )?;
+                self.enqueue_copy_n(
+                    stream,
+                    self.d_b_cur.ptr,
+                    self.d_b_inputs.ptr + 2 * bd_bytes,
+                    bd_floats,
                 )?;
             }
-            for _ in 0..n_prefix {
-                if let Some(ref p_graph) = self.prefill_graph {
-                    p_graph.replay()?;
-                } else {
-                    self.enqueue_step_impl(self.ctx.compute_stream, true)?;
-                }
-            }
-            self.host_pos += n_prefix;
         }
-        let next_tok = self.forward_greedy_token(tokens[n_prefix])?;
-        Ok((next_tok, t0.elapsed().as_secs_f64() * 1000.0))
+
+        // 2. Batched Loop Core Controller (`pass > 0`)
+        if has_msgs {
+            self.enqueue_ctrl_n_b(
+                stream,
+                self.d_b_inputs.ptr,
+                self.d_b_msgs.ptr,
+                l.ctrl3.as_ref().unwrap(),
+                3,
+                b_len,
+            )?;
+        }
+
+        // 3. Fused Batched `RMSNorm + Q8_64` + `ink2_q8_dp4a_gemm_b`
+        let distinct_k_v = l.global || has_msgs;
+        let norm_count: u32 = if distinct_k_v { 3 } else { 1 };
+        self.enqueue_rmsnorm_quant_q8_64_b(
+            stream,
+            self.d_b_inputs.ptr,
+            l.norms_packed.ptr,
+            norm_count,
+            b_len,
+        )?;
+
+        let k_raw_ptr: CUdeviceptr;
+        let k_in_stride: i32;
+        let v_raw_ptr: CUdeviceptr;
+        let v_in_stride: i32;
+
+        if !distinct_k_v {
+            self.enqueue_q8_gemm_slice_at(
+                stream,
+                &l.wq_all_q8,
+                0,
+                SWA_ALL_ROWS as i32,
+                0,
+                b_len,
+                self.d_b_qrgs.ptr,
+                SWA_ALL_ROWS as i32,
+                0.0,
+            )?;
+            k_raw_ptr = self.d_b_qrgs.ptr + (SWA_K_OFFSET as u64) * 4;
+            k_in_stride = SWA_ALL_ROWS as i32;
+            v_raw_ptr = self.d_b_qrgs.ptr + (SWA_V_OFFSET as u64) * 4;
+            v_in_stride = SWA_ALL_ROWS as i32;
+        } else if l.global {
+            self.enqueue_q8_gemm_slice_at(
+                stream,
+                &l.wq_all_q8,
+                0,
+                QRGS_ROWS as i32,
+                0,
+                b_len,
+                self.d_b_qrgs.ptr,
+                SWA_ALL_ROWS as i32,
+                0.0,
+            )?;
+            self.enqueue_q8_gemm_slice_at(
+                stream,
+                l.wk_glob_q8.as_ref().unwrap(),
+                0,
+                1056,
+                1,
+                b_len,
+                self.d_b_k_raw.ptr,
+                1056,
+                0.0,
+            )?;
+            self.enqueue_q8_gemm_slice_at(
+                stream,
+                l.wv_glob_q8.as_ref().unwrap(),
+                0,
+                1056,
+                2,
+                b_len,
+                self.d_b_v_raw.ptr,
+                1056,
+                0.0,
+            )?;
+            k_raw_ptr = self.d_b_k_raw.ptr;
+            k_in_stride = 1056;
+            v_raw_ptr = self.d_b_v_raw.ptr;
+            v_in_stride = 1056;
+        } else {
+            self.enqueue_q8_gemm_slice_at(
+                stream,
+                &l.wq_all_q8,
+                0,
+                QRGS_ROWS as i32,
+                0,
+                b_len,
+                self.d_b_qrgs.ptr,
+                SWA_ALL_ROWS as i32,
+                0.0,
+            )?;
+            self.enqueue_q8_gemm_slice_at(
+                stream,
+                &l.wq_all_q8,
+                SWA_K_OFFSET,
+                1024,
+                1,
+                b_len,
+                self.d_b_k_raw.ptr,
+                1024,
+                0.0,
+            )?;
+            self.enqueue_q8_gemm_slice_at(
+                stream,
+                &l.wq_all_q8,
+                SWA_V_OFFSET,
+                1024,
+                2,
+                b_len,
+                self.d_b_v_raw.ptr,
+                1024,
+                0.0,
+            )?;
+            k_raw_ptr = self.d_b_k_raw.ptr;
+            k_in_stride = 1024;
+            v_raw_ptr = self.d_b_v_raw.ptr;
+            v_in_stride = 1024;
+        }
+
+        // 4. Register-Persistent Causal `short_conv4` for K & V
+        for (raw_ptr, raw_stride, conv_w, hist_ptr, dst_ptr) in [
+            (
+                k_raw_ptr,
+                k_in_stride,
+                l.k_conv4.ptr,
+                st.hist_k.ptr,
+                self.d_b_k_conv.ptr,
+            ),
+            (
+                v_raw_ptr,
+                v_in_stride,
+                l.v_conv4.ptr,
+                st.hist_v.ptr,
+                self.d_b_v_conv.ptr,
+            ),
+        ] {
+            let mut p_cur = raw_ptr;
+            let mut ins = raw_stride;
+            let mut p_w = conv_w;
+            let mut p_dyn = if l.global { raw_ptr + 1024 * 4 } else { 0 };
+            let mut df4 = 264i32; // 1056 / 4
+            let mut p_hist = hist_ptr;
+            let mut p_out = dst_ptr;
+            let mut outs = 1024i32;
+            let mut p_res: CUdeviceptr = 0;
+            let mut ress = 0i32;
+            let mut ch = 1024i32;
+            let mut bi = b_i32;
+            let mut hd = i32::from(l.global);
+            let mut dr = 0i32;
+            let mut args: [*mut c_void; 14] = [
+                (&mut p_cur as *mut _) as *mut c_void,
+                (&mut ins as *mut _) as *mut c_void,
+                (&mut p_w as *mut _) as *mut c_void,
+                (&mut p_dyn as *mut _) as *mut c_void,
+                (&mut df4 as *mut _) as *mut c_void,
+                (&mut p_hist as *mut _) as *mut c_void,
+                (&mut p_out as *mut _) as *mut c_void,
+                (&mut outs as *mut _) as *mut c_void,
+                (&mut p_res as *mut _) as *mut c_void,
+                (&mut ress as *mut _) as *mut c_void,
+                (&mut ch as *mut _) as *mut c_void,
+                (&mut bi as *mut _) as *mut c_void,
+                (&mut hd as *mut _) as *mut c_void,
+                (&mut dr as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, self.fns.short_conv4_b, (4, 1), 256, &mut args)?;
+        }
+
+        // 5. Batched Q/R/K Clip + V RMSNorm + KV Cache Write (Ring-Hazard-Free via `1088 >= 1024 + 64`!)
+        {
+            let mut pqrgs = self.d_b_qrgs.ptr;
+            let mut qstride = SWA_ALL_ROWS as i32;
+            let mut pk = self.d_b_k_conv.ptr;
+            let mut pv = self.d_b_v_conv.ptr;
+            let mut pqc = l.q_clip.ptr;
+            let mut prc = l.rel_clip.ptr;
+            let mut pkc = st.k_cache.ptr;
+            let mut pvc = st.v_cache.ptr;
+            let mut ppos = self.d_pos.ptr;
+            let mut cap = st.kv_cap as i32;
+            let mut ig = i32::from(l.global);
+            let mut args: [*mut c_void; 11] = [
+                (&mut pqrgs as *mut _) as *mut c_void,
+                (&mut qstride as *mut _) as *mut c_void,
+                (&mut pk as *mut _) as *mut c_void,
+                (&mut pv as *mut _) as *mut c_void,
+                (&mut pqc as *mut _) as *mut c_void,
+                (&mut prc as *mut _) as *mut c_void,
+                (&mut pkc as *mut _) as *mut c_void,
+                (&mut pvc as *mut _) as *mut c_void,
+                (&mut ppos as *mut _) as *mut c_void,
+                (&mut cap as *mut _) as *mut c_void,
+                (&mut ig as *mut _) as *mut c_void,
+            ];
+            self.launch(
+                stream,
+                self.fns.prep_qkv_and_cache_b,
+                (5, b_u32),
+                256,
+                &mut args,
+            )?;
+        }
+
+        // 6. Batched GQA Relative-Bias + Sink Attention
+        {
+            let mut pqrgs = self.d_b_qrgs.ptr;
+            let mut qstride = SWA_ALL_ROWS as i32;
+            let mut prp = l.rel_proj.ptr;
+            let mut pkc = st.k_cache.ptr;
+            let mut pvc = st.v_cache.ptr;
+            let mut ppos = self.d_pos.ptr;
+            let mut cap = st.kv_cap as i32;
+            let mut ig = i32::from(l.global);
+            let mut pout = self.d_b_attn_out.ptr;
+            let mut args: [*mut c_void; 9] = [
+                (&mut pqrgs as *mut _) as *mut c_void,
+                (&mut qstride as *mut _) as *mut c_void,
+                (&mut prp as *mut _) as *mut c_void,
+                (&mut pkc as *mut _) as *mut c_void,
+                (&mut pvc as *mut _) as *mut c_void,
+                (&mut ppos as *mut _) as *mut c_void,
+                (&mut cap as *mut _) as *mut c_void,
+                (&mut ig as *mut _) as *mut c_void,
+                (&mut pout as *mut _) as *mut c_void,
+            ];
+            self.launch(
+                stream,
+                self.fns.gqa_rel_sink_attn_b,
+                (24, b_u32),
+                256,
+                &mut args,
+            )?;
+        }
+
+        // 7. `wo` Batched `Q8_64` GEMM + `attn_sconv`
+        self.enqueue_quant_q8_64_b(stream, self.d_b_attn_out.ptr, 3072, b_len)?;
+        self.enqueue_q8_gemm_slice_at(
+            stream,
+            &l.wo_q8,
+            0,
+            D as i32,
+            0,
+            b_len,
+            self.d_b_wo_out.ptr,
+            D as i32,
+            0.0,
+        )?;
+
+        let is_block_start = il.is_multiple_of(6);
+        if is_block_start {
+            let blk_dst = self.d_b_blocks.ptr + (*n_blocks as u64) * bd_bytes;
+            self.enqueue_copy_n(stream, self.d_b_cur.ptr, blk_dst, bd_floats)?;
+            *n_blocks += 1;
+        }
+        {
+            let mut p_cur = self.d_b_wo_out.ptr;
+            let mut ins = D as i32;
+            let mut p_w = l.attn_conv4.ptr;
+            let mut p_dyn: CUdeviceptr = 0;
+            let mut df4 = 0i32;
+            let mut p_hist = st.hist_attn.ptr;
+            let mut p_out = self.d_b_cur.ptr;
+            let mut outs = D as i32;
+            let mut p_res = if is_block_start { 0 } else { self.d_b_cur.ptr };
+            let mut ress = D as i32;
+            let mut ch = D as i32;
+            let mut bi = b_i32;
+            let mut hd = 0i32;
+            let mut dr = i32::from(!is_block_start);
+            let mut args: [*mut c_void; 14] = [
+                (&mut p_cur as *mut _) as *mut c_void,
+                (&mut ins as *mut _) as *mut c_void,
+                (&mut p_w as *mut _) as *mut c_void,
+                (&mut p_dyn as *mut _) as *mut c_void,
+                (&mut df4 as *mut _) as *mut c_void,
+                (&mut p_hist as *mut _) as *mut c_void,
+                (&mut p_out as *mut _) as *mut c_void,
+                (&mut outs as *mut _) as *mut c_void,
+                (&mut p_res as *mut _) as *mut c_void,
+                (&mut ress as *mut _) as *mut c_void,
+                (&mut ch as *mut _) as *mut c_void,
+                (&mut bi as *mut _) as *mut c_void,
+                (&mut hd as *mut _) as *mut c_void,
+                (&mut dr as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, self.fns.short_conv4_b, (9, 1), 256, &mut args)?;
+        }
+
+        // 8. Batched MLP Depth Mix + Loop Controller 3 + `mlp_norm`
+        {
+            let mut pb = self.d_b_blocks.ptr;
+            let mut nb = *n_blocks as i32;
+            let mut sb = b_i32;
+            let mut bo = 0i32;
+            let mut bout = b_i32;
+            let mut pc = self.d_b_cur.ptr;
+            let mut ac = 1i32;
+            let mut pq = l.mlp_query.ptr;
+            let mut pout = self.d_b_mlp_h.ptr;
+            let mut b3 = 0i32;
+            let mut args: [*mut c_void; 10] = [
+                (&mut pb as *mut _) as *mut c_void,
+                (&mut nb as *mut _) as *mut c_void,
+                (&mut sb as *mut _) as *mut c_void,
+                (&mut bo as *mut _) as *mut c_void,
+                (&mut bout as *mut _) as *mut c_void,
+                (&mut pc as *mut _) as *mut c_void,
+                (&mut ac as *mut _) as *mut c_void,
+                (&mut pq as *mut _) as *mut c_void,
+                (&mut pout as *mut _) as *mut c_void,
+                (&mut b3 as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, self.fns.depth_mix_b, (1, b_u32), 256, &mut args)?;
+        }
+        if has_msgs {
+            self.enqueue_ctrl_n_b(
+                stream,
+                self.d_b_mlp_h.ptr,
+                self.d_b_msgs.ptr + 3 * bd_bytes,
+                l.ctrl_mlp.as_ref().unwrap(),
+                1,
+                b_len,
+            )?;
+        }
+        {
+            let mut pin = self.d_b_mlp_h.ptr;
+            let mut pg = l.mlp_norm.ptr;
+            let mut pout = self.d_b_mlp_h.ptr;
+            let mut hg = 1i32;
+            let mut args: [*mut c_void; 4] = [
+                (&mut pin as *mut _) as *mut c_void,
+                (&mut pg as *mut _) as *mut c_void,
+                (&mut pout as *mut _) as *mut c_void,
+                (&mut hg as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, self.fns.rmsnorm_d_b, (b_u32, 1), 256, &mut args)?;
+        }
+
+        // 9. Batched BF16 Router + TopK8 + Zero-Atomic Grouped-Expert MoE + Combine!
+        {
+            let mut pw = l.router_w.ptr;
+            let mut px = self.d_b_mlp_h.ptr;
+            let mut py = self.d_b_router_logits.ptr;
+            let mut bi = b_i32;
+            let mut args: [*mut c_void; 4] = [
+                (&mut pw as *mut _) as *mut c_void,
+                (&mut px as *mut _) as *mut c_void,
+                (&mut py as *mut _) as *mut c_void,
+                (&mut bi as *mut _) as *mut c_void,
+            ];
+            self.launch(
+                stream,
+                self.fns.bf16_gemm_router_b,
+                (16, b_u32.div_ceil(4)),
+                256,
+                &mut args,
+            )?;
+        }
+        {
+            let mut pl = self.d_b_router_logits.ptr;
+            let mut pb = l.router_bias.ptr;
+            let mut pids = self.d_b_sel_ids.ptr;
+            let mut pwts = self.d_b_sel_wts.ptr;
+            let mut args: [*mut c_void; 4] = [
+                (&mut pl as *mut _) as *mut c_void,
+                (&mut pb as *mut _) as *mut c_void,
+                (&mut pids as *mut _) as *mut c_void,
+                (&mut pwts as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, self.fns.router_topk8_b, (b_u32, 1), 32, &mut args)?;
+        }
+        {
+            let mut pids = self.d_b_sel_ids.ptr;
+            let mut pcnt = self.d_b_exp_counts.ptr;
+            let mut ptok = self.d_b_exp_toks.ptr;
+            let mut ppair = self.d_b_exp_pairs.ptr;
+            let mut bi = b_i32;
+            let mut args: [*mut c_void; 5] = [
+                (&mut pids as *mut _) as *mut c_void,
+                (&mut pcnt as *mut _) as *mut c_void,
+                (&mut ptok as *mut _) as *mut c_void,
+                (&mut ppair as *mut _) as *mut c_void,
+                (&mut bi as *mut _) as *mut c_void,
+            ];
+            self.launch(
+                stream,
+                self.fns.build_expert_groups_b,
+                (1, 1),
+                128,
+                &mut args,
+            )?;
+        }
+
+        match &l.experts {
+            ExpertsGpu::Nvfp4 {
+                w13,
+                s13,
+                a13,
+                w2,
+                s2,
+                a2,
+            } => {
+                self.enqueue_quant_q8_16_b(stream, self.d_b_mlp_h.ptr, b_len, D)?;
+                let mut pw13 = w13.ptr();
+                let mut ps13 = s13.ptr;
+                let mut pa13 = a13.ptr;
+                let mut pxq = self.d_b_act_q8_16.ptr;
+                let mut pxs = self.d_b_act_sc_16.ptr;
+                let mut pcnt = self.d_b_exp_counts.ptr;
+                let mut ptok = self.d_b_exp_toks.ptr;
+                let mut ppair = self.d_b_exp_pairs.ptr;
+                let mut pact = self.d_b_moe_act.ptr;
+                let mut up_args: [*mut c_void; 9] = [
+                    (&mut pw13 as *mut _) as *mut c_void,
+                    (&mut ps13 as *mut _) as *mut c_void,
+                    (&mut pa13 as *mut _) as *mut c_void,
+                    (&mut pxq as *mut _) as *mut c_void,
+                    (&mut pxs as *mut _) as *mut c_void,
+                    (&mut pcnt as *mut _) as *mut c_void,
+                    (&mut ptok as *mut _) as *mut c_void,
+                    (&mut ppair as *mut _) as *mut c_void,
+                    (&mut pact as *mut _) as *mut c_void,
+                ];
+                self.launch(
+                    stream,
+                    self.fns.moe_nvfp4_dp4a_grouped_up_situ,
+                    (72, 128),
+                    256,
+                    &mut up_args,
+                )?;
+
+                self.enqueue_quant_q8_16_b(stream, self.d_b_moe_act.ptr, b_len * TOP_K, FF)?;
+                let mut pw2 = w2.ptr();
+                let mut ps2 = s2.ptr;
+                let mut pa2 = a2.ptr;
+                let mut ppy = self.d_b_pair_y.ptr;
+                let mut dn_args: [*mut c_void; 8] = [
+                    (&mut pw2 as *mut _) as *mut c_void,
+                    (&mut ps2 as *mut _) as *mut c_void,
+                    (&mut pa2 as *mut _) as *mut c_void,
+                    (&mut pxq as *mut _) as *mut c_void,
+                    (&mut pxs as *mut _) as *mut c_void,
+                    (&mut pcnt as *mut _) as *mut c_void,
+                    (&mut ppair as *mut _) as *mut c_void,
+                    (&mut ppy as *mut _) as *mut c_void,
+                ];
+                self.launch(
+                    stream,
+                    self.fns.moe_nvfp4_dp4a_grouped_down,
+                    (72, 128),
+                    256,
+                    &mut dn_args,
+                )?;
+            }
+            ExpertsGpu::Mxfp8 { w13, s13, w2, s2 } => {
+                let mut pw13 = w13.ptr();
+                let mut ps13 = s13.ptr;
+                let mut px = self.d_b_mlp_h.ptr;
+                let mut pcnt = self.d_b_exp_counts.ptr;
+                let mut ptok = self.d_b_exp_toks.ptr;
+                let mut ppair = self.d_b_exp_pairs.ptr;
+                let mut pact = self.d_b_moe_act.ptr;
+                let mut up_args: [*mut c_void; 7] = [
+                    (&mut pw13 as *mut _) as *mut c_void,
+                    (&mut ps13 as *mut _) as *mut c_void,
+                    (&mut px as *mut _) as *mut c_void,
+                    (&mut pcnt as *mut _) as *mut c_void,
+                    (&mut ptok as *mut _) as *mut c_void,
+                    (&mut ppair as *mut _) as *mut c_void,
+                    (&mut pact as *mut _) as *mut c_void,
+                ];
+                self.launch(
+                    stream,
+                    self.fns.moe_mxfp8_grouped_up_situ,
+                    (72, 128),
+                    256,
+                    &mut up_args,
+                )?;
+
+                let mut pw2 = w2.ptr();
+                let mut ps2 = s2.ptr;
+                let mut ppy = self.d_b_pair_y.ptr;
+                let mut dn_args: [*mut c_void; 6] = [
+                    (&mut pw2 as *mut _) as *mut c_void,
+                    (&mut ps2 as *mut _) as *mut c_void,
+                    (&mut pact as *mut _) as *mut c_void,
+                    (&mut pcnt as *mut _) as *mut c_void,
+                    (&mut ppair as *mut _) as *mut c_void,
+                    (&mut ppy as *mut _) as *mut c_void,
+                ];
+                self.launch(
+                    stream,
+                    self.fns.moe_mxfp8_grouped_down,
+                    (72, 128),
+                    256,
+                    &mut dn_args,
+                )?;
+            }
+        }
+
+        {
+            let mut ppy = self.d_b_pair_y.ptr;
+            let mut pwts = self.d_b_sel_wts.ptr;
+            let mut pout = self.d_b_moe_y.ptr;
+            let mut bi = b_i32;
+            let mut args: [*mut c_void; 4] = [
+                (&mut ppy as *mut _) as *mut c_void,
+                (&mut pwts as *mut _) as *mut c_void,
+                (&mut pout as *mut _) as *mut c_void,
+                (&mut bi as *mut _) as *mut c_void,
+            ];
+            self.launch(
+                stream,
+                self.fns.moe_combine_top8_b,
+                (9, b_u32),
+                256,
+                &mut args,
+            )?;
+        }
+
+        // 10. `mlp_sconv` + Residual Add into `d_b_cur`
+        {
+            let mut p_cur = self.d_b_moe_y.ptr;
+            let mut ins = D as i32;
+            let mut p_w = l.mlp_conv4.ptr;
+            let mut p_dyn: CUdeviceptr = 0;
+            let mut df4 = 0i32;
+            let mut p_hist = st.hist_mlp.ptr;
+            let mut p_out = self.d_b_cur.ptr;
+            let mut outs = D as i32;
+            let mut p_res = self.d_b_cur.ptr;
+            let mut ress = D as i32;
+            let mut ch = D as i32;
+            let mut bi = b_i32;
+            let mut hd = 0i32;
+            let mut dr = 1i32;
+            let mut args: [*mut c_void; 14] = [
+                (&mut p_cur as *mut _) as *mut c_void,
+                (&mut ins as *mut _) as *mut c_void,
+                (&mut p_w as *mut _) as *mut c_void,
+                (&mut p_dyn as *mut _) as *mut c_void,
+                (&mut df4 as *mut _) as *mut c_void,
+                (&mut p_hist as *mut _) as *mut c_void,
+                (&mut p_out as *mut _) as *mut c_void,
+                (&mut outs as *mut _) as *mut c_void,
+                (&mut p_res as *mut _) as *mut c_void,
+                (&mut ress as *mut _) as *mut c_void,
+                (&mut ch as *mut _) as *mut c_void,
+                (&mut bi as *mut _) as *mut c_void,
+                (&mut hd as *mut _) as *mut c_void,
+                (&mut dr as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, self.fns.short_conv4_b, (9, 1), 256, &mut args)?;
+        }
+
+        Ok(())
+    }
+
+    fn enqueue_batch_step_impl(
+        &self,
+        stream: CUstream,
+        tokens_dev_ptr: CUdeviceptr,
+        b_len: usize,
+        head_mode: BatchHeadMode,
+    ) -> Result<(), String> {
+        let b_u32 = b_len as u32;
+        let b_i32 = b_len as i32;
+        let bd_floats = b_len * D;
+        let bd_bytes = (bd_floats * 4) as u64;
+
+        // 0. Batched Embed + `embed_norm`
+        {
+            let mut pe = self.embed.ptr();
+            let mut pn = self.embed_norm.ptr;
+            let mut pt = tokens_dev_ptr;
+            let mut px = self.d_b_cur.ptr;
+            let mut args: [*mut c_void; 4] = [
+                (&mut pe as *mut _) as *mut c_void,
+                (&mut pn as *mut _) as *mut c_void,
+                (&mut pt as *mut _) as *mut c_void,
+                (&mut px as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, self.fns.embed_rmsnorm_b, (b_u32, 1), 256, &mut args)?;
+        }
+
+        let mut n_blocks = 0usize;
+        for il in 0..6 {
+            self.enqueue_batch_visit(stream, il, il, b_len, &mut n_blocks, false)?;
+        }
+        debug_assert_eq!(n_blocks, 1);
+        self.enqueue_copy_n(stream, self.d_b_cur.ptr, self.d_b_prelude_x.ptr, bd_floats)?;
+        self.enqueue_copy_n(
+            stream,
+            self.d_b_blocks.ptr,
+            self.d_b_prelude_block0.ptr,
+            bd_floats,
+        )?;
+
+        for pass in 0..3 {
+            if pass > 0 {
+                self.enqueue_copy_n(
+                    stream,
+                    self.d_b_blocks.ptr + 2 * bd_bytes,
+                    self.d_b_bank.ptr,
+                    bd_floats,
+                )?;
+                self.enqueue_copy_n(
+                    stream,
+                    self.d_b_cur.ptr,
+                    self.d_b_bank.ptr + bd_bytes,
+                    bd_floats,
+                )?;
+                self.enqueue_copy_n(stream, self.d_b_prelude_x.ptr, self.d_b_cur.ptr, bd_floats)?;
+                self.enqueue_copy_n(
+                    stream,
+                    self.d_b_prelude_block0.ptr,
+                    self.d_b_blocks.ptr,
+                    bd_floats,
+                )?;
+                n_blocks = 1;
+            }
+            for ip in 6..18 {
+                let slot = if pass == 0 {
+                    ip
+                } else {
+                    N_LAYER + (pass - 1) * 12 + (ip - 6)
+                };
+                if pass > 0 {
+                    let mq = self.layers[ip].msg_query.as_ref().unwrap();
+                    let mut pb = self.d_b_bank.ptr;
+                    let mut nb = 2i32;
+                    let mut sb = b_i32;
+                    let mut bo = 0i32;
+                    let mut bout = b_i32;
+                    let mut pc: CUdeviceptr = 0;
+                    let mut ac = 0i32;
+                    let mut pq = mq.ptr;
+                    let mut pout = self.d_b_msgs.ptr;
+                    let mut b3 = 0i32;
+                    let mut args: [*mut c_void; 10] = [
+                        (&mut pb as *mut _) as *mut c_void,
+                        (&mut nb as *mut _) as *mut c_void,
+                        (&mut sb as *mut _) as *mut c_void,
+                        (&mut bo as *mut _) as *mut c_void,
+                        (&mut bout as *mut _) as *mut c_void,
+                        (&mut pc as *mut _) as *mut c_void,
+                        (&mut ac as *mut _) as *mut c_void,
+                        (&mut pq as *mut _) as *mut c_void,
+                        (&mut pout as *mut _) as *mut c_void,
+                        (&mut b3 as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, self.fns.depth_mix_b, (4, b_u32), 256, &mut args)?;
+                }
+                self.enqueue_batch_visit(stream, ip, slot, b_len, &mut n_blocks, pass > 0)?;
+            }
+        }
+
+        for il in 18..24 {
+            self.enqueue_batch_visit(stream, il, il, b_len, &mut n_blocks, false)?;
+        }
+        debug_assert_eq!(n_blocks, 4);
+
+        match head_mode {
+            BatchHeadMode::None => {}
+            BatchHeadMode::LastOnly => {
+                let mut pb = self.d_b_blocks.ptr;
+                let mut nb = n_blocks as i32;
+                let mut sb = b_i32;
+                let mut bo = (b_len - 1) as i32;
+                let mut bout = 1i32;
+                let mut pc = self.d_b_cur.ptr;
+                let mut ac = 1i32;
+                let mut pq = self.output_query.ptr;
+                let mut pout = self.d_mlp_h.ptr;
+                let mut b3 = 0i32;
+                let mut args: [*mut c_void; 10] = [
+                    (&mut pb as *mut _) as *mut c_void,
+                    (&mut nb as *mut _) as *mut c_void,
+                    (&mut sb as *mut _) as *mut c_void,
+                    (&mut bo as *mut _) as *mut c_void,
+                    (&mut bout as *mut _) as *mut c_void,
+                    (&mut pc as *mut _) as *mut c_void,
+                    (&mut ac as *mut _) as *mut c_void,
+                    (&mut pq as *mut _) as *mut c_void,
+                    (&mut pout as *mut _) as *mut c_void,
+                    (&mut b3 as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, self.fns.depth_mix_b, (1, 1), 256, &mut args)?;
+                self.enqueue_rmsnorm_quant_q8_64(stream, self.d_mlp_h.ptr, self.final_norm.ptr, 1)?;
+                self.enqueue_q8_gemv_slice_at(
+                    stream,
+                    &self.unembed_q8,
+                    0,
+                    VOCAB as i32,
+                    0,
+                    self.d_logits.ptr,
+                    30.0,
+                )?;
+                let mut pl = self.d_logits.ptr;
+                let mut pt = self.d_token_out.ptr;
+                let mut am_args: [*mut c_void; 2] = [
+                    (&mut pl as *mut _) as *mut c_void,
+                    (&mut pt as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, self.fns.argmax_b, (1, 1), 256, &mut am_args)?;
+            }
+            BatchHeadMode::AllHeads => {
+                let mut pb = self.d_b_blocks.ptr;
+                let mut nb = n_blocks as i32;
+                let mut sb = b_i32;
+                let mut bo = 0i32;
+                let mut bout = b_i32;
+                let mut pc = self.d_b_cur.ptr;
+                let mut ac = 1i32;
+                let mut pq = self.output_query.ptr;
+                let mut pout = self.d_b_mlp_h.ptr;
+                let mut b3 = 0i32;
+                let mut args: [*mut c_void; 10] = [
+                    (&mut pb as *mut _) as *mut c_void,
+                    (&mut nb as *mut _) as *mut c_void,
+                    (&mut sb as *mut _) as *mut c_void,
+                    (&mut bo as *mut _) as *mut c_void,
+                    (&mut bout as *mut _) as *mut c_void,
+                    (&mut pc as *mut _) as *mut c_void,
+                    (&mut ac as *mut _) as *mut c_void,
+                    (&mut pq as *mut _) as *mut c_void,
+                    (&mut pout as *mut _) as *mut c_void,
+                    (&mut b3 as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, self.fns.depth_mix_b, (1, b_u32), 256, &mut args)?;
+                self.enqueue_rmsnorm_quant_q8_64_b(
+                    stream,
+                    self.d_b_mlp_h.ptr,
+                    self.final_norm.ptr,
+                    1,
+                    b_len,
+                )?;
+                self.enqueue_q8_gemm_slice_at(
+                    stream,
+                    &self.unembed_q8,
+                    0,
+                    VOCAB as i32,
+                    0,
+                    b_len,
+                    self.d_spec_logits.ptr,
+                    VOCAB as i32,
+                    30.0,
+                )?;
+                let mut pl = self.d_spec_logits.ptr;
+                let mut pt = self.d_spec_tokens_out.ptr;
+                let mut am_args: [*mut c_void; 2] = [
+                    (&mut pl as *mut _) as *mut c_void,
+                    (&mut pt as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, self.fns.argmax_b, (b_u32, 1), 256, &mut am_args)?;
+            }
+        }
+
+        let mut pp = self.d_pos.ptr;
+        let mut delta = b_i32;
+        let mut pos_args: [*mut c_void; 2] = [
+            (&mut pp as *mut _) as *mut c_void,
+            (&mut delta as *mut _) as *mut c_void,
+        ];
+        self.launch(stream, self.fns.inc_pos_by, (1, 1), 32, &mut pos_args)
     }
 }
