@@ -69,13 +69,13 @@ visual_board:
     url: null
     command: "node <skill-path>/surfaces/local-goal-board/scripts/local-goal-board.mjs --goal docs/goals/leansonic-fastest-engine"
 
-active_task: T001
+active_task: T002
 
 tasks:
   - id: T001
     type: scout
     assignee: Scout
-    status: active
+    status: done
     reasoning_hint: medium
     objective: "main の最新 commit で、4 GPU × 目標表のうち今測れるセル（Prefill 2K/16K、非投機 Decode 短文/16K、VRAM、常駐層数）を ABBA N>=5 で計測し、5060 Ti の推定目標を実測で補正する"
     inputs:
@@ -91,11 +91,21 @@ tasks:
       - "4 GPU × 指標の現状値と目標との差（倍率）"
       - "5060 Ti の補正後の目標案"
       - "各 GPU の nsys 上位 kernel（律速の再確認）"
-    receipt: null
+    receipt:
+      result: done
+      summary: "c0f1e39 を PRO 5000 / PRO 4500 / 5070 Ti で N=5 計測。Prefill は目標の 5〜7%（grouped MoE が 58%）、非投機 Decode 短文は 68% / 86% / 48%、16K は 28% / 42%（split-KV 未適用）、DSpark は受理率が Basalt 以上だが 1 step が 1.7〜1.8 倍遅い。16GB 機は CTX 20K で 21/24 常駐（退行ではなく KV 確保量の影響）。5060 Ti は Codex の検証と競合して未計測。"
+      note: "notes/T001-baseline.md"
+      evidence:
+        - "cuda01 / cudaserver の ~/leansonic-claude-20261126/t001/{P5000,P4500,R5070Ti}.log と nsys/*.csv"
+        - "5070 Ti で f34a08e と c0f1e39 の A/B（両方 21/24、20.6 ms/tok）"
+      follow_ups:
+        - "5060 Ti の計測と、#26 マージ後の 16GB 機の再計測を T002 で行う"
+        - "5060 Ti の目標補正案（Prefill 2K>=1,600 / 16K>=2,300、Decode 短文>=50）"
+        - "AI 間の共通 GPU ロックパスを #6 で提案"
   - id: T002
     type: worker
     assignee: Worker
-    status: queued
+    status: active
     reasoning_hint: medium
     objective: "goal oracle の `leansonic bench-matrix` サブコマンドを実装する。目標表を docs/benchmarks/targets.json に置き、指定 GPU で bench を実行し、ABBA N>=5 の中央値と 95% ブートストラップ CI から、各セルの PASS/FAIL と差分を表と JSON で出力する"
     inputs:
@@ -104,6 +114,7 @@ tasks:
     constraints:
       - "Owner AI: Claude"
       - "サードパーティ依存ゼロ（ブートストラップも std だけで実装）"
+      - "5060 Ti の計測と、#26 後の 16GB 機の再計測を含める（計測前に nvidia-smi で他の AI の使用を確認する）"
       - "出力 JSON に commit・GPU 名・UUID・driver・電力上限・入力 token ID のハッシュを含める（公開 PR には UUID を載せない）"
     allowed_files:
       - "crates/leansonic-cli/src/main.rs"
