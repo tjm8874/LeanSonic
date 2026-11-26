@@ -26,3 +26,18 @@ The file contains 100 independently positioned chunks, 512 token IDs per chunk, 
 The generator reported PPL 7.0724 from raw logits. Decoding the stored probabilities gives PPL 7.06440819. The writer clips each logit to at most 16 below its row maximum, then quantizes the resulting range to 16-bit codes. On this corpus 14 of the 25,500 next-token targets received code zero. The file cannot recover their original logits. LeanSonic reports the stored value as `ref_ppl` and its own raw-logit perplexity as `ppl`. The scorer uses reference log-probabilities above −16 for KL.
 
 The public model, corpus and original evaluation setup are available from the [model publisher](https://huggingface.co/thinkingmachines/Inkling-2-Mini), the [WikiText-2 archive used by llama.cpp](https://huggingface.co/datasets/ggml-org/ci/blob/main/wikitext-2-raw-v1.zip) and the [Basalt precision notes](https://github.com/jesdga95/basalt/blob/5b8a82c6b/docs/precision/inkling2.md).
+
+## Measure how batching changes the BF16 predictions
+
+The optional probe runs the pinned BF16 model twice on the same GPU with the same token IDs and a fresh KV cache for each run. In `full` mode it processes one 512-token sequence in a single call. In `stream` mode it processes the first 256 tokens in four calls of 64, then feeds one corpus token per call, following the schedule in LeanSonic’s `eval-kld`. The original oracle batches 16 sequences. Each CSV row gives the zero-based chunk and prediction position, KL against that oracle, and the leading token ID from each distribution.
+
+Using the llama.cpp checkout, build directory and files from above, set `LEANSONIC_DIR` to the LeanSonic checkout and select one GPU that can hold the BF16 model. The probe uses the existing llama.cpp libraries.
+
+```bash
+c++ -O2 -std=c++17 -ffp-contract=off \
+  -Illama.cpp/include -Illama.cpp/ggml/include "$LEANSONIC_DIR/tools/replay_inkling_bf16.cpp" \
+  -Lbuild/bin -Wl,-rpath,"$PWD/build/bin" -lllama -lggml -lggml-base -o replay_inkling_bf16
+./replay_inkling_bf16 official-bf16.gguf inkling2-bf16-base.kld 2 29 44 69 > schedules.csv
+```
+
+On PRO 5000 the two schedules chose different next tokens at 18 of the 1,020 positions in these four chunks. At chunk 69, position 353, the 512-token call predicted token 1057. The streaming schedule and the published oracle both predicted 2952. These chunks were selected to investigate known errors. Use the original 100-chunk oracle for the project’s quality gate. [Experiment and per-schedule results](https://github.com/tjm8874/LeanSonic/issues/35#issuecomment-7201276035)
