@@ -1,0 +1,418 @@
+# GoalBuddy v2 state.yaml
+# Board truth lives here. goal.md is the editable charter; notes/ holds long receipts only.
+
+version: 2
+
+goal:
+  title: "LeanSonic: 4 GPU で外部エンジン以上の速度・最小VRAM・証明された正しさ"
+  slug: "leansonic-fastest-engine"
+  kind: existing_plan
+  tranche: "継続実行。計測基盤（T001/T002/T005）と P0（#9 → #10）から始め、各 tranche の終わりに bench-matrix の FAIL が多い分野から次の Worker パッケージを選ぶ"
+  status: active
+  oracle:
+    signal: "leansonic bench-matrix --gpus all が 4 GPU × 目標表の全セルで PASS（ABBA N>=5 の 95%CI 下限 >= 目標）"
+    cadence: "after each Worker package and at final audit"
+    final_proof: "docs/benchmarks/ に全セルの ABBA JSON（commit・GPU UUID・driver・電力上限・入力 token ID）と KLD / needle レポート、全 PR マージ済み、Release v0.3.0 にバイナリ添付"
+  intake:
+    original_request: "Goal Prep で、世界最速・最軽量・高信頼性・メモリ節約、RTX Pro でも eGPU 相当の 5060 Ti でも動く LLM 推論エンジン構築（3 AI 協働）"
+    interpreted_outcome: "LeanSonic の Inkling-2-Mini 推論が、4 枚の手持ち Blackwell GPU それぞれで外部エンジンの実測最良値以上の速度、最小 VRAM、0-ULP / KLD で証明された正しさを、同じリリースバイナリで満たす"
+    input_shape: existing_plan
+    audience: "リポジトリのオーナー（Toyo）と 3 AI（Gemini・Codex・Claude）"
+    authority: approved
+    proof_type: metric
+    completion_proof: "bench-matrix の全セル PASS と、それを裏付ける docs/benchmarks/ の証跡、および Release v0.3.0"
+    likely_misfire: "1 GPU や合成プロンプトだけで最速と判断する／精度を落として速度を稼ぐ／GPU 番号の取り違え／他の AI の計測と GPU を共有する／Issue 作成だけで完了扱いにする"
+    blind_spots_considered:
+      - "5060 Ti の目標は推定値。T001 で実測して補正する"
+      - "16GB 機では Spilled 転送（Gen4 x16 / x4）が支配的"
+      - "48 visit のループで 1-ULP の差が logits に最大 ±4 ほど増幅される"
+      - "cudaserver の既存 Python サービスは止めない"
+      - "Gemini が #5 を別ブランチで作業中"
+      - "凍結コア（Axioms.lean, ci/, .github/, CODEOWNERS, benches/goldens/）は変更不可"
+    existing_plan_facts:
+      - "優先順: P0 #9 -> #10、P1 #11 -> #5 -> #12 -> #13、P2 #14、P3 #15"
+      - "Issue #8 が tracking。目標表は goal.md と同一"
+      - "PRO 5000 の現状（f34a08e + PR #9）: Prefill 1K 1,036 tok/s、Decode 151 tok/s、16K 136 tok/s"
+      - "Prefill の律速は grouped MoE の dp4a SIMT（約 56%）。Decode は 1 トークンあたり約 1,157 kernel、glue が約 2.3 ms"
+      - "cuda01: idx0 = RTX PRO 4500、idx1 = RTX PRO 5000（PCI_BUS_ID 順）。cudaserver: idx0 = RTX 5070 Ti、idx1 = RTX 5060 Ti"
+
+rules:
+  pm_owns_state: true
+  one_active_task: true
+  max_write_workers: 1
+  no_implementation_without_worker_or_pm_task: true
+  no_completion_without_judge_or_pm_audit: true
+  planning_is_not_completion: true
+  queued_required_worker_blocks_completion: true
+  continuous_until_full_outcome: true
+  missing_input_or_credentials_do_not_stop_goal: true
+  exact_human_approval_can_terminal_wait: true
+  preserve_and_validate_existing_plan: true
+  intake_misfire_must_be_audited: true
+  goal_pressure_requires_oracle: true
+  no_completion_on_weak_proof: true
+  slice_policy:
+    max_consecutive_tiny_tasks: 2
+    prefer_vertical_slices: true
+    judge_picks_largest_safe_slice: true
+    worker_completes_whole_slice: true
+
+agents:
+  scout: unknown
+  worker: unknown
+  judge: unknown
+
+visual_board:
+  selected: unknown
+  local:
+    status: not_requested
+    url: null
+    command: "node <skill-path>/surfaces/local-goal-board/scripts/local-goal-board.mjs --goal docs/goals/leansonic-fastest-engine"
+
+active_task: T001
+
+tasks:
+  - id: T001
+    type: scout
+    assignee: Scout
+    status: active
+    reasoning_hint: medium
+    objective: "main の最新 commit で、4 GPU × 目標表のうち今測れるセル（Prefill 2K/16K、非投機 Decode 短文/16K、VRAM、常駐層数）を ABBA N>=5 で計測し、5060 Ti の推定目標を実測で補正する"
+    inputs:
+      - "docs/goals/leansonic-fastest-engine/goal.md"
+      - "Issue #8（目標表と外部エンジンの値）"
+      - "cuda01 / cudaserver の ~/leansonic-claude-20261126/（既存の計測スクリプトとログ）"
+    constraints:
+      - "Owner AI: Claude"
+      - "リポジトリのファイルは変更しない（結果は notes/T001-baseline.md に記録）"
+      - "CUDA_DEVICE_ORDER=PCI_BUS_ID か GPU UUID で固定し、エンジンのログに出るデバイス名と照合する"
+      - "計測前に nvidia-smi で使用状況を確認し、他の AI が使用中の GPU は避ける"
+    expected_output:
+      - "4 GPU × 指標の現状値と目標との差（倍率）"
+      - "5060 Ti の補正後の目標案"
+      - "各 GPU の nsys 上位 kernel（律速の再確認）"
+    receipt: null
+  - id: T002
+    type: worker
+    assignee: Worker
+    status: queued
+    reasoning_hint: medium
+    objective: "goal oracle の `leansonic bench-matrix` サブコマンドを実装する。目標表を docs/benchmarks/targets.json に置き、指定 GPU で bench を実行し、ABBA N>=5 の中央値と 95% ブートストラップ CI から、各セルの PASS/FAIL と差分を表と JSON で出力する"
+    inputs:
+      - "T001 receipt"
+      - "crates/leansonic-cli/src/main.rs（既存の bench）"
+    constraints:
+      - "Owner AI: Claude"
+      - "サードパーティ依存ゼロ（ブートストラップも std だけで実装）"
+      - "出力 JSON に commit・GPU 名・UUID・driver・電力上限・入力 token ID のハッシュを含める（公開 PR には UUID を載せない）"
+    allowed_files:
+      - "crates/leansonic-cli/src/main.rs"
+      - "crates/leansonic-cli/src/bench_matrix.rs"
+      - "docs/benchmarks/targets.json"
+      - "docs/benchmarks/README.md"
+    verify:
+      - "cargo test --workspace"
+      - "cargo clippy --workspace --all-targets -- -D warnings"
+      - "cargo fmt --check"
+      - "leansonic bench-matrix --gpus <1 枚> --quick が JSON と表を出力する"
+    stop_if:
+      - "Need files outside allowed_files."
+      - "Verification fails twice."
+    receipt: null
+  - id: T003
+    type: judge
+    assignee: Judge
+    status: queued
+    reasoning_hint: high
+    objective: "PR #9（split-KV + GQA グルーピング）を審査し、数値変更として KLD ゲートで扱うか、opt-in のまま入れるか、既定値をどうするかを決め、マージまでの残作業を確定する"
+    inputs:
+      - "PR #9"
+      - "T001 receipt"
+    constraints:
+      - "Owner AI: Codex"
+      - "実装しない"
+      - "Gate 1〜4 の要件（ValidSm120Kernel 証明、SASS 監査、Gate 3 の扱い、ABBA N>=5）を明記する"
+    expected_output:
+      - "Decision（採用条件）"
+      - "T004 の allowed_files / verify / stop_if の確定版"
+    receipt: null
+  - id: T004
+    type: worker
+    assignee: Worker
+    status: queued
+    reasoning_hint: high
+    objective: "T003 の判定に従い、PR #9 を仕上げる（Lean 証明・生成ヘッダの更新・SASS 監査・ABBA N>=5 を 4 GPU で実施）"
+    inputs:
+      - "T003 receipt"
+    constraints:
+      - "Owner AI: Claude"
+      - "凍結コアは変更しない"
+    allowed_files:
+      - "kernels/inkling2_sm120.cu"
+      - "crates/leansonic-core/src/inkling2_gpu.rs"
+      - "crates/leansonic-cli/src/main.rs"
+      - "spec/LeanSonic/Proofs/Inkling2Mini.lean"
+      - "crates/leansonic-core/src/generated_spec.rs"
+      - "kernels/include/leansonic_verified.cuh"
+    verify:
+      - "cd spec && lake build && lake exe leansonic-gen .."
+      - "python3 ci/check_lean_axioms.py"
+      - "cargo test --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --check"
+      - "python3 ci/audit_sass.py（STACK: 0、CALL.REL.NOINC がゼロ）"
+      - "leansonic verify-parity"
+      - "bench-matrix で Decode 16K のセルが改善し、他のセルが退行しない"
+    stop_if:
+      - "Need files outside allowed_files."
+      - "Verification fails twice."
+      - "Gate 3 の扱いにゲート閾値の変更が必要になる"
+    receipt: null
+  - id: T005
+    type: worker
+    assignee: Worker
+    status: queued
+    reasoning_hint: high
+    objective: "正確性ハーネス（#13）を実装する。BF16 参照の 100-chunk × 512 token の logits を固定し、`leansonic eval-kld` で PPL、KLD の平均 / 中央値 / p99 / 最大、Top-1 一致率を JSON 出力する。16K / 32K / 128K の needle テスト（50% / 90% 位置）も加える"
+    inputs:
+      - "Issue #13"
+      - "PR #9 の LEANSONIC_EVAL_DUMP（teacher-forcing ダンプ）"
+      - "cuda01 の SGLang BF16 環境、または Basalt の kld-base"
+    constraints:
+      - "Owner AI: Codex"
+      - "T002 のマージ後に着手する（main.rs が重なるため）"
+      - "参照データ本体はリポジトリに入れず、ハッシュと生成手順だけを docs/benchmarks/ に置く"
+    allowed_files:
+      - "crates/leansonic-cli/src/main.rs"
+      - "crates/leansonic-cli/src/eval_kld.rs"
+      - "docs/benchmarks/accuracy.md"
+      - "tools/make_bf16_reference.py"
+    verify:
+      - "cargo test --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --check"
+      - "同じバイナリの 2 回実行で KLD = 0（決定性）"
+      - "MoE dp4a on / off の KLD が既知の値（平均 約 1.6e-3）と同程度"
+    stop_if:
+      - "Need files outside allowed_files."
+      - "BF16 参照を生成できる環境が無い"
+      - "Verification fails twice."
+    receipt: null
+  - id: T006
+    type: worker
+    assignee: Worker
+    status: queued
+    reasoning_hint: xhigh
+    objective: "Prefill の Tensor Core 化（#10）の第 1 パッケージ: NVFP4 grouped MoE の up / down を、2×E2M1 → int8 の正確な LUT と mma.sync.m16n8k32.s8 で実装し、PRO 5000 の Prefill 1K / 16K を 5,000 tok/s 以上にする"
+    inputs:
+      - "Issue #10"
+      - "cuda-optimization スキル reference 05 / 08（Basalt PR #690）"
+      - "T005 のハーネス（数値変更の判定用）"
+    constraints:
+      - "Owner AI: Gemini"
+      - "Decode が退行しないこと（Decode Comes First）"
+      - "部分和は SIMT と同じ木の順序で __fadd_rn（C=1 と C=64 で 0-ULP の batch 不変性）"
+      - "SMEM は CTA あたり 63 KiB 以下（64 KiB carveout を超えない）"
+    allowed_files:
+      - "kernels/inkling2_sm120.cu"
+      - "crates/leansonic-core/src/inkling2_gpu.rs"
+      - "spec/LeanSonic/Proofs/Inkling2Mini.lean"
+      - "crates/leansonic-core/src/generated_spec.rs"
+      - "kernels/include/leansonic_verified.cuh"
+    verify:
+      - "Gate 1〜3（lake build、check_lean_axioms、audit_sass、verify-parity）"
+      - "eval-kld で KLD 平均 <= 0.003 かつ最大 <= 0.05（数値変更の場合）"
+      - "bench-matrix で Prefill セルが改善し、Decode セルが退行しない"
+      - "compute-sanitizer memcheck / racecheck でエラーがゼロ"
+    stop_if:
+      - "Need files outside allowed_files."
+      - "Verification fails twice."
+      - "KLD ゲートを満たせない"
+    receipt: null
+  - id: T007
+    type: worker
+    assignee: Worker
+    status: queued
+    reasoning_hint: xhigh
+    objective: "投機デコード（#5: DSpark MTP + Suffix + batch verify）を完成させ、PRO 5000 で conv / struct / prose の平均 310 tok/s 以上を目指す。verify では PR #9 の split-KV を複数行に拡張し、KV を 1 回だけ読む"
+    inputs:
+      - "Issue #5（Codex と Claude のコメントを含む）"
+      - "cuda01 の DFlash2 drafter（/models/basalt-inkling2-prefill-opt-20261121/Inkling-2-Mini-DFlash2）"
+    constraints:
+      - "Owner AI: Gemini（進行中。作業ブランチは /tmp/leansonic_work）"
+      - "--spec 0 と --spec K で token ID が完全一致すること"
+      - "計測は usage の token 数で数え、ms/window・accepted tokens/window・depth 別の受理率を記録する"
+    allowed_files:
+      - "kernels/inkling2_sm120.cu"
+      - "crates/leansonic-core/src/inkling2_gpu.rs"
+      - "crates/leansonic-core/src/inkling2_mtp.rs"
+      - "crates/leansonic-core/src/lib.rs"
+      - "crates/leansonic-cli/src/main.rs"
+      - "spec/LeanSonic/Proofs/Inkling2Mini.lean"
+    verify:
+      - "Gate 1〜3"
+      - "--spec 0 と --spec 7 の token ID が数百トークン完全一致し、reject 後の rollback 境界（SWA 1023/1024/1025、B=1/7/8）も一致"
+      - "bench-matrix の投機セル"
+    stop_if:
+      - "Need files outside allowed_files."
+      - "Verification fails twice."
+    receipt: null
+  - id: T008
+    type: worker
+    assignee: Worker
+    status: queued
+    reasoning_hint: high
+    objective: "非投機 Decode の glue 融合と PDL（#11）: depth_mix・short_conv4・ctrl_down/apply・rmsnorm+quant を隣の kernel に融合し、PDL で重みの先読みを重ねて、PRO 5000 で 5.0 ms/tok 以下にする"
+    inputs:
+      - "Issue #11"
+      - "T001 の nsys 結果"
+    constraints:
+      - "Owner AI: Gemini（Claude が nsys 計測と wave-audit を支援）"
+      - "構造だけの変更なので 0-ULP（出力ハッシュを固定）"
+    allowed_files:
+      - "kernels/inkling2_sm120.cu"
+      - "crates/leansonic-core/src/inkling2_gpu.rs"
+      - "spec/LeanSonic/Proofs/Inkling2Mini.lean"
+      - "crates/leansonic-core/src/generated_spec.rs"
+      - "kernels/include/leansonic_verified.cuh"
+    verify:
+      - "Gate 1〜3、出力ハッシュが変更前と一致"
+      - "bench-matrix の Decode 短文 / 16K セル（PRO 5000 で 5.0 ms/tok 以下、PRO 4500 で 6.7 ms/tok 以下）"
+    stop_if:
+      - "Need files outside allowed_files."
+      - "0-ULP が保てない"
+      - "Verification fails twice."
+    receipt: null
+  - id: T009
+    type: judge
+    assignee: Judge
+    status: queued
+    reasoning_hint: high
+    objective: "P0 / P1 の区切りで審査する。bench-matrix を 4 GPU で実行し、FAIL の多い分野から次の tranche の Worker パッケージ（#12 / #14 / 5060 Ti 向けの Spilled 改善など）を選び直す"
+    inputs:
+      - "T002〜T008 の receipts"
+      - "bench-matrix の最新出力"
+    constraints:
+      - "Owner AI: Codex"
+      - "実装しない"
+    expected_output:
+      - "Decision"
+      - "次の Worker パッケージの allowed_files / verify / stop_if"
+    receipt: null
+  - id: T010
+    type: worker
+    assignee: Worker
+    status: queued
+    reasoning_hint: xhigh
+    objective: "GPU 版の同時並列 serve（#12）: 複数スロットの KV / SWA リング / short_conv 状態プール、device 側のセグメント表、C=1..64 の 0-ULP batch 不変性を実装し、PRO 5000 で C=64 の合計 1,340 tok/s 以上にする"
+    inputs:
+      - "Issue #12"
+    constraints:
+      - "Owner AI: Gemini"
+      - "C=1 と C=64 の出力が 0-ULP で一致（Gate 3 ①を実 GPU で検証）"
+    allowed_files:
+      - "kernels/inkling2_sm120.cu"
+      - "crates/leansonic-core/src/inkling2_gpu.rs"
+      - "crates/leansonic-core/src/serving.rs"
+      - "crates/leansonic-core/src/state_pool.rs"
+      - "crates/leansonic-cli/src/main.rs"
+      - "spec/LeanSonic/Proofs/Inkling2Mini.lean"
+    verify:
+      - "Gate 1〜4"
+      - "bench-matrix の C=64 セル"
+    stop_if:
+      - "Need files outside allowed_files."
+      - "Verification fails twice."
+    receipt: null
+  - id: T011
+    type: worker
+    assignee: Worker
+    status: queued
+    reasoning_hint: high
+    objective: "長文 128K と INT8 / FP8 KV（#14）: 4 段の cp.async.cg と二重バッファの dequant で INT8 KV を実装し、128K の Decode >= 113 / Prefill >= 9,300（PRO 5000）、16GB 機でも 128K で起動できるようにする"
+    inputs:
+      - "Issue #14"
+    constraints:
+      - "Owner AI: Claude"
+      - "INT8 KV は数値変更なので、KLD と needle（16K / 32K / 128K）で判定する"
+    allowed_files:
+      - "kernels/inkling2_sm120.cu"
+      - "crates/leansonic-core/src/inkling2_gpu.rs"
+      - "crates/leansonic-cli/src/main.rs"
+      - "spec/LeanSonic/Proofs/Inkling2Mini.lean"
+    verify:
+      - "Gate 1〜3"
+      - "eval-kld と needle の PASS"
+      - "bench-matrix の長文セルと VRAM セル"
+    stop_if:
+      - "Need files outside allowed_files."
+      - "Verification fails twice."
+    receipt: null
+  - id: T012
+    type: worker
+    assignee: Worker
+    status: queued
+    reasoning_hint: medium
+    objective: "堅牢性 3 件（#15）: NVRTC builtins の探索とエラー案内、q8 GEMV の cols 上限ガード、serve の HTTP 上限とタイムアウト。あわせて起動時にデバイス名と UUID を JSON で出力する"
+    inputs:
+      - "Issue #15"
+    constraints:
+      - "Owner AI: Codex"
+    allowed_files:
+      - "crates/leansonic-core/src/cuda_ffi.rs"
+      - "crates/leansonic-core/src/inkling2_gpu.rs"
+      - "crates/leansonic-core/src/serving.rs"
+    verify:
+      - "cargo test --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --check"
+      - "cudaserver（CUDA Toolkit なし）で LEANSONIC_NVRTC_PATH を指定せずに起動できる、または案内付きのエラーを出す"
+    stop_if:
+      - "Need files outside allowed_files."
+      - "Verification fails twice."
+    receipt: null
+  - id: T013
+    type: worker
+    assignee: Worker
+    status: queued
+    reasoning_hint: medium
+    objective: "証跡とリリース: 4 GPU の bench-matrix・KLD・needle の結果を docs/benchmarks/ にまとめ、Issue #8 を更新し、Release v0.3.0 の準備（同じバイナリが 4 SKU で起動することの確認）を行う"
+    inputs:
+      - "全 Worker の receipts"
+    constraints:
+      - "Owner AI: Claude"
+      - "公開文書に UUID / IP の実値を載せない"
+    allowed_files:
+      - "docs/benchmarks/README.md"
+      - "docs/benchmarks/results_v0.3.0.md"
+      - "docs/benchmarks/results_v0.3.0.json"
+      - "README.md"
+      - "README.ja.md"
+    verify:
+      - "4 GPU で同じリリースバイナリの bench-matrix が全セル PASS"
+    stop_if:
+      - "Need files outside allowed_files."
+      - "FAIL のセルが残っている"
+    receipt: null
+  - id: T999
+    type: judge
+    assignee: Judge
+    status: queued
+    reasoning_hint: high
+    objective: "最終監査: すべての receipt と bench-matrix / KLD / needle の証跡を goal oracle と照合し、元の依頼（4 GPU で最速・最軽量・高信頼性・メモリ節約）が満たされたかを判定する"
+    inputs:
+      - "All done task receipts"
+      - "Last verification"
+      - "bench-matrix の最新 JSON"
+    constraints:
+      - "Owner AI: Codex と Claude の 2 者で独立に判定する（自分の作業を自分で採点しない）"
+      - "Do not implement."
+      - "Reject completion if required Worker work is still queued or active."
+      - "Reject completion if any bench-matrix cell is FAIL or unmeasured without a recorded value."
+    expected_output:
+      - "complete | not_complete"
+      - "full_outcome_complete: true | false"
+      - "missing evidence"
+      - "next task if not complete"
+    receipt: null
+
+checks:
+  dirty_fingerprint: unknown
+  last_verification:
+    result: unknown
+    task: null
+    commands: []
