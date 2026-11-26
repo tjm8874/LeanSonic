@@ -410,14 +410,14 @@ def kInk2MoeMxfp8GroupedDown : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
-/-- Register-Persistent Causal `short_conv4` across `B` tokens (`40` regs -> `6` CTAs = `48` warps/SM!). -/
+/-- Register-Persistent Causal `short_conv4` + `seq_out` Rewind Tap (`56` regs -> `4` CTAs/SM, `120` KiB L1!). -/
 def kInk2ShortConv4B : KernelResourceSpec :=
   { name := "ink2_short_conv4_b"
     threadsPerCta := 256
-    rawRegsPerThread := 40
-    userSmemPerCtaBytes := 0        -- 6 * 1024 = 6,144 B <= 8 KiB carveout -> 120 KiB L1!
+    rawRegsPerThread := 56          -- 14,336 regs/CTA; 4 CTAs = 57,344 <= 65,536
+    userSmemPerCtaBytes := 0        -- 4 * 1024 = 4,096 B <= 8 KiB carveout -> 120 KiB L1!
     smemAlignPadBytes := 0
-    ctasPerSm := 6
+    ctasPerSm := 4
     clusterCtas := 1
     minRequiredL1KiB := 120
     hasStackSpill := false
@@ -440,6 +440,105 @@ theorem ink2_short_conv4_b_valid : ValidSm120Kernel kInk2ShortConv4B := by decid
 
 theorem cycle1_batched_all_kernels_valid :
     (cycle1BatchedKernelSuite.all checkSm120Kernel) = true := by
+  decide
+
+/-! ## 9. Measured `ptxas -arch=sm_120a` Cycle 2 (`v0.3.0`) `DSpark` Speculative & `O(1)` Rewind Kernels -/
+
+/-- `O(1)` Speculative Rewind across all 48 visits × 4 `short_conv4` states (`22` regs -> `6` CTAs = `48` warps/SM!). -/
+def kInk2ConvRewind : KernelResourceSpec :=
+  { name := "ink2_conv_rewind"
+    threadsPerCta := 256
+    rawRegsPerThread := 22
+    userSmemPerCtaBytes := 0        -- 6 * 1024 = 6,144 B <= 8 KiB carveout -> 120 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- General K-Tiled Planar `Q8_64` `__dp4a` GEMM (`cols <= 9216`, `56` regs, `8,704` B SMEM -> `4` CTAs/SM!). -/
+def kInk2Q8Dp4aGemmKtiled : KernelResourceSpec :=
+  { name := "ink2_q8_dp4a_gemm_ktiled"
+    threadsPerCta := 256
+    rawRegsPerThread := 56          -- 14,336 regs/CTA; 4 CTAs = 57,344 <= 65,536
+    userSmemPerCtaBytes := 8704     -- 4 * (8704 + 1024) = 38,912 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- `DSpark` Bidirectional 8-Token Block + Context GQA (`45` regs, `4,672` B SMEM -> `5` CTAs/SM, `96` KiB L1!). -/
+def kMtpAttn : KernelResourceSpec :=
+  { name := "mtp_attn"
+    threadsPerCta := 256
+    rawRegsPerThread := 45          -- aligns to 48 -> 12,288 regs/CTA; 5 CTAs = 61,440 <= 65,536
+    userSmemPerCtaBytes := 4672     -- 5 * (4672 + 1024) = 28,480 B <= 32 KiB carveout -> 96 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 5
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- `DSpark` `R = 256` Markov-RNN Projection (`36` regs, `2,048` B SMEM -> `6` CTAs = `48` warps/SM!). -/
+def kMtpMarkovRaw : KernelResourceSpec :=
+  { name := "mtp_markov_raw"
+    threadsPerCta := 256
+    rawRegsPerThread := 36          -- aligns to 40 -> 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536
+    userSmemPerCtaBytes := 2048     -- 6 * (2048 + 1024) = 18,432 B <= 32 KiB carveout -> 96 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- `DSpark` Pre-Folded `[200058, 256]` Planar `Q8_64` `__dp4a` Vocab Head (`44` regs -> `5` CTAs/SM, `120` KiB L1!). -/
+def kMtpFoldMvQ8 : KernelResourceSpec :=
+  { name := "mtp_fold_mv_q8"
+    threadsPerCta := 256
+    rawRegsPerThread := 44          -- aligns to 48 -> 12,288 regs/CTA; 5 CTAs = 61,440 <= 65,536
+    userSmemPerCtaBytes := 368      -- 5 * (368 + 1024) = 6,960 B <= 8 KiB carveout -> 120 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 5
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- `DSpark` Online-Softmax Confidence-Calibrated Argmax Reduction (`40` regs -> `6` CTAs = `48` warps/SM!). -/
+def kMtpFoldFin : KernelResourceSpec :=
+  { name := "mtp_fold_fin"
+    threadsPerCta := 256
+    rawRegsPerThread := 40
+    userSmemPerCtaBytes := 96       -- 6 * (96 + 1024) = 6,720 B <= 8 KiB carveout -> 120 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def cycle2SpeculativeKernelSuite : List KernelResourceSpec :=
+  [ kInk2ConvRewind
+  , kInk2Q8Dp4aGemmKtiled
+  , kMtpAttn
+  , kMtpMarkovRaw
+  , kMtpFoldMvQ8
+  , kMtpFoldFin ]
+
+theorem ink2_conv_rewind_valid : ValidSm120Kernel kInk2ConvRewind := by decide
+theorem ink2_q8_dp4a_gemm_ktiled_valid : ValidSm120Kernel kInk2Q8Dp4aGemmKtiled := by decide
+theorem mtp_attn_valid : ValidSm120Kernel kMtpAttn := by decide
+theorem mtp_markov_raw_valid : ValidSm120Kernel kMtpMarkovRaw := by decide
+theorem mtp_fold_mv_q8_valid : ValidSm120Kernel kMtpFoldMvQ8 := by decide
+theorem mtp_fold_fin_valid : ValidSm120Kernel kMtpFoldFin := by decide
+
+theorem cycle2_speculative_all_kernels_valid :
+    (cycle2SpeculativeKernelSuite.all checkSm120Kernel) = true := by
   decide
 
 end LeanSonic.Proofs

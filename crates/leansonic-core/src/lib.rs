@@ -9,6 +9,7 @@ pub mod cuda_ffi;
 pub mod engine;
 pub mod generated_spec;
 pub mod inkling2_gpu;
+pub mod inkling2_mtp;
 pub mod kernels;
 pub mod offload;
 pub mod safetensors;
