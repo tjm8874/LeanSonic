@@ -84,6 +84,38 @@ class PackInklingTextTest(unittest.TestCase):
                 f.seek(-3, 2)
                 self.assertEqual(f.read(), b"SZZ")
 
+    def test_packed_and_incompressible_scales_keep_following_tensor_aligned(self):
+        catalog = {"expert.a": ("U8", [256]), "expert.b": ("U8", [256])}
+        records = [("model.llm.embed.weight", "BF16", [1], b"EE"),
+                   ("model.llm.unembed.weight", "BF16", [1], b"HH"),
+                   ("expert.a", "U8", [256], bytes([110] * 255 + [4])),
+                   ("expert.b", "U8", [256], bytes(range(256))),
+                   ("tail", "F32", [1], b"TAIL")]
+        payload = bytearray()
+        header = {}
+        for name, dtype, shape, data in records:
+            start = len(payload)
+            payload.extend(data)
+            header[name] = {"dtype": dtype, "shape": shape, "data_offsets": [start, len(payload)]}
+        encoded = json.dumps(header).encode()
+        with tempfile.TemporaryDirectory() as tmp, patch("pack_inkling_text.expert_scale_tensors", return_value=catalog):
+            src, dst = Path(tmp) / "source", Path(tmp) / "packed"
+            src.write_bytes(struct.pack("<Q", len(encoded)) + encoded + payload)
+            removed, saved = pack(src, dst, prepack_scales=True)
+            self.assertEqual(removed, 0)
+            self.assertEqual(saved, src.stat().st_size - dst.stat().st_size)
+            with dst.open("rb") as f:
+                h = json.loads(f.read(struct.unpack("<Q", f.read(8))[0]))
+                data = f.read()
+            self.assertNotIn("expert.a", h)
+            a, b = h["expert.a.range_v1"]["data_offsets"]
+            self.assertEqual((h["expert.a.range_v1"]["shape"], data[a:a+2]), ([56], bytes([1, 110])))
+            self.assertEqual(data[a+16:b], bytes(31) + bytes([128, 4]) + bytes(7))
+            a, b = h["expert.b"]["data_offsets"]
+            self.assertEqual(data[a:b], bytes(range(256)))
+            self.assertEqual(data[b:], b"TAIL")
+            self.assertEqual(b % 4, 0)
+
     def test_attention_projection_catalog(self):
         matrices = attention_matrices()
         self.assertEqual(len(matrices), 176)

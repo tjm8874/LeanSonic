@@ -5,6 +5,25 @@ use std::io::{self, Read, Write};
 
 fn main() -> io::Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if let [mode, size] = args.as_slice() {
+        if matches!(mode.as_str(), "scale-size" | "scale-pack") {
+            let n: usize = size.parse().map_err(io::Error::other)?;
+            if n > 128 * 2304 * 144 {
+                return Err(io::Error::other("invalid scale tensor length"));
+            }
+            let mut values = vec![0; n];
+            io::stdin().lock().read_exact(&mut values)?;
+            let packing = leansonic_core::inkling_scales::ScalePacking::choose(&values)
+                .map_err(io::Error::other)?;
+            if mode == "scale-size" {
+                println!("{}", packing.encoded_len());
+                return Ok(());
+            }
+            let mut dst = io::BufWriter::new(io::stdout().lock());
+            packing.write(&values, &mut dst)?;
+            return dst.flush();
+        }
+    }
     let dimensions = args.as_slice();
     let (rows, cols) = match dimensions {
         [rows, cols] => (rows.parse::<usize>().ok(), cols.parse::<usize>().ok()),

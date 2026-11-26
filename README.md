@@ -150,6 +150,8 @@ Add `--prepack-head` to the packing command to save another 436,576,496 bytes wi
 
 To prepack the 176 attention projections as well, run the same command with `--prepack-head --prepack-attention`. The official text shard then occupies 17,847,272,800 bytes. If the head is already packed, pass that shard as the source and use `--prepack-attention` alone. Both options require Cargo while building the package.
 
+Add `--prepack-scales` to store the 48 expert scale tensors losslessly. With all three packing flags, the official text shard occupies 17,240,610,424 bytes. You can also run `--prepack-scales` on the head-and-attention package. The loader restores the original scale bytes in 1 MiB tiles before inference. This option reduces on-disk size and requires a reader that supports the packed scales.
+
 ### 2. Query the OpenAI-Compatible Server (`GET /v1/models`, `POST /v1/chat/completions`, SSE)
 
 ```bash

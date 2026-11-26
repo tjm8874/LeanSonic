@@ -1068,6 +1068,27 @@ impl Inkling2GpuEngine {
                 None
             };
 
+            let load_scale = |name: &str, dtype: &str, shape: &[usize]| {
+                let raw = st.get(name);
+                let packed = st.get(&format!("{name}.range_v1"));
+                match (raw, packed) {
+                    (Some(t), None) if t.dtype == dtype && t.shape == shape => {
+                        DeviceBuf::from_host_bytes(&ctx, t.data)
+                    }
+                    (None, Some(t)) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                        let count = shape.iter().product();
+                        let buf = DeviceBuf::alloc_zeroed(&ctx, count)?;
+                        crate::inkling_scales::unpack_scales(t.data, count, |offset, bytes| {
+                            buf.copy_from_host_at(offset, bytes)
+                        })
+                        .map_err(|e| format!("{name}: {e}"))?;
+                        Ok(buf)
+                    }
+                    _ => Err(format!(
+                        "missing, ambiguous or invalid Inkling expert scale {name}"
+                    )),
+                }
+            };
             let expert_scales = if il < NVFP4_LAYERS {
                 let w13_raw = st
                     .require(
@@ -1085,14 +1106,10 @@ impl Inkling2GpuEngine {
                     .data;
                 expert_views.push([w13_raw, w2_raw]);
                 ExpertScales::Nvfp4 {
-                    s13: DeviceBuf::from_host_bytes(
-                        &ctx,
-                        st.require(
-                            &format!("{pfx}mlp.experts.w13_weight_scale"),
-                            "F8_E4M3",
-                            &[N_EXP, 2 * FF, D / 16],
-                        )
-                        .data,
+                    s13: load_scale(
+                        &format!("{pfx}mlp.experts.w13_weight_scale"),
+                        "F8_E4M3",
+                        &[N_EXP, 2 * FF, D / 16],
                     )?,
                     a13: DeviceBuf::from_host_bytes(
                         &ctx,
@@ -1103,14 +1120,10 @@ impl Inkling2GpuEngine {
                         )
                         .data,
                     )?,
-                    s2: DeviceBuf::from_host_bytes(
-                        &ctx,
-                        st.require(
-                            &format!("{pfx}mlp.experts.w2_weight_scale"),
-                            "F8_E4M3",
-                            &[N_EXP, D, FF / 16],
-                        )
-                        .data,
+                    s2: load_scale(
+                        &format!("{pfx}mlp.experts.w2_weight_scale"),
+                        "F8_E4M3",
+                        &[N_EXP, D, FF / 16],
                     )?,
                     a2: DeviceBuf::from_host_bytes(
                         &ctx,
@@ -1135,23 +1148,15 @@ impl Inkling2GpuEngine {
                     .data;
                 expert_views.push([w13_raw, w2_raw]);
                 ExpertScales::Mxfp8 {
-                    s13: DeviceBuf::from_host_bytes(
-                        &ctx,
-                        st.require(
-                            &format!("{pfx}mlp.experts.w13_weight_scale"),
-                            "U8",
-                            &[N_EXP, 2 * FF, D / 32],
-                        )
-                        .data,
+                    s13: load_scale(
+                        &format!("{pfx}mlp.experts.w13_weight_scale"),
+                        "U8",
+                        &[N_EXP, 2 * FF, D / 32],
                     )?,
-                    s2: DeviceBuf::from_host_bytes(
-                        &ctx,
-                        st.require(
-                            &format!("{pfx}mlp.experts.w2_weight_scale"),
-                            "U8",
-                            &[N_EXP, D, FF / 32],
-                        )
-                        .data,
+                    s2: load_scale(
+                        &format!("{pfx}mlp.experts.w2_weight_scale"),
+                        "U8",
+                        &[N_EXP, D, FF / 32],
                     )?,
                 }
             };
