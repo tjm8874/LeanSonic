@@ -466,6 +466,16 @@ impl Inkling2GpuEngine {
         enable_cuda_graph: bool,
         spec_k: usize,
     ) -> Result<Self, String> {
+        Self::load_model_path(model_dir.as_ref(), max_ctx, enable_cuda_graph, spec_k)
+    }
+
+    // Share the loader across callers passing different path types.
+    fn load_model_path(
+        model_dir: &Path,
+        max_ctx: usize,
+        enable_cuda_graph: bool,
+        spec_k: usize,
+    ) -> Result<Self, String> {
         let spec_k = spec_k.min(MAX_SPEC_TOKENS - 1);
         let t_load = Instant::now();
         let ctx = CudaContextHandle::init(0)?;
@@ -494,7 +504,7 @@ impl Inkling2GpuEngine {
                     .into(),
             );
         }
-        let st_path = model_dir.as_ref().join("model-00001-of-00001.safetensors");
+        let st_path = model_dir.join("model-00001-of-00001.safetensors");
         let st = MappedSafeTensors::open(&st_path)
             .map_err(|e| format!("open {}: {e}", st_path.display()))?;
 
@@ -573,7 +583,7 @@ impl Inkling2GpuEngine {
         };
 
         // Load the optional drafter before budgeting memory for tiered expert weights.
-        let mtp_path = model_dir.as_ref().join("mtp.safetensors");
+        let mtp_path = model_dir.join("mtp.safetensors");
         let drafter = if spec_k > 0 && mtp_path.exists() {
             let mtp_fns = MtpKernelFns {
                 rmsnorm_d_b: fns.rmsnorm_d_b,
