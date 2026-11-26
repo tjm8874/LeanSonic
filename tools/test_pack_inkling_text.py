@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from pack_inkling_text import pack
+from pack_inkling_text import attention_matrices, pack
 
 
 class PackInklingTextTest(unittest.TestCase):
@@ -40,7 +40,8 @@ class PackInklingTextTest(unittest.TestCase):
                 pack(src, incomplete)
             self.assertFalse(incomplete.exists())
 
-    def test_native_head_size_and_payload_order(self):
+    @patch("pack_inkling_text.build_packer", return_value="inkling_pack_q8")
+    def test_native_head_size_and_payload_order(self, _build):
         rows, padded_rows, dim = 200_058, 201_024, 2_304
         original_bytes = padded_rows * dim * 2
         code_bytes = rows * dim
@@ -82,6 +83,31 @@ class PackInklingTextTest(unittest.TestCase):
                 self.assertEqual(f.read(3), b"AAC")
                 f.seek(-3, 2)
                 self.assertEqual(f.read(), b"SZZ")
+
+    def test_attention_projection_catalog(self):
+        matrices = attention_matrices()
+        self.assertEqual(len(matrices), 176)
+        self.assertEqual(matrices["model.llm.layers.0.attn.wo_ud.weight"][:3], (2304, 2304, 3072))
+        for layer in range(24):
+            for key in ("k_sconv", "v_sconv"):
+                name = f"model.llm.layers.{layer}.attn.{key}.weight_proj"
+                if layer in (5, 11, 17, 23):
+                    self.assertEqual(matrices[name][:3], (32, 32, 2304))
+                else:
+                    self.assertNotIn(name, matrices)
+
+    def test_missing_projection_does_not_publish_a_shard(self):
+        header = {
+            "model.llm.embed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [0, 2]},
+            "model.llm.unembed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [2, 4]},
+        }
+        encoded = json.dumps(header).encode()
+        with tempfile.TemporaryDirectory() as tmp:
+            source, output = Path(tmp) / "source", Path(tmp) / "output"
+            source.write_bytes(struct.pack("<Q", len(encoded)) + encoded + bytes(4))
+            with self.assertRaisesRegex(ValueError, "missing source projection"):
+                pack(source, output, prepack_attention=True)
+            self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":
