@@ -75,6 +75,7 @@ LeanSonic/
 │   ├── LeanSonic/Axioms.lean               # [Phase 0 Immutable Core] SM120, 0-ULP & OpenAI SSE/Serve laws
 │   ├── LeanSonic/Proofs/Inkling2Mini.lean  # [Phase 1 Verified Proofs] Inkling-2 & Qwen3.8 schedules + SM120 suite
 │   ├── LeanSonic/Proofs/ServingAndPrompt.lean # [Phase 1 Verified Proofs] Inductive SSE completeness & `-p`==`serve` 0-ULP
+│   ├── LeanSonic/Proofs/SpilledAndEngram.lean # [Phase 1 Verified Proofs] Spilled Ping-Pong & Qwen3.8 Engram 0-ULP
 │   └── LeanSonic/Emit.lean                 # Verified constant codegen -> Rust & CUDA headers
 ├── kernels/
 │   ├── include/leansonic_verified.cuh      # Auto-generated from Lean 4 proofs

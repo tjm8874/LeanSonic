@@ -32,6 +32,14 @@ pub const DECODE_ROUNDS_PER_PREFILL_CHUNK: usize = 1;
 pub const SERVE_MAX_HTTP_BODY_BYTES: usize = 4194304;
 pub const SERVE_DEFAULT_MAX_NEW_TOKENS: usize = 128;
 
+pub const SPILLED_PING_PONG_BUFFERS: usize = 2;
+pub const SPILLED_STAGING_BUFFER_MIB: usize = 256;
+pub const SPILLED_LATE_WAIT_OVERLAP_OPS: usize = 5;
+pub const ENGRAM_NGRAM_ORDER: usize = 3;
+pub const ENGRAM_SLOT_TAIL_TOKENS: usize = 2;
+pub const ENGRAM_PREFETCH_ISSUE_VISIT: usize = 0;
+pub const ENGRAM_RESIDUAL_INJECT_VISIT: usize = 2;
+
 /// Exact doubled (`2x`) NVFP4 `E2M1` lookup table verified in Lean 4 over all 16 4-bit codes.
 pub const E2M1_DOUBLED_INT8_LUT: [i8; 16] =
     [0, 1, 2, 3, 4, 6, 8, 12, 0, -1, -2, -3, -4, -6, -8, -12];

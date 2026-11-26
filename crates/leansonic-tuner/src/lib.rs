@@ -13,8 +13,11 @@ use leansonic_core::generated_spec::{
 pub struct BlackwellSkuProfile {
     pub name: &'static str,
     pub sm_count: usize,
+    pub vram_gib: f64,
     pub l2_mib: f64,
     pub sustained_dram_gbps: f64,
+    pub dtod_copy_gbps: f64,
+    pub pcie_htod_gbps: f64,
     pub fp8_tflops: f64,
 }
 
@@ -23,18 +26,24 @@ impl BlackwellSkuProfile {
         Self {
             name: "NVIDIA RTX PRO 5000 72GB GDDR7 (300W, sm_120)",
             sm_count: 110,
+            vram_gib: 72.0,
             l2_mib: 96.0,
             sustained_dram_gbps: 1344.0,
+            dtod_copy_gbps: 890.0,
+            pcie_htod_gbps: 51.4,
             fp8_tflops: 380.0,
         }
     }
 
     pub fn rtx_5070_ti_300w() -> Self {
         Self {
-            name: "NVIDIA GeForce RTX 5070 Ti 16GB GDDR7 (300W, sm_120)",
+            name: "NVIDIA GeForce RTX 5070 Ti 16GB GDDR7 (300W, sm_120, Spilled Host)",
             sm_count: 70,
+            vram_gib: 16.0,
             l2_mib: 48.0,
             sustained_dram_gbps: 759.8,
+            dtod_copy_gbps: 447.0,
+            pcie_htod_gbps: 25.7, // Coalesced PCIe Gen4 x16 pinned DDR4/DDR5
             fp8_tflops: 215.0,
         }
     }
@@ -185,6 +194,40 @@ pub fn compute_decode_ceiling_tok_s(sku: &BlackwellSkuProfile, m: &ModelRoofline
     let emitted_tokens = m.mean_accepted_plus_one * (m.concurrency_slots as f64);
     let bw_bytes_per_sec = sku.sustained_dram_gbps * 1e9;
     (emitted_tokens * bw_bytes_per_sec) / (b_verify + b_draft)
+}
+
+/// Overlapped Spilled-Expert + Host `Engram` PCIe Roofline (`tok/s` ceiling).
+/// Models `h2d_stream` Ping-Pong Late-Wait overlap against VRAM compute time:
+/// - `Engram` PCIe bytes are hidden behind Visits `0..ENGRAM_RESIDUAL_INJECT_VISIT`.
+/// - Spilled Expert PCIe bytes + `DtoD` promoted copies overlap with Attention + Router/Quantize.
+#[derive(Debug, Clone)]
+pub struct SpilledEngramRooflineInput {
+    pub vram_compute_bytes_per_step: f64,
+    pub overlap_hideable_vram_fraction: f64,
+    pub spilled_pcie_bytes_per_step: f64,
+    pub dtod_promoted_bytes_per_step: f64,
+    pub engram_pcie_bytes_per_step: f64,
+    pub emitted_tokens_per_step: f64,
+}
+
+pub fn compute_spilled_engram_ceiling_tok_s(
+    sku: &BlackwellSkuProfile,
+    inp: &SpilledEngramRooflineInput,
+) -> (f64, f64) {
+    let t_vram_total = inp.vram_compute_bytes_per_step / (sku.sustained_dram_gbps * 1e9);
+    let t_hideable = t_vram_total * inp.overlap_hideable_vram_fraction.clamp(0.0, 1.0);
+    let t_non_hideable = t_vram_total - t_hideable;
+
+    let t_pcie = (inp.spilled_pcie_bytes_per_step + inp.engram_pcie_bytes_per_step)
+        / (sku.pcie_htod_gbps * 1e9);
+    let t_dtod = inp.dtod_promoted_bytes_per_step / (sku.dtod_copy_gbps * 1e9);
+    let t_transfer = t_pcie + t_dtod;
+
+    let exposed_stall_sec = (t_transfer - t_hideable).max(0.0);
+    let step_sec = t_non_hideable + t_hideable.max(t_transfer);
+    let tok_s = inp.emitted_tokens_per_step / step_sec.max(1e-12);
+    let exposed_pct = (exposed_stall_sec / step_sec.max(1e-12)) * 100.0;
+    (tok_s, exposed_pct)
 }
 
 #[cfg(test)]

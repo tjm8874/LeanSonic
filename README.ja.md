@@ -61,7 +61,7 @@
 | **Gate 0** | GitHub CPU | `ci/check_immutable_core.py` | `Axioms.lean`・`ci/`・`.github/`・`CODEOWNERS`・`benches/goldens/` への変更を自動PRから完全ブロック（テスト・公理改ざん防止）。 |
 | **Gate 1** | GitHub CPU | `lake build` + `ci/check_lean_axioms.py` | 全定理で `sorry`・`sorryAx`・`native_decide`・独自 `axiom` がゼロであることをLeanカーネル環境で検査し、生成 `.rs`/`.cuh` との差分ゼロを強制。 |
 | **Gate 2** | CPU / CUDA | `ci/audit_sass.py` + `clippy -D warnings` | `STACK: 0`（スピルゼロ）、ホットループ内 `CALL.REL.NOINC` ゼロ、8-bitスカラ `LDG` ゼロ、Rust `fmt`/`clippy` 警告ゼロ。 |
-| **Gate 3** | CPU & GPU | `leansonic verify-parity` | **48-visit `0-ULP BATCH IDENTICAL` 検査**（`C = 1` の `SimtReg64` と `C = 64` の `GroupedMmaInt8` が最終出力まで1ビットも違わないこと）。 |
+| **Gate 3** | CPU & GPU | `leansonic verify-parity` | **4大 `0-ULP` 完全ビット一致検査**（① `C=1` vs `C=64` 2レジームMoE、② 72GB常駐 vs 16GB Spilled退避モード、③ Qwen3.8 `Engram` チャンク境界＆投機ロールバック、④ `-p` vs `serve`）。 |
 | **Gate 4** | Ephemeral Blackwell | `ci/abba_stat_gate.py` | 同一セッション交互反復（`ABBA × N`）のペアード・ブートストラップ95%信頼区間による統計的非退行・高速化判定（※Forkからの外部PRでは絶対起動しない隔離設計）。 |
 | **Gate 5** | Merge Queue | `.github/workflows/autonomous_loop.yml` | 直列Merge Queue通過後の自動マージ、および `v*` タグでの検証済みバイナリ同梱 GitHub Release 自動発行。 |
 

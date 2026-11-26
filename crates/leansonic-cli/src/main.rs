@@ -3,19 +3,23 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 
 use leansonic_core::bytecode::VisitProgram;
-use leansonic_core::engine::{verify_inkling2_batch_invariance, MinimalEngine};
+use leansonic_core::engine::{
+    verify_inkling2_batch_invariance, verify_inkling2_resident_vs_spilled_0ulp,
+    verify_qwen38_engram_boundary_0ulp, MinimalEngine,
+};
 use leansonic_core::generated_spec::{
+    ENGRAM_NGRAM_ORDER, ENGRAM_RESIDUAL_INJECT_VISIT, ENGRAM_SLOT_TAIL_TOKENS,
     MAX_CONCURRENT_SLOTS, MOE_GROUPED_MMA_MIN_PAIRS, PREFILL_CHUNK_TOKENS, RECURRENT_STATE_SLOTS,
     SERVE_DEFAULT_MAX_NEW_TOKENS, SERVE_MAX_HTTP_STREAMS, SPEC_VERIFY_WINDOW,
-    SWA_RING_CAPACITY_TOKENS,
+    SPILLED_LATE_WAIT_OVERLAP_OPS, SPILLED_PING_PONG_BUFFERS, SWA_RING_CAPACITY_TOKENS,
 };
 use leansonic_core::serving::{
     execute_generation_on_slot, json_escape, run_single_prompt, serve_openai_http,
     GenerationRequest,
 };
 use leansonic_tuner::{
-    compute_decode_ceiling_tok_s, rank_valid_candidates, BlackwellSkuProfile, CandidateKnob,
-    ModelRooflineInput,
+    compute_decode_ceiling_tok_s, compute_spilled_engram_ceiling_tok_s, rank_valid_candidates,
+    BlackwellSkuProfile, CandidateKnob, ModelRooflineInput, SpilledEngramRooflineInput,
 };
 
 fn print_help() {
@@ -43,6 +47,12 @@ fn cmd_info() {
     println!("  SWA Ring Capacity (64-align) : {SWA_RING_CAPACITY_TOKENS} tokens");
     println!("  Recurrent/GDN State Pool     : {RECURRENT_STATE_SLOTS} slots (O(1) rollback)");
     println!("  MoE Grouped MMA Switch       : >= {MOE_GROUPED_MMA_MIN_PAIRS} routed pairs");
+    println!(
+        "  Spilled Ping-Pong Staging    : {SPILLED_PING_PONG_BUFFERS} buffers, {SPILLED_LATE_WAIT_OVERLAP_OPS}-op Late-Wait"
+    );
+    println!(
+        "  Qwen3.8 Engram Offload       : {ENGRAM_NGRAM_ORDER}-gram (tail={ENGRAM_SLOT_TAIL_TOKENS}), issue@v0 -> inject@v{ENGRAM_RESIDUAL_INJECT_VISIT}"
+    );
 }
 
 fn cmd_schedules() -> Result<(), String> {
@@ -276,6 +286,39 @@ fn cmd_tune() {
     };
     let ceil = compute_decode_ceiling_tok_s(&sku, &inkling_128k_spec8);
     println!("  Inkling-2-Mini 128K (C=1, W=8, E[acc+1]=5.8) Streaming Ceiling: {ceil:.1} tok/s");
+
+    // Qwen3.8-Flash-Next (51B Engram Host DMA hidden behind Visits 0..1 on RTX PRO 5000)
+    let (qwen_engram_tok_s, qwen_exposed_pct) = compute_spilled_engram_ceiling_tok_s(
+        &sku,
+        &SpilledEngramRooflineInput {
+            vram_compute_bytes_per_step: 3.4e9,
+            overlap_hideable_vram_fraction: 0.15,
+            spilled_pcie_bytes_per_step: 0.0,
+            dtod_promoted_bytes_per_step: 0.0,
+            engram_pcie_bytes_per_step: 262_144.0, // 64 rows × 4 KiB N-gram gather
+            emitted_tokens_per_step: 5.2,
+        },
+    );
+    println!(
+        "  Qwen3.8-Flash-Next + 51B Host Engram Ceiling : {qwen_engram_tok_s:.1} tok/s (exposed PCIe stall: {qwen_exposed_pct:.2}%)"
+    );
+
+    // Spilled Inkling-2-Mini on RTX 5070 Ti 16GB (PCIe Gen4 x16 + DtoD promotion)
+    let sku_spilled = BlackwellSkuProfile::rtx_5070_ti_300w();
+    let (spilled_tok_s, spilled_exposed_pct) = compute_spilled_engram_ceiling_tok_s(
+        &sku_spilled,
+        &SpilledEngramRooflineInput {
+            vram_compute_bytes_per_step: 4.8e9,
+            overlap_hideable_vram_fraction: 0.72,
+            spilled_pcie_bytes_per_step: 0.14e9,
+            dtod_promoted_bytes_per_step: 0.35e9,
+            engram_pcie_bytes_per_step: 0.0,
+            emitted_tokens_per_step: 5.8,
+        },
+    );
+    println!(
+        "  RTX 5070 Ti 16GB Spilled Late-Wait Ceiling   : {spilled_tok_s:.1} tok/s (exposed PCIe stall: {spilled_exposed_pct:.2}%)"
+    );
 }
 
 fn main() -> ExitCode {
@@ -321,12 +364,20 @@ fn main() -> ExitCode {
                 eprintln!("[FAIL] {e}");
                 return ExitCode::FAILURE;
             }
+            if let Err(e) = verify_inkling2_resident_vs_spilled_0ulp(64) {
+                eprintln!("[FAIL] {e}");
+                return ExitCode::FAILURE;
+            }
+            if let Err(e) = verify_qwen38_engram_boundary_0ulp(64) {
+                eprintln!("[FAIL] {e}");
+                return ExitCode::FAILURE;
+            }
             if let Err(e) = verify_prompt_vs_serve_parity() {
                 eprintln!("[FAIL] {e}");
                 return ExitCode::FAILURE;
             }
             println!(
-                "[PASS] Gate 3: 48-visit Looped MoE (C=1 == C=64) AND `-p` == `serve` OpenAI slot execution are 0-ULP BATCH IDENTICAL"
+                "[PASS] Gate 3: All 4 0-ULP invariants passed (C=1==C=64 | Resident==Spilled | Qwen3.8 Engram Split/Rollback | -p==serve)"
             );
             ExitCode::SUCCESS
         }

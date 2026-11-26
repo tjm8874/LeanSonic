@@ -413,4 +413,145 @@ def mkOpenAiUsage (promptTokens completionTokens : Nat) : OpenAiUsage :=
     completionTokens := completionTokens
     totalTokens := promptTokens + completionTokens }
 
+/-! ## 7. Spilled Mode (VRAM Offload) & Qwen3.8/4 `Engram` Formal Laws -/
+
+/--
+  VRAM budget and Ping-Pong staging specification for Spilled Mode
+  (e.g., 16 GiB consumer GPUs spilling cold MoE experts to pinned Host DDR,
+  or 72 GiB GPUs offloading a 51B `Engram` table to Host DDR).
+-/
+structure SpilledOffloadSpec where
+  skuName : String
+  vramBudgetMiB : Nat
+  residentWeightsMiB : Nat
+  kvAndStatePoolMiB : Nat
+  runtimeScratchMiB : Nat
+  pingPongBuffers : Nat
+  stagingBufferMiB : Nat
+  maxSingleVisitSpillMiB : Nat
+  totalSpilledExperts : Nat
+  idlePrefetchKernelLaunches : Nat
+  lateWaitOverlapOps : Nat
+  deriving Repr, DecidableEq
+
+/--
+  Spilled Mode Safety Invariants:
+  1. Total VRAM (`resident + pools + scratch + pingPong * staging`) fits strictly inside `vramBudgetMiB`.
+  2. If `totalSpilledExperts > 0`, `pingPongBuffers >= 2` (double-buffered so `h2d_stream`
+     stages visit `v + 1` while `compute_stream` consumes visit `v`), `stagingBufferMiB >= maxSingleVisitSpillMiB`,
+     and `lateWaitOverlapOps >= 4` (`router -> remap -> sort -> quantize` overlap before `cudaStreamWaitEvent`).
+  3. Zero-Spill Hard Gate: When `totalSpilledExperts == 0`, `idlePrefetchKernelLaunches == 0`
+     (eliminates the `-49.8 ms` unguarded prefetch scan trap).
+-/
+def checkSpilledOffload (s : SpilledOffloadSpec) : Bool :=
+  let totalUsedMiB :=
+    s.residentWeightsMiB + s.kvAndStatePoolMiB + s.runtimeScratchMiB +
+    s.pingPongBuffers * s.stagingBufferMiB
+  let budgetOk := totalUsedMiB <= s.vramBudgetMiB
+  let spillPipeOk :=
+    if s.totalSpilledExperts == 0 then
+      s.idlePrefetchKernelLaunches == 0
+    else
+      (s.pingPongBuffers >= 2) &&
+      (s.stagingBufferMiB >= s.maxSingleVisitSpillMiB) &&
+      (s.lateWaitOverlapOps >= 4)
+  budgetOk && spillPipeOk
+
+abbrev ValidSpilledOffload (s : SpilledOffloadSpec) : Prop :=
+  checkSpilledOffload s = true
+
+/--
+  Causal event graph for a single visit `v` in a 2-buffer (`v % 2`) Ping-Pong Late-Wait pipeline:
+  - `waitPrevComputeStep`: step index of `compute_done[v - 2]` waited by `h2d_stream` before overwriting `buf[v % 2]`
+  - `htodIssueStep`: step index where `h2d_stream` starts DMA into `buf[v % 2]`
+  - `htodRecordStep`: step index where `staged_event[v]` is recorded
+  - `computeWaitStep`: step index where `compute_stream` waits on `staged_event[v]` (Late-Wait!)
+  - `firstExpertReadStep`: step index where `compute_stream` first reads `buf[v % 2]`
+  - `computeDoneStep`: step index where `compute_stream` finishes reading `buf[v % 2]`
+-/
+structure PingPongVisitSync where
+  visit : Nat
+  waitPrevComputeStep : Nat
+  htodIssueStep : Nat
+  htodRecordStep : Nat
+  computeWaitStep : Nat
+  firstExpertReadStep : Nat
+  computeDoneStep : Nat
+  deriving Repr, DecidableEq
+
+/--
+  Verifies strict topological ordering (`src < dst` -> DAG acyclicity / zero deadlock)
+  and hazard-free buffer access (`waitPrevCompute < htodIssue` prevents WAR overwrite;
+  `htodRecord < computeWait < firstExpertRead < computeDone` prevents RAW hazard).
+-/
+def checkPingPongSyncChain (events : List PingPongVisitSync) : Bool :=
+  let localCausal := events.all fun e =>
+    (e.waitPrevComputeStep < e.htodIssueStep) &&
+    (e.htodIssueStep < e.htodRecordStep) &&
+    (e.htodRecordStep < e.computeWaitStep) &&
+    (e.computeWaitStep < e.firstExpertReadStep) &&
+    (e.firstExpertReadStep < e.computeDoneStep)
+  let rec crossVisitSafe : List PingPongVisitSync → Bool
+    | [] => true
+    | e :: rest =>
+      let okWithFuture := rest.all fun f =>
+        if (f.visit >= e.visit + 2) && (f.visit % 2 == e.visit % 2) then
+          e.computeDoneStep < f.waitPrevComputeStep
+        else
+          true
+      okWithFuture && crossVisitSafe rest
+  localCausal && crossVisitSafe events
+
+abbrev SafePingPongSchedule (events : List PingPongVisitSync) : Prop :=
+  checkPingPongSyncChain events = true
+
+/--
+  Tiered expert weight fetch model: returns VRAM resident weight if `isResident e`,
+  else stages from pinned Host DDR (`hostStore e`).
+-/
+def tieredExpertFetch {W : Type} (isResident : Nat → Bool) (vramStore hostStore : Nat → W) (e : Nat) : W :=
+  if isResident e then vramStore e else hostStore e
+
+/--
+  Qwen3.8-Flash-Next / Qwen4 `Engram` (Host N-gram Embedding Table) Specification:
+  - `ngramOrder`: `3` (trigrams + bigrams)
+  - `dependsOnHiddenState`: MUST be `false` (keys depend solely on input token IDs!)
+  - `prefetchIssueVisit`: `0` (issued at token ingestion BEFORE Visit 0 begins!)
+  - `residualInjectVisit`: `>= 1` (gives `1+` full layer visits to hide PCIe DMA!)
+  - `hostStagingSlots`: `>= maxBatchRows`
+-/
+structure EngramOffloadSpec where
+  tableParamsBillions : Nat
+  ngramOrder : Nat
+  dependsOnHiddenState : Bool
+  prefetchIssueVisit : Nat
+  residualInjectVisit : Nat
+  maxBatchRows : Nat
+  hostStagingRows : Nat
+  slotTailTokens : Nat
+  deriving Repr, DecidableEq
+
+def checkEngramOffload (e : EngramOffloadSpec) : Bool :=
+  (e.ngramOrder >= 2) &&
+  (!e.dependsOnHiddenState) &&
+  (e.prefetchIssueVisit == 0) &&
+  (e.residualInjectVisit >= 1) &&
+  (e.hostStagingRows >= e.maxBatchRows) &&
+  (e.slotTailTokens + 1 == e.ngramOrder)
+
+abbrev ValidEngramOffload (e : EngramOffloadSpec) : Prop :=
+  checkEngramOffload e = true
+
+/--
+  Stateful Trigram Scanner carrying the 2-token `(prev2, prev1)` context tail across
+  arbitrary Chunked-Prefill boundaries, single-token Decode steps, and `W = 16`
+  Speculative Verification windows.
+-/
+def scanTrigramsWithTail (prev2 prev1 : Nat) : List Nat → List (Nat × Nat × Nat) × (Nat × Nat)
+  | [] => ([], (prev2, prev1))
+  | tok :: rest =>
+    let tri := (prev2, prev1, tok)
+    let (tailTris, finalState) := scanTrigramsWithTail prev1 tok rest
+    (tri :: tailTris, finalState)
+
 end LeanSonic

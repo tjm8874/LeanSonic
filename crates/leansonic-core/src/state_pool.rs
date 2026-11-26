@@ -19,6 +19,8 @@ use crate::generated_spec::{
 pub struct RecurrentSnapshot {
     pub gdn_matrix: Vec<f32>,
     pub conv_ring: [f32; 4],
+    /// 2-token `(prev2, prev1)` context tail for Qwen3.8/4 `Engram` trigram boundary exactness.
+    pub engram_tail: [u32; 2],
 }
 
 impl RecurrentSnapshot {
@@ -26,6 +28,7 @@ impl RecurrentSnapshot {
         Self {
             gdn_matrix: vec![0.0; state_dim],
             conv_ring: [0.0; 4],
+            engram_tail: [0, 0],
         }
     }
 }
@@ -142,7 +145,38 @@ impl HybridSlotPool {
             prev_clone.conv_ring[3],
             conv_sample,
         ];
+        dst.engram_tail = prev_clone.engram_tail;
         dst_phys
+    }
+
+    /// Stage a speculative `Engram` `(prev2, prev1)` trigram tail update on `draft_step` (`1..=W`)
+    /// without mutating `committed_recurrent_idx[slot_id]`.
+    pub fn stage_speculative_engram_tail(
+        &mut self,
+        slot_id: usize,
+        draft_step: usize,
+        new_tail: (u32, u32),
+    ) -> usize {
+        assert!(slot_id < self.max_slots);
+        assert!((1..=self.spec_window).contains(&draft_step));
+        let band_base = slot_id * (1 + self.spec_window);
+        let dst_phys = (self.committed_recurrent_idx[slot_id] + draft_step)
+            .rem_euclid(1 + self.spec_window)
+            + band_base;
+        self.recurrent_pool[dst_phys].engram_tail = [new_tail.0, new_tail.1];
+        dst_phys
+    }
+
+    /// Read the committed `(prev2, prev1)` `Engram` trigram context tail for `slot_id`.
+    pub fn committed_engram_tail(&self, slot_id: usize) -> (u32, u32) {
+        let t = self.recurrent_pool[self.committed_recurrent_idx[slot_id]].engram_tail;
+        (t[0], t[1])
+    }
+
+    /// Update the committed `(prev2, prev1)` `Engram` trigram context tail in-place.
+    pub fn set_committed_engram_tail(&mut self, slot_id: usize, tail: (u32, u32)) {
+        let phys = self.committed_recurrent_idx[slot_id];
+        self.recurrent_pool[phys].engram_tail = [tail.0, tail.1];
     }
 
     /// `O(1)` Speculative Commit / Rollback:

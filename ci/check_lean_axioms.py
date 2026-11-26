@@ -45,6 +45,13 @@ REQUIRED_THEOREMS = [
     "LeanSonic.Proofs.sse_frame_after_done_is_rejected",
     "LeanSonic.Proofs.solo_prompt_eq_serve_batch_slot",
     "LeanSonic.Proofs.openai_usage_total_exact",
+    "LeanSonic.Proofs.spilledInkling2On5070Ti_valid",
+    "LeanSonic.Proofs.residentInkling2OnPro5000_zero_spill_valid",
+    "LeanSonic.Proofs.inkling2_48visit_ping_pong_safe",
+    "LeanSonic.Proofs.tiered_fetch_eq_golden",
+    "LeanSonic.Proofs.resident_eq_spilled_moe_0ulp",
+    "LeanSonic.Proofs.qwen38_engram_51b_offload_valid",
+    "LeanSonic.Proofs.scanTrigrams_append_exact",
 ]
 
 
@@ -86,6 +93,7 @@ def audit_kernel_axioms(spec_dir: pathlib.Path) -> list[str]:
     probe_lines = [
         "import LeanSonic.Proofs.Inkling2Mini",
         "import LeanSonic.Proofs.ServingAndPrompt",
+        "import LeanSonic.Proofs.SpilledAndEngram",
     ]
     for thm in REQUIRED_THEOREMS:
         probe_lines.append(f"#print axioms {thm}")
