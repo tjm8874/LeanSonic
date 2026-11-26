@@ -115,12 +115,10 @@ __device__ __forceinline__ uint32_t decode_4x_e2m1_nibbles16_to_2x_s8(uint32_t n
     uint32_t sel = nibbles_lo16 & 0x7777u;
     uint32_t pos = __byte_perm(0x03020100u, 0x0c080604u, sel);
     uint32_t neg = __byte_perm(0xfdfeff00u, 0xf4f8fafcu, sel);
-    uint32_t s4 = ((nibbles_lo16 >> 3) & 0x1u)
-                | (((nibbles_lo16 >> 7) & 0x1u) << 8)
-                | (((nibbles_lo16 >> 11) & 0x1u) << 16)
-                | (((nibbles_lo16 >> 15) & 0x1u) << 24);
-    uint32_t sign_mask = s4 * 0xFFu;
-    return (pos & ~sign_mask) | (neg & sign_mask);
+    // Byte i selects pos[i] or neg[i]. Each nibble's sign becomes bit 2
+    // of its permutation selector; the low two bits identify the byte.
+    const uint32_t select_sign = ((nibbles_lo16 >> 1) & 0x4444u) | 0x3210u;
+    return __byte_perm(pos, neg, select_sign);
 }
 
 } // namespace leansonic::inkling2
