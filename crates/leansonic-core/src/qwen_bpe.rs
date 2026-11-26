@@ -203,7 +203,7 @@ impl QwenBpeTokenizer {
         }
 
         // Sort special tokens longest-first for greedy exact matching
-        added_special.sort_by(|a, b_item| b_item.0.len().cmp(&a.0.len()));
+        added_special.sort_by_key(|a| std::cmp::Reverse(a.0.len()));
 
         let mut id_to_bytes = vec![Vec::new(); (max_id as usize) + 1];
         for (tok_s, &tid) in &vocab {
