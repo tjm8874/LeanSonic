@@ -320,6 +320,16 @@ fn concat_slices(slices: &[&[u8]]) -> Vec<u8> {
     out
 }
 
+// Round a nonnegative finite scale to binary16. Overflow is outside this experiment.
+fn scale_to_half(value: f32) -> u16 {
+    assert!(value >= 0.0 && value <= 65504.0);
+    if value < 0.00006103515625 {
+        return (value * 16777216.0).round_ties_even() as u16;
+    }
+    let bits = value.to_bits();
+    ((bits + 0xfff + ((bits >> 13) & 1) - 0x3800_0000) >> 13) as u16
+}
+
 /// Multi-threaded load-time repack of row-major `BF16 [rows, cols]` (`cols % 64 == 0`)
 /// into Planar `Q8_64` (`codes [rows, cols] i8` + `scales [rows, cols / 64] f32`).
 pub fn repack_bf16_to_planar_q8_64(
@@ -375,17 +385,21 @@ pub fn repack_bf16_to_planar_q8_64(
                                 }
                             }
                         }
-                        let mut amax = 0.0f32;
-                        for value in &mut fvals {
-                            *value *= 0.125;
-                            amax = amax.max(value.abs());
-                        }
-                        let sc = amax * (1.0 / 127.0);
-                        let inv = if amax > 0.0 { 127.0 / amax } else { 0.0 };
-                        dst_s[b * 4..(b + 1) * 4].copy_from_slice(&sc.to_le_bytes());
-                        for (i, &fv) in fvals.iter().enumerate() {
-                            let q = (fv * inv).round().clamp(-127.0, 127.0) as i8;
-                            dst_c[b * 64 + i] = q as u8;
+                        for (h, half) in fvals.chunks_exact(32).enumerate() {
+                            let peak = half.iter().fold(0.0f32, |m, x| m.max(x.abs())) * 0.125;
+                            let inv = if peak > 0.0 { 127.0 / peak } else { 0.0 };
+                            let mut dot = 0.0f64;
+                            let mut norm = 0i32;
+                            for (i, &value) in half.iter().enumerate() {
+                                let x = value * 0.125;
+                                let q = (x * inv).round().clamp(-127.0, 127.0) as i8;
+                                dst_c[b * 64 + 32 * h + i] = q as u8;
+                                dot += f64::from(x) * f64::from(q);
+                                norm += i32::from(q) * i32::from(q);
+                            }
+                            let scale = if norm == 0 { 0.0 } else { (dot / f64::from(norm)) as f32 };
+                            let offset = 4 * b + 2 * h;
+                            dst_s[offset..offset + 2].copy_from_slice(&scale_to_half(scale).to_le_bytes());
                         }
                     }
                 }

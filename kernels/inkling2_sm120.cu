@@ -1230,7 +1230,7 @@ extern "C" __global__ void ink2_q8_dp4a_gemv(
         d0 = __dp4a(static_cast<int>(w0.y), static_cast<int>(xq.y), d0);
         d0 = __dp4a(static_cast<int>(w0.z), static_cast<int>(xq.z), d0);
         d0 = __dp4a(static_cast<int>(w0.w), static_cast<int>(xq.w), d0);
-        acc0 = __fmaf_rn(static_cast<float>(d0), __fmul_rn(s_r0[c16 >> 2], xsc), acc0);
+        acc0 = __fmaf_rn(static_cast<float>(d0), __fmul_rn(fp16_bits_to_f32(reinterpret_cast<const uint16_t*>(s_r0)[c16 >> 1]), xsc), acc0);
 
         if (has_row1) {
             uint4 w1 = w_r1[c16];
@@ -1238,7 +1238,7 @@ extern "C" __global__ void ink2_q8_dp4a_gemv(
             d1 = __dp4a(static_cast<int>(w1.y), static_cast<int>(xq.y), d1);
             d1 = __dp4a(static_cast<int>(w1.z), static_cast<int>(xq.z), d1);
             d1 = __dp4a(static_cast<int>(w1.w), static_cast<int>(xq.w), d1);
-            acc1 = __fmaf_rn(static_cast<float>(d1), __fmul_rn(s_r1[c16 >> 2], xsc), acc1);
+            acc1 = __fmaf_rn(static_cast<float>(d1), __fmul_rn(fp16_bits_to_f32(reinterpret_cast<const uint16_t*>(s_r1)[c16 >> 1]), xsc), acc1);
         }
     }
 
@@ -1917,8 +1917,8 @@ extern "C" __global__ void ink2_q8_dp4a_gemm_b(
             const unsigned b = inputs[k * 4 + fragment];
             int d0, d1, d2, d3;
             mma_s8_k16(a0, a1, b, d0, d1, d2, d3);
-            const float w0 = top_scales[k / 4];
-            const float w1 = bottom_scales[k / 4];
+            const float w0 = fp16_bits_to_f32(reinterpret_cast<const uint16_t*>(top_scales)[k >> 1]);
+            const float w1 = fp16_bits_to_f32(reinterpret_cast<const uint16_t*>(bottom_scales)[k >> 1]);
             const float xs = input_scales[k / 4];
             const float x0 = __shfl_sync(0xffffffffu, xs, 8 * fragment);
             const float x1 = __shfl_sync(0xffffffffu, xs, 8 * fragment + 4);
@@ -2948,9 +2948,9 @@ extern "C" __global__ void ink2_q8_dp4a_gemm_ktiled(
             for (int c16 = lane; c16 < tile16; c16 += 32) {
                 const int c64 = c16 >> 2;
                 const uint4 w0 = w_r0[k16_base + c16];
-                const float ws0 = s_r0[k64_base + c64];
+                const float ws0 = fp16_bits_to_f32(reinterpret_cast<const uint16_t*>(s_r0)[(k16_base + c16) >> 1]);
                 const uint4 w1 = has_row1 ? w_r1[k16_base + c16] : w0;
-                const float ws1 = has_row1 ? s_r1[k64_base + c64] : 0.0f;
+                const float ws1 = has_row1 ? fp16_bits_to_f32(reinterpret_cast<const uint16_t*>(s_r1)[(k16_base + c16) >> 1]) : 0.0f;
 
                 if (B > 0) { uint4 xq = smem_x[0][c16]; float xs = smem_xsc[0][c64]; a0 += static_cast<float>(dp4a_u128(w0, xq)) * (ws0 * xs); if (has_row1) b0 += static_cast<float>(dp4a_u128(w1, xq)) * (ws1 * xs); }
                 if (B > 1) { uint4 xq = smem_x[1][c16]; float xs = smem_xsc[1][c64]; a1 += static_cast<float>(dp4a_u128(w0, xq)) * (ws0 * xs); if (has_row1) b1 += static_cast<float>(dp4a_u128(w1, xq)) * (ws1 * xs); }
