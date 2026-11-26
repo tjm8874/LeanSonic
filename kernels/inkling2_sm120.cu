@@ -1421,7 +1421,7 @@ extern "C" __global__ void ink2_argmax_and_inc_pos(
 // ============================================================================
 // 14. Cycle 1 (`v0.2.0`) & Cycle 2 (`v0.3.0`) Unified Multi-Token Batch Suite
 //     (`1 <= B <= 64`):
-//     - Planar `Q8_64` 2-Rows/Warp x 8-Tokens `__dp4a` GEMM (`ink2_q8_dp4a_gemm_b`)
+//     - Planar `Q8_64` 16-row x 8-token integer MMA GEMM (`ink2_q8_dp4a_gemm_b`)
 //     - Register-Persistent Causal `short_conv4` across `0..B` (`0-ULP` exact!)
 //     - Collision-Free Ring-Buffer Batched QKV Prep + Online-Softmax GQA (`SafeHybridStatePool`)
 //     - Zero-Atomic Register-Resident Grouped-Expert `NVFP4` (`__dp4a`) & `MXFP8` MoE
@@ -1827,15 +1827,21 @@ extern "C" __global__ void ink2_ctrl_apply_b(
     cur_inout[i] = c - ptx_tanh(forget_acc) * c + ptx_tanh(gain_acc) * msg[i];
 }
 
-// Batched Planar `Q8_64` SMEM-Staged `__dp4a` GEMM (`16` rows x `8` tokens per CTA!):
-// - `26,112` B SMEM (`2` CTAs/SM <= `64` KiB carveout -> `64` KiB L1 retained!)
-// - Amortizes `W` DRAM reads `8x` inside SMEM and `64x` via Blackwell L2 across `blockIdx.y`!
-// - `0-ULP` bit-identical to single-token `ink2_q8_dp4a_gemv`!
+// Four signed DP4A instructions cover one packed 16-element dot product.
 __device__ __forceinline__ int dp4a_u128(uint4 w, uint4 x) {
     int d = __dp4a(static_cast<int>(w.x), static_cast<int>(x.x), 0);
     d = __dp4a(static_cast<int>(w.y), static_cast<int>(x.y), d);
     d = __dp4a(static_cast<int>(w.z), static_cast<int>(x.z), d);
     return __dp4a(static_cast<int>(w.w), static_cast<int>(x.w), d);
+}
+
+// Signed integer partials for two row fragments and two token columns.
+__device__ __forceinline__ void mma_s8_k16(
+    unsigned a0, unsigned a1, unsigned b, int& d0, int& d1, int& d2, int& d3) {
+    asm volatile("mma.sync.aligned.m16n8k16.row.col.s32.s8.s8.s32 "
+                 "{%0,%1,%2,%3},{%4,%5},{%6},{0,0,0,0};"
+                 : "=r"(d0), "=r"(d1), "=r"(d2), "=r"(d3)
+                 : "r"(a0), "r"(a1), "r"(b));
 }
 
 extern "C" __global__ void ink2_q8_dp4a_gemm_b(
@@ -1849,123 +1855,79 @@ extern "C" __global__ void ink2_q8_dp4a_gemm_b(
     int32_t B,
     int32_t y_stride,
     float softcap) {
-    __shared__ uint4 smem_x[8][192];  // 24,576 B
-    __shared__ float smem_xsc[8][48]; // 1,536 B
+    // A warp's four threads per row cover one K=16 operand fragment. Each
+    // block computes 16 weight rows by 8 tokens, including partial edge tiles.
+    const int tid = threadIdx.x;
+    const int warp = tid / 32;
+    const int lane = tid % 32;
+    const int fragment = lane % 4;
+    const int first_row = blockIdx.x * 16;
+    const int first_token = blockIdx.y * 8;
+    const int row0 = min(first_row + lane / 4, rows - 1);
+    const int row1 = min(first_row + lane / 4 + 8, rows - 1);
+    const int token = min(first_token + lane / 4, B - 1);
+    const int cols16 = cols / 16;
+    const int cols64 = cols / 64;
+    const auto* top = reinterpret_cast<const uint32_t*>(w_q8_u128 + static_cast<size_t>(row0) * cols16);
+    const auto* bottom = reinterpret_cast<const uint32_t*>(w_q8_u128 + static_cast<size_t>(row1) * cols16);
+    const auto* inputs = reinterpret_cast<const uint32_t*>(x_q8_u128 + static_cast<size_t>(token) * cols16);
+    const float* top_scales = w_sc64 + static_cast<size_t>(row0) * cols64;
+    const float* bottom_scales = w_sc64 + static_cast<size_t>(row1) * cols64;
+    const float* input_scales = x_sc64 + static_cast<size_t>(token) * cols64;
+    __shared__ float partials[8][128];
+    float sum[4] = {};
+    float left[4] = {};
 
-    const int tid = threadIdx.x; // 256
-    const int warp_id = tid >> 5;
-    const int lane = tid & 31;
-    const int cols16 = cols >> 4;
-    const int cols64 = cols >> 6;
-    const int b_base = blockIdx.y * 8;
-    const int b_rem = B - b_base;
-    const int tile_b = (b_rem < 8) ? b_rem : 8;
-
-    for (int t = 0; t < tile_b; ++t) {
-        const uint4* src_x = x_q8_u128 + static_cast<size_t>(b_base + t) * cols16;
-        const float* src_sc = x_sc64 + static_cast<size_t>(b_base + t) * cols64;
-        for (int i = tid; i < cols16; i += 256) {
-            smem_x[t][i] = src_x[i];
+    // Keep this loop rolled to bound the instruction footprint. The four
+    // virtual lanes reproduce the original DP4A warp's FP32 reduction order.
+    #pragma unroll 1
+    for (int step = 0; step < 4; ++step) {
+        float acc[4] = {};
+        const int k_lane = warp + (step % 2) * 16 + (step / 2) * 8;
+        for (int k = k_lane; k < cols16; k += 32) {
+            const unsigned a0 = top[k * 4 + fragment];
+            const unsigned a1 = bottom[k * 4 + fragment];
+            const unsigned b = inputs[k * 4 + fragment];
+            int d0, d1, d2, d3;
+            mma_s8_k16(a0, a1, b, d0, d1, d2, d3);
+            const float w0 = top_scales[k / 4];
+            const float w1 = bottom_scales[k / 4];
+            const float xs = input_scales[k / 4];
+            const float x0 = __shfl_sync(0xffffffffu, xs, 8 * fragment);
+            const float x1 = __shfl_sync(0xffffffffu, xs, 8 * fragment + 4);
+            acc[0] = __fmaf_rn(float(d0), __fmul_rn(w0, x0), acc[0]);
+            acc[1] = __fmaf_rn(float(d1), __fmul_rn(w0, x1), acc[1]);
+            acc[2] = __fmaf_rn(float(d2), __fmul_rn(w1, x0), acc[2]);
+            acc[3] = __fmaf_rn(float(d3), __fmul_rn(w1, x1), acc[3]);
         }
-        if (tid < cols64) {
-            smem_xsc[t][tid] = src_sc[tid];
+        #pragma unroll
+        for (int i = 0; i < 4; ++i) {
+            if (step % 2 == 0) {
+                left[i] = acc[i];
+            } else if (step == 1) {
+                sum[i] = left[i] + acc[i];
+            } else {
+                sum[i] += left[i] + acc[i];
+            }
         }
     }
+    const int dst = (lane / 4) * 8 + 2 * fragment;
+    partials[warp][dst] = sum[0];
+    partials[warp][dst + 1] = sum[1];
+    partials[warp][dst + 64] = sum[2];
+    partials[warp][dst + 65] = sum[3];
     __syncthreads();
 
-    const int row0 = (blockIdx.x * 8 + warp_id) * 2;
-    if (row0 >= rows) return;
-    const bool has_row1 = (row0 + 1 < rows);
-
-    const uint4* w_r0 = w_q8_u128 + static_cast<size_t>(row0) * cols16;
-    const uint4* w_r1 = has_row1 ? (w_r0 + cols16) : w_r0;
-    const float* s_r0 = w_sc64 + static_cast<size_t>(row0) * cols64;
-    const float* s_r1 = has_row1 ? (s_r0 + cols64) : s_r0;
-
-    float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
-    float a4 = 0.0f, a5 = 0.0f, a6 = 0.0f, a7 = 0.0f;
-    float b0 = 0.0f, b1 = 0.0f, b2 = 0.0f, b3 = 0.0f;
-    float b4 = 0.0f, b5 = 0.0f, b6 = 0.0f, b7 = 0.0f;
-
-    for (int c16 = lane; c16 < cols16; c16 += 32) {
-        const int c64 = c16 >> 2;
-        const uint4 w0 = w_r0[c16];
-        const float ws0 = s_r0[c64];
-        const uint4 w1 = has_row1 ? w_r1[c16] : w0;
-        const float ws1 = has_row1 ? s_r1[c64] : 0.0f;
-
-        if (tile_b > 0) {
-            uint4 xq = smem_x[0][c16]; float xs = smem_xsc[0][c64];
-            a0 = __fmaf_rn(static_cast<float>(dp4a_u128(w0, xq)), __fmul_rn(ws0, xs), a0);
-            if (has_row1) b0 = __fmaf_rn(static_cast<float>(dp4a_u128(w1, xq)), __fmul_rn(ws1, xs), b0);
-        }
-        if (tile_b > 1) {
-            uint4 xq = smem_x[1][c16]; float xs = smem_xsc[1][c64];
-            a1 = __fmaf_rn(static_cast<float>(dp4a_u128(w0, xq)), __fmul_rn(ws0, xs), a1);
-            if (has_row1) b1 = __fmaf_rn(static_cast<float>(dp4a_u128(w1, xq)), __fmul_rn(ws1, xs), b1);
-        }
-        if (tile_b > 2) {
-            uint4 xq = smem_x[2][c16]; float xs = smem_xsc[2][c64];
-            a2 = __fmaf_rn(static_cast<float>(dp4a_u128(w0, xq)), __fmul_rn(ws0, xs), a2);
-            if (has_row1) b2 = __fmaf_rn(static_cast<float>(dp4a_u128(w1, xq)), __fmul_rn(ws1, xs), b2);
-        }
-        if (tile_b > 3) {
-            uint4 xq = smem_x[3][c16]; float xs = smem_xsc[3][c64];
-            a3 = __fmaf_rn(static_cast<float>(dp4a_u128(w0, xq)), __fmul_rn(ws0, xs), a3);
-            if (has_row1) b3 = __fmaf_rn(static_cast<float>(dp4a_u128(w1, xq)), __fmul_rn(ws1, xs), b3);
-        }
-        if (tile_b > 4) {
-            uint4 xq = smem_x[4][c16]; float xs = smem_xsc[4][c64];
-            a4 = __fmaf_rn(static_cast<float>(dp4a_u128(w0, xq)), __fmul_rn(ws0, xs), a4);
-            if (has_row1) b4 = __fmaf_rn(static_cast<float>(dp4a_u128(w1, xq)), __fmul_rn(ws1, xs), b4);
-        }
-        if (tile_b > 5) {
-            uint4 xq = smem_x[5][c16]; float xs = smem_xsc[5][c64];
-            a5 = __fmaf_rn(static_cast<float>(dp4a_u128(w0, xq)), __fmul_rn(ws0, xs), a5);
-            if (has_row1) b5 = __fmaf_rn(static_cast<float>(dp4a_u128(w1, xq)), __fmul_rn(ws1, xs), b5);
-        }
-        if (tile_b > 6) {
-            uint4 xq = smem_x[6][c16]; float xs = smem_xsc[6][c64];
-            a6 = __fmaf_rn(static_cast<float>(dp4a_u128(w0, xq)), __fmul_rn(ws0, xs), a6);
-            if (has_row1) b6 = __fmaf_rn(static_cast<float>(dp4a_u128(w1, xq)), __fmul_rn(ws1, xs), b6);
-        }
-        if (tile_b > 7) {
-            uint4 xq = smem_x[7][c16]; float xs = smem_xsc[7][c64];
-            a7 = __fmaf_rn(static_cast<float>(dp4a_u128(w0, xq)), __fmul_rn(ws0, xs), a7);
-            if (has_row1) b7 = __fmaf_rn(static_cast<float>(dp4a_u128(w1, xq)), __fmul_rn(ws1, xs), b7);
-        }
-    }
-
-    a0 = warp_sum(a0); b0 = warp_sum(b0);
-    a1 = warp_sum(a1); b1 = warp_sum(b1);
-    a2 = warp_sum(a2); b2 = warp_sum(b2);
-    a3 = warp_sum(a3); b3 = warp_sum(b3);
-    a4 = warp_sum(a4); b4 = warp_sum(b4);
-    a5 = warp_sum(a5); b5 = warp_sum(b5);
-    a6 = warp_sum(a6); b6 = warp_sum(b6);
-    a7 = warp_sum(a7); b7 = warp_sum(b7);
-
-    if (lane == 0) {
-        const float inv_sc = (softcap > 0.0f) ? ptx_rcp(softcap) : 0.0f;
-        auto write_pair = [&](int t, float v0, float v1) {
-            if (t < tile_b) {
-                if (softcap > 0.0f) {
-                    v0 = softcap * ptx_tanh(v0 * inv_sc);
-                    v1 = softcap * ptx_tanh(v1 * inv_sc);
-                }
-                float* dst = y_base + static_cast<size_t>(b_base + t) * y_stride;
-                dst[row0] = v0;
-                if (has_row1) dst[row0 + 1] = v1;
-            }
-        };
-        write_pair(0, a0, b0);
-        write_pair(1, a1, b1);
-        write_pair(2, a2, b2);
-        write_pair(3, a3, b3);
-        write_pair(4, a4, b4);
-        write_pair(5, a5, b5);
-        write_pair(6, a6, b6);
-        write_pair(7, a7, b7);
+    const int out_row = first_row + tid / 8;
+    const int out_token = first_token + tid % 8;
+    if (tid < 128 && out_row < rows && out_token < B) {
+        const float s0 = partials[0][tid] + partials[4][tid];
+        const float s1 = partials[1][tid] + partials[5][tid];
+        const float s2 = partials[2][tid] + partials[6][tid];
+        const float s3 = partials[3][tid] + partials[7][tid];
+        float value = (s0 + s2) + (s1 + s3);
+        if (softcap > 0.0f) value = softcap * ptx_tanh(value * ptx_rcp(softcap));
+        y_base[static_cast<size_t>(out_token) * y_stride + out_row] = value;
     }
 }
 
@@ -2465,10 +2427,7 @@ __device__ __forceinline__ void grouped_nvfp4_mma(
                         const unsigned a1 = decode_4x_e2m1_nibbles16_to_2x_s8(bottom[part]);
                         const unsigned b = x_words[(token * groups + k) * 4 + fragment];
                         int d0, d1, d2, d3;
-                        asm volatile("mma.sync.aligned.m16n8k16.row.col.s32.s8.s8.s32 "
-                                     "{%0,%1,%2,%3},{%4,%5},{%6},{0,0,0,0};"
-                                     : "=r"(d0), "=r"(d1), "=r"(d2), "=r"(d3)
-                                     : "r"(a0), "r"(a1), "r"(b));
+                        mma_s8_k16(a0, a1, b, d0, d1, d2, d3);
 
                         const float w0 = scales[row][k];
                         const float w1 = scales[row + 8][k];

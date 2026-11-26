@@ -1,5 +1,5 @@
-// Compare grouped NVFP4 gate/up and down outputs from two Blackwell cubins.
-// c++ -O2 -I/usr/local/cuda/include kernels/tests/inkling_grouped_parity.cpp -lcuda -o parity
+// Compare dense Q8 and grouped NVFP4 projection outputs from two Blackwell cubins.
+// c++ -O2 -I/usr/local/cuda/include kernels/tests/inkling_mma_parity.cpp -lcuda -o parity
 // ./parity stock.cubin candidate.cubin
 #include <cuda.h>
 
@@ -27,6 +27,65 @@ static CUdeviceptr upload(const std::vector<T>& values) {
     check(cuMemAlloc(&device, bytes));
     check(cuMemcpyHtoD(device, values.data(), bytes));
     return device;
+}
+
+static void check_dense(const CUmodule (&modules)[2]) {
+    CUfunction kernels[2];
+    for (int i = 0; i < 2; ++i) {
+        check(cuModuleGetFunction(&kernels[i], modules[i], "ink2_q8_dp4a_gemm_b"));
+    }
+    std::mt19937 rng(20261127);
+    auto words = [&](size_t count) {
+        std::vector<uint32_t> values(count);
+        for (auto& value : values) value = rng();
+        return upload(values);
+    };
+    auto scales = [&](size_t count) {
+        std::vector<float> values(count);
+        for (auto& value : values) value = (1u + rng() % 113) * 0.0004f;
+        return upload(values);
+    };
+    size_t live_values = 0;
+    auto compare_shape = [&](int rows, int cols, int tokens) {
+        auto w = words(rows * cols / 4);
+        auto ws = scales(rows * cols / 64);
+        auto x = words(tokens * cols / 4);
+        auto xs = scales(tokens * cols / 64);
+        constexpr float sentinel = -54321.0f;
+        int stride = rows + 3;
+        std::vector<float> empty(stride * tokens, sentinel);
+        std::vector<float> result[2] = {empty, empty};
+        auto output = upload(empty);
+        const size_t bytes = empty.size() * sizeof(float);
+        for (float cap : {0.0f, 10.0f}) {
+            void* args[] = {&w, &ws, &x, &xs, &output, &rows, &cols, &tokens, &stride, &cap};
+            for (int i = 0; i < 2; ++i) {
+                check(cuMemcpyHtoD(output, empty.data(), bytes));
+                check(cuLaunchKernel(kernels[i], (rows + 15) / 16, (tokens + 7) / 8, 1,
+                                     256, 1, 1, 0, nullptr, args, nullptr));
+                check(cuMemcpyDtoH(result[i].data(), output, bytes));
+            }
+            for (size_t i = 0; i < empty.size(); ++i) {
+                const bool live = static_cast<int>(i % stride) < rows;
+                const float reference = result[0][i];
+                if (!std::isfinite(reference) || (reference != sentinel) != live ||
+                    std::memcmp(&result[0][i], &result[1][i], sizeof(float)) != 0) {
+                    std::fprintf(stderr, "Q8 GEMM rows=%d cols=%d tokens=%d cap=%g index=%zu: %a vs %a\n",
+                                 rows, cols, tokens, cap, i, reference, result[1][i]);
+                    std::exit(1);
+                }
+                live_values += live;
+            }
+        }
+        for (auto ptr : {w, ws, x, xs, output}) check(cuMemFree(ptr));
+    };
+    for (int cols : {64, 128, 1024, 2304, 3072}) {
+        for (int rows : {1, 15, 16, 17, 48, 65}) {
+            for (int tokens : {1, 7, 8, 9, 63, 64}) compare_shape(rows, cols, tokens);
+        }
+    }
+    std::printf("Q8 GEMM: %zu active FP32 values matched across 360 shapes/caps; padding untouched\n",
+                live_values);
 }
 
 int main(int argc, char** argv) {
@@ -111,6 +170,7 @@ int main(int argc, char** argv) {
     for (auto ptr : {weights, ws, amax, activations, xs, device_counts, token_map, pair_map}) {
         check(cuMemFree(ptr));
     }
+    check_dense(modules);
     for (auto module : modules) check(cuModuleUnload(module));
     check(cuDevicePrimaryCtxRelease(gpu));
 }
