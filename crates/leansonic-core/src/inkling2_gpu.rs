@@ -40,6 +40,7 @@ pub const VOCAB: usize = 200_058;
 pub const PADDED_VOCAB: usize = 201_024;
 pub const GLOBAL_LAYERS: [usize; 4] = [5, 11, 17, 23];
 pub const MAX_BATCH_TOKENS: usize = 1024;
+const NVFP4_LAYERS: usize = 20;
 const EXPERT_PAGE: usize = 64;
 pub const MAX_SPEC_TOKENS: usize = 8;
 pub const TAP_SLOTS: [usize; 3] = [4, 28, 46];
@@ -521,16 +522,25 @@ fn pack_q8_rows(bf16_bytes: &[u8], cols: usize, codes: &mut [u8], scales_bytes: 
     });
 }
 
-// Prioritize the layers visited three times. At the budget boundary, each expert
-// matrix can reside independently because kernels receive separate up/down pointers.
+// Keep the thrice-visited layers resident first. Among single-visit layers the
+// grouped MXFP8 kernels incur the largest penalty when reading weights over PCIe.
 fn plan_expert_placement(expert_views: &[[&[u8]; 2]], mut budget: usize) -> [[bool; 2]; N_LAYER] {
     let mut resident = [[false; 2]; N_LAYER];
-    for il in (6..18).chain(0..6).chain(18..N_LAYER) {
-        for (on_device, bytes) in resident[il].iter_mut().zip(expert_views[il]) {
-            if bytes.len() <= budget {
-                *on_device = true;
-                budget -= bytes.len();
-            }
+    let mut place = |layer: usize, matrix: usize| {
+        let bytes = expert_views[layer][matrix].len();
+        if bytes <= budget {
+            resident[layer][matrix] = true;
+            budget -= bytes;
+        }
+    };
+    for layer in (6..18).chain(NVFP4_LAYERS..N_LAYER) {
+        place(layer, 0);
+        place(layer, 1);
+    }
+    // The smaller NVFP4 down matrices fit independently of their gate/up matrices.
+    for matrix in [1, 0] {
+        for layer in (0..6).chain(18..NVFP4_LAYERS) {
+            place(layer, matrix);
         }
     }
     resident
@@ -1032,7 +1042,7 @@ impl Inkling2GpuEngine {
                 None
             };
 
-            let expert_scales = if il < 20 {
+            let expert_scales = if il < NVFP4_LAYERS {
                 let w13_raw = st
                     .require(
                         &format!("{pfx}mlp.experts.w13_weight"),
@@ -4793,11 +4803,18 @@ mod tests {
         let tensors = [[up.as_slice(), down.as_slice()]; N_LAYER];
         let placement = plan_expert_placement(&tensors, 12 * 3 + 1);
         assert!(placement[6..18].iter().all(|pair| *pair == [true, true]));
-        assert_eq!(placement[0], [false, true]);
-        assert!(placement[1..6]
+        assert_eq!(placement[NVFP4_LAYERS], [false, true]);
+        assert!(placement[..6]
             .iter()
-            .chain(&placement[18..])
+            .chain(&placement[18..NVFP4_LAYERS])
+            .chain(&placement[NVFP4_LAYERS + 1..])
             .all(|pair| *pair == [false, false]));
+        let after_loop_and_mxfp8 = (12 + N_LAYER - NVFP4_LAYERS) * 3;
+        let placement = plan_expert_placement(&tensors, after_loop_and_mxfp8 + 8);
+        assert!(placement[..6]
+            .iter()
+            .chain(&placement[18..NVFP4_LAYERS])
+            .all(|pair| *pair == [false, true]));
         assert_eq!(plan_expert_placement(&tensors, 0), [[false; 2]; N_LAYER]);
         assert_eq!(
             plan_expert_placement(&tensors, N_LAYER * 3),
