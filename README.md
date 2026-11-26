@@ -131,6 +131,8 @@ leansonic eval-kld --weights "$MODEL_DIR" --ref inkling2-bf16-base.kld
 
 The command prints JSON with model and reference perplexity, mean/median/p99/maximum per-position KL divergence, and top-1 agreement. It resets the GPU engine for each reference chunk, prefills through its midpoint, and scores each remaining next token using the reference prefix. KL uses the reference log-probability cutoff of −16. Use `--chunks N` to score the first N chunks. Use `--start-chunk I --chunks 1` to replay a zero-based chunk. The `ref_ppl` field uses the probabilities stored in the reference file. Its lowest code covers logits at least 16 below the row maximum when the row is clipped. The `ref_floor_targets` field counts scored next tokens with code zero. See the [reference build and checksums](docs/inkling-reference.md) to reproduce the 100-chunk file and compare with the generator’s perplexity.
 
+Inkling chooses its prefill chunk at load time from 64, 128, 256, 512 and 1024 tokens. It widens the chunk when scratch space and the local KV rings fit alongside the expert matrices selected for GPU memory. The startup log reports the selected width. Set `LEANSONIC_PREFILL_CHUNK=64` to use the smallest scratch allocation, or set it to one of the larger widths to cap automatic selection. External cubins without wide grouping use 64.
+
 #### Prepare a smaller text-only Inkling checkpoint
 
 For a text-only deployment, omit the vision tower and keep the language tensors at their original precision. The converter needs Python 3.9+ and about 19 GB of free disk space for the output.

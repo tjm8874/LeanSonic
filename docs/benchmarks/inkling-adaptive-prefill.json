@@ -1,0 +1,485 @@
+{
+  "model": "Inkling-2-Mini (official weights)",
+  "driver": "595.99.02",
+  "nvcc": "13.0.88",
+  "nvcc_flags": "-O3 -arch=sm_120a --cubin",
+  "A_source": "f5889bc5159eda6594a0e702d51dc48a9a54985d",
+  "B_source": "778b82afef540342f64cfc3c03771b14eb20b0e3",
+  "prompt": {
+    "readme_commit": "4c71b4cf58a6f35f64e347c897cb67ebffcde74e",
+    "tokens": 1024,
+    "format": "First 1024 ordinary BPE token IDs of README.md, comma separated with final LF",
+    "sha256": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843"
+  },
+  "command": "LEANSONIC_CTX=8192 LEANSONIC_CUBIN_PATH=<image> leansonic bench --weights <model> --spec 0 --tokens @readme1024.txt --gen 32 --repeat 2",
+  "samples": "Five cycles, each A-B-B-A in fresh processes. The second request is timed. Both requests must generate the same 32 IDs. The interval resamples the five paired percent changes 10000 times, seed 12345.",
+  "images": {
+    "cli-main": {
+      "bytes": 2438704,
+      "sha256": "2d2fdc565ed80403e09dbf3e270bf0b0d54593709b9474ea949b50a263cc2387"
+    },
+    "main.cubin": {
+      "bytes": 1068048,
+      "sha256": "a214e1109d20a80cf2c0bb7592e1dbc2e9fec60046893ec6c2936c3e7d62b7cf"
+    },
+    "cli-new": {
+      "bytes": 2259592,
+      "sha256": "139dffe53686870e708ba6ec1330abf312f68be681c20fce79e95863f6538248"
+    },
+    "new.cubin": {
+      "bytes": 1075064,
+      "sha256": "3e7e0ed5d087e7a50f72d9f18780ea7fc5bb38d412c776ee0ccb5cff2dce0839"
+    }
+  },
+  "gpu": {
+    "RTX PRO 5000 72 GB": {
+      "width_B": 1024,
+      "loaded_vram_gib": {
+        "A": [
+          16.86
+        ],
+        "B": [
+          17.26
+        ]
+      },
+      "summary": {
+        "prefill_ms": {
+          "mean_A": 720.468,
+          "mean_B": 453.699,
+          "paired_mean_change_pct": -37.027,
+          "paired_bootstrap_95_pct": [
+            -37.106,
+            -36.966
+          ]
+        },
+        "decode_32_ms": {
+          "mean_A": 341.302,
+          "mean_B": 340.689,
+          "paired_mean_change_pct": -0.18,
+          "paired_bootstrap_95_pct": [
+            -0.196,
+            -0.165
+          ]
+        }
+      },
+      "generated_32_ids": [
+        145026,
+        220,
+        39446,
+        220,
+        19,
+        154978,
+        152792,
+        189134,
+        149860,
+        185136,
+        198,
+        84375,
+        149859,
+        23033,
+        220,
+        137294,
+        196997,
+        13,
+        1157,
+        63,
+        150406,
+        903,
+        25,
+        196997,
+        30841,
+        57335,
+        12,
+        1339,
+        903,
+        63,
+        197005,
+        196997
+      ],
+      "cycles": [
+        {
+          "prefill_ms": [
+            719.73,
+            452.05,
+            452.3,
+            719.76
+          ],
+          "decode_32_ms": [
+            341.29,
+            340.63,
+            340.49,
+            341.25
+          ]
+        },
+        {
+          "prefill_ms": [
+            719.81,
+            453.47,
+            453.33,
+            720.42
+          ],
+          "decode_32_ms": [
+            341.22,
+            340.71,
+            340.72,
+            341.27
+          ]
+        },
+        {
+          "prefill_ms": [
+            720.51,
+            453.84,
+            454.01,
+            720.53
+          ],
+          "decode_32_ms": [
+            341.12,
+            340.54,
+            340.55,
+            341.22
+          ]
+        },
+        {
+          "prefill_ms": [
+            720.79,
+            454.22,
+            454.26,
+            721.04
+          ],
+          "decode_32_ms": [
+            341.37,
+            340.84,
+            340.58,
+            341.28
+          ]
+        },
+        {
+          "prefill_ms": [
+            720.96,
+            454.79,
+            454.72,
+            721.13
+          ],
+          "decode_32_ms": [
+            341.49,
+            340.86,
+            340.97,
+            341.51
+          ]
+        }
+      ],
+      "power_limit_w": 350
+    },
+    "RTX 5060 Ti 16 GB": {
+      "width_B": 128,
+      "loaded_vram_gib": {
+        "A": [
+          15.4
+        ],
+        "B": [
+          15.44
+        ]
+      },
+      "summary": {
+        "prefill_ms": {
+          "mean_A": 5190.627,
+          "mean_B": 4438.33,
+          "paired_mean_change_pct": -14.493,
+          "paired_bootstrap_95_pct": [
+            -14.497,
+            -14.49
+          ]
+        },
+        "decode_32_ms": {
+          "mean_A": 896.038,
+          "mean_B": 895.963,
+          "paired_mean_change_pct": -0.008,
+          "paired_bootstrap_95_pct": [
+            -0.014,
+            -0.004
+          ]
+        }
+      },
+      "generated_32_ids": [
+        145026,
+        220,
+        39446,
+        220,
+        19,
+        154978,
+        152792,
+        189134,
+        149860,
+        185136,
+        198,
+        84375,
+        149859,
+        23033,
+        220,
+        137294,
+        196997,
+        13,
+        1157,
+        63,
+        150406,
+        903,
+        25,
+        196997,
+        30841,
+        57335,
+        12,
+        1339,
+        903,
+        63,
+        197005,
+        196997
+      ],
+      "cycles": [
+        {
+          "prefill_ms": [
+            5190.46,
+            4437.63,
+            4438.29,
+            5190.52
+          ],
+          "decode_32_ms": [
+            896.1,
+            896.05,
+            895.98,
+            896.07
+          ]
+        },
+        {
+          "prefill_ms": [
+            5190.43,
+            4438.3,
+            4438.43,
+            5190.8
+          ],
+          "decode_32_ms": [
+            895.99,
+            895.99,
+            895.97,
+            895.99
+          ]
+        },
+        {
+          "prefill_ms": [
+            5190.61,
+            4438.72,
+            4438.29,
+            5190.18
+          ],
+          "decode_32_ms": [
+            896.02,
+            896.0,
+            895.85,
+            896.15
+          ]
+        },
+        {
+          "prefill_ms": [
+            5190.77,
+            4438.35,
+            4438.47,
+            5190.57
+          ],
+          "decode_32_ms": [
+            895.98,
+            896.0,
+            895.91,
+            896.0
+          ]
+        },
+        {
+          "prefill_ms": [
+            5191.14,
+            4438.48,
+            4438.34,
+            5190.79
+          ],
+          "decode_32_ms": [
+            896.04,
+            896.0,
+            895.88,
+            896.04
+          ]
+        }
+      ],
+      "power_limit_w": 180
+    }
+  },
+  "nsight_systems": {
+    "gpu": "RTX PRO 5000 72 GB",
+    "input": "same 1024 README tokens",
+    "capture": "One prompt, native cubin, CUDA graph node trace. Costs sum device kernel durations between the first kernel and scalar decode. Listed kernels are the top 15 per arm.",
+    "A": {
+      "ink2_moe_nvfp4_dp4a_grouped_up_situ": {
+        "launches": 704,
+        "ms": 217.804
+      },
+      "ink2_q8_dp4a_gemm_b": {
+        "launches": 2432,
+        "ms": 110.685
+      },
+      "ink2_moe_nvfp4_dp4a_grouped_down": {
+        "launches": 704,
+        "ms": 104.553
+      },
+      "ink2_gqa_rel_sink_attn_q8_b": {
+        "launches": 768,
+        "ms": 90.207
+      },
+      "ink2_moe_mxfp8_grouped_up_situ": {
+        "launches": 64,
+        "ms": 58.202
+      },
+      "ink2_moe_mxfp8_grouped_down": {
+        "launches": 64,
+        "ms": 33.556
+      },
+      "ink2_short_conv4_b": {
+        "launches": 2304,
+        "ms": 27.756
+      },
+      "ink2_ctrl_down_r8_b": {
+        "launches": 768,
+        "ms": 14.319
+      },
+      "ink2_bf16_gemm_router_b": {
+        "launches": 768,
+        "ms": 10.387
+      },
+      "ink2_build_expert_groups_b": {
+        "launches": 768,
+        "ms": 9.223
+      },
+      "ink2_short_conv4_save_b": {
+        "launches": 768,
+        "ms": 9.119
+      },
+      "ink2_depth_mix_b": {
+        "launches": 1152,
+        "ms": 8.444
+      },
+      "ink2_ctrl_apply_t8_b": {
+        "launches": 768,
+        "ms": 7.099
+      },
+      "ink2_depth_mix_rmsnorm_d_quant_q8_16_b": {
+        "launches": 384,
+        "ms": 3.449
+      },
+      "ink2_depth_mix_rmsnorm_quant_q8_64_b": {
+        "launches": 369,
+        "ms": 3.409
+      }
+    },
+    "B": {
+      "ink2_moe_nvfp4_dp4a_grouped_up_situ": {
+        "launches": 44,
+        "ms": 98.373
+      },
+      "ink2_q8_dp4a_gemm_b": {
+        "launches": 152,
+        "ms": 88.764
+      },
+      "ink2_gqa_rel_sink_attn_q8_b": {
+        "launches": 48,
+        "ms": 64.17
+      },
+      "ink2_moe_nvfp4_dp4a_grouped_down": {
+        "launches": 44,
+        "ms": 58.076
+      },
+      "ink2_moe_mxfp8_grouped_up_situ": {
+        "launches": 4,
+        "ms": 44.413
+      },
+      "ink2_moe_mxfp8_grouped_down": {
+        "launches": 4,
+        "ms": 24.167
+      },
+      "ink2_short_conv4_b": {
+        "launches": 144,
+        "ms": 23.47
+      },
+      "ink2_short_conv4_save_b": {
+        "launches": 48,
+        "ms": 16.829
+      },
+      "ink2_ctrl_down_r8_b": {
+        "launches": 48,
+        "ms": 11.895
+      },
+      "ink2_bf16_gemm_router_b": {
+        "launches": 48,
+        "ms": 6.011
+      },
+      "ink2_ctrl_apply_t8_b": {
+        "launches": 48,
+        "ms": 4.338
+      },
+      "ink2_depth_mix_b": {
+        "launches": 72,
+        "ms": 3.256
+      },
+      "ink2_quant_q8_16_packed": {
+        "launches": 44,
+        "ms": 1.951
+      },
+      "ink2_moe_combine_top8_b": {
+        "launches": 48,
+        "ms": 1.946
+      },
+      "ink2_build_expert_groups_wide_b": {
+        "launches": 48,
+        "ms": 1.232
+      }
+    }
+  },
+  "quality": {
+    "reference": "100-chunk WikiText BF16 reference described in docs/inkling-reference.md",
+    "gpu": "RTX PRO 4500 Blackwell",
+    "result_sha256_both_arms": "610fccf68a36c43da1ab9a62fe077fee0213c0dd006620e176e9996509ed3998",
+    "result_both_arms": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.071985759563496,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.0030389868322863254,
+      "median_kld": 0.0012228699963499484,
+      "p99_kld": 0.028630558999079292,
+      "max_kld": 0.6639923296258949,
+      "start_chunk": 0,
+      "max_kld_chunk": 69,
+      "max_kld_position": 353,
+      "ref_floor_targets": 14,
+      "top1_matches": 24880,
+      "top1_agreement": 0.9756862745098039
+    },
+    "continued_prefill": {
+      "requests": 34,
+      "segments_per_request": 3,
+      "rows": 102,
+      "vocab_size": 200058,
+      "fp32_bytes": 81623664,
+      "sha256_both_arms": "4e6a6c3fcd7970887066b8180b9877bebc903ab405a8d59b0b7d1999dc90c38d"
+    },
+    "gpu_http": [
+      {
+        "prompt_tokens": 1192,
+        "completion_tokens": 253,
+        "finish": "stop",
+        "content": "12 beads."
+      },
+      {
+        "prompt_tokens": 18,
+        "completion_tokens": 46,
+        "finish": "stop",
+        "content": "Tokyo"
+      }
+    ]
+  }
+}
