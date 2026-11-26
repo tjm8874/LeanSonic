@@ -48,6 +48,22 @@ impl Reference {
         })
     }
 
+    fn seek_chunk(&mut self, chunk: usize) -> Result<()> {
+        if chunk >= self.chunks {
+            return Err(format!("start chunk {chunk} exceeds reference bounds").into());
+        }
+        // open() validated the entire extent against the actual u64 file length.
+        let token_bytes = self.ctx as u64 * 4;
+        let rows_per_chunk = (self.ctx - 1 - self.ctx / 2) as u64;
+        let row_start = 20 + self.chunks as u64 * token_bytes;
+        self.tokens
+            .seek(SeekFrom::Start(20 + chunk as u64 * token_bytes))?;
+        self.rows.seek(SeekFrom::Start(
+            row_start + chunk as u64 * rows_per_chunk * row_bytes(VOCAB) as u64,
+        ))?;
+        Ok(())
+    }
+
     fn next_tokens(&mut self) -> Result<Vec<u32>> {
         let mut buf = vec![0; self.ctx * 4];
         self.tokens.read_exact(&mut buf)?;
@@ -126,6 +142,7 @@ pub fn run(args: &[String]) -> Result<()> {
     let mut weights = None;
     let mut reference = None;
     let mut limit = None;
+    let mut start = 0usize;
     let mut args = args.iter();
     while let Some(flag) = args.next() {
         let value = args
@@ -134,21 +151,25 @@ pub fn run(args: &[String]) -> Result<()> {
         match flag.as_str() {
             "--weights" => weights = Some(value),
             "--ref" => reference = Some(Path::new(value)),
+            "--start-chunk" => start = value.parse()?,
             "--chunks" => limit = Some(value.parse::<usize>()?),
             _ => return Err(format!("unknown eval-kld option {flag}").into()),
         }
     }
     let weights = weights.ok_or("--weights <directory> is required")?;
     let mut reference = Reference::open(reference.ok_or("--ref <file> is required")?)?;
-    let chunks = limit.unwrap_or(reference.chunks);
-    if chunks == 0 || chunks > reference.chunks {
-        return Err(format!("--chunks must be between 1 and {}", reference.chunks).into());
+    reference.seek_chunk(start)?;
+    let remaining = reference.chunks - start;
+    let chunks = limit.unwrap_or(remaining);
+    if chunks == 0 || chunks > remaining {
+        return Err(format!("--chunks must be between 1 and {remaining}").into());
     }
     let mut engine = Inkling2GpuEngine::load_from_dir_with_spec(weights, reference.ctx, true, 0)?;
     let mut row = vec![0; row_bytes(VOCAB)];
     let mut klds = Vec::new();
     let (mut sum_nll, mut sum_ref, mut matches) = (0.0, 0.0, 0usize);
-    for chunk in 0..chunks {
+    let mut worst = (f64::NEG_INFINITY, start, 0);
+    for chunk in start..start + chunks {
         let ids = reference.next_tokens()?;
         engine.reset()?;
         let first = reference.ctx / 2;
@@ -159,6 +180,9 @@ pub fn run(args: &[String]) -> Result<()> {
             let logits = engine.read_last_logits()?;
             let s = score_row(&logits, &row, target as usize)
                 .map_err(|e| format!("chunk {chunk}, position {pos}: {e}"))?;
+            if s.kld > worst.0 {
+                worst = (s.kld, chunk, pos);
+            }
             klds.push(s.kld);
             sum_nll += s.nll;
             sum_ref += s.nll_ref;
@@ -185,6 +209,7 @@ pub fn run(args: &[String]) -> Result<()> {
         concat!(
             "{{\"chunks\":{},\"context\":{},\"rows\":{},\"ppl\":{},\"ref_ppl\":{},",
             "\"mean_kld\":{},\"median_kld\":{},\"p99_kld\":{},\"max_kld\":{},",
+            "\"start_chunk\":{},\"max_kld_chunk\":{},\"max_kld_position\":{},",
             "\"top1_matches\":{},\"top1_agreement\":{}}}"
         ),
         chunks,
@@ -195,7 +220,10 @@ pub fn run(args: &[String]) -> Result<()> {
         mean,
         quantile(0.5),
         quantile(0.99),
-        klds[count - 1],
+        worst.0,
+        start,
+        worst.1,
+        worst.2,
         matches,
         matches as f64 / n
     );
