@@ -345,40 +345,40 @@ theorem wave1_inkling2_all_kernels_valid :
 
 /-! ## 8. Measured `ptxas -arch=sm_120a` Cycle 1 (`v0.2.0`) Multi-Token Batch Kernels -/
 
-/-- Planar `Q8_64` 16-Row × 8-Token SMEM-Staged `__dp4a` GEMM (`46` regs, `26,112` B SMEM -> `64` KiB L1!). -/
+/-- Planar `Q8_64` 16-Row × 8-Token `IMMA.16816.S8.S8` GEMM (`56` regs, `4,096` B SMEM -> `4` CTAs/SM, `96` KiB L1!). -/
 def kInk2Q8Dp4aGemmB : KernelResourceSpec :=
   { name := "ink2_q8_dp4a_gemm_b"
     threadsPerCta := 256
-    rawRegsPerThread := 46          -- aligns to 48 -> 12,288 regs/CTA; 2 CTAs = 24,576 <= 65,536
-    userSmemPerCtaBytes := 26112    -- 2 * (26112 + 1024) = 54,272 B <= 64 KiB carveout -> 64 KiB L1!
+    rawRegsPerThread := 56          -- 14,336 regs/CTA; 4 CTAs = 57,344 <= 65,536
+    userSmemPerCtaBytes := 4096     -- 4 * (4096 + 1024) = 20,480 B <= 32 KiB carveout -> 96 KiB L1!
     smemAlignPadBytes := 0
-    ctasPerSm := 2
+    ctasPerSm := 4
     clusterCtas := 1
-    minRequiredL1KiB := 64
+    minRequiredL1KiB := 96
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
-/-- Tile-8 Grouped-Expert NVFP4 `__dp4a` Up+SITU (`48` regs, `23,328` B SMEM -> `64` KiB L1!). -/
+/-- Tile-8 Grouped-Expert NVFP4 `IMMA.16816.S8.S8` Up+SITU (`48` regs, `32,576` B SMEM -> `64` KiB L1!). -/
 def kInk2MoeNvfp4GroupedUpSitu : KernelResourceSpec :=
   { name := "ink2_moe_nvfp4_dp4a_grouped_up_situ"
     threadsPerCta := 256
     rawRegsPerThread := 48
-    userSmemPerCtaBytes := 23328    -- 2 * (23328 + 1024) = 48,704 B <= 64 KiB carveout -> 64 KiB L1!
+    userSmemPerCtaBytes := 32576    -- 1 * (32576 + 1024) = 33,600 B <= 64 KiB carveout -> 64 KiB L1!
     smemAlignPadBytes := 0
-    ctasPerSm := 2
+    ctasPerSm := 1
     clusterCtas := 1
     minRequiredL1KiB := 64
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
-/-- Tile-8 Grouped-Expert NVFP4 `__dp4a` Down (`56` regs, `11,552` B SMEM -> `4` CTAs/SM, `64` KiB L1!). -/
+/-- Tile-8 Grouped-Expert NVFP4 `IMMA.16816.S8.S8` Down (`40` regs, `18,240` B SMEM -> `3` CTAs/SM, `64` KiB L1!). -/
 def kInk2MoeNvfp4GroupedDown : KernelResourceSpec :=
   { name := "ink2_moe_nvfp4_dp4a_grouped_down"
     threadsPerCta := 256
-    rawRegsPerThread := 56          -- 14,336 regs/CTA; 4 CTAs = 57,344 <= 65,536 (32 warps/SM!)
-    userSmemPerCtaBytes := 11552    -- 4 * (11552 + 1024) = 50,304 B <= 64 KiB carveout -> 64 KiB L1!
+    rawRegsPerThread := 40          -- 10,240 regs/CTA; 3 CTAs = 30,720 <= 65,536
+    userSmemPerCtaBytes := 18240    -- 3 * (18240 + 1024) = 57,792 B <= 64 KiB carveout -> 64 KiB L1!
     smemAlignPadBytes := 0
-    ctasPerSm := 4
+    ctasPerSm := 3
     clusterCtas := 1
     minRequiredL1KiB := 64
     hasStackSpill := false
@@ -539,6 +539,60 @@ theorem mtp_fold_fin_valid : ValidSm120Kernel kMtpFoldFin := by decide
 
 theorem cycle2_speculative_all_kernels_valid :
     (cycle2SpeculativeKernelSuite.all checkSm120Kernel) = true := by
+  decide
+
+/-! ## 10. Measured `ptxas -arch=sm_120a` Cycle 4 (`v0.5.0`) Split-KV GQA & Packed Quant Kernels -/
+
+/-- Packed 8-Group/CTA Half-Warp `Q8_16` Quantizer (`128` threads, `19` regs -> `12` CTAs = `48` warps/SM!). -/
+def kInk2QuantQ8Packed : KernelResourceSpec :=
+  { name := "ink2_quant_q8_16_packed"
+    threadsPerCta := 128
+    rawRegsPerThread := 19          -- aligns to 24 -> 3,072 regs/CTA; 12 CTAs = 36,864 <= 65,536 (48 warps/SM!)
+    userSmemPerCtaBytes := 0        -- 12 * 1024 = 12,288 B <= 16 KiB carveout -> 112 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 12
+    clusterCtas := 1
+    minRequiredL1KiB := 112
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Unified Split-KV + GQA-Grouped Attention (`56` regs, `14,976` B SMEM -> `4` CTAs = `32` warps/SM, `64` KiB L1!). -/
+def kInk2GqaAttnSplit : KernelResourceSpec :=
+  { name := "ink2_gqa_attn_split"
+    threadsPerCta := 256
+    rawRegsPerThread := 56          -- 14,336 regs/CTA; 4 CTAs = 57,344 <= 65,536
+    userSmemPerCtaBytes := 14976    -- 4 * (14976 + 1024) = 64,000 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Split-KV Online-Softmax Combine + Sigmoid Gate (`128` threads, `39` regs -> `12` CTAs = `48` warps/SM!). -/
+def kInk2GqaAttnCombine : KernelResourceSpec :=
+  { name := "ink2_gqa_attn_combine"
+    threadsPerCta := 128
+    rawRegsPerThread := 39          -- aligns to 40 -> 5,120 regs/CTA; 12 CTAs = 61,440 <= 65,536
+    userSmemPerCtaBytes := 0        -- 12 * 1024 = 12,288 B <= 16 KiB carveout -> 112 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 12
+    clusterCtas := 1
+    minRequiredL1KiB := 112
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def cycle4SplitKvKernelSuite : List KernelResourceSpec :=
+  [ kInk2QuantQ8Packed
+  , kInk2GqaAttnSplit
+  , kInk2GqaAttnCombine ]
+
+theorem ink2_quant_q8_16_packed_valid : ValidSm120Kernel kInk2QuantQ8Packed := by decide
+theorem ink2_gqa_attn_split_valid : ValidSm120Kernel kInk2GqaAttnSplit := by decide
+theorem ink2_gqa_attn_combine_valid : ValidSm120Kernel kInk2GqaAttnCombine := by decide
+
+theorem cycle4_splitkv_all_kernels_valid :
+    (cycle4SplitKvKernelSuite.all checkSm120Kernel) = true := by
   decide
 
 end LeanSonic.Proofs

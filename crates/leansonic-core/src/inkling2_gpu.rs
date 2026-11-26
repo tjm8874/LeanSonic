@@ -152,6 +152,8 @@ struct KernelFns {
     short_conv4: CUfunction,
     prep_qkv_and_cache: CUfunction,
     gqa_rel_sink_attn: CUfunction,
+    gqa_attn_split: Option<CUfunction>,
+    gqa_attn_combine: Option<CUfunction>,
     router_topk8: CUfunction,
     moe_nvfp4_up_situ: CUfunction,
     moe_nvfp4_down: CUfunction,
@@ -241,6 +243,10 @@ pub struct Inkling2GpuEngine {
     d_k_conv: DeviceBuf,
     d_v_conv: DeviceBuf,
     d_attn_out: DeviceBuf,
+    /// Split-KV GQA attention (`LEANSONIC_ATTN_SPLIT=G`, `0` = legacy 24-CTA kernel).
+    attn_split_g: usize,
+    d_attn_part_ml: DeviceBuf,
+    d_attn_part_o: DeviceBuf,
     d_wo_out: DeviceBuf,
     d_mlp_h: DeviceBuf,
     d_router_logits: DeviceBuf,
@@ -423,6 +429,13 @@ impl Inkling2GpuEngine {
         let t_load = Instant::now();
         let ctx = CudaContextHandle::init(0)?;
         ctx.bind_current()?;
+        // `LEANSONIC_ATTN_SPLIT=G` (`1..=64`) enables Split-KV + GQA-grouped attention across
+        // BOTH Solo Decode (`B=1`) and `DSpark` Verify / Prefill (`B>=1`) for `0-ULP` spec parity!
+        let attn_split_g = std::env::var("LEANSONIC_ATTN_SPLIT")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(0)
+            .min(64);
         let use_moe_dp4a = std::env::var("LEANSONIC_MOE_DP4A")
             .map(|v| v != "0")
             .unwrap_or(true);
@@ -434,6 +447,12 @@ impl Inkling2GpuEngine {
         };
 
         let fns = Self::load_module_functions(&ctx, &module_image)?;
+        if attn_split_g > 0 && (fns.gqa_attn_split.is_none() || fns.gqa_attn_combine.is_none()) {
+            return Err(
+                "LEANSONIC_ATTN_SPLIT>0 requested, but loaded cubin lacks ink2_gqa_attn_split/combine"
+                    .into(),
+            );
+        }
         let st_path = model_dir.as_ref().join("model-00001-of-00001.safetensors");
         let st = MappedSafeTensors::open(&st_path)
             .map_err(|e| format!("open {}: {e}", st_path.display()))?;
@@ -989,6 +1008,23 @@ impl Inkling2GpuEngine {
             d_k_conv: DeviceBuf::alloc_zeroed(&ctx, 1024 * 4)?,
             d_v_conv: DeviceBuf::alloc_zeroed(&ctx, 1024 * 4)?,
             d_attn_out: DeviceBuf::alloc_zeroed(&ctx, 3072 * 4)?,
+            attn_split_g,
+            d_attn_part_ml: DeviceBuf::alloc_zeroed(
+                &ctx,
+                if attn_split_g > 0 {
+                    MAX_BATCH_TOKENS * 24 * attn_split_g * 2 * 4
+                } else {
+                    4
+                },
+            )?,
+            d_attn_part_o: DeviceBuf::alloc_zeroed(
+                &ctx,
+                if attn_split_g > 0 {
+                    MAX_BATCH_TOKENS * 24 * attn_split_g * 128 * 4
+                } else {
+                    4
+                },
+            )?,
             d_wo_out: DeviceBuf::alloc_zeroed(&ctx, D * 4)?,
             d_mlp_h: DeviceBuf::alloc_zeroed(&ctx, D * 4)?,
             d_router_logits: DeviceBuf::alloc_zeroed(&ctx, N_EXP * 4)?,
@@ -1178,6 +1214,8 @@ impl Inkling2GpuEngine {
             short_conv4: get_fn("ink2_short_conv4")?,
             prep_qkv_and_cache: get_fn("ink2_prep_qkv_and_cache")?,
             gqa_rel_sink_attn: get_fn("ink2_gqa_rel_sink_attn")?,
+            gqa_attn_split: get_fn("ink2_gqa_attn_split").ok(),
+            gqa_attn_combine: get_fn("ink2_gqa_attn_combine").ok(),
             router_topk8: get_fn("ink2_router_topk8")?,
             moe_nvfp4_up_situ: get_fn("ink2_moe_nvfp4_up_situ")?,
             moe_nvfp4_down: get_fn("ink2_moe_nvfp4_down")?,
@@ -1470,10 +1508,14 @@ impl Inkling2GpuEngine {
         softcap: f32,
     ) -> Result<(), String> {
         let cols = w.cols as usize;
+        assert!(
+            cols > 0 && cols.is_multiple_of(64) && cols <= 3072,
+            "ink2_q8_dp4a_gemv requires cols in 64..=3072 (multiple of 64), got {cols}"
+        );
         let mut pw = w.codes.ptr + (row_offset * cols) as u64;
         let mut pws = w.scales64.ptr + (row_offset * (cols / 64) * 4) as u64;
-        let mut px = self.d_act_q8_64.ptr + (act_slot * D) as u64;
-        let mut pxs = self.d_act_sc_64.ptr + (act_slot * (D / 64) * 4) as u64;
+        let mut px = self.d_act_q8_64.ptr + (act_slot * cols) as u64;
+        let mut pxs = self.d_act_sc_64.ptr + (act_slot * (cols / 64) * 4) as u64;
         let mut py = y_ptr;
         let mut r = rows;
         let mut c = w.cols;
@@ -1491,6 +1533,69 @@ impl Inkling2GpuEngine {
         // 16 rows per 256-thread CTA (2 rows/warp = 38 regs <= 42 SM120 full occupancy!)
         let grid_x = (rows as u32).div_ceil(16);
         self.launch(stream, self.fns.q8_dp4a_gemv, (grid_x, 1), 256, &mut args)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn enqueue_gqa_attn_split_impl(
+        &self,
+        stream: CUstream,
+        qrgs_ptr: CUdeviceptr,
+        qrgs_stride: i32,
+        rel_proj_ptr: CUdeviceptr,
+        k_cache_ptr: CUdeviceptr,
+        v_cache_ptr: CUdeviceptr,
+        kv_cap: i32,
+        is_global: i32,
+        attn_out_ptr: CUdeviceptr,
+        b_len: usize,
+    ) -> Result<(), String> {
+        let mut pqrgs = qrgs_ptr;
+        let mut qstride = qrgs_stride;
+        let mut prp = rel_proj_ptr;
+        let mut pkc = k_cache_ptr;
+        let mut pvc = v_cache_ptr;
+        let mut ppos = self.d_pos.ptr;
+        let mut cap = kv_cap;
+        let mut ig = is_global;
+        let mut pml = self.d_attn_part_ml.ptr;
+        let mut po = self.d_attn_part_o.ptr;
+        let mut split_args: [*mut c_void; 10] = [
+            (&mut pqrgs as *mut _) as *mut c_void,
+            (&mut qstride as *mut _) as *mut c_void,
+            (&mut prp as *mut _) as *mut c_void,
+            (&mut pkc as *mut _) as *mut c_void,
+            (&mut pvc as *mut _) as *mut c_void,
+            (&mut ppos as *mut _) as *mut c_void,
+            (&mut cap as *mut _) as *mut c_void,
+            (&mut ig as *mut _) as *mut c_void,
+            (&mut pml as *mut _) as *mut c_void,
+            (&mut po as *mut _) as *mut c_void,
+        ];
+        let g_u32 = self.attn_split_g as u32;
+        self.launch(
+            stream,
+            self.fns.gqa_attn_split.unwrap(),
+            ((8 * b_len) as u32, g_u32),
+            256,
+            &mut split_args,
+        )?;
+        let mut gi = self.attn_split_g as i32;
+        let mut pout = attn_out_ptr;
+        let mut comb_args: [*mut c_void; 6] = [
+            (&mut pml as *mut _) as *mut c_void,
+            (&mut po as *mut _) as *mut c_void,
+            (&mut pqrgs as *mut _) as *mut c_void,
+            (&mut qstride as *mut _) as *mut c_void,
+            (&mut gi as *mut _) as *mut c_void,
+            (&mut pout as *mut _) as *mut c_void,
+        ];
+        self.launch(
+            stream,
+            self.fns.gqa_attn_combine.unwrap(),
+            (24, b_len as u32),
+            128,
+            &mut comb_args,
+        )
     }
 
     fn enqueue_visit(
@@ -1693,7 +1798,7 @@ impl Inkling2GpuEngine {
         }
 
         // 7. GQA Relative-Bias + Sink Attention
-        {
+        if self.attn_split_g == 0 {
             let mut pq = q_ptr;
             let mut pr = r_ptr;
             let mut pg = gate_ptr;
@@ -1719,6 +1824,19 @@ impl Inkling2GpuEngine {
                 (&mut pout as *mut _) as *mut c_void,
             ];
             self.launch(stream, self.fns.gqa_rel_sink_attn, (24, 1), 256, &mut args)?;
+        } else {
+            self.enqueue_gqa_attn_split_impl(
+                stream,
+                self.d_qrgs.ptr,
+                SWA_ALL_ROWS as i32,
+                l.rel_proj.ptr,
+                st.k_cache.ptr,
+                st.v_cache.ptr,
+                st.kv_cap as i32,
+                i32::from(l.global),
+                self.d_attn_out.ptr,
+                1,
+            )?;
         }
 
         // 8. `wo` Planar `Q8_64` `__dp4a` Projection + `attn_sconv` in-place into `d_cur`!
@@ -2697,6 +2815,10 @@ impl Inkling2GpuEngine {
         softcap: f32,
     ) -> Result<(), String> {
         let cols = w.cols as usize;
+        assert!(
+            cols > 0 && cols.is_multiple_of(64),
+            "ink2_q8_dp4a_gemm_b requires positive cols divisible by 64, got {cols}"
+        );
         let mut pw = w.codes.ptr + (row_offset * cols) as u64;
         let mut pws = w.scales64.ptr + (row_offset * (cols / 64) * 4) as u64;
         let mut px = self.d_b_act_q8_64.ptr + (act_slot * b_len * cols) as u64;
@@ -3013,7 +3135,7 @@ impl Inkling2GpuEngine {
         }
 
         // 6. Batched GQA Relative-Bias + Sink Attention
-        {
+        if self.attn_split_g == 0 {
             let mut pqrgs = self.d_b_qrgs.ptr;
             let mut qstride = SWA_ALL_ROWS as i32;
             let mut prp = l.rel_proj.ptr;
@@ -3040,6 +3162,19 @@ impl Inkling2GpuEngine {
                 (24, b_u32),
                 256,
                 &mut args,
+            )?;
+        } else {
+            self.enqueue_gqa_attn_split_impl(
+                stream,
+                self.d_b_qrgs.ptr,
+                SWA_ALL_ROWS as i32,
+                l.rel_proj.ptr,
+                st.k_cache.ptr,
+                st.v_cache.ptr,
+                st.kv_cap as i32,
+                i32::from(l.global),
+                self.d_b_attn_out.ptr,
+                b_len,
             )?;
         }
 

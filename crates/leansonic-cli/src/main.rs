@@ -19,12 +19,18 @@ use leansonic_core::generated_spec::{
 };
 use leansonic_core::inkling2_gpu::Inkling2GpuEngine;
 use leansonic_core::qwen38_gpu::Qwen38GpuEngine;
-use leansonic_core::qwen_bpe::{QwenBpeTokenizer, QWEN_TOK_ENDOFTEXT, QWEN_TOK_IM_END};
+use leansonic_core::qwen_bpe::{
+    QwenBpeTokenizer, QWEN_TOK_ENDOFTEXT, QWEN_TOK_IM_END, QWEN_TOK_THINK_CLOSE,
+    QWEN_TOK_THINK_OPEN,
+};
 use leansonic_core::serving::{
     execute_generation_on_slot, json_escape, run_single_prompt, serve_openai_http,
     GenerationRequest,
 };
-use leansonic_core::tiktoken::{TiktokenBpe, TOK_END_SAMPLING};
+use leansonic_core::tiktoken::{
+    TiktokenBpe, TOK_CONTENT_TEXT, TOK_CONTENT_THINKING, TOK_ENDOFTEXT, TOK_END_MESSAGE,
+    TOK_END_SAMPLING, TOK_MSG_MODEL,
+};
 use leansonic_tuner::{
     compute_decode_ceiling_tok_s, compute_spilled_engram_ceiling_tok_s, rank_valid_candidates,
     BlackwellSkuProfile, CandidateKnob, ModelRooflineInput, SpilledEngramRooflineInput,
@@ -43,11 +49,11 @@ fn is_qwen38_weights_dir(dir: &Path, model_flag: &str) -> bool {
 }
 
 fn print_help() {
-    println!("LeanSonic v0.4.0 — Lean 4-Verified Blackwell Inference Engine & OpenAI Server");
+    println!("LeanSonic v0.5.0 — Lean 4-Verified Blackwell Inference Engine & OpenAI Server");
     println!();
     println!("USAGE:");
     println!(
-        "  leansonic -p \"<prompt>\" [--weights <dir>] [--spec 0..7] [--effort none|low|high] [--max-tokens N] [--json]"
+        "  leansonic -p \"<prompt>\" [--weights <dir>] [--spec 0..7] [--effort none|low|high] [--max-tokens N] [--show-thinking] [--json]"
     );
     println!("  leansonic bench --weights <dir> --tokens <id1,id2|@file|synth:N> [--spec 0..7] [--gen N] [--repeat R] [--no-graph]");
     println!("  leansonic eval-kld --weights <dir> --ref <reference.kld> [--start-chunk INDEX] [--chunks COUNT]");
@@ -124,6 +130,164 @@ fn write_utf8_prefix(out: &mut impl Write, bytes: &[u8]) -> io::Result<usize> {
     Ok(pos)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActiveChannel {
+    None,
+    Thinking,
+    VisibleText,
+}
+
+/// Answer-channel state machine for `Inkling-2-Mini` (`Issue #25`):
+/// Separates `model/thinking` (`200001 -> 200008`) from `model/text` (`200001 -> 200004`)
+/// so reasoning tokens never leak into visible `stdout` or JSON `"text"`.
+struct InklingChannelDecoder {
+    in_model_msg: bool,
+    channel: ActiveChannel,
+    pub answer_complete: bool,
+    pub text_bytes: Vec<u8>,
+    pub reasoning_bytes: Vec<u8>,
+}
+
+impl InklingChannelDecoder {
+    fn new() -> Self {
+        Self {
+            in_model_msg: false,
+            channel: ActiveChannel::None,
+            answer_complete: false,
+            text_bytes: Vec::new(),
+            reasoning_bytes: Vec::new(),
+        }
+    }
+
+    fn push_token_with<'a>(
+        &mut self,
+        tok_id: u32,
+        decode_fn: impl FnOnce(u32) -> &'a [u8],
+    ) -> ActiveChannel {
+        match tok_id {
+            TOK_END_SAMPLING | TOK_ENDOFTEXT => {
+                self.in_model_msg = false;
+                self.channel = ActiveChannel::None;
+                ActiveChannel::None
+            }
+            TOK_MSG_MODEL => {
+                self.in_model_msg = true;
+                self.channel = ActiveChannel::None;
+                ActiveChannel::None
+            }
+            TOK_CONTENT_THINKING => {
+                self.channel = if self.in_model_msg {
+                    ActiveChannel::Thinking
+                } else {
+                    ActiveChannel::None
+                };
+                ActiveChannel::None
+            }
+            TOK_CONTENT_TEXT => {
+                if self.in_model_msg {
+                    self.channel = ActiveChannel::VisibleText;
+                    self.answer_complete = false;
+                } else {
+                    self.channel = ActiveChannel::None;
+                }
+                ActiveChannel::None
+            }
+            TOK_END_MESSAGE => {
+                if self.channel == ActiveChannel::VisibleText {
+                    self.answer_complete = true;
+                }
+                self.in_model_msg = false;
+                self.channel = ActiveChannel::None;
+                ActiveChannel::None
+            }
+            0..=199_997 => match self.channel {
+                ActiveChannel::VisibleText => {
+                    self.text_bytes.extend_from_slice(decode_fn(tok_id));
+                    ActiveChannel::VisibleText
+                }
+                ActiveChannel::Thinking => {
+                    self.reasoning_bytes.extend_from_slice(decode_fn(tok_id));
+                    ActiveChannel::Thinking
+                }
+                ActiveChannel::None => ActiveChannel::None,
+            },
+            _ => {
+                self.in_model_msg = false;
+                self.channel = ActiveChannel::None;
+                ActiveChannel::None
+            }
+        }
+    }
+}
+
+/// Answer-channel state machine for `Qwen3.8-Flash-Next` (`<think>...</think>`):
+/// Separates `<think>` (`248068..248069`) reasoning tokens from visible assistant text.
+struct QwenChannelDecoder {
+    in_thinking: bool,
+    pub answer_complete: bool,
+    pub text_bytes: Vec<u8>,
+    pub reasoning_bytes: Vec<u8>,
+}
+
+impl QwenChannelDecoder {
+    fn new(starts_in_thinking: bool) -> Self {
+        Self {
+            in_thinking: starts_in_thinking,
+            answer_complete: false,
+            text_bytes: Vec::new(),
+            reasoning_bytes: Vec::new(),
+        }
+    }
+
+    fn push_token_with<'a>(
+        &mut self,
+        tok_id: u32,
+        is_special: bool,
+        decode_fn: impl FnOnce(u32) -> &'a [u8],
+    ) -> ActiveChannel {
+        match tok_id {
+            QWEN_TOK_THINK_OPEN => {
+                self.in_thinking = true;
+                ActiveChannel::None
+            }
+            QWEN_TOK_THINK_CLOSE => {
+                self.in_thinking = false;
+                ActiveChannel::None
+            }
+            QWEN_TOK_IM_END | QWEN_TOK_ENDOFTEXT => {
+                if !self.in_thinking {
+                    self.answer_complete = true;
+                }
+                ActiveChannel::None
+            }
+            _ if is_special => ActiveChannel::None,
+            _ => {
+                if self.in_thinking {
+                    self.reasoning_bytes.extend_from_slice(decode_fn(tok_id));
+                    ActiveChannel::Thinking
+                } else {
+                    self.text_bytes.extend_from_slice(decode_fn(tok_id));
+                    ActiveChannel::VisibleText
+                }
+            }
+        }
+    }
+
+    fn finish(&mut self, hit_stop_token: bool) {
+        if hit_stop_token && !self.in_thinking {
+            self.answer_complete = true;
+        }
+    }
+}
+
+fn optional_uuid_json_kv(uuid: &str) -> String {
+    if !uuid.is_empty() && env::var("LEANSONIC_EMIT_UUID").as_deref() == Ok("1") {
+        format!(",\"gpu_uuid\":\"{}\"", json_escape(uuid))
+    } else {
+        String::new()
+    }
+}
+
 fn cmd_prompt(args: &[String]) -> Result<(), String> {
     let mut prompt: Option<String> = None;
     let mut model = "inkling-2-mini".to_string();
@@ -131,6 +295,7 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
     let mut effort = "none".to_string();
     let mut max_tokens = 64usize;
     let mut emit_json = false;
+    let mut show_thinking = false;
     let mut spec_opt: Option<usize> = None;
 
     let mut i = 0usize;
@@ -166,6 +331,9 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
             "--json" => {
                 emit_json = true;
             }
+            "--show-thinking" => {
+                show_thinking = true;
+            }
             "--spec" => {
                 i += 1;
                 let raw = args.get(i).ok_or("missing value after --spec")?;
@@ -199,31 +367,63 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
             let mut gpu = Qwen38GpuEngine::load_from_dir(dir, max_ctx)?;
             let (next, prefill_ms) = gpu.prefill_tokens(&prompt_ids)?;
             let t_gen = Instant::now();
-            let mut raw_bytes = Vec::new();
+            let mut dec = QwenChannelDecoder::new(effort != "none");
+            let mut vis_stream_cursor = 0usize;
+            let mut think_stream_cursor = 0usize;
+            let mut stdout = io::stdout();
+            let mut stderr = io::stderr();
+            let mut stream_status = Ok(());
             let generated = gpu.generate_greedy_tokens(
                 next,
                 max_tokens,
                 &[QWEN_TOK_IM_END, QWEN_TOK_ENDOFTEXT],
                 |tok_id| {
-                    if !tok.is_special_token(tok_id) {
-                        let b = tok.decode_token_bytes(tok_id);
-                        if !emit_json {
-                            let piece = String::from_utf8_lossy(b);
-                            print!("{piece}");
-                            let _ = io::stdout().flush();
+                    let ch = dec.push_token_with(tok_id, tok.is_special_token(tok_id), |id| {
+                        tok.decode_token_bytes(id)
+                    });
+                    if !emit_json && stream_status.is_ok() {
+                        match ch {
+                            ActiveChannel::VisibleText => {
+                                stream_status = write_utf8_prefix(
+                                    &mut stdout,
+                                    &dec.text_bytes[vis_stream_cursor..],
+                                )
+                                .and_then(|w| {
+                                    vis_stream_cursor += w;
+                                    stdout.flush()
+                                });
+                            }
+                            ActiveChannel::Thinking if show_thinking => {
+                                stream_status = write_utf8_prefix(
+                                    &mut stderr,
+                                    &dec.reasoning_bytes[think_stream_cursor..],
+                                )
+                                .and_then(|w| {
+                                    think_stream_cursor += w;
+                                    stderr.flush()
+                                });
+                            }
+                            _ => {}
                         }
-                        raw_bytes.extend_from_slice(b);
                     }
                 },
             )?;
-            let full_text = String::from_utf8_lossy(&raw_bytes).into_owned();
+            stream_status.map_err(|e| format!("write output: {e}"))?;
+            let hit_stop = max_tokens > 0 && generated.len() < max_tokens;
+            dec.finish(hit_stop);
+            let finish_reason = if hit_stop { "stop" } else { "length" };
+            let full_text = String::from_utf8_lossy(&dec.text_bytes);
+            let full_reasoning = String::from_utf8_lossy(&dec.reasoning_bytes);
             let gen_ms = t_gen.elapsed().as_secs_f64() * 1000.0;
             let gen_tok_s = (generated.len() as f64) / (gen_ms / 1000.0).max(1e-9);
             if emit_json {
+                let uuid_kv = optional_uuid_json_kv(&gpu.ctx.device_uuid);
                 println!(
-                    "{{\"model\":\"qwen3.8-flash-next\",\"gpu\":\"{}\",\"text\":\"{}\",\"prompt_tokens\":{},\"completion_tokens\":{},\"prefill_ms\":{:.2},\"decode_ms\":{:.2},\"decode_tok_s\":{:.2}}}",
+                    "{{\"model\":\"qwen3.8-flash-next\",\"gpu\":\"{}\"{uuid_kv},\"text\":\"{}\",\"reasoning_content\":\"{}\",\"finish_reason\":\"{finish_reason}\",\"answer_complete\":{},\"prompt_tokens\":{},\"completion_tokens\":{},\"prefill_ms\":{:.2},\"decode_ms\":{:.2},\"decode_tok_s\":{:.2}}}",
                     json_escape(&gpu.ctx.device_name),
                     json_escape(&full_text),
+                    json_escape(&full_reasoning),
+                    dec.answer_complete,
                     prompt_ids.len(),
                     generated.len(),
                     prefill_ms,
@@ -231,16 +431,23 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
                     gen_tok_s
                 );
             } else {
+                if vis_stream_cursor < dec.text_bytes.len() {
+                    print!(
+                        "{}",
+                        String::from_utf8_lossy(&dec.text_bytes[vis_stream_cursor..])
+                    );
+                }
                 println!();
                 eprintln!(
-                    "[leansonic -p GPU] {} | prompt={} toks ({:.1} ms, {:.1} tok/s) | gen={} toks ({:.1} ms, {:.1} tok/s)",
+                    "[leansonic -p GPU] {} | prompt={} toks ({:.1} ms, {:.1} tok/s) | gen={} toks ({:.1} ms, {:.1} tok/s) | finish={finish_reason} | answer_complete={}",
                     gpu.ctx.device_name,
                     prompt_ids.len(),
                     prefill_ms,
                     (prompt_ids.len() as f64) / (prefill_ms / 1000.0).max(1e-9),
                     generated.len(),
                     gen_ms,
-                    gen_tok_s
+                    gen_tok_s,
+                    dec.answer_complete
                 );
             }
             return Ok(());
@@ -269,36 +476,62 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
 
         let (next, prefill_ms) = gpu.prefill_tokens(&prompt_ids)?;
         let t_gen = Instant::now();
-        let mut text_bytes = Vec::new();
+        let mut dec = InklingChannelDecoder::new();
+        let mut vis_stream_cursor = 0usize;
+        let mut think_stream_cursor = 0usize;
         let mut stdout = io::stdout();
+        let mut stderr = io::stderr();
         let mut stream_status = Ok(());
-        let (generated, _) = gpu.generate_greedy_tokens(
+        let (generated, terminal_tok) = gpu.generate_greedy_tokens(
             next,
             max_tokens,
             Some(TOK_END_SAMPLING),
             &prompt_ids,
             |tok_id| {
-                if tok_id < 199_998 && stream_status.is_ok() {
-                    text_bytes.extend_from_slice(tok.decode_token_bytes(tok_id));
-                    if !emit_json {
-                        stream_status =
-                            write_utf8_prefix(&mut stdout, &text_bytes).and_then(|written| {
-                                text_bytes.drain(..written);
+                let ch = dec.push_token_with(tok_id, |id| tok.decode_token_bytes(id));
+                if !emit_json && stream_status.is_ok() {
+                    match ch {
+                        ActiveChannel::VisibleText => {
+                            stream_status = write_utf8_prefix(
+                                &mut stdout,
+                                &dec.text_bytes[vis_stream_cursor..],
+                            )
+                            .and_then(|w| {
+                                vis_stream_cursor += w;
                                 stdout.flush()
                             });
+                        }
+                        ActiveChannel::Thinking if show_thinking => {
+                            stream_status = write_utf8_prefix(
+                                &mut stderr,
+                                &dec.reasoning_bytes[think_stream_cursor..],
+                            )
+                            .and_then(|w| {
+                                think_stream_cursor += w;
+                                stderr.flush()
+                            });
+                        }
+                        _ => {}
                     }
                 }
             },
         )?;
         stream_status.map_err(|e| format!("write output: {e}"))?;
+        let hit_stop =
+            terminal_tok == TOK_END_SAMPLING || (max_tokens > 0 && generated.len() < max_tokens);
+        let finish_reason = if hit_stop { "stop" } else { "length" };
         let gen_ms = t_gen.elapsed().as_secs_f64() * 1000.0;
         let gen_tok_s = (generated.len() as f64) / (gen_ms / 1000.0).max(1e-9);
-        let full_text = String::from_utf8_lossy(&text_bytes);
+        let full_text = String::from_utf8_lossy(&dec.text_bytes);
+        let full_reasoning = String::from_utf8_lossy(&dec.reasoning_bytes);
         if emit_json {
+            let uuid_kv = optional_uuid_json_kv(&gpu.ctx.device_uuid);
             println!(
-                "{{\"model\":\"inkling-2-mini\",\"gpu\":\"{}\",\"text\":\"{}\",\"prompt_tokens\":{},\"completion_tokens\":{},\"prefill_ms\":{:.2},\"decode_ms\":{:.2},\"decode_tok_s\":{:.2}}}",
+                "{{\"model\":\"inkling-2-mini\",\"gpu\":\"{}\"{uuid_kv},\"text\":\"{}\",\"reasoning_content\":\"{}\",\"finish_reason\":\"{finish_reason}\",\"answer_complete\":{},\"prompt_tokens\":{},\"completion_tokens\":{},\"prefill_ms\":{:.2},\"decode_ms\":{:.2},\"decode_tok_s\":{:.2}}}",
                 json_escape(&gpu.ctx.device_name),
                 json_escape(&full_text),
+                json_escape(&full_reasoning),
+                dec.answer_complete,
                 prompt_ids.len(),
                 generated.len(),
                 prefill_ms,
@@ -306,16 +539,23 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
                 gen_tok_s
             );
         } else {
-            println!("{full_text}");
+            if vis_stream_cursor < dec.text_bytes.len() {
+                print!(
+                    "{}",
+                    String::from_utf8_lossy(&dec.text_bytes[vis_stream_cursor..])
+                );
+            }
+            println!();
             eprintln!(
-                "[leansonic -p GPU] {} | prompt={} toks ({:.1} ms, {:.1} tok/s) | gen={} toks ({:.1} ms, {:.1} tok/s)",
+                "[leansonic -p GPU] {} | prompt={} toks ({:.1} ms, {:.1} tok/s) | gen={} toks ({:.1} ms, {:.1} tok/s) | finish={finish_reason} | answer_complete={}",
                 gpu.ctx.device_name,
                 prompt_ids.len(),
                 prefill_ms,
                 (prompt_ids.len() as f64) / (prefill_ms / 1000.0).max(1e-9),
                 generated.len(),
                 gen_ms,
-                gen_tok_s
+                gen_tok_s,
+                dec.answer_complete
             );
         }
         return Ok(());
@@ -556,6 +796,30 @@ fn cmd_bench(args: &[String]) -> Result<(), String> {
             logits[2],
             sum_logits
         );
+
+        // Teacher-forced logits dump (`LEANSONIC_EVAL_DUMP=<file>`, `LEANSONIC_EVAL_FORCE=<csv>`):
+        if let Ok(dump_path) = env::var("LEANSONIC_EVAL_DUMP") {
+            let forced: Vec<u32> = env::var("LEANSONIC_EVAL_FORCE")
+                .unwrap_or_default()
+                .split(',')
+                .filter_map(|t| t.trim().parse().ok())
+                .collect();
+            let mut f = std::fs::File::create(&dump_path).map_err(|e| e.to_string())?;
+            let write_logits = |f: &mut std::fs::File, l: &[f32]| -> Result<(), String> {
+                let bytes: Vec<u8> = l.iter().flat_map(|v| v.to_le_bytes()).collect();
+                f.write_all(&bytes).map_err(|e| e.to_string())
+            };
+            write_logits(&mut f, &logits)?;
+            for &t in &forced {
+                let _ = gpu.forward_greedy_token(t)?;
+                write_logits(&mut f, &gpu.read_last_logits()?)?;
+            }
+            println!(
+                "[eval] dumped {} logit rows to {dump_path}",
+                1 + forced.len()
+            );
+            return Ok(());
+        }
 
         if n_gen > 0 {
             let t_dec = Instant::now();
@@ -832,7 +1096,21 @@ fn main() -> ExitCode {
 
 #[cfg(test)]
 mod prompt_text_tests {
-    use super::write_utf8_prefix;
+    use super::{
+        write_utf8_prefix, ActiveChannel, InklingChannelDecoder, QwenChannelDecoder,
+        QWEN_TOK_IM_END, QWEN_TOK_THINK_CLOSE, TOK_CONTENT_TEXT, TOK_CONTENT_THINKING,
+        TOK_END_MESSAGE, TOK_END_SAMPLING, TOK_MSG_MODEL,
+    };
+
+    fn fake_vocab(id: u32) -> &'static [u8] {
+        match id {
+            1 => b"maybe ",
+            2 => b"RAVEN-731",
+            3 => b"half thought",
+            4 => b"partial ans",
+            _ => b"",
+        }
+    }
 
     #[test]
     fn streamed_text_matches_whole_response_for_every_byte_split() {
@@ -856,5 +1134,91 @@ mod prompt_text_tests {
                 "split at {split}"
             );
         }
+    }
+
+    #[test]
+    fn inkling_channel_answer_mentioned_only_in_thinking_never_leaks_to_text() {
+        let mut dec = InklingChannelDecoder::new();
+        for &tok in &[TOK_MSG_MODEL, TOK_CONTENT_THINKING, 1, 2, TOK_END_MESSAGE] {
+            let ch = dec.push_token_with(tok, fake_vocab);
+            assert_ne!(ch, ActiveChannel::VisibleText);
+        }
+        assert_eq!(dec.text_bytes, b"");
+        assert_eq!(dec.reasoning_bytes, b"maybe RAVEN-731");
+        assert!(!dec.answer_complete);
+    }
+
+    #[test]
+    fn inkling_channel_completed_visible_answer_after_thinking() {
+        let mut dec = InklingChannelDecoder::new();
+        let seq = [
+            TOK_MSG_MODEL,
+            TOK_CONTENT_THINKING,
+            1,
+            2,
+            TOK_END_MESSAGE,
+            TOK_MSG_MODEL,
+            TOK_CONTENT_TEXT,
+            2,
+            TOK_END_MESSAGE,
+            TOK_END_SAMPLING,
+        ];
+        for &tok in &seq {
+            dec.push_token_with(tok, fake_vocab);
+        }
+        assert_eq!(dec.text_bytes, b"RAVEN-731");
+        assert_eq!(dec.reasoning_bytes, b"maybe RAVEN-731");
+        assert!(dec.answer_complete);
+    }
+
+    #[test]
+    fn inkling_channel_truncated_inside_thinking_and_visible_channels() {
+        // 1. Truncated mid-thinking
+        let mut d_think = InklingChannelDecoder::new();
+        for &tok in &[TOK_MSG_MODEL, TOK_CONTENT_THINKING, 3] {
+            d_think.push_token_with(tok, fake_vocab);
+        }
+        assert_eq!(d_think.text_bytes, b"");
+        assert_eq!(d_think.reasoning_bytes, b"half thought");
+        assert!(!d_think.answer_complete);
+
+        // 2. Truncated mid-visible-text (before TOK_END_MESSAGE)
+        let mut d_vis = InklingChannelDecoder::new();
+        for &tok in &[
+            TOK_MSG_MODEL,
+            TOK_CONTENT_THINKING,
+            3,
+            TOK_END_MESSAGE,
+            TOK_MSG_MODEL,
+            TOK_CONTENT_TEXT,
+            4,
+        ] {
+            d_vis.push_token_with(tok, fake_vocab);
+        }
+        assert_eq!(d_vis.text_bytes, b"partial ans");
+        assert_eq!(d_vis.reasoning_bytes, b"half thought");
+        assert!(!d_vis.answer_complete);
+    }
+
+    #[test]
+    fn qwen_channel_separates_think_block_from_visible_answer() {
+        // Truncated inside `<think>`
+        let mut qt = QwenChannelDecoder::new(true);
+        qt.push_token_with(2, false, fake_vocab);
+        qt.finish(false);
+        assert_eq!(qt.text_bytes, b"");
+        assert_eq!(qt.reasoning_bytes, b"RAVEN-731");
+        assert!(!qt.answer_complete);
+
+        // Completed after `</think>`
+        let mut qc = QwenChannelDecoder::new(true);
+        qc.push_token_with(1, false, fake_vocab);
+        qc.push_token_with(QWEN_TOK_THINK_CLOSE, true, fake_vocab);
+        qc.push_token_with(2, false, fake_vocab);
+        qc.push_token_with(QWEN_TOK_IM_END, true, fake_vocab);
+        qc.finish(true);
+        assert_eq!(qc.reasoning_bytes, b"maybe ");
+        assert_eq!(qc.text_bytes, b"RAVEN-731");
+        assert!(qc.answer_complete);
     }
 }

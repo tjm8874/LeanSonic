@@ -16,7 +16,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::bytecode::VisitProgram;
 use crate::engine::MinimalEngine;
@@ -571,15 +571,59 @@ fn write_json_response(stream: &mut TcpStream, status_line: &str, json_body: &st
     let _ = stream.flush();
 }
 
+const HTTP_READ_TIMEOUT: Duration = Duration::from_secs(10);
+const HTTP_MAX_HEADER_BYTES: usize = 16 * 1024;
+
+fn read_bounded_http_line(
+    reader: &mut BufReader<impl Read>,
+    line: &mut String,
+    remaining_budget: &mut usize,
+) -> Result<usize, bool> {
+    // Returns `Ok(n_bytes)` when within `remaining_budget`, `Ok(0)` on EOF/I/O error,
+    // or `Err(true)` if the header budget (`16 KiB`) was exceeded.
+    line.clear();
+    loop {
+        let available = match reader.fill_buf() {
+            Ok([]) => return Ok(line.len()),
+            Ok(buf) => buf,
+            Err(_) => return Ok(0),
+        };
+        let nl_pos = available.iter().position(|&b| b == b'\n');
+        let take_len = nl_pos.map_or(available.len(), |p| p + 1);
+        if take_len > *remaining_budget {
+            reader.consume(take_len);
+            return Err(true);
+        }
+        *remaining_budget -= take_len;
+        line.push_str(&String::from_utf8_lossy(&available[..take_len]));
+        let done = nl_pos.is_some();
+        reader.consume(take_len);
+        if done {
+            return Ok(line.len());
+        }
+    }
+}
+
 fn handle_http_connection(mut stream: TcpStream, leases: &SlotLeaseManager, default_model: &str) {
+    let _ = stream.set_read_timeout(Some(HTTP_READ_TIMEOUT));
     let mut reader = BufReader::new(match stream.try_clone() {
         Ok(s) => s,
         Err(_) => return,
     });
 
+    let mut header_budget = HTTP_MAX_HEADER_BYTES;
     let mut request_line = String::new();
-    if reader.read_line(&mut request_line).unwrap_or(0) == 0 {
-        return;
+    match read_bounded_http_line(&mut reader, &mut request_line, &mut header_budget) {
+        Ok(0) => return,
+        Ok(_) => {}
+        Err(_) => {
+            write_json_response(
+                &mut stream,
+                "431 Request Header Fields Too Large",
+                "{\"error\":{\"message\":\"HTTP request headers exceed 16 KiB limit\"}}",
+            );
+            return;
+        }
     }
     let parts: Vec<&str> = request_line.split_whitespace().collect();
     if parts.len() < 2 {
@@ -594,14 +638,34 @@ fn handle_http_connection(mut stream: TcpStream, leases: &SlotLeaseManager, defa
     let path = parts[1].split('?').next().unwrap_or(parts[1]);
 
     let mut content_length = 0usize;
+    let mut line = String::new();
     loop {
-        let mut line = String::new();
-        if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" || line == "\n" {
-            break;
+        match read_bounded_http_line(&mut reader, &mut line, &mut header_budget) {
+            Ok(0) => break,
+            Ok(_) if line == "\r\n" || line == "\n" => break,
+            Ok(_) => {}
+            Err(_) => {
+                write_json_response(
+                    &mut stream,
+                    "431 Request Header Fields Too Large",
+                    "{\"error\":{\"message\":\"HTTP request headers exceed 16 KiB limit\"}}",
+                );
+                return;
+            }
         }
         if let Some((k, v)) = line.split_once(':') {
             if k.trim().eq_ignore_ascii_case("content-length") {
-                content_length = v.trim().parse().unwrap_or(0);
+                match v.trim().parse::<usize>() {
+                    Ok(len) => content_length = len,
+                    Err(_) => {
+                        write_json_response(
+                            &mut stream,
+                            "400 Bad Request",
+                            "{\"error\":{\"message\":\"invalid Content-Length header\"}}",
+                        );
+                        return;
+                    }
+                }
             }
         }
     }
@@ -942,6 +1006,34 @@ mod tests {
             }
         }
         assert_eq!(streamed_text, solo_out.text);
+
+        // 3. Malformed `Content-Length` must return `400 Bad Request` (Issue #15)
+        {
+            let bad_cl_req = format!(
+                "POST /v1/chat/completions HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: not-a-number\r\n\r\n{{}}"
+            );
+            let mut c = TcpStream::connect(("127.0.0.1", port)).unwrap();
+            c.write_all(bad_cl_req.as_bytes()).unwrap();
+            let mut r = String::new();
+            c.read_to_string(&mut r).unwrap();
+            assert!(r.starts_with("HTTP/1.1 400 Bad Request"), "got: {r}");
+        }
+
+        // 4. Oversized headers (`> 16 KiB`) must return `431 Request Header Fields Too Large` (Issue #15)
+        {
+            let huge_val = "x".repeat(17 * 1024);
+            let big_hdr_req = format!(
+                "GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nX-Junk: {huge_val}\r\n\r\n"
+            );
+            let mut c = TcpStream::connect(("127.0.0.1", port)).unwrap();
+            let _ = c.write_all(big_hdr_req.as_bytes());
+            let mut r = String::new();
+            c.read_to_string(&mut r).unwrap();
+            assert!(
+                r.starts_with("HTTP/1.1 431 Request Header Fields Too Large"),
+                "got: {r}"
+            );
+        }
 
         // Shut down ephemeral test server cleanly
         shutdown.store(true, Ordering::Release);
