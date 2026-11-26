@@ -77,6 +77,42 @@ pub struct PlanarQ8Gpu {
     pub cols: i32,
 }
 
+fn load_output_head(
+    ctx: &Arc<CudaContextHandle>,
+    st: &MappedSafeTensors,
+) -> Result<PlanarQ8Gpu, String> {
+    let dense = st.get("model.llm.unembed.weight");
+    let codes = st.get("leansonic.unembed_q8_64.codes");
+    let scales = st.get("leansonic.unembed_q8_64.scales");
+    match (dense, codes, scales) {
+        (Some(w), None, None)
+            if w.dtype == "BF16"
+                && w.shape == [PADDED_VOCAB, D]
+                && w.data.len() == PADDED_VOCAB * D * 2 =>
+        {
+            repack_bf16_to_planar_q8_64(ctx, &w.data[..VOCAB * D * 2], VOCAB, D)
+        }
+        (None, Some(c), Some(s))
+            if c.dtype == "I8"
+                && c.shape == [VOCAB, D]
+                && c.data.len() == VOCAB * D
+                && s.dtype == "F32"
+                && s.shape == [VOCAB, D / 64]
+                && s.data.len() == VOCAB * (D / 64) * 4 =>
+        {
+            Ok(PlanarQ8Gpu {
+                codes: DeviceBuf::from_host_bytes(ctx, c.data)?,
+                scales64: DeviceBuf::from_host_bytes(ctx, s.data)?,
+                cols: D as i32,
+            })
+        }
+        _ => Err(
+            "invalid Inkling output head: expected the BF16 weight or both native Q8_64 planes"
+                .into(),
+        ),
+    }
+}
+
 struct CtrlGpu {
     down: DeviceBuf,
     gain: DeviceBuf,
@@ -469,7 +505,12 @@ pub fn repack_bf16_to_planar_q8_64(
     Ok(result)
 }
 
-fn pack_q8_rows(bf16_bytes: &[u8], cols: usize, codes: &mut [u8], scales_bytes: &mut [u8]) {
+/// Pack complete BF16 rows into signed Q8 codes and little-endian FP32 scales.
+pub fn pack_q8_rows(bf16_bytes: &[u8], cols: usize, codes: &mut [u8], scales_bytes: &mut [u8]) {
+    assert!(cols > 0 && cols.is_multiple_of(64));
+    assert!(codes.len().is_multiple_of(cols));
+    assert_eq!(bf16_bytes.len(), codes.len() * 2);
+    assert_eq!(scales_bytes.len(), codes.len() / 64 * 4);
     let rows = codes.len() / cols;
     let cols64 = cols / 64;
     let n_threads = std::thread::available_parallelism()
@@ -610,12 +651,7 @@ impl Inkling2GpuEngine {
             &ctx,
             st.require("model.llm.norm.weight", "BF16", &[D]).data,
         )?;
-        let unembed_all = st
-            .require("model.llm.unembed.weight", "BF16", &[PADDED_VOCAB, D])
-            .data;
-        // Repack `unembed` (`922 MB` BF16 -> `490 MB` Planar `Q8_64`, freeing `432 MB` VRAM!)
-        let unembed_q8 =
-            repack_bf16_to_planar_q8_64(&ctx, &unembed_all[..VOCAB * D * 2], VOCAB, D)?;
+        let unembed_q8 = load_output_head(&ctx, &st)?;
         let output_query = DeviceBuf::from_host_bytes(
             &ctx,
             st.require("model.llm.attn_res.output_query", "F32", &[D])

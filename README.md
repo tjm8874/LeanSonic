@@ -146,6 +146,8 @@ mkdir "$dst" && python3 tools/pack_inkling_text.py "$src/$shard" "$dst/$shard" &
 
 Pass the new directory to `--weights`. To use the DSpark drafter, also copy `mtp.safetensors` from the official model into that directory. Image inference requires the original checkpoint.
 
+Add `--prepack-head` to the packing command to save another 436,576,496 bytes with the official checkpoint. The packer uses Cargo on the CPU to store the vocabulary projection as the same Q8 codes and FP32 scales the Inkling GPU loader normally computes at startup. This package requires a LeanSonic version that supports the native output head. Keep the original BF16 weights for other engines or future quantization experiments.
+
 ### 2. Query the OpenAI-Compatible Server (`GET /v1/models`, `POST /v1/chat/completions`, SSE)
 
 ```bash
