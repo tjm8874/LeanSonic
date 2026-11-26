@@ -4418,7 +4418,8 @@ extern "C" __global__ void ink2_ctrl_apply_coalesced_b(
 
 // Unified `G=0` Attention + In-Register `Q8_64` Epilogue (`Grid: (24, B)`, `Block: 256`):
 // Eliminates `d_attn_out` DRAM writes/reads and `48` `ink2_quant_q8_64` launches per token/step!
-extern "C" __global__ void ink2_gqa_rel_sink_attn_q8_b(
+template <bool kInt8>
+__device__ __forceinline__ void gqa_rel_sink_attn_q8_b_body(
     const float* __restrict__ qrgs_base,        // [B, qrgs_stride]
     int32_t qrgs_stride,
     const uint32_t* __restrict__ rel_proj_bf16, // [16, 512]
@@ -4491,7 +4492,7 @@ extern "C" __global__ void ink2_gqa_rel_sink_attn_q8_b(
     for (int j = first + warp_id; j < n; j += 8) {
         const int slot_row = is_global ? j : (j % kv_cap);
         float k0, k1, k2, k3;
-        kv_load4(k_cache_fp16, k_scale, slot_row, kvh, lane, k0, k1, k2, k3);
+        kv_load4_t<kInt8>(k_cache_fp16, k_scale, slot_row, kvh, lane, k0, k1, k2, k3);
 
         float dot = warp_sum(q0 * k0 + q1 * k1 + q2 * k2 + q3 * k3) * scale;
         int d = pos - j;
@@ -4506,7 +4507,7 @@ extern "C" __global__ void ink2_gqa_rel_sink_attn_q8_b(
         m_w = m_new;
 
         float v0, v1, v2, v3;
-        kv_load4(v_cache_fp16, v_scale, slot_row, kvh, lane, v0, v1, v2, v3);
+        kv_load4_t<kInt8>(v_cache_fp16, v_scale, slot_row, kvh, lane, v0, v1, v2, v3);
         o0 = o0 * alpha + p * v0;
         o1 = o1 * alpha + p * v1;
         o2 = o2 * alpha + p * v2;
@@ -4542,6 +4543,39 @@ extern "C" __global__ void ink2_gqa_rel_sink_attn_q8_b(
         out_val = (sum_d * ptx_rcp(fmaxf(denom, 1e-20f))) * g;
     }
     quant_head128_epilogue_q8_64(tid, h, b, out_val, smem_qmax, smem_qinv, out_q8_u32, out_sc64);
+}
+
+extern "C" __global__ void ink2_gqa_rel_sink_attn_q8_b(
+    const float* __restrict__ qrgs_base,        // [B, qrgs_stride]
+    int32_t qrgs_stride,
+    const uint32_t* __restrict__ rel_proj_bf16, // [16, 512]
+    const uint16_t* __restrict__ k_cache_fp16,  // [kv_cap, 1024]
+    const uint16_t* __restrict__ v_cache_fp16,  // [kv_cap, 1024]
+    const float* __restrict__ k_scale,          // [kv_cap, 8] or nullptr (FP16 KV)
+    const float* __restrict__ v_scale,          // [kv_cap, 8] or nullptr (FP16 KV)
+    const int32_t* __restrict__ pos_ptr,
+    int32_t kv_cap,
+    int32_t is_global,
+    uint32_t* __restrict__ out_q8_u32,          // [B, 768]
+    float* __restrict__ out_sc64) {             // [B, 48]
+    gqa_rel_sink_attn_q8_b_body<false>(qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_fp16, v_cache_fp16, k_scale, v_scale, pos_ptr, kv_cap, is_global, out_q8_u32, out_sc64);
+}
+
+// INT8-KV instantiation (`LEANSONIC_KV=int8`); the FP16 kernel above keeps its original codegen.
+extern "C" __global__ void ink2_gqa_rel_sink_attn_q8_b_i8(
+    const float* __restrict__ qrgs_base,        // [B, qrgs_stride]
+    int32_t qrgs_stride,
+    const uint32_t* __restrict__ rel_proj_bf16, // [16, 512]
+    const uint16_t* __restrict__ k_cache_fp16,  // [kv_cap, 1024]
+    const uint16_t* __restrict__ v_cache_fp16,  // [kv_cap, 1024]
+    const float* __restrict__ k_scale,          // [kv_cap, 8] or nullptr (FP16 KV)
+    const float* __restrict__ v_scale,          // [kv_cap, 8] or nullptr (FP16 KV)
+    const int32_t* __restrict__ pos_ptr,
+    int32_t kv_cap,
+    int32_t is_global,
+    uint32_t* __restrict__ out_q8_u32,          // [B, 768]
+    float* __restrict__ out_sc64) {             // [B, 48]
+    gqa_rel_sink_attn_q8_b_body<true>(qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_fp16, v_cache_fp16, k_scale, v_scale, pos_ptr, kv_cap, is_global, out_q8_u32, out_sc64);
 }
 
 // Split-KV Combine + In-Register `Q8_64` Epilogue (`Grid: (24, B)`, `Block: 128`):

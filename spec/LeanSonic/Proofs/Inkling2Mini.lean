@@ -709,6 +709,10 @@ def kInk2GqaRelSinkAttnQ8B : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
+/-- INT8-KV instantiation of the fused attention (`LEANSONIC_KV=int8`, same `40` regs / `8,856` B SMEM -> `6` CTAs). -/
+def kInk2GqaRelSinkAttnQ8BI8 : KernelResourceSpec :=
+  { kInk2GqaRelSinkAttnQ8B with name := "ink2_gqa_rel_sink_attn_q8_b_i8" }
+
 /-- Split-KV Combine + In-Register `Q8_64` Epilogue (`128` threads, `40` regs -> `12` CTAs = `48` warps/SM!). -/
 def kInk2GqaAttnCombineQ8 : KernelResourceSpec :=
   { name := "ink2_gqa_attn_combine_q8"
@@ -832,6 +836,7 @@ def cycle5GlueFusionKernelSuite : List KernelResourceSpec :=
   , kInk2RmsnormDQuantQ8B
   , kInk2CtrlApplyCoalescedB
   , kInk2GqaRelSinkAttnQ8B
+  , kInk2GqaRelSinkAttnQ8BI8
   , kInk2GqaAttnCombineQ8
   , kInk2ShortConv4Save
   , kInk2ShortConv4SaveB
@@ -852,6 +857,9 @@ theorem ink2_ctrl_apply_coalesced_b_valid :
     ValidSm120Kernel kInk2CtrlApplyCoalescedB := by decide
 theorem ink2_gqa_rel_sink_attn_q8_b_valid :
     ValidSm120Kernel kInk2GqaRelSinkAttnQ8B := by decide
+
+theorem ink2_gqa_rel_sink_attn_q8_b_i8_valid :
+    ValidSm120Kernel kInk2GqaRelSinkAttnQ8BI8 := by decide
 theorem ink2_gqa_attn_combine_q8_valid :
     ValidSm120Kernel kInk2GqaAttnCombineQ8 := by decide
 theorem ink2_short_conv4_save_valid :
