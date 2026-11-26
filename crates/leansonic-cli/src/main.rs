@@ -83,6 +83,30 @@ fn cmd_schedules() -> Result<(), String> {
     Ok(())
 }
 
+// A BPE token may end inside a UTF-8 character. Keep its incomplete suffix for
+// the next token, while replacing genuinely invalid sequences as from_utf8_lossy does.
+fn write_utf8_prefix(out: &mut impl Write, bytes: &[u8]) -> io::Result<usize> {
+    let mut pos = 0;
+    while pos < bytes.len() {
+        match std::str::from_utf8(&bytes[pos..]) {
+            Ok(_) => {
+                out.write_all(&bytes[pos..])?;
+                return Ok(bytes.len());
+            }
+            Err(e) => {
+                let end = pos + e.valid_up_to();
+                out.write_all(&bytes[pos..end])?;
+                let Some(invalid_len) = e.error_len() else {
+                    return Ok(end);
+                };
+                out.write_all("�".as_bytes())?;
+                pos = end + invalid_len;
+            }
+        }
+    }
+    Ok(pos)
+}
+
 fn cmd_prompt(args: &[String]) -> Result<(), String> {
     let mut prompt: Option<String> = None;
     let mut model = "inkling-2-mini".to_string();
@@ -149,19 +173,21 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
         let (mut next, prefill_ms) = gpu.prefill_tokens(&prompt_ids)?;
         let t_gen = Instant::now();
         let mut generated = Vec::with_capacity(max_tokens);
-        let mut full_text = String::new();
+        let mut text_bytes = Vec::new();
+        let mut stdout = io::stdout();
         for _ in 0..max_tokens {
             if next == TOK_END_SAMPLING {
                 break;
             }
             generated.push(next);
             if next < 199_998 {
-                let piece = String::from_utf8_lossy(tok.decode_token_bytes(next)).into_owned();
+                text_bytes.extend_from_slice(tok.decode_token_bytes(next));
                 if !emit_json {
-                    print!("{piece}");
-                    let _ = io::stdout().flush();
+                    let written = write_utf8_prefix(&mut stdout, &text_bytes)
+                        .map_err(|e| format!("write output: {e}"))?;
+                    text_bytes.drain(..written);
+                    stdout.flush().map_err(|e| format!("flush output: {e}"))?;
                 }
-                full_text.push_str(&piece);
             }
             if generated.len() < max_tokens {
                 next = gpu.forward_greedy_token(next)?;
@@ -169,6 +195,7 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
         }
         let gen_ms = t_gen.elapsed().as_secs_f64() * 1000.0;
         let gen_tok_s = (generated.len() as f64) / (gen_ms / 1000.0).max(1e-9);
+        let full_text = String::from_utf8_lossy(&text_bytes);
         if emit_json {
             println!(
                 "{{\"model\":\"inkling-2-mini\",\"gpu\":\"{}\",\"text\":\"{}\",\"prompt_tokens\":{},\"completion_tokens\":{},\"prefill_ms\":{:.2},\"decode_ms\":{:.2},\"decode_tok_s\":{:.2}}}",
@@ -181,7 +208,7 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
                 gen_tok_s
             );
         } else {
-            println!();
+            println!("{full_text}");
             eprintln!(
                 "[leansonic -p GPU] {} | prompt={} toks ({:.1} ms, {:.1} tok/s) | gen={} toks ({:.1} ms, {:.1} tok/s)",
                 gpu.ctx.device_name,
@@ -607,6 +634,35 @@ fn main() -> ExitCode {
         _ => {
             print_help();
             ExitCode::SUCCESS
+        }
+    }
+}
+
+#[cfg(test)]
+mod prompt_text_tests {
+    use super::write_utf8_prefix;
+
+    #[test]
+    fn streamed_text_matches_whole_response_for_every_byte_split() {
+        let bytes = [
+            b"ASCII ".as_slice(),
+            "𠮷野家🍣".as_bytes(),
+            &[0x80, 0xe3, b'!', 0xf0, 0x9f],
+        ]
+        .concat();
+        for split in 0..=bytes.len() {
+            let mut out = Vec::new();
+            let mut pending = bytes[..split].to_vec();
+            let written = write_utf8_prefix(&mut out, &pending).unwrap();
+            pending.drain(..written);
+            pending.extend_from_slice(&bytes[split..]);
+            let written = write_utf8_prefix(&mut out, &pending).unwrap();
+            out.extend_from_slice(String::from_utf8_lossy(&pending[written..]).as_bytes());
+            assert_eq!(
+                out,
+                String::from_utf8_lossy(&bytes).as_bytes(),
+                "split at {split}"
+            );
         }
     }
 }
