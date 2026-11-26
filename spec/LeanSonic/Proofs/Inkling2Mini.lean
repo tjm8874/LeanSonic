@@ -343,4 +343,103 @@ theorem wave1_inkling2_all_kernels_valid :
     (wave1Inkling2KernelSuite.all checkSm120Kernel) = true := by
   decide
 
+/-! ## 8. Measured `ptxas -arch=sm_120a` Cycle 1 (`v0.2.0`) Multi-Token Batch Kernels -/
+
+/-- Planar `Q8_64` 16-Row × 8-Token SMEM-Staged `__dp4a` GEMM (`46` regs, `26,112` B SMEM -> `64` KiB L1!). -/
+def kInk2Q8Dp4aGemmB : KernelResourceSpec :=
+  { name := "ink2_q8_dp4a_gemm_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 46          -- aligns to 48 -> 12,288 regs/CTA; 2 CTAs = 24,576 <= 65,536
+    userSmemPerCtaBytes := 26112    -- 2 * (26112 + 1024) = 54,272 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 2
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Tile-8 Grouped-Expert NVFP4 `__dp4a` Up+SITU (`48` regs, `23,328` B SMEM -> `64` KiB L1!). -/
+def kInk2MoeNvfp4GroupedUpSitu : KernelResourceSpec :=
+  { name := "ink2_moe_nvfp4_dp4a_grouped_up_situ"
+    threadsPerCta := 256
+    rawRegsPerThread := 48
+    userSmemPerCtaBytes := 23328    -- 2 * (23328 + 1024) = 48,704 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 2
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Tile-8 Grouped-Expert NVFP4 `__dp4a` Down (`56` regs, `11,552` B SMEM -> `4` CTAs/SM, `64` KiB L1!). -/
+def kInk2MoeNvfp4GroupedDown : KernelResourceSpec :=
+  { name := "ink2_moe_nvfp4_dp4a_grouped_down"
+    threadsPerCta := 256
+    rawRegsPerThread := 56          -- 14,336 regs/CTA; 4 CTAs = 57,344 <= 65,536 (32 warps/SM!)
+    userSmemPerCtaBytes := 11552    -- 4 * (11552 + 1024) = 50,304 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Tile-4 Grouped-Expert MXFP8 Up+SITU (`48` regs, `37,008` B SMEM -> `64` KiB L1!). -/
+def kInk2MoeMxfp8GroupedUpSitu : KernelResourceSpec :=
+  { name := "ink2_moe_mxfp8_grouped_up_situ"
+    threadsPerCta := 256
+    rawRegsPerThread := 48
+    userSmemPerCtaBytes := 37008    -- 1 * (37008 + 1024) = 38,032 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Tile-8 Grouped-Expert MXFP8 Down (`64` regs, `36,896` B SMEM -> `64` KiB L1!). -/
+def kInk2MoeMxfp8GroupedDown : KernelResourceSpec :=
+  { name := "ink2_moe_mxfp8_grouped_down"
+    threadsPerCta := 256
+    rawRegsPerThread := 64
+    userSmemPerCtaBytes := 36896    -- 1 * (36896 + 1024) = 37,920 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Register-Persistent Causal `short_conv4` across `B` tokens (`40` regs -> `6` CTAs = `48` warps/SM!). -/
+def kInk2ShortConv4B : KernelResourceSpec :=
+  { name := "ink2_short_conv4_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 40
+    userSmemPerCtaBytes := 0        -- 6 * 1024 = 6,144 B <= 8 KiB carveout -> 120 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def cycle1BatchedKernelSuite : List KernelResourceSpec :=
+  [ kInk2Q8Dp4aGemmB
+  , kInk2MoeNvfp4GroupedUpSitu
+  , kInk2MoeNvfp4GroupedDown
+  , kInk2MoeMxfp8GroupedUpSitu
+  , kInk2MoeMxfp8GroupedDown
+  , kInk2ShortConv4B ]
+
+theorem ink2_q8_dp4a_gemm_b_valid : ValidSm120Kernel kInk2Q8Dp4aGemmB := by decide
+theorem ink2_moe_nvfp4_grouped_up_situ_valid : ValidSm120Kernel kInk2MoeNvfp4GroupedUpSitu := by decide
+theorem ink2_moe_nvfp4_grouped_down_valid : ValidSm120Kernel kInk2MoeNvfp4GroupedDown := by decide
+theorem ink2_moe_mxfp8_grouped_up_situ_valid : ValidSm120Kernel kInk2MoeMxfp8GroupedUpSitu := by decide
+theorem ink2_moe_mxfp8_grouped_down_valid : ValidSm120Kernel kInk2MoeMxfp8GroupedDown := by decide
+theorem ink2_short_conv4_b_valid : ValidSm120Kernel kInk2ShortConv4B := by decide
+
+theorem cycle1_batched_all_kernels_valid :
+    (cycle1BatchedKernelSuite.all checkSm120Kernel) = true := by
+  decide
+
 end LeanSonic.Proofs
