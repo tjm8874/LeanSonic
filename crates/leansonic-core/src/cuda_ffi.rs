@@ -104,6 +104,7 @@ pub struct CudaApi {
     pub cuDeviceGetName: unsafe extern "C" fn(*mut c_char, c_int, CUdevice) -> CUresult,
     pub cuDeviceGetUuid: Option<unsafe extern "C" fn(*mut CUuuid, CUdevice) -> CUresult>,
     pub cuCtxCreate_v2: unsafe extern "C" fn(*mut CUcontext, c_uint, CUdevice) -> CUresult,
+    pub cuCtxDestroy_v2: unsafe extern "C" fn(CUcontext) -> CUresult,
     pub cuCtxSetCurrent: unsafe extern "C" fn(CUcontext) -> CUresult,
     pub cuMemGetInfo_v2: unsafe extern "C" fn(*mut usize, *mut usize) -> CUresult,
     pub cuMemAlloc_v2: unsafe extern "C" fn(*mut CUdeviceptr, usize) -> CUresult,
@@ -192,6 +193,7 @@ impl CudaContextHandle {
                 cuDeviceGetName: load_sym(lib, "cuDeviceGetName")?,
                 cuDeviceGetUuid: get_uuid,
                 cuCtxCreate_v2: load_sym(lib, "cuCtxCreate_v2")?,
+                cuCtxDestroy_v2: load_sym(lib, "cuCtxDestroy_v2")?,
                 cuCtxSetCurrent: load_sym(lib, "cuCtxSetCurrent")?,
                 cuMemGetInfo_v2: load_sym(lib, "cuMemGetInfo_v2")?,
                 cuMemAlloc_v2: load_sym(lib, "cuMemAlloc_v2")?,
@@ -245,26 +247,24 @@ impl CudaContextHandle {
 
             let mut ctx: CUcontext = core::ptr::null_mut();
             check_cu((api.cuCtxCreate_v2)(&mut ctx, 0, dev), "cuCtxCreate_v2")?;
-            let mut compute_stream: CUstream = core::ptr::null_mut();
-            let mut h2d_stream: CUstream = core::ptr::null_mut();
-            check_cu(
-                (api.cuStreamCreate)(&mut compute_stream, CU_STREAM_NON_BLOCKING),
-                "cuStreamCreate(compute)",
-            )?;
-            check_cu(
-                (api.cuStreamCreate)(&mut h2d_stream, CU_STREAM_NON_BLOCKING),
-                "cuStreamCreate(h2d)",
-            )?;
-
-            Ok(Arc::new(Self {
+            let mut handle = Self {
                 api,
                 device: dev,
                 ctx,
                 device_name,
                 device_uuid,
-                compute_stream,
-                h2d_stream,
-            }))
+                compute_stream: core::ptr::null_mut(),
+                h2d_stream: core::ptr::null_mut(),
+            };
+            check_cu(
+                (handle.api.cuStreamCreate)(&mut handle.compute_stream, CU_STREAM_NON_BLOCKING),
+                "cuStreamCreate(compute)",
+            )?;
+            check_cu(
+                (handle.api.cuStreamCreate)(&mut handle.h2d_stream, CU_STREAM_NON_BLOCKING),
+                "cuStreamCreate(h2d)",
+            )?;
+            Ok(Arc::new(handle))
         }
     }
 
@@ -303,6 +303,13 @@ impl CudaContextHandle {
     }
 }
 
+impl Drop for CudaContextHandle {
+    fn drop(&mut self) {
+        // The driver also releases the streams, modules and events owned by this context.
+        unsafe { (self.api.cuCtxDestroy_v2)(self.ctx) };
+    }
+}
+
 pub struct DeviceBuf {
     ctx: Arc<CudaContextHandle>,
     pub ptr: CUdeviceptr,
@@ -318,13 +325,16 @@ impl DeviceBuf {
                 (ctx.api.cuMemAlloc_v2)(&mut ptr, alloc_len),
                 "cuMemAlloc_v2",
             )?;
-            check_cu((ctx.api.cuMemsetD8_v2)(ptr, 0, alloc_len), "cuMemsetD8_v2")?;
         }
-        Ok(Self {
+        let buf = Self {
             ctx: Arc::clone(ctx),
             ptr,
             byte_len,
-        })
+        };
+        unsafe {
+            check_cu((ctx.api.cuMemsetD8_v2)(ptr, 0, alloc_len), "cuMemsetD8_v2")?;
+        }
+        Ok(buf)
     }
 
     pub fn from_host_bytes(ctx: &Arc<CudaContextHandle>, src: &[u8]) -> Result<Self, String> {
@@ -403,17 +413,21 @@ impl PinnedHostBuf {
                 ),
                 "cuMemHostAlloc",
             )?;
+        }
+        let mut buf = Self {
+            ctx: Arc::clone(ctx),
+            host_ptr: raw.cast::<u8>(),
+            dev_ptr: 0,
+            byte_len,
+        };
+        unsafe {
             check_cu(
                 (ctx.api.cuMemHostGetDevicePointer_v2)(&mut dptr, raw, 0),
                 "cuMemHostGetDevicePointer_v2",
             )?;
         }
-        Ok(Self {
-            ctx: Arc::clone(ctx),
-            host_ptr: raw.cast::<u8>(),
-            dev_ptr: dptr,
-            byte_len,
-        })
+        buf.dev_ptr = dptr;
+        Ok(buf)
     }
 
     pub fn alloc_zeroed(ctx: &Arc<CudaContextHandle>, byte_len: usize) -> Result<Self, String> {
@@ -425,32 +439,11 @@ impl PinnedHostBuf {
     }
 
     pub fn from_bytes(ctx: &Arc<CudaContextHandle>, src: &[u8]) -> Result<Self, String> {
-        let alloc_len = src.len().max(16);
-        let mut raw: *mut c_void = core::ptr::null_mut();
-        let mut dptr: CUdeviceptr = 0;
+        let buf = Self::alloc_uninit(ctx, src.len())?;
         unsafe {
-            check_cu(
-                (ctx.api.cuMemHostAlloc)(
-                    &mut raw,
-                    alloc_len,
-                    CU_MEMHOSTALLOC_PORTABLE | CU_MEMHOSTALLOC_DEVICEMAP,
-                ),
-                "cuMemHostAlloc",
-            )?;
-            if !src.is_empty() {
-                core::ptr::copy_nonoverlapping(src.as_ptr(), raw.cast::<u8>(), src.len());
-            }
-            check_cu(
-                (ctx.api.cuMemHostGetDevicePointer_v2)(&mut dptr, raw, 0),
-                "cuMemHostGetDevicePointer_v2",
-            )?;
+            core::ptr::copy_nonoverlapping(src.as_ptr(), buf.host_ptr, src.len());
         }
-        Ok(Self {
-            ctx: Arc::clone(ctx),
-            host_ptr: raw.cast::<u8>(),
-            dev_ptr: dptr,
-            byte_len: src.len(),
-        })
+        Ok(buf)
     }
 }
 
@@ -641,30 +634,33 @@ impl CapturedGraphExec {
                 "cuStreamBeginCapture_v2",
             )?;
         }
-        if let Err(e) = record_fn(ctx.compute_stream) {
-            let mut dummy: CUgraph = core::ptr::null_mut();
-            unsafe {
-                let _ = (ctx.api.cuStreamEndCapture)(ctx.compute_stream, &mut dummy);
-            }
-            return Err(e);
-        }
+        let recorded = record_fn(ctx.compute_stream);
         let mut graph: CUgraph = core::ptr::null_mut();
-        let mut exec: CUgraphExec = core::ptr::null_mut();
-        unsafe {
+        let ended = unsafe {
             check_cu(
                 (ctx.api.cuStreamEndCapture)(ctx.compute_stream, &mut graph),
                 "cuStreamEndCapture",
-            )?;
+            )
+        };
+        if let Err(error) = ended {
+            recorded?;
+            return Err(error);
+        }
+        let mut captured = Self {
+            ctx: Arc::clone(ctx),
+            graph,
+            exec: core::ptr::null_mut(),
+        };
+        recorded?;
+        let mut exec: CUgraphExec = core::ptr::null_mut();
+        unsafe {
             check_cu(
                 (ctx.api.cuGraphInstantiateWithFlags)(&mut exec, graph, 0),
                 "cuGraphInstantiateWithFlags",
             )?;
         }
-        Ok(Self {
-            ctx: Arc::clone(ctx),
-            graph,
-            exec,
-        })
+        captured.exec = exec;
+        Ok(captured)
     }
 
     pub fn replay(&self) -> Result<(), String> {
@@ -687,5 +683,32 @@ impl Drop for CapturedGraphExec {
                 let _ = (self.ctx.api.cuGraphDestroy)(self.graph);
             }
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod context_tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires a CUDA device"]
+    fn last_buffer_releases_its_context_and_restores_the_previous_one() -> Result<(), String> {
+        let outer = CudaContextHandle::init(0)?;
+        let get_current: unsafe extern "C" fn(*mut CUcontext) -> CUresult =
+            unsafe { load_sym(open_first_lib(&["libcuda.so.1"])?, "cuCtxGetCurrent")? };
+        let current = || -> Result<CUcontext, String> {
+            let mut ctx = core::ptr::null_mut();
+            unsafe { check_cu(get_current(&mut ctx), "cuCtxGetCurrent")? };
+            Ok(ctx)
+        };
+
+        let inner = CudaContextHandle::init(0)?;
+        let inner_ctx = inner.ctx;
+        let buffer = DeviceBuf::alloc_zeroed(&inner, 16)?;
+        drop(inner);
+        assert_eq!(current()?, inner_ctx);
+        drop(buffer);
+        assert_eq!(current()?, outer.ctx);
+        Ok(())
     }
 }
