@@ -123,6 +123,7 @@ pub struct CudaApi {
     pub cuModuleLoadData: unsafe extern "C" fn(*mut CUmodule, *const c_void) -> CUresult,
     pub cuModuleGetFunction:
         unsafe extern "C" fn(*mut CUfunction, CUmodule, *const c_char) -> CUresult,
+    pub cuFuncSetAttribute: unsafe extern "C" fn(CUfunction, c_int, c_int) -> CUresult,
     pub cuLaunchKernel: unsafe extern "C" fn(
         CUfunction,
         c_uint,
@@ -140,6 +141,7 @@ pub struct CudaApi {
     pub cuStreamSynchronize: unsafe extern "C" fn(CUstream) -> CUresult,
     pub cuEventCreate: unsafe extern "C" fn(*mut CUevent, c_uint) -> CUresult,
     pub cuEventRecord: unsafe extern "C" fn(CUevent, CUstream) -> CUresult,
+    pub cuEventDestroy_v2: unsafe extern "C" fn(CUevent) -> CUresult,
     pub cuStreamWaitEvent: unsafe extern "C" fn(CUstream, CUevent, c_uint) -> CUresult,
     pub cuStreamBeginCapture_v2: unsafe extern "C" fn(CUstream, c_int) -> CUresult,
     pub cuStreamEndCapture: unsafe extern "C" fn(CUstream, *mut CUgraph) -> CUresult,
@@ -208,11 +210,13 @@ impl CudaContextHandle {
                 cuMemcpyDtoDAsync_v2: load_sym(lib, "cuMemcpyDtoDAsync_v2")?,
                 cuModuleLoadData: load_sym(lib, "cuModuleLoadData")?,
                 cuModuleGetFunction: load_sym(lib, "cuModuleGetFunction")?,
+                cuFuncSetAttribute: load_sym(lib, "cuFuncSetAttribute")?,
                 cuLaunchKernel: load_sym(lib, "cuLaunchKernel")?,
                 cuStreamCreate: load_sym(lib, "cuStreamCreate")?,
                 cuStreamSynchronize: load_sym(lib, "cuStreamSynchronize")?,
                 cuEventCreate: load_sym(lib, "cuEventCreate")?,
                 cuEventRecord: load_sym(lib, "cuEventRecord")?,
+                cuEventDestroy_v2: load_sym(lib, "cuEventDestroy_v2")?,
                 cuStreamWaitEvent: load_sym(lib, "cuStreamWaitEvent")?,
                 cuStreamBeginCapture_v2: load_sym(lib, "cuStreamBeginCapture_v2")?,
                 cuStreamEndCapture: load_sym(lib, "cuStreamEndCapture")?,
@@ -513,8 +517,34 @@ unsafe fn preload_nvrtc_builtins_from_dir(dir: &std::path::Path) {
 #[cfg(not(unix))]
 unsafe fn preload_nvrtc_builtins_from_dir(_dir: &std::path::Path) {}
 
-/// Compile CUDA C++ source to `sm_120` PTX via `libnvrtc.so` at runtime!
+fn fnv1a64_pair(a: &[u8], b: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &byte in a.iter().chain(b.iter()) {
+        h ^= u64::from(byte);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// Compile CUDA C++ source via `libnvrtc.so` at runtime, preferring native `sm_120a` CUBIN
+/// (`nvrtcGetCUBIN` + `/tmp` content-addressed cache) when `arch` targets SM120, with seamless
+/// fallback to `compute_120` PTX if `nvrtcGetCUBIN` is unavailable.
 pub fn compile_cuda_to_ptx_nvrtc(cuda_src: &str, arch: &str) -> Result<Vec<u8>, String> {
+    let want_sm120_cubin = (arch == "compute_120" || arch == "sm_120a")
+        && std::env::var("LEANSONIC_FORCE_PTX_JIT")
+            .map(|v| v != "1")
+            .unwrap_or(true);
+    let cubin_hash = fnv1a64_pair(cuda_src.as_bytes(), b"::sm_120a::v2");
+    let cache_path = std::env::temp_dir().join(format!("leansonic_sm120a_{cubin_hash:016x}.cubin"));
+    if want_sm120_cubin {
+        if let Ok(bytes) = std::fs::read(&cache_path) {
+            // ELF magic `\x7fELF` sanity check
+            if bytes.len() > 1024 && bytes.starts_with(b"\x7fELF") {
+                return Ok(bytes);
+            }
+        }
+    }
+
     type NvrtcCreateProgram = unsafe extern "C" fn(
         *mut *mut c_void,
         *const c_char,
@@ -567,12 +597,62 @@ pub fn compile_cuda_to_ptx_nvrtc(cuda_src: &str, arch: &str) -> Result<Vec<u8>, 
         let compile_prog: NvrtcCompileProgram = load_sym(lib, "nvrtcCompileProgram")?;
         let get_ptx_size: NvrtcGetSize = load_sym(lib, "nvrtcGetPTXSize")?;
         let get_ptx: NvrtcGetStr = load_sym(lib, "nvrtcGetPTX")?;
+        let get_cubin_size: Option<NvrtcGetSize> = load_sym(lib, "nvrtcGetCUBINSize").ok();
+        let get_cubin: Option<NvrtcGetStr> = load_sym(lib, "nvrtcGetCUBIN").ok();
         let get_log_size: NvrtcGetSize = load_sym(lib, "nvrtcGetProgramLogSize")?;
         let get_log: NvrtcGetStr = load_sym(lib, "nvrtcGetProgramLog")?;
         let destroy_prog: NvrtcDestroy = load_sym(lib, "nvrtcDestroyProgram")?;
 
         let c_src = CString::new(cuda_src).map_err(|e| e.to_string())?;
         let c_name = CString::new("inkling2_sm120.cu").unwrap();
+
+        // Try native `sm_120a` CUBIN compilation first when supported by `libnvrtc`.
+        if want_sm120_cubin {
+            if let (Some(fn_csz), Some(fn_cb)) = (get_cubin_size, get_cubin) {
+                let mut prog: *mut c_void = core::ptr::null_mut();
+                if create_prog(
+                    &mut prog,
+                    c_src.as_ptr(),
+                    c_name.as_ptr(),
+                    0,
+                    core::ptr::null(),
+                    core::ptr::null(),
+                ) == 0
+                {
+                    let opt_arch = CString::new("--gpu-architecture=sm_120a").unwrap();
+                    let opt_std = CString::new("--std=c++17").unwrap();
+                    let opt_dev = CString::new("-default-device").unwrap();
+                    let opt_fm = CString::new("--use_fast_math").unwrap();
+                    let opts = [
+                        opt_arch.as_ptr(),
+                        opt_std.as_ptr(),
+                        opt_dev.as_ptr(),
+                        opt_fm.as_ptr(),
+                    ];
+                    if compile_prog(prog, opts.len() as c_int, opts.as_ptr()) == 0 {
+                        let mut csz = 0usize;
+                        if fn_csz(prog, &mut csz) == 0 && csz > 1024 {
+                            let mut cbuf = vec![0u8; csz];
+                            if fn_cb(prog, cbuf.as_mut_ptr().cast()) == 0
+                                && cbuf.starts_with(b"\x7fELF")
+                            {
+                                let _ = destroy_prog(&mut prog);
+                                let tmp_path = std::env::temp_dir().join(format!(
+                                    "leansonic_sm120a_{cubin_hash:016x}.{}.tmp",
+                                    std::process::id()
+                                ));
+                                if std::fs::write(&tmp_path, &cbuf).is_ok() {
+                                    let _ = std::fs::rename(&tmp_path, &cache_path);
+                                }
+                                return Ok(cbuf);
+                            }
+                        }
+                    }
+                    let _ = destroy_prog(&mut prog);
+                }
+            }
+        }
+
         let mut prog: *mut c_void = core::ptr::null_mut();
         let rc = create_prog(
             &mut prog,
@@ -586,9 +666,21 @@ pub fn compile_cuda_to_ptx_nvrtc(cuda_src: &str, arch: &str) -> Result<Vec<u8>, 
             return Err(format!("nvrtcCreateProgram failed ({rc})\n{HINT}"));
         }
 
-        let opt_arch = CString::new(format!("--gpu-architecture={arch}")).unwrap();
+        let fallback_arch = if arch == "sm_120a" {
+            "compute_120"
+        } else {
+            arch
+        };
+        let opt_arch = CString::new(format!("--gpu-architecture={fallback_arch}")).unwrap();
         let opt_std = CString::new("--std=c++17").unwrap();
-        let opts = [opt_arch.as_ptr(), opt_std.as_ptr()];
+        let opt_dev = CString::new("-default-device").unwrap();
+        let opt_fm = CString::new("--use_fast_math").unwrap();
+        let opts = [
+            opt_arch.as_ptr(),
+            opt_std.as_ptr(),
+            opt_dev.as_ptr(),
+            opt_fm.as_ptr(),
+        ];
         let comp_rc = compile_prog(prog, opts.len() as c_int, opts.as_ptr());
         if comp_rc != 0 {
             let mut log_sz = 0usize;
