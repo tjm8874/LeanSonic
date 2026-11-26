@@ -3847,7 +3847,15 @@ impl Inkling2GpuEngine {
 
         // 6. Batched GQA Relative-Bias + Sink Attention + In-Register `Q8_64` Epilogue!
         if self.attn_split_g == 0 {
-            if let Some(f_attn_q8) = self.fns.gqa_rel_sink_attn_q8_b {
+            // Small speculative verification batches also underfill the GPU.
+            let kernel = if record_seq && b_len <= MAX_SPEC_TOKENS {
+                self.fns
+                    .gqa_rel_sink_attn_q8_decode
+                    .or(self.fns.gqa_rel_sink_attn_q8_b)
+            } else {
+                self.fns.gqa_rel_sink_attn_q8_b
+            };
+            if let Some(f_attn_q8) = kernel {
                 let mut pqrgs = self.prefill.layer_workspace.qrgs;
                 let mut qstride = SWA_ALL_ROWS as i32;
                 let mut prp = l.rel_proj.ptr;
