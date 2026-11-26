@@ -144,7 +144,7 @@ pub fn run(args: &[String]) -> Result<()> {
     if chunks == 0 || chunks > reference.chunks {
         return Err(format!("--chunks must be between 1 and {}", reference.chunks).into());
     }
-    let mut engine = Inkling2GpuEngine::load_from_dir(weights, reference.ctx, true)?;
+    let mut engine = Inkling2GpuEngine::load_from_dir_with_spec(weights, reference.ctx, true, 0)?;
     let mut row = vec![0; row_bytes(VOCAB)];
     let mut klds = Vec::new();
     let (mut sum_nll, mut sum_ref, mut matches) = (0.0, 0.0, 0usize);
