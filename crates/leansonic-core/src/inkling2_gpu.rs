@@ -402,6 +402,23 @@ pub fn repack_bf16_to_planar_q8_64(
     rows: usize,
     cols: usize,
 ) -> Result<PlanarQ8Gpu, String> {
+    repack_q8_with_scope(ctx, bf16_bytes, rows, cols, false)
+}
+
+fn repack_q8_with_scope(
+    ctx: &Arc<CudaContextHandle>,
+    bf16_bytes: &[u8],
+    rows: usize,
+    cols: usize,
+    output_head: bool,
+) -> Result<PlanarQ8Gpu, String> {
+    let fit = match std::env::var("LEANSONIC_RESEARCH_Q8_SCALE").as_deref() {
+        Ok("head") => output_head,
+        Ok("projections") => !output_head,
+        Ok("all") => true,
+        Ok("baseline") | Err(_) => false,
+        Ok(other) => return Err(format!("unknown Q8 scale experiment: {other}")),
+    };
     assert_eq!(cols % 64, 0);
     assert_eq!(bf16_bytes.len(), rows * cols * 2);
     let scale_stride = (cols / 64) * 4;
@@ -428,6 +445,7 @@ pub fn repack_bf16_to_planar_q8_64(
             cols,
             tile_codes,
             tile_scales,
+            fit,
         );
         result.codes.copy_from_host_at(first * cols, tile_codes)?;
         result
@@ -437,7 +455,13 @@ pub fn repack_bf16_to_planar_q8_64(
     Ok(result)
 }
 
-fn pack_q8_rows(bf16_bytes: &[u8], cols: usize, codes: &mut [u8], scales_bytes: &mut [u8]) {
+fn pack_q8_rows(
+    bf16_bytes: &[u8],
+    cols: usize,
+    codes: &mut [u8],
+    scales_bytes: &mut [u8],
+    fit: bool,
+) {
     let rows = codes.len() / cols;
     let cols64 = cols / 64;
     let n_threads = std::thread::available_parallelism()
@@ -484,7 +508,9 @@ fn pack_q8_rows(bf16_bytes: &[u8], cols: usize, codes: &mut [u8], scales_bytes: 
                             dot += f64::from(fv) * f64::from(q);
                             norm += i32::from(q) * i32::from(q);
                         }
-                        let scale = if norm == 0 {
+                        let scale = if !fit {
+                            amax * (1.0 / 127.0)
+                        } else if norm == 0 {
                             0.0
                         } else {
                             (dot / f64::from(norm)) as f32
@@ -590,8 +616,7 @@ impl Inkling2GpuEngine {
             .require("model.llm.unembed.weight", "BF16", &[PADDED_VOCAB, D])
             .data;
         // Repack `unembed` (`922 MB` BF16 -> `490 MB` Planar `Q8_64`, freeing `432 MB` VRAM!)
-        let unembed_q8 =
-            repack_bf16_to_planar_q8_64(&ctx, &unembed_all[..VOCAB * D * 2], VOCAB, D)?;
+        let unembed_q8 = repack_q8_with_scope(&ctx, &unembed_all[..VOCAB * D * 2], VOCAB, D, true)?;
         let output_query = DeviceBuf::from_host_bytes(
             &ctx,
             st.require("model.llm.attn_res.output_query", "F32", &[D])
@@ -4763,7 +4788,7 @@ mod tests {
         }
         let mut codes = vec![0; 3 * cols];
         let mut scales = vec![0; 24];
-        pack_q8_rows(&bytes[1..], cols, &mut codes, &mut scales);
+        pack_q8_rows(&bytes[1..], cols, &mut codes, &mut scales, false);
         assert_eq!(codes, expected_codes);
         assert_eq!(scales, expected_scales);
     }
