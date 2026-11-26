@@ -1085,9 +1085,25 @@ pub fn run(args: &[String]) -> Result<(), String> {
         ("weights", Json::Str(o.weights.clone())),
         ("ctx", Json::Num(o.ctx as f64)),
         ("n_per_cell", Json::Num(o.n as f64)),
+        ("engine_env", Json::Obj(engine_env())),
         ("method", Json::Str("fresh process per sample; warm 2nd request per process; median + 95% percentile bootstrap (2000, fixed seed) of the median; PASS iff CI bound clears target".into())),
         ("gpus", Json::Arr(gpu_results.clone())),
     ]);
+    let env_line: Vec<String> = engine_env()
+        .into_iter()
+        .map(|(k, v)| match v {
+            Json::Str(v) => format!("{k}={v}"),
+            _ => k,
+        })
+        .collect();
+    println!(
+        "engine env: {}",
+        if env_line.is_empty() {
+            "(defaults)".to_string()
+        } else {
+            env_line.join(" ")
+        }
+    );
     print_table(&gpu_results);
     if let Some(out) = &o.out {
         let mut s = String::new();
@@ -1103,6 +1119,16 @@ pub fn run(args: &[String]) -> Result<(), String> {
         );
     }
     Ok(())
+}
+
+/// `LEANSONIC_*` variables inherited by every sample process (KV format, split counts, ...),
+/// (sorted by the map), so a report records the engine configuration it measured.
+/// `LEANSONIC_CTX` is set per probe and reported as `ctx`.
+fn engine_env() -> BTreeMap<String, Json> {
+    env::vars()
+        .filter(|(k, _)| k.starts_with("LEANSONIC_") && k != "LEANSONIC_CTX")
+        .map(|(k, val)| (k, Json::Str(val)))
+        .collect()
 }
 
 #[cfg(test)]
