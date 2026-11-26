@@ -135,6 +135,12 @@ struct SlotStateGpu {
     hist_mlp: DeviceBuf,
 }
 
+struct Q8GroupKernel {
+    function: CUfunction,
+    columns_per_block: usize,
+    threads: u32,
+}
+
 struct KernelFns {
     _module: CUmodule,
     embed_rmsnorm: CUfunction,
@@ -145,7 +151,7 @@ struct KernelFns {
     ctrl_apply: CUfunction,
     bf16_gemv: CUfunction,
     quant_q8_64: CUfunction,
-    quant_q8_16: CUfunction,
+    quant_q8_16: Q8GroupKernel,
     q8_dp4a_gemv: CUfunction,
     short_conv4: CUfunction,
     prep_qkv_and_cache: CUfunction,
@@ -1156,7 +1162,19 @@ impl Inkling2GpuEngine {
             ctrl_apply: get_fn("ink2_ctrl_apply")?,
             bf16_gemv: get_fn("ink2_bf16_gemv")?,
             quant_q8_64: get_fn("ink2_quant_q8_64")?,
-            quant_q8_16: get_fn("ink2_quant_q8_16")?,
+            // The original v0.3 external cubin launches one warp per 16 columns.
+            quant_q8_16: match get_fn("ink2_quant_q8_16_packed") {
+                Ok(function) => Q8GroupKernel {
+                    function,
+                    columns_per_block: 128,
+                    threads: 128,
+                },
+                Err(_) => Q8GroupKernel {
+                    function: get_fn("ink2_quant_q8_16")?,
+                    columns_per_block: 16,
+                    threads: 32,
+                },
+            },
             q8_dp4a_gemv: get_fn("ink2_q8_dp4a_gemv")?,
             short_conv4: get_fn("ink2_short_conv4")?,
             prep_qkv_and_cache: get_fn("ink2_prep_qkv_and_cache")?,
@@ -1415,21 +1433,42 @@ impl Inkling2GpuEngine {
         n_vecs: usize,
         cols: usize,
     ) -> Result<(), String> {
+        self.enqueue_quant_q8_groups(
+            stream,
+            x_ptr,
+            self.d_act_q8_16.ptr,
+            self.d_act_sc_16.ptr,
+            n_vecs,
+            cols,
+        )
+    }
+
+    fn enqueue_quant_q8_groups(
+        &self,
+        stream: CUstream,
+        x_ptr: CUdeviceptr,
+        mut codes: CUdeviceptr,
+        mut scales: CUdeviceptr,
+        n_vecs: usize,
+        cols: usize,
+    ) -> Result<(), String> {
         let mut px = x_ptr;
-        let mut pq = self.d_act_q8_16.ptr;
-        let mut ps = self.d_act_sc_16.ptr;
+        let kernel = &self.fns.quant_q8_16;
         let mut c = cols as i32;
         let mut args: [*mut c_void; 4] = [
             (&mut px as *mut _) as *mut c_void,
-            (&mut pq as *mut _) as *mut c_void,
-            (&mut ps as *mut _) as *mut c_void,
+            (&mut codes as *mut _) as *mut c_void,
+            (&mut scales as *mut _) as *mut c_void,
             (&mut c as *mut _) as *mut c_void,
         ];
         self.launch(
             stream,
-            self.fns.quant_q8_16,
-            ((cols / 16) as u32, n_vecs as u32),
-            32,
+            kernel.function,
+            (
+                cols.div_ceil(kernel.columns_per_block) as u32,
+                n_vecs as u32,
+            ),
+            kernel.threads,
             &mut args,
         )
     }
@@ -2655,22 +2694,13 @@ impl Inkling2GpuEngine {
         n_vecs: usize,
         cols: usize,
     ) -> Result<(), String> {
-        let mut px = x_ptr;
-        let mut pq = self.d_b_act_q8_16.ptr;
-        let mut ps = self.d_b_act_sc_16.ptr;
-        let mut c = cols as i32;
-        let mut args: [*mut c_void; 4] = [
-            (&mut px as *mut _) as *mut c_void,
-            (&mut pq as *mut _) as *mut c_void,
-            (&mut ps as *mut _) as *mut c_void,
-            (&mut c as *mut _) as *mut c_void,
-        ];
-        self.launch(
+        self.enqueue_quant_q8_groups(
             stream,
-            self.fns.quant_q8_16,
-            ((cols / 16) as u32, n_vecs as u32),
-            32,
-            &mut args,
+            x_ptr,
+            self.d_b_act_q8_16.ptr,
+            self.d_b_act_sc_16.ptr,
+            n_vecs,
+            cols,
         )
     }
 

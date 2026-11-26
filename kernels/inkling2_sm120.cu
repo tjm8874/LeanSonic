@@ -1127,21 +1127,22 @@ extern "C" __global__ void ink2_quant_q8_64(
     }
 }
 
-extern "C" __global__ void ink2_quant_q8_16(
+extern "C" __global__ void ink2_quant_q8_16_packed(
     const float* __restrict__ x,       // [n_vecs, cols]
     uint32_t* __restrict__ out_q8_u32, // [n_vecs, cols / 4]
     float* __restrict__ out_sc16,      // [n_vecs, cols / 16]
     int32_t cols) {
-    const int blk16 = blockIdx.x;
+    // Each half warp quantizes one independent 16-value group.
+    const int blk16 = (blockIdx.x * blockDim.x + threadIdx.x) / 16;
+    const int lane = threadIdx.x & 15;
     const int vec_id = blockIdx.y;
-    const int lane = threadIdx.x & 31;
-    const int off = vec_id * cols + blk16 * 16;
-
-    float v = (lane < 16) ? x[off + lane] : 0.0f;
+    const unsigned active = __ballot_sync(0xffffffffu, blk16 < cols / 16);
+    if (blk16 >= cols / 16) return;
+    float v = x[vec_id * cols + blk16 * 16 + lane];
     float amax = fabsf(v);
     #pragma unroll
     for (int mask = 8; mask > 0; mask >>= 1) {
-        amax = fmaxf(amax, __shfl_xor_sync(0xFFFFFFFFu, amax, mask));
+        amax = fmaxf(amax, __shfl_xor_sync(active, amax, mask, 16));
     }
     float sc = amax * (1.0f / 127.0f);
     float inv = (amax > 0.0f) ? (127.0f * ptx_rcp(amax)) : 0.0f;
@@ -1150,10 +1151,10 @@ extern "C" __global__ void ink2_quant_q8_16(
     if (q > 127) q = 127;
     uint32_t qb = static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q)));
     uint32_t p4 = qb
-        | (__shfl_sync(0xFFFFFFFFu, qb, lane + 1) << 8)
-        | (__shfl_sync(0xFFFFFFFFu, qb, lane + 2) << 16)
-        | (__shfl_sync(0xFFFFFFFFu, qb, lane + 3) << 24);
-    if (lane < 16 && (lane & 3) == 0) {
+        | (__shfl_sync(active, qb, lane + 1, 16) << 8)
+        | (__shfl_sync(active, qb, lane + 2, 16) << 16)
+        | (__shfl_sync(active, qb, lane + 3, 16) << 24);
+    if ((lane & 3) == 0) {
         out_q8_u32[(vec_id * (cols >> 2)) + blk16 * 4 + (lane >> 2)] = p4;
     }
     if (lane == 0) {
