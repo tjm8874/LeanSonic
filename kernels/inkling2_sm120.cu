@@ -2464,6 +2464,38 @@ extern "C" __global__ void ink2_build_expert_groups_b(
     exp_counts[ex] = cnt;
 }
 
+// Keep the first 64 occurrences per expert in the legacy table. Subsequent
+// pages use the same [expert, 64] layout. A 4- or 8-token tile fits in one page.
+__device__ __forceinline__ int expert_map_offset(int expert, int occurrence) {
+    return ((occurrence / 64) * kExp + expert) * 64 + occurrence % 64;
+}
+
+// Grid: 32 CTAs of four warps. Each warp scans one expert's selections in
+// input order. The ballot ranks the matching lanes without atomic appends.
+extern "C" __global__ void ink2_build_expert_groups_wide_b(
+    const int32_t* __restrict__ sel_ids,
+    int32_t* __restrict__ exp_counts,
+    int32_t* __restrict__ exp_toks,
+    int32_t* __restrict__ exp_pairs,
+    int32_t B) {
+    const int expert = blockIdx.x * 4 + threadIdx.x / 32;
+    const int lane = threadIdx.x % 32;
+    int count = 0;
+    for (int first = 0; first < B * 8; first += 32) {
+        const int pair = first + lane;
+        const bool match = pair < B * 8 && sel_ids[pair] == expert;
+        const unsigned hits = __ballot_sync(0xffffffffu, match);
+        if (match) {
+            const int rank = count + __popc(hits & ((1u << lane) - 1u));
+            const int dst = expert_map_offset(expert, rank);
+            exp_toks[dst] = pair / 8;
+            exp_pairs[dst] = pair;
+        }
+        count += __popc(hits);
+    }
+    if (lane == 0) exp_counts[expert] = count;
+}
+
 // A CTA computes 32 weight rows for one expert. Each integer MMA tile covers
 // 16 rows x 8 tokens x 16 input values, the width of one NVFP4 scale group.
 // The gate/up projection consumes token rows and fuses SITU. The down
@@ -2513,9 +2545,10 @@ __device__ __forceinline__ void grouped_nvfp4_mma(
 
         for (int first = 0; first < count; first += tokens) {
             const int live = min(tokens, count - first);
+            const int map_base = expert_map_offset(expert, first);
             // All lanes participate in MMA. Replicate the final valid column
             // in a short tile and suppress its extra outputs at the store.
-            const int token = input_ids[expert * 64 + first + min(row, live - 1)];
+            const int token = input_ids[map_base + min(row, live - 1)];
             float sum[4] = {};
             float left[4] = {};
 
@@ -2578,7 +2611,7 @@ __device__ __forceinline__ void grouped_nvfp4_mma(
                 if constexpr (GateUp) {
                     projections[tid / tokens][t] = value;
                 } else if (t < live) {
-                    const int dest = exp_pairs[expert * 64 + first + t];
+                    const int dest = exp_pairs[map_base + t];
                     output[dest * kD + first_row + tid / tokens] = value;
                 }
             }
@@ -2590,7 +2623,7 @@ __device__ __forceinline__ void grouped_nvfp4_mma(
                     const float g = projections[2 * m][t];
                     const float u = projections[2 * m + 1][t];
                     const float situ = 4.0f * ptx_tanh(g * 0.25f) * ptx_sigmoid(g) * 25.0f * ptx_tanh(u * 0.04f);
-                    const int dest = exp_pairs[expert * 64 + first + t];
+                    const int dest = exp_pairs[map_base + t];
                     output[dest * kFf + first_row / 2 + m] = situ;
                 }
             }
@@ -2620,7 +2653,7 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_grouped_down(
     const uint4* __restrict__ act_q8_u128, // [B * 8, 72]
     const float* __restrict__ act_sc16,    // [B * 8, 72]
     const int32_t* __restrict__ exp_counts,// [128]
-    const int32_t* __restrict__ exp_pairs, // [128, 64]
+    const int32_t* __restrict__ exp_pairs, // [page, 128, 64]
     float* __restrict__ pair_y) {          // [B * 8, 2304]
     grouped_nvfp4_mma<false>(w2_u128, s2_u32, a2, act_q8_u128, act_sc16, exp_counts, exp_pairs, exp_pairs, pair_y);
 }
@@ -2663,8 +2696,8 @@ extern "C" __global__ void ink2_moe_mxfp8_grouped_up_situ(
     const uint32_t* __restrict__ s13_u32,  // [128, 2304, 18]
     const float4* __restrict__ x4_base,    // [B, 576]
     const int32_t* __restrict__ exp_counts,// [128]
-    const int32_t* __restrict__ exp_toks,  // [128, 64]
-    const int32_t* __restrict__ exp_pairs, // [128, 64]
+    const int32_t* __restrict__ exp_toks,  // [page, 128, 64]
+    const int32_t* __restrict__ exp_pairs, // [page, 128, 64]
     float* __restrict__ act_out) {         // [B * 8, 1152]
     const int ex = blockIdx.y;
     const int cnt = exp_counts[ex];
@@ -2686,10 +2719,10 @@ extern "C" __global__ void ink2_moe_mxfp8_grouped_up_situ(
         const int tile_t = (rem < 4) ? rem : 4;
         if (t_base > 0) __syncthreads();
         if (tid < tile_t) {
-            smem_pairs[tid] = exp_pairs[ex * 64 + t_base + tid];
+            smem_pairs[tid] = exp_pairs[expert_map_offset(ex, t_base) + tid];
         }
         for (int t = 0; t < tile_t; ++t) {
-            const int tok = exp_toks[ex * 64 + t_base + t];
+            const int tok = exp_toks[expert_map_offset(ex, t_base) + t];
             const float4* src = x4_base + static_cast<size_t>(tok) * 576u;
             for (int i = tid; i < 576; i += 256) {
                 smem_x4[t][(i & 3) * kPlaneStride + (i >> 2)] = src[i];
@@ -2739,7 +2772,7 @@ extern "C" __global__ void ink2_moe_mxfp8_grouped_down(
     const uint32_t* __restrict__ s2_u32,   // [128, 2304, 9]
     const float4* __restrict__ act4_base,  // [B * 8, 288]
     const int32_t* __restrict__ exp_counts,// [128]
-    const int32_t* __restrict__ exp_pairs, // [128, 64]
+    const int32_t* __restrict__ exp_pairs, // [page, 128, 64]
     float* __restrict__ pair_y) {          // [B * 8, 2304]
     const int ex = blockIdx.y;
     const int cnt = exp_counts[ex];
@@ -2759,10 +2792,10 @@ extern "C" __global__ void ink2_moe_mxfp8_grouped_down(
         const int tile_t = (rem < 8) ? rem : 8;
         if (t_base > 0) __syncthreads();
         if (tid < tile_t) {
-            smem_pairs[tid] = exp_pairs[ex * 64 + t_base + tid];
+            smem_pairs[tid] = exp_pairs[expert_map_offset(ex, t_base) + tid];
         }
         for (int t = 0; t < tile_t; ++t) {
-            const int pair_idx = exp_pairs[ex * 64 + t_base + t];
+            const int pair_idx = exp_pairs[expert_map_offset(ex, t_base) + t];
             const float4* src = act4_base + static_cast<size_t>(pair_idx) * 288u;
             for (int i = tid; i < 288; i += 256) {
                 smem_a4[t][(i & 3) * kPlaneStride + (i >> 2)] = src[i];

@@ -39,7 +39,8 @@ pub const RANK: usize = 64;
 pub const VOCAB: usize = 200_058;
 pub const PADDED_VOCAB: usize = 201_024;
 pub const GLOBAL_LAYERS: [usize; 4] = [5, 11, 17, 23];
-pub const MAX_BATCH_TOKENS: usize = 64;
+pub const MAX_BATCH_TOKENS: usize = 1024;
+const EXPERT_PAGE: usize = 64;
 pub const MAX_SPEC_TOKENS: usize = 8;
 pub const TAP_SLOTS: [usize; 3] = [4, 28, 46];
 const CONV_SEQ_STEPS: usize = MAX_SPEC_TOKENS + 3; // 11
@@ -123,6 +124,7 @@ struct LayerGpu {
 
 struct SlotStateGpu {
     kv_cap: usize,
+    is_global: bool,
     k_cache: DeviceBuf,
     v_cache: DeviceBuf,
     hist_k: CUdeviceptr,
@@ -164,7 +166,7 @@ struct KernelFns {
     copy_d: CUfunction,
     argmax_and_inc_pos: CUfunction,
     inc_pos: CUfunction,
-    // Batched multi-token kernels (`1 <= B <= 64`)
+    // Batched multi-token kernels (up to the selected prefill capacity)
     embed_rmsnorm_b: CUfunction,
     rmsnorm_d_b: CUfunction,
     rmsnorm_quant_q8_64_b: CUfunction,
@@ -181,6 +183,7 @@ struct KernelFns {
     bf16_gemm_router_b: CUfunction,
     router_topk8_b: CUfunction,
     build_expert_groups_b: CUfunction,
+    build_expert_groups_wide_b: Option<CUfunction>,
     moe_nvfp4_dp4a_grouped_up_situ: CUfunction,
     moe_nvfp4_dp4a_grouped_down: CUfunction,
     moe_mxfp8_grouped_up_situ: CUfunction,
@@ -221,6 +224,90 @@ struct KernelFns {
 unsafe impl Send for KernelFns {}
 unsafe impl Sync for KernelFns {}
 
+// All these buffers scale linearly with the prefill width. A multiple of 64
+// also accommodates every page of the expert occurrence tables.
+struct PrefillBuffers {
+    capacity: usize,
+    bytes_per_row: usize,
+    d_taps: DeviceBuf,
+    d_attn_part_ml: DeviceBuf,
+    d_attn_part_o: DeviceBuf,
+    d_b_cur: DeviceBuf,
+    d_b_prelude_x: DeviceBuf,
+    d_b_blocks: DeviceBuf,
+    d_b_prelude_block0: DeviceBuf,
+    d_b_bank: DeviceBuf,
+    d_b_msgs: DeviceBuf,
+    d_b_inputs: DeviceBuf,
+    d_b_ctrl_g: DeviceBuf,
+    d_b_qrgs: DeviceBuf,
+    d_b_k_raw: DeviceBuf,
+    d_b_v_raw: DeviceBuf,
+    d_b_k_conv: DeviceBuf,
+    d_b_v_conv: DeviceBuf,
+    d_b_attn_out: DeviceBuf,
+    d_b_wo_out: DeviceBuf,
+    d_b_mlp_h: DeviceBuf,
+    d_b_router_logits: DeviceBuf,
+    d_b_sel_ids: DeviceBuf,
+    d_b_sel_wts: DeviceBuf,
+    d_b_exp_toks: DeviceBuf,
+    d_b_exp_pairs: DeviceBuf,
+    d_b_moe_act: DeviceBuf,
+    d_b_pair_y: DeviceBuf,
+    d_b_moe_y: DeviceBuf,
+    d_b_act_q8_64: DeviceBuf,
+    d_b_act_sc_64: DeviceBuf,
+    d_b_act_q8_16: DeviceBuf,
+    d_b_act_sc_16: DeviceBuf,
+}
+
+impl PrefillBuffers {
+    fn new(ctx: &Arc<CudaContextHandle>, capacity: usize, splits: usize) -> Result<Self, String> {
+        let mut bytes = 0;
+        let mut allocate = |size| {
+            bytes += size;
+            DeviceBuf::alloc_zeroed(ctx, size)
+        };
+        Ok(Self {
+            capacity,
+            d_taps: allocate(capacity * 4 * D * 4)?,
+            d_attn_part_ml: allocate((capacity * N_HEAD * splits * 2 * 4).max(4))?,
+            d_attn_part_o: allocate((capacity * N_HEAD * splits * HD * 4).max(4))?,
+            d_b_cur: allocate(capacity * D * 4)?,
+            d_b_prelude_x: allocate(capacity * D * 4)?,
+            d_b_blocks: allocate(6 * capacity * D * 4)?,
+            d_b_prelude_block0: allocate(capacity * D * 4)?,
+            d_b_bank: allocate(2 * capacity * D * 4)?,
+            d_b_msgs: allocate((48 * MAX_SPEC_TOKENS).max(4 * capacity) * D * 4)?,
+            d_b_inputs: allocate(3 * capacity * D * 4)?,
+            d_b_ctrl_g: allocate(3 * capacity * RANK * 4)?,
+            d_b_qrgs: allocate(capacity * SWA_ALL_ROWS * 4)?,
+            d_b_k_raw: allocate(capacity * 1056 * 4)?,
+            d_b_v_raw: allocate(capacity * 1056 * 4)?,
+            d_b_k_conv: allocate(capacity * 1024 * 4)?,
+            d_b_v_conv: allocate(capacity * 1024 * 4)?,
+            d_b_attn_out: allocate(capacity * 3072 * 4)?,
+            d_b_wo_out: allocate(capacity * D * 4)?,
+            d_b_mlp_h: allocate(capacity * D * 4)?,
+            d_b_router_logits: allocate(capacity * N_EXP * 4)?,
+            d_b_sel_ids: allocate(capacity * TOP_K * 4)?,
+            d_b_sel_wts: allocate(capacity * TOP_K * 4)?,
+            d_b_exp_toks: allocate(N_EXP * capacity * 4)?,
+            d_b_exp_pairs: allocate(N_EXP * capacity * 4)?,
+            d_b_moe_act: allocate(capacity * TOP_K * FF * 4)?,
+            d_b_pair_y: allocate(capacity * TOP_K * D * 4)?,
+            d_b_moe_y: allocate(capacity * D * 4)?,
+            d_b_act_q8_64: allocate(3 * capacity * 3072)?,
+            d_b_act_sc_64: allocate(3 * capacity * 48 * 4)?,
+            d_b_act_q8_16: allocate(capacity * TOP_K * FF)?,
+            d_b_act_sc_16: allocate(capacity * TOP_K * (FF / 16) * 4)?,
+            bytes_per_row: (bytes - (48 * MAX_SPEC_TOKENS).saturating_sub(4 * capacity) * D * 4)
+                / capacity,
+        })
+    }
+}
+
 pub struct Inkling2GpuEngine {
     pub ctx: Arc<CudaContextHandle>,
     fns: KernelFns,
@@ -260,8 +347,6 @@ pub struct Inkling2GpuEngine {
     d_attn_out: DeviceBuf,
     /// Split-KV GQA attention (`LEANSONIC_ATTN_SPLIT=G`, `0` = legacy 24-CTA kernel).
     attn_split_g: usize,
-    d_attn_part_ml: DeviceBuf,
-    d_attn_part_o: DeviceBuf,
     d_wo_out: DeviceBuf,
     d_mlp_h: DeviceBuf,
     d_router_logits: DeviceBuf,
@@ -275,39 +360,11 @@ pub struct Inkling2GpuEngine {
     d_act_sc_64: DeviceBuf, // 3 * 48 * 4 B
     d_act_q8_16: DeviceBuf, // max 8 * 1152 B
     d_act_sc_16: DeviceBuf, // max 8 * 72 * 4 B
-    // Multi-token batch scratch buffers (`1 <= B <= 64`) + Speculative verify buffers (`B <= 8`)
-    d_b_cur: DeviceBuf,
-    d_b_prelude_x: DeviceBuf,
-    d_b_blocks: DeviceBuf,
-    d_b_prelude_block0: DeviceBuf,
-    d_b_bank: DeviceBuf,
-    d_b_msgs: DeviceBuf,
-    d_b_inputs: DeviceBuf,
-    d_b_ctrl_g: DeviceBuf,
-    d_b_qrgs: DeviceBuf,
-    d_b_k_raw: DeviceBuf,
-    d_b_v_raw: DeviceBuf,
-    d_b_k_conv: DeviceBuf,
-    d_b_v_conv: DeviceBuf,
-    d_b_attn_out: DeviceBuf,
-    d_b_wo_out: DeviceBuf,
-    d_b_mlp_h: DeviceBuf,
-    d_b_router_logits: DeviceBuf,
-    d_b_sel_ids: DeviceBuf,
-    d_b_sel_wts: DeviceBuf,
+    // Multi-token batch scratch buffers (up to the selected prefill capacity) + Speculative verify buffers (`B <= 8`)
+    prefill: PrefillBuffers,
     d_b_exp_counts: DeviceBuf,
-    d_b_exp_toks: DeviceBuf,
-    d_b_exp_pairs: DeviceBuf,
-    d_b_moe_act: DeviceBuf,
-    d_b_pair_y: DeviceBuf,
-    d_b_moe_y: DeviceBuf,
-    d_b_act_q8_64: DeviceBuf,
-    d_b_act_sc_64: DeviceBuf,
-    d_b_act_q8_16: DeviceBuf,
-    d_b_act_sc_16: DeviceBuf,
     d_spec_logits: DeviceBuf,
     d_spec_tokens_out: DeviceBuf,
-    d_taps: DeviceBuf,
     d_conv_seq: DeviceBuf,
     d_conv_hist_ptrs: DeviceBuf,
     pub drafter: Option<DsparkDrafterGpu>,
@@ -545,10 +602,11 @@ impl Inkling2GpuEngine {
             let kv_cap = if is_global {
                 max_ctx
             } else {
-                max_ctx.min(EXTENT + MAX_BATCH_TOKENS)
+                max_ctx.min(EXTENT + EXPERT_PAGE)
             };
             slots.push(SlotStateGpu {
                 kv_cap,
+                is_global,
                 k_cache: DeviceBuf::alloc_zeroed(&ctx, kv_cap * N_KV * HD * 2)?,
                 v_cache: DeviceBuf::alloc_zeroed(&ctx, kv_cap * N_KV * HD * 2)?,
                 hist_k,
@@ -565,7 +623,6 @@ impl Inkling2GpuEngine {
             }
         }
         let d_conv_hist_ptrs = DeviceBuf::from_host_bytes(&ctx, &hist_ptr_bytes)?;
-        let d_taps = DeviceBuf::alloc_zeroed(&ctx, 4 * MAX_BATCH_TOKENS * D * 4)?;
         let d_conv_seq = if spec_k > 0 {
             DeviceBuf::alloc_zeroed(&ctx, N_SLOT * CONV_SEQ_SLOT_FLOATS * 4)?
         } else {
@@ -1067,22 +1124,6 @@ impl Inkling2GpuEngine {
             d_v_conv: DeviceBuf::alloc_zeroed(&ctx, 1024 * 4)?,
             d_attn_out: DeviceBuf::alloc_zeroed(&ctx, 3072 * 4)?,
             attn_split_g,
-            d_attn_part_ml: DeviceBuf::alloc_zeroed(
-                &ctx,
-                if attn_split_g > 0 {
-                    MAX_BATCH_TOKENS * 24 * attn_split_g * 2 * 4
-                } else {
-                    4
-                },
-            )?,
-            d_attn_part_o: DeviceBuf::alloc_zeroed(
-                &ctx,
-                if attn_split_g > 0 {
-                    MAX_BATCH_TOKENS * 24 * attn_split_g * 128 * 4
-                } else {
-                    4
-                },
-            )?,
             d_wo_out: DeviceBuf::alloc_zeroed(&ctx, D * 4)?,
             d_mlp_h: DeviceBuf::alloc_zeroed(&ctx, D * 4)?,
             d_router_logits: DeviceBuf::alloc_zeroed(&ctx, N_EXP * 4)?,
@@ -1095,41 +1136,10 @@ impl Inkling2GpuEngine {
             d_act_sc_64: DeviceBuf::alloc_zeroed(&ctx, 3 * 48 * 4)?,
             d_act_q8_16: DeviceBuf::alloc_zeroed(&ctx, TOP_K * FF)?,
             d_act_sc_16: DeviceBuf::alloc_zeroed(&ctx, TOP_K * (FF / 16) * 4)?,
-            d_b_cur: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * D * 4)?,
-            d_b_prelude_x: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * D * 4)?,
-            d_b_blocks: DeviceBuf::alloc_zeroed(&ctx, 6 * MAX_BATCH_TOKENS * D * 4)?,
-            d_b_prelude_block0: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * D * 4)?,
-            d_b_bank: DeviceBuf::alloc_zeroed(&ctx, 2 * MAX_BATCH_TOKENS * D * 4)?,
-            d_b_msgs: DeviceBuf::alloc_zeroed(
-                &ctx,
-                (48 * MAX_SPEC_TOKENS).max(4 * MAX_BATCH_TOKENS) * D * 4,
-            )?,
-            d_b_inputs: DeviceBuf::alloc_zeroed(&ctx, 3 * MAX_BATCH_TOKENS * D * 4)?,
-            d_b_ctrl_g: DeviceBuf::alloc_zeroed(&ctx, 3 * MAX_BATCH_TOKENS * RANK * 4)?,
-            d_b_qrgs: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * SWA_ALL_ROWS * 4)?,
-            d_b_k_raw: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * 1056 * 4)?,
-            d_b_v_raw: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * 1056 * 4)?,
-            d_b_k_conv: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * 1024 * 4)?,
-            d_b_v_conv: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * 1024 * 4)?,
-            d_b_attn_out: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * 3072 * 4)?,
-            d_b_wo_out: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * D * 4)?,
-            d_b_mlp_h: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * D * 4)?,
-            d_b_router_logits: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * N_EXP * 4)?,
-            d_b_sel_ids: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * TOP_K * 4)?,
-            d_b_sel_wts: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * TOP_K * 4)?,
+            prefill: PrefillBuffers::new(&ctx, EXPERT_PAGE, attn_split_g)?,
             d_b_exp_counts: DeviceBuf::alloc_zeroed(&ctx, N_EXP * 4)?,
-            d_b_exp_toks: DeviceBuf::alloc_zeroed(&ctx, N_EXP * MAX_BATCH_TOKENS * 4)?,
-            d_b_exp_pairs: DeviceBuf::alloc_zeroed(&ctx, N_EXP * MAX_BATCH_TOKENS * 4)?,
-            d_b_moe_act: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * TOP_K * FF * 4)?,
-            d_b_pair_y: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * TOP_K * D * 4)?,
-            d_b_moe_y: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * D * 4)?,
-            d_b_act_q8_64: DeviceBuf::alloc_zeroed(&ctx, 3 * MAX_BATCH_TOKENS * 3072)?,
-            d_b_act_sc_64: DeviceBuf::alloc_zeroed(&ctx, 3 * MAX_BATCH_TOKENS * 48 * 4)?,
-            d_b_act_q8_16: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * TOP_K * FF)?,
-            d_b_act_sc_16: DeviceBuf::alloc_zeroed(&ctx, MAX_BATCH_TOKENS * TOP_K * (FF / 16) * 4)?,
             d_spec_logits: DeviceBuf::alloc_zeroed(&ctx, MAX_SPEC_TOKENS * VOCAB * 4)?,
             d_spec_tokens_out: DeviceBuf::alloc_zeroed(&ctx, MAX_SPEC_TOKENS * 4)?,
-            d_taps,
             d_conv_seq,
             d_conv_hist_ptrs,
             drafter,
@@ -1167,7 +1177,54 @@ impl Inkling2GpuEngine {
         } else {
             0
         };
-        let resident = plan_expert_placement(&expert_views, free.saturating_sub(graph_reserve));
+        let budget = free.saturating_sub(graph_reserve);
+        let resident = plan_expert_placement(&expert_views, budget);
+        let expert_bytes: usize = expert_views
+            .iter()
+            .zip(&resident)
+            .flat_map(|(views, selected)| views.iter().zip(selected))
+            .filter(|(_, selected)| **selected)
+            .map(|(view, _)| view.len())
+            .sum();
+        let limit = match std::env::var("LEANSONIC_PREFILL_CHUNK") {
+            Ok(s) => s
+                .parse::<usize>()
+                .ok()
+                .filter(|n| (EXPERT_PAGE..=MAX_BATCH_TOKENS).contains(n) && n.is_power_of_two())
+                .ok_or("LEANSONIC_PREFILL_CHUNK must be 64, 128, 256, 512 or 1024")?,
+            Err(std::env::VarError::NotPresent) => MAX_BATCH_TOKENS,
+            Err(e) => return Err(e.to_string()),
+        };
+        if eng.fns.build_expert_groups_wide_b.is_some() {
+            let local_slots = eng.slots.iter().filter(|s| !s.is_global).count();
+            let base_ring = max_ctx.min(EXTENT + EXPERT_PAGE);
+            let headroom = budget - expert_bytes;
+            for width in [1024, 512, 256, 128] {
+                if width > limit || width > max_ctx {
+                    continue;
+                }
+                let ring_rows = max_ctx.min(EXTENT + width) - base_ring;
+                let extra = (width - EXPERT_PAGE) * eng.prefill.bytes_per_row
+                    + ring_rows * local_slots * 2 * N_KV * HD * 2;
+                if extra > headroom {
+                    continue;
+                }
+                match eng.resize_prefill(width) {
+                    Ok(()) => {}
+                    Err(e) if e.starts_with("CUDA error 2 in `cuMemAlloc_v2`") => continue,
+                    Err(e) => return Err(e),
+                }
+                // Driver allocation granularity can exceed the requested bytes.
+                // Preserve the compact profile's exact matrix placement.
+                let (now_free, _) = eng.ctx.mem_info()?;
+                if plan_expert_placement(&expert_views, now_free.saturating_sub(graph_reserve))
+                    == resident
+                {
+                    break;
+                }
+                eng.resize_prefill(EXPERT_PAGE)?;
+            }
+        }
         let place = |on_device: bool, bytes: &[u8]| -> Result<TierBuf, String> {
             if on_device {
                 if let Ok(buf) = DeviceBuf::from_host_bytes(&eng.ctx, bytes) {
@@ -1218,7 +1275,7 @@ impl Inkling2GpuEngine {
             "off".to_string()
         };
         eprintln!(
-            "[LeanSonic GPU] {} | VRAM used: {:.2} GiB / {:.2} GiB | Resident expert layers: {}/24 (Spilled: {}) | Mixed VRAM/host layers: {} | Spec: {} | Loaded in {:.2}s",
+            "[LeanSonic GPU] {} | VRAM used: {:.2} GiB / {:.2} GiB | Resident expert layers: {}/24 (Spilled: {}) | Mixed VRAM/host layers: {} | Spec: {} | Prefill chunk: {} | Loaded in {:.2}s",
             eng.ctx.device_name,
             (total_vram - free_after) as f64 / (1024.0 * 1024.0 * 1024.0),
             total_vram as f64 / (1024.0 * 1024.0 * 1024.0),
@@ -1226,9 +1283,34 @@ impl Inkling2GpuEngine {
             eng.spilled_expert_layers,
             mixed_layers,
             drafter_tag,
+            eng.prefill.capacity,
             t_load.elapsed().as_secs_f64()
         );
         Ok(eng)
+    }
+
+    fn resize_prefill(&mut self, capacity: usize) -> Result<(), String> {
+        let buffers = PrefillBuffers::new(&self.ctx, capacity, self.attn_split_g)?;
+        let mut replacements = Vec::new();
+        let cap = self.max_ctx.min(EXTENT + capacity);
+        for (index, slot) in self.slots.iter().enumerate() {
+            // Global slots always retain the full context.
+            if slot.is_global || slot.kv_cap == cap {
+                continue;
+            }
+            let bytes = cap * N_KV * HD * 2;
+            let k = DeviceBuf::alloc_zeroed(&self.ctx, bytes)?;
+            let v = DeviceBuf::alloc_zeroed(&self.ctx, bytes)?;
+            replacements.push((index, k, v));
+        }
+        // No token has run yet. Commit only after every allocation succeeds.
+        self.prefill = buffers;
+        for (i, k, v) in replacements {
+            self.slots[i].kv_cap = cap;
+            self.slots[i].k_cache = k;
+            self.slots[i].v_cache = v;
+        }
+        Ok(())
     }
 
     fn load_module_functions(
@@ -1308,6 +1390,7 @@ impl Inkling2GpuEngine {
             bf16_gemm_router_b: get_fn("ink2_bf16_gemm_router_b")?,
             router_topk8_b: get_fn("ink2_router_topk8_b")?,
             build_expert_groups_b: get_fn("ink2_build_expert_groups_b")?,
+            build_expert_groups_wide_b: get_fn("ink2_build_expert_groups_wide_b").ok(),
             moe_nvfp4_dp4a_grouped_up_situ: get_fn("ink2_moe_nvfp4_dp4a_grouped_up_situ")?,
             moe_nvfp4_dp4a_grouped_down: get_fn("ink2_moe_nvfp4_dp4a_grouped_down")?,
             moe_mxfp8_grouped_up_situ: get_fn("ink2_moe_mxfp8_grouped_up_situ")?,
@@ -1652,8 +1735,8 @@ impl Inkling2GpuEngine {
         let mut ppos = self.d_pos.ptr;
         let mut cap = kv_cap;
         let mut ig = is_global;
-        let mut pml = self.d_attn_part_ml.ptr;
-        let mut po = self.d_attn_part_o.ptr;
+        let mut pml = self.prefill.d_attn_part_ml.ptr;
+        let mut po = self.prefill.d_attn_part_o.ptr;
         let mut split_args: [*mut c_void; 10] = [
             (&mut pqrgs as *mut _) as *mut c_void,
             (&mut qstride as *mut _) as *mut c_void,
@@ -2460,7 +2543,8 @@ impl Inkling2GpuEngine {
 
         if self.drafter.is_some() {
             if let Some(tap_idx) = TAP_SLOTS.iter().position(|&s| s == slot_idx) {
-                let dst = self.d_taps.ptr + (tap_idx * MAX_BATCH_TOKENS * D * 4) as u64;
+                let dst =
+                    self.prefill.d_taps.ptr + (tap_idx * self.prefill.capacity * D * 4) as u64;
                 self.enqueue_copy_d(stream, self.d_cur.ptr, dst)?;
             }
         }
@@ -2599,7 +2683,8 @@ impl Inkling2GpuEngine {
                     let mut ac = 1i32;
                     let mut pq = self.output_query.ptr;
                     let mut pg = self.final_norm.ptr;
-                    let mut p_tap3 = self.d_taps.ptr + (3 * MAX_BATCH_TOKENS * D * 4) as u64;
+                    let mut p_tap3 =
+                        self.prefill.d_taps.ptr + (3 * self.prefill.capacity * D * 4) as u64;
                     let mut dq = 0i32;
                     let mut z_q8: CUdeviceptr = 0;
                     let mut z_sc: CUdeviceptr = 0;
@@ -2638,7 +2723,8 @@ impl Inkling2GpuEngine {
                     self.launch(stream, self.fns.depth_mix, (1, 1), 256, &mut args)?;
                     let mut pin = self.d_mlp_h.ptr;
                     let mut pg = self.final_norm.ptr;
-                    let mut p_tap3 = self.d_taps.ptr + (3 * MAX_BATCH_TOKENS * D * 4) as u64;
+                    let mut p_tap3 =
+                        self.prefill.d_taps.ptr + (3 * self.prefill.capacity * D * 4) as u64;
                     let mut hg = 1i32;
                     let mut rn_args: [*mut c_void; 4] = [
                         (&mut pin as *mut _) as *mut c_void,
@@ -2706,7 +2792,8 @@ impl Inkling2GpuEngine {
             if self.drafter.is_some() {
                 let mut pin = self.d_mlp_h.ptr;
                 let mut pg = self.final_norm.ptr;
-                let mut p_tap3 = self.d_taps.ptr + (3 * MAX_BATCH_TOKENS * D * 4) as u64;
+                let mut p_tap3 =
+                    self.prefill.d_taps.ptr + (3 * self.prefill.capacity * D * 4) as u64;
                 let mut hg = 1i32;
                 let mut rn_args: [*mut c_void; 4] = [
                     (&mut pin as *mut _) as *mut c_void,
@@ -2766,8 +2853,8 @@ impl Inkling2GpuEngine {
         if let Some(ref mut d) = self.drafter {
             d.enqueue_add_ctx(
                 self.ctx.compute_stream,
-                self.d_taps.ptr,
-                MAX_BATCH_TOKENS,
+                self.prefill.d_taps.ptr,
+                self.prefill.capacity,
                 1,
             )?;
         }
@@ -2827,8 +2914,8 @@ impl Inkling2GpuEngine {
                     if let Some(ref mut d) = self.drafter {
                         d.enqueue_add_ctx(
                             self.ctx.compute_stream,
-                            self.d_taps.ptr,
-                            MAX_BATCH_TOKENS,
+                            self.prefill.d_taps.ptr,
+                            self.prefill.capacity,
                             1,
                         )?;
                     }
@@ -2861,7 +2948,11 @@ impl Inkling2GpuEngine {
         let mut next_tok = 0u32;
         while offset < tokens.len() {
             let rem = tokens.len() - offset;
-            let chunk_len = rem.min(MAX_BATCH_TOKENS);
+            let chunk_len = if rem > 1 && rem <= self.prefill.capacity && rem % EXPERT_PAGE == 1 {
+                rem - 1
+            } else {
+                rem.min(self.prefill.capacity)
+            };
             let is_last = offset + chunk_len == tokens.len();
 
             if is_last && chunk_len == 1 {
@@ -2885,8 +2976,8 @@ impl Inkling2GpuEngine {
             if let Some(ref mut d) = self.drafter {
                 d.enqueue_add_ctx(
                     self.ctx.compute_stream,
-                    self.d_taps.ptr,
-                    MAX_BATCH_TOKENS,
+                    self.prefill.d_taps.ptr,
+                    self.prefill.capacity,
                     chunk_len,
                 )?;
             }
@@ -3096,8 +3187,8 @@ impl Inkling2GpuEngine {
             if let Some(ref mut d) = self.drafter {
                 d.enqueue_add_ctx(
                     self.ctx.compute_stream,
-                    self.d_taps.ptr,
-                    MAX_BATCH_TOKENS,
+                    self.prefill.d_taps.ptr,
+                    self.prefill.capacity,
                     keep,
                 )?;
             }
@@ -3160,7 +3251,7 @@ impl Inkling2GpuEngine {
         let mut p_cur = cur_ptr;
         let mut p_msg = msg_ptr;
         let mut p_down = ctrl.down.ptr;
-        let mut p_g = self.d_b_ctrl_g.ptr;
+        let mut p_g = self.prefill.d_b_ctrl_g.ptr;
         let mut args1: [*mut c_void; 5] = [
             (&mut p_cur as *mut _) as *mut c_void,
             (&mut p_msg as *mut _) as *mut c_void,
@@ -3226,8 +3317,8 @@ impl Inkling2GpuEngine {
     ) -> Result<(), String> {
         let mut pin = inp_ptr;
         let mut pg = gamma_ptr;
-        let mut pq = self.d_b_act_q8_64.ptr;
-        let mut ps = self.d_b_act_sc_64.ptr;
+        let mut pq = self.prefill.d_b_act_q8_64.ptr;
+        let mut ps = self.prefill.d_b_act_sc_64.ptr;
         let mut b_i32 = b_len as i32;
         let mut args: [*mut c_void; 5] = [
             (&mut pin as *mut _) as *mut c_void,
@@ -3253,8 +3344,8 @@ impl Inkling2GpuEngine {
         b_len: usize,
     ) -> Result<(), String> {
         let mut px = x_ptr;
-        let mut pq = self.d_b_act_q8_64.ptr;
-        let mut ps = self.d_b_act_sc_64.ptr;
+        let mut pq = self.prefill.d_b_act_q8_64.ptr;
+        let mut ps = self.prefill.d_b_act_sc_64.ptr;
         let mut c = cols as i32;
         let mut args: [*mut c_void; 4] = [
             (&mut px as *mut _) as *mut c_void,
@@ -3281,8 +3372,8 @@ impl Inkling2GpuEngine {
         self.enqueue_quant_q8_groups(
             stream,
             x_ptr,
-            self.d_b_act_q8_16.ptr,
-            self.d_b_act_sc_16.ptr,
+            self.prefill.d_b_act_q8_16.ptr,
+            self.prefill.d_b_act_sc_16.ptr,
             n_vecs,
             cols,
         )
@@ -3308,8 +3399,8 @@ impl Inkling2GpuEngine {
         );
         let mut pw = w.codes.ptr + (row_offset * cols) as u64;
         let mut pws = w.scales64.ptr + (row_offset * (cols / 64) * 4) as u64;
-        let mut px = self.d_b_act_q8_64.ptr + (act_slot * b_len * cols) as u64;
-        let mut pxs = self.d_b_act_sc_64.ptr + (act_slot * b_len * (cols / 64) * 4) as u64;
+        let mut px = self.prefill.d_b_act_q8_64.ptr + (act_slot * b_len * cols) as u64;
+        let mut pxs = self.prefill.d_b_act_sc_64.ptr + (act_slot * b_len * (cols / 64) * 4) as u64;
         let mut py = y_ptr;
         let mut r = rows;
         let mut c = w.cols;
@@ -3370,17 +3461,17 @@ impl Inkling2GpuEngine {
             if let Some(ref aq) = l.attn_query {
                 let n_q: u32 = if l.global { 3 } else { 1 };
                 if let Some(f_fused) = self.fns.depth_mix_rmsnorm_quant_q8_64_b {
-                    let mut pb = self.d_b_blocks.ptr;
+                    let mut pb = self.prefill.d_b_blocks.ptr;
                     let mut nb = *n_blocks as i32;
                     let mut sb = b_i32;
                     let mut bo = 0i32;
                     let mut bout = b_i32;
-                    let mut pc = self.d_b_cur.ptr;
+                    let mut pc = self.prefill.d_b_cur.ptr;
                     let mut ac = 1i32;
                     let mut pq = aq.ptr;
                     let mut pg = l.norms_packed.ptr;
-                    let mut pq8 = self.d_b_act_q8_64.ptr;
-                    let mut psc = self.d_b_act_sc_64.ptr;
+                    let mut pq8 = self.prefill.d_b_act_q8_64.ptr;
+                    let mut psc = self.prefill.d_b_act_sc_64.ptr;
                     let mut args: [*mut c_void; 11] = [
                         (&mut pb as *mut _) as *mut c_void,
                         (&mut nb as *mut _) as *mut c_void,
@@ -3396,15 +3487,15 @@ impl Inkling2GpuEngine {
                     ];
                     self.launch(stream, f_fused, (n_q, b_u32), 256, &mut args)?;
                 } else {
-                    let mut pb = self.d_b_blocks.ptr;
+                    let mut pb = self.prefill.d_b_blocks.ptr;
                     let mut nb = *n_blocks as i32;
                     let mut sb = b_i32;
                     let mut bo = 0i32;
                     let mut bout = b_i32;
-                    let mut pc = self.d_b_cur.ptr;
+                    let mut pc = self.prefill.d_b_cur.ptr;
                     let mut ac = 1i32;
                     let mut pq = aq.ptr;
-                    let mut pout = self.d_b_inputs.ptr;
+                    let mut pout = self.prefill.d_b_inputs.ptr;
                     let mut b3 = 0i32;
                     let mut args: [*mut c_void; 10] = [
                         (&mut pb as *mut _) as *mut c_void,
@@ -3421,7 +3512,7 @@ impl Inkling2GpuEngine {
                     self.launch(stream, self.fns.depth_mix_b, (n_q, b_u32), 256, &mut args)?;
                     self.enqueue_rmsnorm_quant_q8_64_b(
                         stream,
-                        self.d_b_inputs.ptr,
+                        self.prefill.d_b_inputs.ptr,
                         l.norms_packed.ptr,
                         norm_count,
                         b_len,
@@ -3432,7 +3523,7 @@ impl Inkling2GpuEngine {
                 debug_assert!(!distinct_k_v);
                 self.enqueue_rmsnorm_quant_q8_64_b(
                     stream,
-                    self.d_b_cur.ptr,
+                    self.prefill.d_b_cur.ptr,
                     l.norms_packed.ptr,
                     1,
                     b_len,
@@ -3441,15 +3532,15 @@ impl Inkling2GpuEngine {
         } else {
             let aq = l.attn_query.as_ref().unwrap();
             let n_q: u32 = if l.global { 3 } else { 1 };
-            let mut pb = self.d_b_blocks.ptr;
+            let mut pb = self.prefill.d_b_blocks.ptr;
             let mut nb = *n_blocks as i32;
             let mut sb = b_i32;
             let mut bo = 0i32;
             let mut bout = b_i32;
-            let mut pc = self.d_b_cur.ptr;
+            let mut pc = self.prefill.d_b_cur.ptr;
             let mut ac = 1i32;
             let mut pq = aq.ptr;
-            let mut pout = self.d_b_inputs.ptr;
+            let mut pout = self.prefill.d_b_inputs.ptr;
             let mut b3 = i32::from(!l.global);
             let mut args: [*mut c_void; 10] = [
                 (&mut pb as *mut _) as *mut c_void,
@@ -3466,7 +3557,7 @@ impl Inkling2GpuEngine {
             self.launch(stream, self.fns.depth_mix_b, (n_q, b_u32), 256, &mut args)?;
             self.enqueue_ctrl_n_b(
                 stream,
-                self.d_b_inputs.ptr,
+                self.prefill.d_b_inputs.ptr,
                 msg_base_ptr,
                 l.ctrl3.as_ref().unwrap(),
                 3,
@@ -3474,7 +3565,7 @@ impl Inkling2GpuEngine {
             )?;
             self.enqueue_rmsnorm_quant_q8_64_b(
                 stream,
-                self.d_b_inputs.ptr,
+                self.prefill.d_b_inputs.ptr,
                 l.norms_packed.ptr,
                 norm_count,
                 b_len,
@@ -3494,13 +3585,13 @@ impl Inkling2GpuEngine {
                 SWA_ALL_ROWS as i32,
                 0,
                 b_len,
-                self.d_b_qrgs.ptr,
+                self.prefill.d_b_qrgs.ptr,
                 SWA_ALL_ROWS as i32,
                 0.0,
             )?;
-            k_raw_ptr = self.d_b_qrgs.ptr + (SWA_K_OFFSET as u64) * 4;
+            k_raw_ptr = self.prefill.d_b_qrgs.ptr + (SWA_K_OFFSET as u64) * 4;
             k_in_stride = SWA_ALL_ROWS as i32;
-            v_raw_ptr = self.d_b_qrgs.ptr + (SWA_V_OFFSET as u64) * 4;
+            v_raw_ptr = self.prefill.d_b_qrgs.ptr + (SWA_V_OFFSET as u64) * 4;
             v_in_stride = SWA_ALL_ROWS as i32;
         } else if l.global {
             self.enqueue_q8_gemm_slice_at(
@@ -3510,7 +3601,7 @@ impl Inkling2GpuEngine {
                 QRGS_ROWS as i32,
                 0,
                 b_len,
-                self.d_b_qrgs.ptr,
+                self.prefill.d_b_qrgs.ptr,
                 SWA_ALL_ROWS as i32,
                 0.0,
             )?;
@@ -3521,7 +3612,7 @@ impl Inkling2GpuEngine {
                 1056,
                 1,
                 b_len,
-                self.d_b_k_raw.ptr,
+                self.prefill.d_b_k_raw.ptr,
                 1056,
                 0.0,
             )?;
@@ -3532,13 +3623,13 @@ impl Inkling2GpuEngine {
                 1056,
                 2,
                 b_len,
-                self.d_b_v_raw.ptr,
+                self.prefill.d_b_v_raw.ptr,
                 1056,
                 0.0,
             )?;
-            k_raw_ptr = self.d_b_k_raw.ptr;
+            k_raw_ptr = self.prefill.d_b_k_raw.ptr;
             k_in_stride = 1056;
-            v_raw_ptr = self.d_b_v_raw.ptr;
+            v_raw_ptr = self.prefill.d_b_v_raw.ptr;
             v_in_stride = 1056;
         } else {
             self.enqueue_q8_gemm_slice_at(
@@ -3548,7 +3639,7 @@ impl Inkling2GpuEngine {
                 QRGS_ROWS as i32,
                 0,
                 b_len,
-                self.d_b_qrgs.ptr,
+                self.prefill.d_b_qrgs.ptr,
                 SWA_ALL_ROWS as i32,
                 0.0,
             )?;
@@ -3559,7 +3650,7 @@ impl Inkling2GpuEngine {
                 1024,
                 1,
                 b_len,
-                self.d_b_k_raw.ptr,
+                self.prefill.d_b_k_raw.ptr,
                 1024,
                 0.0,
             )?;
@@ -3570,13 +3661,13 @@ impl Inkling2GpuEngine {
                 1024,
                 2,
                 b_len,
-                self.d_b_v_raw.ptr,
+                self.prefill.d_b_v_raw.ptr,
                 1024,
                 0.0,
             )?;
-            k_raw_ptr = self.d_b_k_raw.ptr;
+            k_raw_ptr = self.prefill.d_b_k_raw.ptr;
             k_in_stride = 1024;
-            v_raw_ptr = self.d_b_v_raw.ptr;
+            v_raw_ptr = self.prefill.d_b_v_raw.ptr;
             v_in_stride = 1024;
         }
 
@@ -3587,7 +3678,7 @@ impl Inkling2GpuEngine {
                 k_in_stride,
                 l.k_conv4.ptr,
                 st.hist_k,
-                self.d_b_k_conv.ptr,
+                self.prefill.d_b_k_conv.ptr,
                 0usize,
             ),
             (
@@ -3595,7 +3686,7 @@ impl Inkling2GpuEngine {
                 v_in_stride,
                 l.v_conv4.ptr,
                 st.hist_v,
-                self.d_b_v_conv.ptr,
+                self.prefill.d_b_v_conv.ptr,
                 1024 * CONV_SEQ_STEPS,
             ),
         ] {
@@ -3640,10 +3731,10 @@ impl Inkling2GpuEngine {
 
         // 5. Batched Q/R/K Clip + V RMSNorm + KV Cache Write (Ring-Hazard-Free via `1088 >= 1024 + 64`!)
         {
-            let mut pqrgs = self.d_b_qrgs.ptr;
+            let mut pqrgs = self.prefill.d_b_qrgs.ptr;
             let mut qstride = SWA_ALL_ROWS as i32;
-            let mut pk = self.d_b_k_conv.ptr;
-            let mut pv = self.d_b_v_conv.ptr;
+            let mut pk = self.prefill.d_b_k_conv.ptr;
+            let mut pv = self.prefill.d_b_v_conv.ptr;
             let mut pqc = l.q_clip.ptr;
             let mut prc = l.rel_clip.ptr;
             let mut pkc = st.k_cache.ptr;
@@ -3676,7 +3767,7 @@ impl Inkling2GpuEngine {
         // 6. Batched GQA Relative-Bias + Sink Attention + In-Register `Q8_64` Epilogue!
         if self.attn_split_g == 0 {
             if let Some(f_attn_q8) = self.fns.gqa_rel_sink_attn_q8_b {
-                let mut pqrgs = self.d_b_qrgs.ptr;
+                let mut pqrgs = self.prefill.d_b_qrgs.ptr;
                 let mut qstride = SWA_ALL_ROWS as i32;
                 let mut prp = l.rel_proj.ptr;
                 let mut pkc = st.k_cache.ptr;
@@ -3684,8 +3775,8 @@ impl Inkling2GpuEngine {
                 let mut ppos = self.d_pos.ptr;
                 let mut cap = st.kv_cap as i32;
                 let mut ig = i32::from(l.global);
-                let mut pq8 = self.d_b_act_q8_64.ptr;
-                let mut psc = self.d_b_act_sc_64.ptr;
+                let mut pq8 = self.prefill.d_b_act_q8_64.ptr;
+                let mut psc = self.prefill.d_b_act_sc_64.ptr;
                 let mut args: [*mut c_void; 10] = [
                     (&mut pqrgs as *mut _) as *mut c_void,
                     (&mut qstride as *mut _) as *mut c_void,
@@ -3700,7 +3791,7 @@ impl Inkling2GpuEngine {
                 ];
                 self.launch(stream, f_attn_q8, (24, b_u32), 256, &mut args)?;
             } else {
-                let mut pqrgs = self.d_b_qrgs.ptr;
+                let mut pqrgs = self.prefill.d_b_qrgs.ptr;
                 let mut qstride = SWA_ALL_ROWS as i32;
                 let mut prp = l.rel_proj.ptr;
                 let mut pkc = st.k_cache.ptr;
@@ -3708,7 +3799,7 @@ impl Inkling2GpuEngine {
                 let mut ppos = self.d_pos.ptr;
                 let mut cap = st.kv_cap as i32;
                 let mut ig = i32::from(l.global);
-                let mut pout = self.d_b_attn_out.ptr;
+                let mut pout = self.prefill.d_b_attn_out.ptr;
                 let mut args: [*mut c_void; 9] = [
                     (&mut pqrgs as *mut _) as *mut c_void,
                     (&mut qstride as *mut _) as *mut c_void,
@@ -3727,21 +3818,21 @@ impl Inkling2GpuEngine {
                     256,
                     &mut args,
                 )?;
-                self.enqueue_quant_q8_64_b(stream, self.d_b_attn_out.ptr, 3072, b_len)?;
+                self.enqueue_quant_q8_64_b(stream, self.prefill.d_b_attn_out.ptr, 3072, b_len)?;
             }
         } else {
             self.enqueue_gqa_attn_split_impl(
                 stream,
-                self.d_b_qrgs.ptr,
+                self.prefill.d_b_qrgs.ptr,
                 SWA_ALL_ROWS as i32,
                 l.rel_proj.ptr,
                 st.k_cache.ptr,
                 st.v_cache.ptr,
                 st.kv_cap as i32,
                 i32::from(l.global),
-                self.d_b_attn_out.ptr,
-                self.d_b_act_q8_64.ptr,
-                self.d_b_act_sc_64.ptr,
+                self.prefill.d_b_attn_out.ptr,
+                self.prefill.d_b_act_q8_64.ptr,
+                self.prefill.d_b_act_sc_64.ptr,
                 b_len,
             )?;
         }
@@ -3754,29 +3845,33 @@ impl Inkling2GpuEngine {
             D as i32,
             0,
             b_len,
-            self.d_b_wo_out.ptr,
+            self.prefill.d_b_wo_out.ptr,
             D as i32,
             0.0,
         )?;
 
         let is_block_start = il.is_multiple_of(6);
         let save_blk_ptr = if is_block_start {
-            let blk_dst = self.d_b_blocks.ptr + (*n_blocks as u64) * bd_bytes;
+            let blk_dst = self.prefill.d_b_blocks.ptr + (*n_blocks as u64) * bd_bytes;
             *n_blocks += 1;
             blk_dst
         } else {
             0
         };
         if let Some(f_sc_save_b) = self.fns.short_conv4_save_b {
-            let mut p_cur = self.d_b_wo_out.ptr;
+            let mut p_cur = self.prefill.d_b_wo_out.ptr;
             let mut ins = D as i32;
             let mut p_w = l.attn_conv4.ptr;
             let mut p_dyn: CUdeviceptr = 0;
             let mut df4 = 0i32;
             let mut p_hist = st.hist_attn;
-            let mut p_out = self.d_b_cur.ptr;
+            let mut p_out = self.prefill.d_b_cur.ptr;
             let mut outs = D as i32;
-            let mut p_res = if is_block_start { 0 } else { self.d_b_cur.ptr };
+            let mut p_res = if is_block_start {
+                0
+            } else {
+                self.prefill.d_b_cur.ptr
+            };
             let mut ress = D as i32;
             let mut p_save = save_blk_ptr;
             let mut p_seq = if record_seq {
@@ -3809,17 +3904,21 @@ impl Inkling2GpuEngine {
             self.launch(stream, f_sc_save_b, (9, 1), 256, &mut args)?;
         } else {
             if save_blk_ptr != 0 {
-                self.enqueue_copy_n(stream, self.d_b_cur.ptr, save_blk_ptr, bd_floats)?;
+                self.enqueue_copy_n(stream, self.prefill.d_b_cur.ptr, save_blk_ptr, bd_floats)?;
             }
-            let mut p_cur = self.d_b_wo_out.ptr;
+            let mut p_cur = self.prefill.d_b_wo_out.ptr;
             let mut ins = D as i32;
             let mut p_w = l.attn_conv4.ptr;
             let mut p_dyn: CUdeviceptr = 0;
             let mut df4 = 0i32;
             let mut p_hist = st.hist_attn;
-            let mut p_out = self.d_b_cur.ptr;
+            let mut p_out = self.prefill.d_b_cur.ptr;
             let mut outs = D as i32;
-            let mut p_res = if is_block_start { 0 } else { self.d_b_cur.ptr };
+            let mut p_res = if is_block_start {
+                0
+            } else {
+                self.prefill.d_b_cur.ptr
+            };
             let mut ress = D as i32;
             let mut p_seq = if record_seq {
                 slot_seq_base + (2048 * CONV_SEQ_STEPS * 4) as u64
@@ -3856,18 +3955,18 @@ impl Inkling2GpuEngine {
         let mut mlp_q8_16_ready = false;
         if !has_msgs {
             if let Some(f_mlp_fused) = self.fns.depth_mix_rmsnorm_d_quant_q8_16_b {
-                let mut pb = self.d_b_blocks.ptr;
+                let mut pb = self.prefill.d_b_blocks.ptr;
                 let mut nb = *n_blocks as i32;
                 let mut sb = b_i32;
                 let mut bo = 0i32;
-                let mut pc = self.d_b_cur.ptr;
+                let mut pc = self.prefill.d_b_cur.ptr;
                 let mut ac = 1i32;
                 let mut pq = l.mlp_query.ptr;
                 let mut pg = l.mlp_norm.ptr;
-                let mut pout = self.d_b_mlp_h.ptr;
+                let mut pout = self.prefill.d_b_mlp_h.ptr;
                 let mut dq = i32::from(wants_mlp_q8_16);
-                let mut pq8 = self.d_b_act_q8_16.ptr;
-                let mut psc = self.d_b_act_sc_16.ptr;
+                let mut pq8 = self.prefill.d_b_act_q8_16.ptr;
+                let mut psc = self.prefill.d_b_act_sc_16.ptr;
                 let mut args: [*mut c_void; 12] = [
                     (&mut pb as *mut _) as *mut c_void,
                     (&mut nb as *mut _) as *mut c_void,
@@ -3888,15 +3987,15 @@ impl Inkling2GpuEngine {
             }
         }
         if !mlp_h_ready {
-            let mut pb = self.d_b_blocks.ptr;
+            let mut pb = self.prefill.d_b_blocks.ptr;
             let mut nb = *n_blocks as i32;
             let mut sb = b_i32;
             let mut bo = 0i32;
             let mut bout = b_i32;
-            let mut pc = self.d_b_cur.ptr;
+            let mut pc = self.prefill.d_b_cur.ptr;
             let mut ac = 1i32;
             let mut pq = l.mlp_query.ptr;
-            let mut pout = self.d_b_mlp_h.ptr;
+            let mut pout = self.prefill.d_b_mlp_h.ptr;
             let mut b3 = 0i32;
             let mut args: [*mut c_void; 10] = [
                 (&mut pb as *mut _) as *mut c_void,
@@ -3914,7 +4013,7 @@ impl Inkling2GpuEngine {
             if has_msgs {
                 self.enqueue_ctrl_n_b(
                     stream,
-                    self.d_b_mlp_h.ptr,
+                    self.prefill.d_b_mlp_h.ptr,
                     msg_base_ptr + 3 * bd_bytes,
                     l.ctrl_mlp.as_ref().unwrap(),
                     1,
@@ -3923,11 +4022,11 @@ impl Inkling2GpuEngine {
             }
             if wants_mlp_q8_16 {
                 if let Some(f_rn_q8) = self.fns.rmsnorm_d_quant_q8_16_b {
-                    let mut pin = self.d_b_mlp_h.ptr;
+                    let mut pin = self.prefill.d_b_mlp_h.ptr;
                     let mut pg = l.mlp_norm.ptr;
-                    let mut pout = self.d_b_mlp_h.ptr;
-                    let mut pq8 = self.d_b_act_q8_16.ptr;
-                    let mut psc = self.d_b_act_sc_16.ptr;
+                    let mut pout = self.prefill.d_b_mlp_h.ptr;
+                    let mut pq8 = self.prefill.d_b_act_q8_16.ptr;
+                    let mut psc = self.prefill.d_b_act_sc_16.ptr;
                     let mut args: [*mut c_void; 5] = [
                         (&mut pin as *mut _) as *mut c_void,
                         (&mut pg as *mut _) as *mut c_void,
@@ -3940,9 +4039,9 @@ impl Inkling2GpuEngine {
                 }
             }
             if !mlp_q8_16_ready {
-                let mut pin = self.d_b_mlp_h.ptr;
+                let mut pin = self.prefill.d_b_mlp_h.ptr;
                 let mut pg = l.mlp_norm.ptr;
-                let mut pout = self.d_b_mlp_h.ptr;
+                let mut pout = self.prefill.d_b_mlp_h.ptr;
                 let mut hg = 1i32;
                 let mut args: [*mut c_void; 4] = [
                     (&mut pin as *mut _) as *mut c_void,
@@ -3957,8 +4056,8 @@ impl Inkling2GpuEngine {
         // 9. Batched BF16 Router + TopK8 + Zero-Atomic Grouped-Expert MoE + Combine!
         {
             let mut pw = l.router_w.ptr;
-            let mut px = self.d_b_mlp_h.ptr;
-            let mut py = self.d_b_router_logits.ptr;
+            let mut px = self.prefill.d_b_mlp_h.ptr;
+            let mut py = self.prefill.d_b_router_logits.ptr;
             let mut bi = b_i32;
             let mut args: [*mut c_void; 4] = [
                 (&mut pw as *mut _) as *mut c_void,
@@ -3975,10 +4074,10 @@ impl Inkling2GpuEngine {
             )?;
         }
         {
-            let mut pl = self.d_b_router_logits.ptr;
+            let mut pl = self.prefill.d_b_router_logits.ptr;
             let mut pb = l.router_bias.ptr;
-            let mut pids = self.d_b_sel_ids.ptr;
-            let mut pwts = self.d_b_sel_wts.ptr;
+            let mut pids = self.prefill.d_b_sel_ids.ptr;
+            let mut pwts = self.prefill.d_b_sel_wts.ptr;
             let mut args: [*mut c_void; 4] = [
                 (&mut pl as *mut _) as *mut c_void,
                 (&mut pb as *mut _) as *mut c_void,
@@ -3988,10 +4087,10 @@ impl Inkling2GpuEngine {
             self.launch(stream, self.fns.router_topk8_b, (b_u32, 1), 32, &mut args)?;
         }
         {
-            let mut pids = self.d_b_sel_ids.ptr;
+            let mut pids = self.prefill.d_b_sel_ids.ptr;
             let mut pcnt = self.d_b_exp_counts.ptr;
-            let mut ptok = self.d_b_exp_toks.ptr;
-            let mut ppair = self.d_b_exp_pairs.ptr;
+            let mut ptok = self.prefill.d_b_exp_toks.ptr;
+            let mut ppair = self.prefill.d_b_exp_pairs.ptr;
             let mut bi = b_i32;
             let mut args: [*mut c_void; 5] = [
                 (&mut pids as *mut _) as *mut c_void,
@@ -4000,30 +4099,34 @@ impl Inkling2GpuEngine {
                 (&mut ppair as *mut _) as *mut c_void,
                 (&mut bi as *mut _) as *mut c_void,
             ];
-            self.launch(
-                stream,
-                self.fns.build_expert_groups_b,
-                (1, 1),
-                128,
-                &mut args,
-            )?;
+            let (kernel, grid_x) = if b_len > EXPERT_PAGE {
+                (
+                    self.fns
+                        .build_expert_groups_wide_b
+                        .ok_or("wide expert grouping unavailable")?,
+                    N_EXP as u32 / 4,
+                )
+            } else {
+                (self.fns.build_expert_groups_b, 1)
+            };
+            self.launch(stream, kernel, (grid_x, 1), 128, &mut args)?;
         }
 
         let [w13, w2] = &self.expert_weights[il];
         match &l.expert_scales {
             ExpertScales::Nvfp4 { s13, a13, s2, a2 } => {
                 if !mlp_q8_16_ready {
-                    self.enqueue_quant_q8_16_b(stream, self.d_b_mlp_h.ptr, b_len, D)?;
+                    self.enqueue_quant_q8_16_b(stream, self.prefill.d_b_mlp_h.ptr, b_len, D)?;
                 }
                 let mut pw13 = w13.ptr();
                 let mut ps13 = s13.ptr;
                 let mut pa13 = a13.ptr;
-                let mut pxq = self.d_b_act_q8_16.ptr;
-                let mut pxs = self.d_b_act_sc_16.ptr;
+                let mut pxq = self.prefill.d_b_act_q8_16.ptr;
+                let mut pxs = self.prefill.d_b_act_sc_16.ptr;
                 let mut pcnt = self.d_b_exp_counts.ptr;
-                let mut ptok = self.d_b_exp_toks.ptr;
-                let mut ppair = self.d_b_exp_pairs.ptr;
-                let mut pact = self.d_b_moe_act.ptr;
+                let mut ptok = self.prefill.d_b_exp_toks.ptr;
+                let mut ppair = self.prefill.d_b_exp_pairs.ptr;
+                let mut pact = self.prefill.d_b_moe_act.ptr;
                 let mut up_args: [*mut c_void; 9] = [
                     (&mut pw13 as *mut _) as *mut c_void,
                     (&mut ps13 as *mut _) as *mut c_void,
@@ -4043,11 +4146,16 @@ impl Inkling2GpuEngine {
                     &mut up_args,
                 )?;
 
-                self.enqueue_quant_q8_16_b(stream, self.d_b_moe_act.ptr, b_len * TOP_K, FF)?;
+                self.enqueue_quant_q8_16_b(
+                    stream,
+                    self.prefill.d_b_moe_act.ptr,
+                    b_len * TOP_K,
+                    FF,
+                )?;
                 let mut pw2 = w2.ptr();
                 let mut ps2 = s2.ptr;
                 let mut pa2 = a2.ptr;
-                let mut ppy = self.d_b_pair_y.ptr;
+                let mut ppy = self.prefill.d_b_pair_y.ptr;
                 let mut dn_args: [*mut c_void; 8] = [
                     (&mut pw2 as *mut _) as *mut c_void,
                     (&mut ps2 as *mut _) as *mut c_void,
@@ -4069,11 +4177,11 @@ impl Inkling2GpuEngine {
             ExpertScales::Mxfp8 { s13, s2 } => {
                 let mut pw13 = w13.ptr();
                 let mut ps13 = s13.ptr;
-                let mut px = self.d_b_mlp_h.ptr;
+                let mut px = self.prefill.d_b_mlp_h.ptr;
                 let mut pcnt = self.d_b_exp_counts.ptr;
-                let mut ptok = self.d_b_exp_toks.ptr;
-                let mut ppair = self.d_b_exp_pairs.ptr;
-                let mut pact = self.d_b_moe_act.ptr;
+                let mut ptok = self.prefill.d_b_exp_toks.ptr;
+                let mut ppair = self.prefill.d_b_exp_pairs.ptr;
+                let mut pact = self.prefill.d_b_moe_act.ptr;
                 let mut up_args: [*mut c_void; 7] = [
                     (&mut pw13 as *mut _) as *mut c_void,
                     (&mut ps13 as *mut _) as *mut c_void,
@@ -4093,7 +4201,7 @@ impl Inkling2GpuEngine {
 
                 let mut pw2 = w2.ptr();
                 let mut ps2 = s2.ptr;
-                let mut ppy = self.d_b_pair_y.ptr;
+                let mut ppy = self.prefill.d_b_pair_y.ptr;
                 let mut dn_args: [*mut c_void; 6] = [
                     (&mut pw2 as *mut _) as *mut c_void,
                     (&mut ps2 as *mut _) as *mut c_void,
@@ -4113,9 +4221,9 @@ impl Inkling2GpuEngine {
         }
 
         {
-            let mut ppy = self.d_b_pair_y.ptr;
-            let mut pwts = self.d_b_sel_wts.ptr;
-            let mut pout = self.d_b_moe_y.ptr;
+            let mut ppy = self.prefill.d_b_pair_y.ptr;
+            let mut pwts = self.prefill.d_b_sel_wts.ptr;
+            let mut pout = self.prefill.d_b_moe_y.ptr;
             let mut bi = b_i32;
             let mut args: [*mut c_void; 4] = [
                 (&mut ppy as *mut _) as *mut c_void,
@@ -4134,15 +4242,15 @@ impl Inkling2GpuEngine {
 
         // 10. `mlp_sconv` + Residual Add into `d_b_cur`
         {
-            let mut p_cur = self.d_b_moe_y.ptr;
+            let mut p_cur = self.prefill.d_b_moe_y.ptr;
             let mut ins = D as i32;
             let mut p_w = l.mlp_conv4.ptr;
             let mut p_dyn: CUdeviceptr = 0;
             let mut df4 = 0i32;
             let mut p_hist = st.hist_mlp;
-            let mut p_out = self.d_b_cur.ptr;
+            let mut p_out = self.prefill.d_b_cur.ptr;
             let mut outs = D as i32;
-            let mut p_res = self.d_b_cur.ptr;
+            let mut p_res = self.prefill.d_b_cur.ptr;
             let mut ress = D as i32;
             let mut p_seq = if record_seq {
                 slot_seq_base + (4352 * CONV_SEQ_STEPS * 4) as u64
@@ -4175,8 +4283,9 @@ impl Inkling2GpuEngine {
 
         if self.drafter.is_some() {
             if let Some(tap_idx) = TAP_SLOTS.iter().position(|&s| s == slot_idx) {
-                let dst = self.d_taps.ptr + (tap_idx * MAX_BATCH_TOKENS * D * 4) as u64;
-                self.enqueue_copy_n(stream, self.d_b_cur.ptr, dst, bd_floats)?;
+                let dst =
+                    self.prefill.d_taps.ptr + (tap_idx * self.prefill.capacity * D * 4) as u64;
+                self.enqueue_copy_n(stream, self.prefill.d_b_cur.ptr, dst, bd_floats)?;
             }
         }
 
@@ -4201,7 +4310,7 @@ impl Inkling2GpuEngine {
             let mut pe = self.embed.ptr();
             let mut pn = self.embed_norm.ptr;
             let mut pt = tokens_dev_ptr;
-            let mut px = self.d_b_cur.ptr;
+            let mut px = self.prefill.d_b_cur.ptr;
             let mut args: [*mut c_void; 4] = [
                 (&mut pe as *mut _) as *mut c_void,
                 (&mut pn as *mut _) as *mut c_void,
@@ -4217,11 +4326,11 @@ impl Inkling2GpuEngine {
         }
         debug_assert_eq!(n_blocks, 1);
         if let Some(f_setup) = self.fns.loop_pass_setup_b {
-            let mut p_cur = self.d_b_cur.ptr;
-            let mut p_blk = self.d_b_blocks.ptr;
-            let mut p_px = self.d_b_prelude_x.ptr;
-            let mut p_pb0 = self.d_b_prelude_block0.ptr;
-            let mut p_bank = self.d_b_bank.ptr;
+            let mut p_cur = self.prefill.d_b_cur.ptr;
+            let mut p_blk = self.prefill.d_b_blocks.ptr;
+            let mut p_px = self.prefill.d_b_prelude_x.ptr;
+            let mut p_pb0 = self.prefill.d_b_prelude_block0.ptr;
+            let mut p_bank = self.prefill.d_b_bank.ptr;
             let mut bi = b_i32;
             let mut mode = 0i32;
             let mut args: [*mut c_void; 7] = [
@@ -4235,11 +4344,16 @@ impl Inkling2GpuEngine {
             ];
             self.launch(stream, f_setup, (9, b_u32), 256, &mut args)?;
         } else {
-            self.enqueue_copy_n(stream, self.d_b_cur.ptr, self.d_b_prelude_x.ptr, bd_floats)?;
             self.enqueue_copy_n(
                 stream,
-                self.d_b_blocks.ptr,
-                self.d_b_prelude_block0.ptr,
+                self.prefill.d_b_cur.ptr,
+                self.prefill.d_b_prelude_x.ptr,
+                bd_floats,
+            )?;
+            self.enqueue_copy_n(
+                stream,
+                self.prefill.d_b_blocks.ptr,
+                self.prefill.d_b_prelude_block0.ptr,
                 bd_floats,
             )?;
         }
@@ -4248,11 +4362,11 @@ impl Inkling2GpuEngine {
         for pass in 0..3 {
             if pass > 0 {
                 if let Some(f_setup) = self.fns.loop_pass_setup_b {
-                    let mut p_cur = self.d_b_cur.ptr;
-                    let mut p_blk = self.d_b_blocks.ptr;
-                    let mut p_px = self.d_b_prelude_x.ptr;
-                    let mut p_pb0 = self.d_b_prelude_block0.ptr;
-                    let mut p_bank = self.d_b_bank.ptr;
+                    let mut p_cur = self.prefill.d_b_cur.ptr;
+                    let mut p_blk = self.prefill.d_b_blocks.ptr;
+                    let mut p_px = self.prefill.d_b_prelude_x.ptr;
+                    let mut p_pb0 = self.prefill.d_b_prelude_block0.ptr;
+                    let mut p_bank = self.prefill.d_b_bank.ptr;
                     let mut bi = b_i32;
                     let mut mode = 1i32;
                     let mut args: [*mut c_void; 7] = [
@@ -4268,32 +4382,32 @@ impl Inkling2GpuEngine {
                 } else {
                     self.enqueue_copy_n(
                         stream,
-                        self.d_b_blocks.ptr + 2 * bd_bytes,
-                        self.d_b_bank.ptr,
+                        self.prefill.d_b_blocks.ptr + 2 * bd_bytes,
+                        self.prefill.d_b_bank.ptr,
                         bd_floats,
                     )?;
                     self.enqueue_copy_n(
                         stream,
-                        self.d_b_cur.ptr,
-                        self.d_b_bank.ptr + bd_bytes,
+                        self.prefill.d_b_cur.ptr,
+                        self.prefill.d_b_bank.ptr + bd_bytes,
                         bd_floats,
                     )?;
                     self.enqueue_copy_n(
                         stream,
-                        self.d_b_prelude_x.ptr,
-                        self.d_b_cur.ptr,
+                        self.prefill.d_b_prelude_x.ptr,
+                        self.prefill.d_b_cur.ptr,
                         bd_floats,
                     )?;
                     self.enqueue_copy_n(
                         stream,
-                        self.d_b_prelude_block0.ptr,
-                        self.d_b_blocks.ptr,
+                        self.prefill.d_b_prelude_block0.ptr,
+                        self.prefill.d_b_blocks.ptr,
                         bd_floats,
                     )?;
                 }
                 n_blocks = 1;
                 if precompute_all_msgs {
-                    let mut pb = self.d_b_bank.ptr;
+                    let mut pb = self.prefill.d_b_bank.ptr;
                     let mut nb = 2i32;
                     let mut sb = b_i32;
                     let mut bo = 0i32;
@@ -4301,7 +4415,7 @@ impl Inkling2GpuEngine {
                     let mut pc: CUdeviceptr = 0;
                     let mut ac = 0i32;
                     let mut pq = self.d_all_msg_queries.ptr;
-                    let mut pout = self.d_b_msgs.ptr;
+                    let mut pout = self.prefill.d_b_msgs.ptr;
                     let mut b3 = 0i32;
                     let mut args: [*mut c_void; 10] = [
                         (&mut pb as *mut _) as *mut c_void,
@@ -4327,10 +4441,10 @@ impl Inkling2GpuEngine {
                 let msg_ptr = if pass == 0 {
                     0
                 } else if precompute_all_msgs {
-                    self.d_b_msgs.ptr + ((ip - 6) * 4) as u64 * bd_bytes
+                    self.prefill.d_b_msgs.ptr + ((ip - 6) * 4) as u64 * bd_bytes
                 } else {
                     let mq = self.layers[ip].msg_query.as_ref().unwrap();
-                    let mut pb = self.d_b_bank.ptr;
+                    let mut pb = self.prefill.d_b_bank.ptr;
                     let mut nb = 2i32;
                     let mut sb = b_i32;
                     let mut bo = 0i32;
@@ -4338,7 +4452,7 @@ impl Inkling2GpuEngine {
                     let mut pc: CUdeviceptr = 0;
                     let mut ac = 0i32;
                     let mut pq = mq.ptr;
-                    let mut pout = self.d_b_msgs.ptr;
+                    let mut pout = self.prefill.d_b_msgs.ptr;
                     let mut b3 = 0i32;
                     let mut args: [*mut c_void; 10] = [
                         (&mut pb as *mut _) as *mut c_void,
@@ -4353,7 +4467,7 @@ impl Inkling2GpuEngine {
                         (&mut b3 as *mut _) as *mut c_void,
                     ];
                     self.launch(stream, self.fns.depth_mix_b, (4, b_u32), 256, &mut args)?;
-                    self.d_b_msgs.ptr
+                    self.prefill.d_b_msgs.ptr
                 };
                 self.enqueue_batch_visit(
                     stream,
@@ -4374,13 +4488,13 @@ impl Inkling2GpuEngine {
 
         if self.drafter.is_some() {
             // Compute `tap 3` (`final_norm(output_query_mix)`) across all `b_len` tokens!
-            let p_tap3_dst = self.d_taps.ptr + (3 * MAX_BATCH_TOKENS * D * 4) as u64;
+            let p_tap3_dst = self.prefill.d_taps.ptr + (3 * self.prefill.capacity * D * 4) as u64;
             if let Some(f_mlp_fused) = self.fns.depth_mix_rmsnorm_d_quant_q8_16_b {
-                let mut pb = self.d_b_blocks.ptr;
+                let mut pb = self.prefill.d_b_blocks.ptr;
                 let mut nb = n_blocks as i32;
                 let mut sb = b_i32;
                 let mut bo = 0i32;
-                let mut pc = self.d_b_cur.ptr;
+                let mut pc = self.prefill.d_b_cur.ptr;
                 let mut ac = 1i32;
                 let mut pq = self.output_query.ptr;
                 let mut pg = self.final_norm.ptr;
@@ -4404,15 +4518,15 @@ impl Inkling2GpuEngine {
                 ];
                 self.launch(stream, f_mlp_fused, (1, b_u32), 256, &mut args)?;
             } else {
-                let mut pb = self.d_b_blocks.ptr;
+                let mut pb = self.prefill.d_b_blocks.ptr;
                 let mut nb = n_blocks as i32;
                 let mut sb = b_i32;
                 let mut bo = 0i32;
                 let mut bout = b_i32;
-                let mut pc = self.d_b_cur.ptr;
+                let mut pc = self.prefill.d_b_cur.ptr;
                 let mut ac = 1i32;
                 let mut pq = self.output_query.ptr;
-                let mut pout = self.d_b_mlp_h.ptr;
+                let mut pout = self.prefill.d_b_mlp_h.ptr;
                 let mut b3 = 0i32;
                 let mut args: [*mut c_void; 10] = [
                     (&mut pb as *mut _) as *mut c_void,
@@ -4427,7 +4541,7 @@ impl Inkling2GpuEngine {
                     (&mut b3 as *mut _) as *mut c_void,
                 ];
                 self.launch(stream, self.fns.depth_mix_b, (1, b_u32), 256, &mut args)?;
-                let mut pin = self.d_b_mlp_h.ptr;
+                let mut pin = self.prefill.d_b_mlp_h.ptr;
                 let mut pg = self.final_norm.ptr;
                 let mut p_tap3 = p_tap3_dst;
                 let mut hg = 1i32;
@@ -4445,12 +4559,12 @@ impl Inkling2GpuEngine {
             BatchHeadMode::None => {}
             BatchHeadMode::LastOnly => {
                 if let Some(f_fused) = self.fns.depth_mix_rmsnorm_quant_q8_64_b {
-                    let mut pb = self.d_b_blocks.ptr;
+                    let mut pb = self.prefill.d_b_blocks.ptr;
                     let mut nb = n_blocks as i32;
                     let mut sb = b_i32;
                     let mut bo = (b_len - 1) as i32;
                     let mut bout = 1i32;
-                    let mut pc = self.d_b_cur.ptr;
+                    let mut pc = self.prefill.d_b_cur.ptr;
                     let mut ac = 1i32;
                     let mut pq = self.output_query.ptr;
                     let mut pg = self.final_norm.ptr;
@@ -4471,12 +4585,12 @@ impl Inkling2GpuEngine {
                     ];
                     self.launch(stream, f_fused, (1, 1), 256, &mut args)?;
                 } else {
-                    let mut pb = self.d_b_blocks.ptr;
+                    let mut pb = self.prefill.d_b_blocks.ptr;
                     let mut nb = n_blocks as i32;
                     let mut sb = b_i32;
                     let mut bo = (b_len - 1) as i32;
                     let mut bout = 1i32;
-                    let mut pc = self.d_b_cur.ptr;
+                    let mut pc = self.prefill.d_b_cur.ptr;
                     let mut ac = 1i32;
                     let mut pq = self.output_query.ptr;
                     let mut pout = self.d_mlp_h.ptr;
@@ -4520,17 +4634,17 @@ impl Inkling2GpuEngine {
             }
             BatchHeadMode::AllHeads => {
                 if let Some(f_fused) = self.fns.depth_mix_rmsnorm_quant_q8_64_b {
-                    let mut pb = self.d_b_blocks.ptr;
+                    let mut pb = self.prefill.d_b_blocks.ptr;
                     let mut nb = n_blocks as i32;
                     let mut sb = b_i32;
                     let mut bo = 0i32;
                     let mut bout = b_i32;
-                    let mut pc = self.d_b_cur.ptr;
+                    let mut pc = self.prefill.d_b_cur.ptr;
                     let mut ac = 1i32;
                     let mut pq = self.output_query.ptr;
                     let mut pg = self.final_norm.ptr;
-                    let mut pq8 = self.d_b_act_q8_64.ptr;
-                    let mut psc = self.d_b_act_sc_64.ptr;
+                    let mut pq8 = self.prefill.d_b_act_q8_64.ptr;
+                    let mut psc = self.prefill.d_b_act_sc_64.ptr;
                     let mut args: [*mut c_void; 11] = [
                         (&mut pb as *mut _) as *mut c_void,
                         (&mut nb as *mut _) as *mut c_void,
@@ -4546,15 +4660,15 @@ impl Inkling2GpuEngine {
                     ];
                     self.launch(stream, f_fused, (1, b_u32), 256, &mut args)?;
                 } else {
-                    let mut pb = self.d_b_blocks.ptr;
+                    let mut pb = self.prefill.d_b_blocks.ptr;
                     let mut nb = n_blocks as i32;
                     let mut sb = b_i32;
                     let mut bo = 0i32;
                     let mut bout = b_i32;
-                    let mut pc = self.d_b_cur.ptr;
+                    let mut pc = self.prefill.d_b_cur.ptr;
                     let mut ac = 1i32;
                     let mut pq = self.output_query.ptr;
-                    let mut pout = self.d_b_mlp_h.ptr;
+                    let mut pout = self.prefill.d_b_mlp_h.ptr;
                     let mut b3 = 0i32;
                     let mut args: [*mut c_void; 10] = [
                         (&mut pb as *mut _) as *mut c_void,
@@ -4571,7 +4685,7 @@ impl Inkling2GpuEngine {
                     self.launch(stream, self.fns.depth_mix_b, (1, b_u32), 256, &mut args)?;
                     self.enqueue_rmsnorm_quant_q8_64_b(
                         stream,
-                        self.d_b_mlp_h.ptr,
+                        self.prefill.d_b_mlp_h.ptr,
                         self.final_norm.ptr,
                         1,
                         b_len,

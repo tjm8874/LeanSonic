@@ -857,4 +857,20 @@ theorem cycle5_glue_fusion_all_kernels_valid :
     (cycle5GlueFusionKernelSuite.all checkSm120Kernel) = true := by
   decide
 
+/-- Native sm_120a wide expert grouping, four independent warps per CTA. -/
+def kInk2BuildExpertGroupsWideB : KernelResourceSpec :=
+  { name := "ink2_build_expert_groups_wide_b"
+    threadsPerCta := 128
+    rawRegsPerThread := 31
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 12
+    clusterCtas := 1
+    minRequiredL1KiB := 112
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+theorem ink2_build_expert_groups_wide_b_valid :
+    ValidSm120Kernel kInk2BuildExpertGroupsWideB := by decide
+
 end LeanSonic.Proofs
