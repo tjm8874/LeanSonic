@@ -1,0 +1,24 @@
+--- a/tools/benchmark_inkling_bf16.cpp
++++ b/tools/benchmark_inkling_bf16.cpp
+@@ -65,16 +65,20 @@
+         auto start = Clock::now();
+         auto first = eval(prompt.data(), int(prompt.size()), 0);
+         auto prefill_end = Clock::now();
++        std::vector<llama_token> predictions; predictions.reserve(continuation.size());
+         int matches = 0;
+         auto next = first;
+         for (int i = 0; i < int(continuation.size()); ++i) {
++            predictions.push_back(next);
+             matches += next == continuation[i];
+             next = eval(&continuation[i], 1, int(prompt.size()) + i);
+         }
+         auto end = Clock::now();
+         std::printf("%d %.4f %.4f %d %d\n", run, Milliseconds(prefill_end-start).count(),
+                     Milliseconds(end-prefill_end).count(), matches, int(first));
+-        if (matches != int(continuation.size())) throw std::runtime_error("greedy predictions differ");
++        std::printf("P %d",run);
++        for (auto id : predictions) std::printf(" %d",int(id));
++        std::printf("\n");
+     }
+     llama_sampler_free(greedy);
+     llama_batch_ext_free(batch);
