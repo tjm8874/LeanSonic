@@ -10005,6 +10005,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn draft_price_compares_total_time_per_committed_token() {
+        let mut price = DraftPrice::default();
+        price.observe_scalar(100.0);
+        // Sixteen fast tokens outweigh six expensive, one-token rounds.
+        for _ in 0..2 {
+            price.observe_neural(400.0, 8);
+        }
+        for _ in 0..6 {
+            price.observe_neural(200.0, 1);
+        }
+        assert_eq!(price.skip_left, 0);
+        for _ in 0..7 {
+            price.observe_neural(104.0, 1);
+        }
+        assert_eq!(price.skip_left, 0);
+        price.observe_neural(104.0, 1);
+        assert_eq!(price.skip_left, 24);
+    }
+
+    #[test]
     fn conv4_pair_args_match_the_kernel_struct() {
         // `struct Conv4BArgs` in `kernels/inkling2_sm120.cu`: 7 pointers then 8 `int32_t`.
         assert_eq!(core::mem::size_of::<Conv4BArgs>(), 88);
