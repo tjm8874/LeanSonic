@@ -34,9 +34,9 @@ def copy_verified(source, offset, length, destination):
     return h.hexdigest()
 
 
-def repack(src, official, encoder, dest, scale_cutoffs=None, direct=False):
-    if direct and scale_cutoffs is None:
-        raise ValueError("direct scale coding requires cutoffs")
+def repack(src, official, encoder, dest, scale_cutoffs=None, direct=False, four_banks=False):
+    if (direct or four_banks) and scale_cutoffs is None:
+        raise ValueError("scale-conditioned encoding requires cutoffs")
     if dest.exists():
         raise FileExistsError(dest)
     with official.open("rb") as f:
@@ -52,6 +52,8 @@ def repack(src, official, encoder, dest, scale_cutoffs=None, direct=False):
     cuts = None
     if scale_cutoffs is not None:
         source_suffix, output_suffix = NEW, (".nvscale_direct_v1" if direct else ".nvscale_split_v1")
+        if four_banks:
+            source_suffix, output_suffix = ".nvscale_direct_v1", ".nvscale_four_v1"
         cuts = json.loads(scale_cutoffs.read_text())["cutoffs"]
         if set(cuts) != expected or any(
             len(row) != 128 or any(type(v) is not int or not -1 <= v <= 126 for v in row)
@@ -96,7 +98,9 @@ def repack(src, official, encoder, dest, scale_cutoffs=None, direct=False):
                     width = base[name + "_scale"]["shape"][-1]
                     args.extend([str(start + sa), str(sb - sa), str(width),
                                  str(ob - oa), cutfile, frame])
-                if direct:
+                if four_banks:
+                    args.append("--four-banks")
+                elif direct:
                     args.append("--direct")
                 sizes = subprocess.check_output(args, text=True).split()
                 size2 = int(sizes[0])
@@ -169,11 +173,13 @@ if __name__ == "__main__":
     for arg in ("source", "official_shard", "encoder", "destination"):
         parser.add_argument(arg, type=Path)
     parser.add_argument("--scale-cutoffs", type=Path, help="enable scale-conditioned coding for an existing trim package")
-    parser.add_argument("--direct", action="store_true", help="encode weights in decoded order using per-block scales")
+    coding = parser.add_mutually_exclusive_group()
+    coding.add_argument("--four-banks", action="store_true", help="re-encode an existing direct package with four lossless scale bands")
+    coding.add_argument("--direct", action="store_true", help="encode weights in decoded order using per-block scales")
     a = parser.parse_args()
     print(
         json.dumps(
-            repack(a.source, a.official_shard, a.encoder.resolve(), a.destination, a.scale_cutoffs, a.direct),
+            repack(a.source, a.official_shard, a.encoder.resolve(), a.destination, a.scale_cutoffs, a.direct, a.four_banks),
             indent=2,
         )
     )

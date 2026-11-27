@@ -17,7 +17,8 @@ fn section(file: &mut File, offset: &str, length: &str) -> Result<Vec<u8>, Box<d
 fn main() -> Result<(), Box<dyn Error>> {
     let mut args: Vec<_> = std::env::args().skip(1).collect();
     let direct = args.last().is_some_and(|s| s == "--direct");
-    if direct {
+    let four_banks = args.last().is_some_and(|s| s == "--four-banks");
+    if direct || four_banks {
         args.pop();
     }
     let destination = if args.len() == 9 { args.pop() } else { None };
@@ -36,11 +37,28 @@ fn main() -> Result<(), Box<dyn Error>> {
         count / 8,
         row_width.parse()?,
     )?;
-    let raw = unpack_nvfp4_trim_context(&section(&mut file, weight_off, weight_len)?, count)?;
+    let source = section(&mut file, weight_off, weight_len)?;
     let cuts: [u8; 128] = fs::read(cutoff_file)?
         .try_into()
         .map_err(|_| "expected 128 cutoff bytes")?;
-    let frame = if direct {
+    let raw = if four_banks {
+        if !source.starts_with(&cuts) {
+            return Err("cutoffs differ from source frame".into());
+        }
+        leansonic_core::inkling_mxfp8::unpack_scale_direct(&source, scale.clone())?
+    } else {
+        unpack_nvfp4_trim_context(&source, count)?
+    };
+    let frame = if four_banks {
+        let mut bytes = Vec::new();
+        leansonic_core::inkling_mxfp8::pack_four_scale_banks(
+            &raw,
+            scale.clone(),
+            &cuts,
+            &mut bytes,
+        )?;
+        bytes
+    } else if direct {
         let mut bytes = Vec::new();
         leansonic_core::inkling_mxfp8::pack_scale_direct(&raw, scale.clone(), &cuts, &mut bytes)?;
         bytes
@@ -48,7 +66,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         pack_scale_split(&raw, &scale, &cuts)?
     };
     let start = Instant::now();
-    let roundtrip = if direct {
+    let roundtrip = if four_banks {
+        leansonic_core::inkling_mxfp8::unpack_four_scale_banks(&frame, scale)?
+    } else if direct {
         leansonic_core::inkling_mxfp8::unpack_scale_direct(&frame, scale)?
     } else {
         unpack_scale_split(&frame, &scale)?
