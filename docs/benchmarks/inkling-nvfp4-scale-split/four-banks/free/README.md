@@ -47,3 +47,5 @@ LD_LIBRARY_PATH="$PWD/lib:${LD_LIBRARY_PATH:-}" ./native "$Q3_GGUF"
 ```
 
 [Individual timings, IDs, sampler peaks and build hashes](verified.json).
+
+[Fixed depth 0, 2, 4 and 7 with 32-token context matching](depth/).
