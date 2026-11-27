@@ -20,7 +20,7 @@ use leansonic_core::tiktoken::{
 };
 
 const SHORT_MAX_NEW: usize = 64;
-const NEEDLE_MAX_NEW: usize = 512;
+const NEEDLE_MAX_NEW: usize = 1024;
 
 #[derive(Debug, Clone)]
 pub struct CanaryCaseResult {
@@ -51,7 +51,7 @@ fn build_needle_prompt(
         return Err("unexpected chat framing".into());
     }
     let marker = tok.encode_ordinary(&format!(
-        "\nThe verification code for the Juniper cabinet is {code}.\n"
+        "\nArchive entry (Juniper cabinet): the Juniper cabinet was inspected in the registry; the verification code was {code}.\n"
     ));
     let mut suffix = tok.encode_ordinary(
         "\nQuestion: What is the verification code for the Juniper cabinet? Reply with the code only.\n",
