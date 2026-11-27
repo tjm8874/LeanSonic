@@ -6405,6 +6405,7 @@ impl Inkling2GpuEngine {
         const PAUSE_AFTER: usize = 4;
         let pause_enabled = std::env::var("LEANSONIC_SPEC_PAUSE").map_or(true, |v| v != "0");
         let (mut zero_streak, mut pause_left, mut pause_len) = (0usize, 0usize, 8usize);
+        let mut last_verify_row = None;
         while steps_done < n_gen {
             if Some(cur_tok) == stop_tok {
                 break;
@@ -6465,6 +6466,7 @@ impl Inkling2GpuEngine {
                     break;
                 }
                 cur_tok = self.forward_greedy_token(cur_tok)?;
+                last_verify_row = None;
                 continue;
             }
 
@@ -6523,11 +6525,29 @@ impl Inkling2GpuEngine {
                     }
                 }
             }
+            last_verify_row = Some(accepted);
             steps_done += keep;
             if hit_stop || (stop_tok.is_some() && out_ids.len() >= n_gen) {
                 break;
             }
             cur_tok = preds[accepted];
+        }
+
+        // A verify batch writes all rows into d_spec_logits. Preserve the
+        // last committed row once so read_last_logits() observes it even
+        // after a rejected draft or an EOS exit. Scalar steps write d_logits.
+        if let Some(row) = last_verify_row {
+            unsafe {
+                check_cu(
+                    (self.ctx.api.cuMemcpyDtoDAsync_v2)(
+                        self.d_logits.ptr,
+                        self.d_spec_logits.ptr + (row * VOCAB * 4) as u64,
+                        VOCAB * 4,
+                        self.ctx.compute_stream,
+                    ),
+                    "copy committed speculative logits",
+                )?;
+            }
         }
 
         Ok((out_ids, cur_tok))
