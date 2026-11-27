@@ -5,7 +5,9 @@
 use std::io::{self, Write};
 use std::mem::MaybeUninit;
 
+mod mean_scales;
 mod scale_context;
+pub use mean_scales::pack_mean_scales;
 pub use scale_context::pack_scale_context;
 
 pub const TILE: usize = 128 * 1024;
@@ -176,7 +178,7 @@ pub fn pack_nvfp4_context(raw: &[u8], mut output: impl Write) -> io::Result<usiz
 }
 
 pub(crate) struct Matrix<'a> {
-    scale_context: Option<Box<scale_context::ScaleContext>>,
+    scale_context: Option<Box<dyn scale_context::ScaleDecoder>>,
     lookup: Vec<[u32; 4096]>,
     frames: Vec<&'a [u8]>,
     count: usize,

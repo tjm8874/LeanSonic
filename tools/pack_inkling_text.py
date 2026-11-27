@@ -103,7 +103,7 @@ def q8_planes(header, prefix, rows, cols):
 def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack_attention: bool = False,
          prepack_scales: bool = False, prepack_embedding: bool = False, prepack_mxfp8: bool = False,
          prepack_nvfp4: bool = False, contextual_nvfp4: bool = False, compact_controls: bool = False,
-         entropy_scales: bool = False, neighbor_scales: bool = False, compact_q8_scales: bool = False, compact_q8_codes: bool = False) -> tuple[int, int]:
+         entropy_scales: bool = False, neighbor_scales: bool = False, averaged_scales: bool = False, compact_q8_scales: bool = False, compact_q8_codes: bool = False) -> tuple[int, int]:
     """Publish a complete shard atomically without replacing an existing file."""
     if destination.exists():
         raise FileExistsError(f"destination exists: {destination}")
@@ -146,13 +146,13 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
             if any(prefix + key in header for key in native_suffixes):
                 raise ValueError(f"input contains conflicting native tensors for {name}")
 
-        if sum((prepack_scales, entropy_scales, neighbor_scales)) > 1:
+        if sum((prepack_scales, entropy_scales, neighbor_scales, averaged_scales)) > 1:
             raise ValueError("choose one expert scale format")
-        scales = expert_scale_tensors() if prepack_scales or entropy_scales or neighbor_scales else {}
+        scales = expert_scale_tensors() if prepack_scales or entropy_scales or neighbor_scales or averaged_scales else {}
         for name in scales:
-            if name not in header or any(name + suffix in header for suffix in (".range_v1", ".rans_v1", ".neighbor_v1")):
+            if name not in header or any(name + suffix in header for suffix in (".range_v1", ".rans_v1", ".neighbor_v1", ".mean8_v1")):
                 raise ValueError(f"missing or conflicting source expert scales for {name}")
-        scale_mode, scale_suffix = ("rans", ".rans_v1") if (entropy_scales or neighbor_scales) else ("scale", ".range_v1")
+        scale_mode, scale_suffix = ("rans", ".rans_v1") if (entropy_scales or neighbor_scales or averaged_scales) else ("scale", ".range_v1")
         lossless = {name: (dtype, shape, scale_mode, scale_suffix) for name, (dtype, shape) in scales.items()}
         if compact_controls:
             for name, shape in control_weight_shapes().items():
@@ -265,11 +265,15 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
 
                 arguments = [length]
                 size = encoded_size(mode, arguments)
-                if neighbor_scales and name in scales:
+                if (neighbor_scales or averaged_scales) and name in scales:
                     neighbor_args = [length, str(expected_shape[-1])]
-                    predicted = encoded_size("neighbor", neighbor_args)
-                    if predicted < size:
-                        size, mode, suffix, arguments = predicted, "neighbor", ".neighbor_v1", neighbor_args
+                    predictors = [("neighbor", ".neighbor_v1")]
+                    if averaged_scales:
+                        predictors.append(("mean8", ".mean8_v1"))
+                    for codec, extension in predictors:
+                        predicted = encoded_size(codec, neighbor_args)
+                        if predicted < size:
+                            size, mode, suffix, arguments = predicted, codec, extension, neighbor_args
                 if size < end - start:
                     output_header[name + suffix] = {
                         "dtype": "U8", "shape": [size], "data_offsets": [new_end, new_end + size]
@@ -326,6 +330,7 @@ def main() -> None:
     parser.add_argument("--compact-q8-scales", action="store_true", help="losslessly dictionary-code native Q8_64 scales where smaller")
     parser.add_argument("--compact-q8-codes", action="store_true", help="store Q8 code planes with lossless rANS where smaller")
     scale_group = parser.add_mutually_exclusive_group()
+    scale_group.add_argument("--averaged-scales", action="store_true", help="also try lossless eight-neighbor mean coding on each expert scale plane")
     scale_group.add_argument("--neighbor-scales", action="store_true", help="choose the smallest of raw, byte rANS, and row-neighbor rANS per expert scale tensor")
     scale_group.add_argument("--entropy-scales", action="store_true", help="store MoE expert scales with lossless byte rANS")
     scale_group.add_argument("--prepack-scales", action="store_true", help="store lossless packed MoE expert scales (requires Cargo)")
@@ -337,7 +342,7 @@ def main() -> None:
     try:
         removed, saved = pack(args.source, args.destination, prepack_head=args.prepack_head, prepack_attention=args.prepack_attention,
                               prepack_scales=args.prepack_scales, prepack_embedding=args.prepack_embedding, prepack_mxfp8=args.prepack_mxfp8, prepack_nvfp4=args.prepack_nvfp4, contextual_nvfp4=args.contextual_nvfp4, compact_controls=args.compact_controls,
-                              entropy_scales=args.entropy_scales, neighbor_scales=args.neighbor_scales, compact_q8_scales=args.compact_q8_scales, compact_q8_codes=args.compact_q8_codes)
+                              entropy_scales=args.entropy_scales, neighbor_scales=args.neighbor_scales, averaged_scales=args.averaged_scales, compact_q8_scales=args.compact_q8_scales, compact_q8_codes=args.compact_q8_codes)
     except (OSError, ValueError, TypeError, KeyError, subprocess.CalledProcessError) as exc:
         parser.exit(1, f"pack failed: {exc}\n")
     print(f"Omitted {removed} vision tensors. Saved {saved:,} bytes.")
