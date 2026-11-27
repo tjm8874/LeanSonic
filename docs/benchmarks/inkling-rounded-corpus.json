@@ -35,5 +35,42 @@
       "top1_agreement": 0.9734117647058823,
       "gpu": "PRO 4500"
     }
+  },
+  "valid": {
+    "parent": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 6.504620985971503,
+      "ref_ppl": 6.498588819010602,
+      "mean_kld": 0.0027607406235017986,
+      "median_kld": 0.0010193128624920618,
+      "p99_kld": 0.027633147959790057,
+      "max_kld": 0.352436096904504,
+      "start_chunk": 0,
+      "max_kld_chunk": 46,
+      "max_kld_position": 379,
+      "ref_floor_targets": 10,
+      "top1_matches": 24963,
+      "top1_agreement": 0.9789411764705882
+    },
+    "last": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 6.505204266305081,
+      "ref_ppl": 6.498588819010602,
+      "mean_kld": 0.0030077257208704572,
+      "median_kld": 0.001221993539186686,
+      "p99_kld": 0.02791554289075973,
+      "max_kld": 0.37949764999879276,
+      "start_chunk": 0,
+      "max_kld_chunk": 46,
+      "max_kld_position": 379,
+      "ref_floor_targets": 10,
+      "top1_matches": 24942,
+      "top1_agreement": 0.9781176470588235,
+      "gpu": "PRO 4500"
+    }
   }
 }
