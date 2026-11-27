@@ -74,9 +74,20 @@ We compared the canonical parent and the budget package at context 8192 with the
 |---|---|---:|---:|---:|---:|
 | PRO4500 | parent | 126.122 | 201.309 | 18,102,616,064 | 0 |
 | PRO4500 | budget | 125.225 | 201.375 | 18,144,559,104 | 0 |
+| PRO5000 | parent | 97.354 | 155.612 | 18,253,611,008 | 0 |
+| PRO5000 | budget | 98.129 | 155.639 | 18,257,805,312 | 0 |
+| 5070Ti | parent | 160.581 | 304.471 | 16,546,529,280 | 0 |
+| 5070Ti | budget | 160.620 | 304.478 | 16,546,529,280 | 0 |
+| 5060Ti | parent | 380.312 | 747.836 | 16,554,917,888 | 0 |
+| 5060Ti | budget | 380.279 | 747.856 | 16,554,917,888 | 0 |
 
 | GPU | Budget minus parent prefill ms (95% interval) | Budget minus parent decode ms (95% interval) |
 |---|---:|---:|
 | PRO4500 | -0.898 [-2.867, +0.253] | +0.066 [-0.038, +0.233] |
+| PRO5000 | +0.775 [-0.424, +2.734] | +0.026 [-0.036, +0.103] |
+| 5070Ti | +0.039 [-0.216, +0.328] | +0.007 [-0.069, +0.072] |
+| 5060Ti | -0.034 [-0.085, +0.042] | +0.020 [-0.040, +0.098] |
 
 [Per-leg measurements and predictions](inkling-budget-latency.json). Reproduce with the [fixed-token replay example](../../crates/leansonic-core/examples/inkling_basalt_replay.rs), engine source `a9872cc`, cubin source `48b7ec2` (SHA-256 `3714fd830d6cfedbf6954f21cad460489173be36566b0cb4b78173d42da87f0b`), FP16 KV and PDL enabled. Use the [README prefix](inputs/inkling-readme1024.ids) and [fixed continuation](fixtures/inkling-budget-continuation.ids). The order was parent/budget/budget/parent in odd cycles and its reverse in even cycles.
+
+Across the 80 target/candidate runs, the 151,795,984-byte distribution saving did not produce a resolved latency improvement for either phase on any of the four cards. Every paired interval included zero. Sampled GPU memory was equal on the GeForce cards and slightly higher for the budget package on both PRO cards. The package size saving is a storage result.
