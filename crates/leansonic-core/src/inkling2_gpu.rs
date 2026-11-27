@@ -327,6 +327,7 @@ enum ExpertScaleSource<'a> {
     Raw(&'a [u8]),
     RangeV1(&'a [u8]),
     RansV1(&'a [u8]),
+    NeighborV1(&'a [u8], usize),
 }
 
 impl ExpertScaleSource<'_> {
@@ -344,6 +345,10 @@ impl ExpertScaleSource<'_> {
                 Ok(())
             }
             Self::RangeV1(frame) => crate::inkling_scales::unpack_scales(frame, count, emit),
+            Self::NeighborV1(frame, width) => {
+                crate::inkling_mxfp8::Matrix::parse_scales(frame, count, width)?
+                    .for_each_chunk(emit)
+            }
             Self::RansV1(frame) => {
                 crate::inkling_mxfp8::Matrix::parse(frame, count)?.for_each_chunk(emit)
             }
@@ -382,7 +387,7 @@ impl ExpertScaleSource<'_> {
         }
         let buffer = match self {
             Self::Raw(bytes) => DeviceBuf::from_host_bytes(ctx, bytes)?,
-            Self::RangeV1(_) | Self::RansV1(_) => {
+            Self::RangeV1(_) | Self::RansV1(_) | Self::NeighborV1(_, _) => {
                 let buffer = DeviceBuf::alloc_zeroed(ctx, count)?;
                 self.tiles(count, |offset, bytes| {
                     buffer.copy_from_host_at(offset, bytes)
@@ -1606,17 +1611,21 @@ impl Inkling2GpuEngine {
                     st.get(name),
                     st.get(&format!("{name}.range_v1")),
                     st.get(&format!("{name}.rans_v1")),
+                    st.get(&format!("{name}.neighbor_v1")),
                 ) {
-                    (Some(t), None, None)
+                    (Some(t), None, None, None)
                         if t.dtype == dtype && t.shape == shape && t.data.len() == count =>
                     {
                         ExpertScaleSource::Raw(t.data)
                     }
-                    (None, Some(t), None) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                    (None, Some(t), None, None) if t.dtype == "U8" && t.shape == [t.data.len()] => {
                         ExpertScaleSource::RangeV1(t.data)
                     }
-                    (None, None, Some(t)) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                    (None, None, Some(t), None) if t.dtype == "U8" && t.shape == [t.data.len()] => {
                         ExpertScaleSource::RansV1(t.data)
+                    }
+                    (None, None, None, Some(t)) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                        ExpertScaleSource::NeighborV1(t.data, shape[2])
                     }
                     _ => {
                         return Err(format!(
