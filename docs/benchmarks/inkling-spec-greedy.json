@@ -7,6 +7,50 @@
   "kv": "fp16",
   "context": 8192,
   "results": {
+    "5060Ti-w1-n200": {
+      "exit_status": 1,
+      "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+      "generated": 200,
+      "spec_width": 1,
+      "regular_sha256": "f550aab913006c3c60db557ab3b2e31e400c8d4e27c80e34eec44eaa6c926c7d",
+      "speculative_sha256": "1556f0faf00c5de9042505d9e49d4909203f804c99cb77e0e835455ad8e0dde3",
+      "first_difference_zero_based": 181,
+      "regular_token": 196976,
+      "speculative_token": 11
+    },
+    "5060Ti-w3-n200": {
+      "exit_status": 1,
+      "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+      "generated": 200,
+      "spec_width": 3,
+      "regular_sha256": "f550aab913006c3c60db557ab3b2e31e400c8d4e27c80e34eec44eaa6c926c7d",
+      "speculative_sha256": "329c073b00b2e0601dd96a01894f1c6a1ffb58c16052a7c4cff7305a4416ef63",
+      "first_difference_zero_based": 136,
+      "regular_token": 68154,
+      "speculative_token": 68020
+    },
+    "5060Ti-w7-n16": {
+      "exit_status": 0,
+      "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+      "generated": 16,
+      "spec_width": 7,
+      "regular_sha256": "aebde9a2a5620007b8bc54f0c22d52830d456c5f226b87c3551543410246c7f7",
+      "speculative_sha256": "aebde9a2a5620007b8bc54f0c22d52830d456c5f226b87c3551543410246c7f7",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "5060Ti-w7-n200": {
+      "exit_status": 1,
+      "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+      "generated": 200,
+      "spec_width": 7,
+      "regular_sha256": "f550aab913006c3c60db557ab3b2e31e400c8d4e27c80e34eec44eaa6c926c7d",
+      "speculative_sha256": "329c073b00b2e0601dd96a01894f1c6a1ffb58c16052a7c4cff7305a4416ef63",
+      "first_difference_zero_based": 136,
+      "regular_token": 68154,
+      "speculative_token": 68020
+    },
     "5070Ti-w1-n200": {
       "exit_status": 1,
       "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
@@ -50,6 +94,45 @@
       "first_difference_zero_based": 136,
       "regular_token": 68154,
       "speculative_token": 68020
+    }
+  },
+  "main_after_pr89": {
+    "commit": "b02cce093b3f1e4a1c9359242dcbe24680727e09",
+    "sha256": {
+      "current-cli": "a06f3b9d5c605637a081cdd5c5aa689a970197fa53bc293fa200ed518c707da7",
+      "current.cubin": "62cb5ec556de2361f27acec4d3012e1f65e4787627c8e5313d2a91a279f43ac9"
+    },
+    "results": {
+      "PRO5000": {
+        "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+        "generated": 200,
+        "spec_width": 7,
+        "regular_sha256": "f550aab913006c3c60db557ab3b2e31e400c8d4e27c80e34eec44eaa6c926c7d",
+        "speculative_sha256": "329c073b00b2e0601dd96a01894f1c6a1ffb58c16052a7c4cff7305a4416ef63",
+        "first_difference_zero_based": 136,
+        "regular_token": 68154,
+        "speculative_token": 68020
+      },
+      "5070Ti": {
+        "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+        "generated": 200,
+        "spec_width": 7,
+        "regular_sha256": "f550aab913006c3c60db557ab3b2e31e400c8d4e27c80e34eec44eaa6c926c7d",
+        "speculative_sha256": "329c073b00b2e0601dd96a01894f1c6a1ffb58c16052a7c4cff7305a4416ef63",
+        "first_difference_zero_based": 136,
+        "regular_token": 68154,
+        "speculative_token": 68020
+      },
+      "5060Ti": {
+        "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+        "generated": 200,
+        "spec_width": 7,
+        "regular_sha256": "f550aab913006c3c60db557ab3b2e31e400c8d4e27c80e34eec44eaa6c926c7d",
+        "speculative_sha256": "329c073b00b2e0601dd96a01894f1c6a1ffb58c16052a7c4cff7305a4416ef63",
+        "first_difference_zero_based": 136,
+        "regular_token": 68154,
+        "speculative_token": 68020
+      }
     }
   }
 }
