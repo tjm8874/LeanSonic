@@ -1,4 +1,5 @@
 mod bench_matrix;
+mod canary;
 mod eval_kld;
 mod multiseq;
 mod serve_batch;
@@ -64,6 +65,9 @@ fn print_help() {
     println!("  leansonic bench-matrix --weights <dir> [--gpus all|0,1] [--n 5] [--ctx 20480] [--spec-prompts <dir>] [--quick] [--out <json>]");
     println!("  leansonic bench-matrix --merge <a.json> <b.json> ...   Combine per-host results into one 4-GPU table");
     println!("  leansonic eval-kld (--weights <dir> | --logits-f32 <file|->) --ref <reference.kld> [--start-chunk INDEX] [--chunks COUNT]");
+    println!(
+        "  leansonic canary --weights <dir> [--short-only] [--long] [--long-only] [--no-spec]"
+    );
     println!("  leansonic serve [--weights <dir>] [--spec 0..7] [--effort none|low|high] [--host 127.0.0.1] [--port 8080] [--model inkling-2-mini]");
     println!(
         "  leansonic info            Print Lean-verified SM120, Hybrid Pool & Offload constants"
@@ -1372,6 +1376,13 @@ fn main() -> ExitCode {
             }
         },
         Some("eval-kld") => match eval_kld::run(&args[2..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("[ERROR] {e}");
+                ExitCode::FAILURE
+            }
+        },
+        Some("canary") => match canary::run(&args[2..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("[ERROR] {e}");

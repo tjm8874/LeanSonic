@@ -157,7 +157,9 @@ pub struct DsparkDrafterGpu {
     jctx_q8: PlanarQ8Gpu,
     jb: DeviceBuf,
     j01: DeviceBuf,
-    w1_pinned: PinnedHostBuf,
+    w1_dev_ptr: CUdeviceptr,
+    _w1_vram: Option<DeviceBuf>,
+    _w1_pinned: Option<PinnedHostBuf>,
     fold_q8: PlanarQ8Gpu,
     d_fold_b: DeviceBuf,
     // Draft scratch (one set per sequence so sequences can draft concurrently)
@@ -358,7 +360,18 @@ impl DsparkDrafterGpu {
                 &[PADDED_VOCAB, R_MARKOV],
             )
             .data;
-        let w1_pinned = PinnedHostBuf::from_bytes(ctx, w1_raw)?;
+        let (_free_vram, total_vram) = ctx.mem_info().unwrap_or((0, 0));
+        let use_vram_w1 = std::env::var("LEANSONIC_MTP_W1_VRAM")
+            .ok()
+            .map(|v| v != "0")
+            .unwrap_or(total_vram >= (24 << 30));
+        let (w1_dev_ptr, w1_vram, w1_pinned) = if use_vram_w1 {
+            let buf = DeviceBuf::from_host_bytes(ctx, w1_raw)?;
+            (buf.ptr, Some(buf), None)
+        } else {
+            let buf = PinnedHostBuf::from_bytes(ctx, w1_raw)?;
+            (buf.dev_ptr, None, Some(buf))
+        };
 
         // Precompute `fold_q8 [VOCAB, 256] = unembed_q8 @ hidden_out.weight` and
         // `d_fold_b [VOCAB] = unembed_q8 @ hidden_out.bias` on GPU in ~60 ms!
@@ -387,7 +400,9 @@ impl DsparkDrafterGpu {
             jctx_q8,
             jb,
             j01,
-            w1_pinned,
+            w1_dev_ptr,
+            _w1_vram: w1_vram,
+            _w1_pinned: w1_pinned,
             fold_q8,
             d_fold_b,
             ctx_end: 0,
@@ -1110,7 +1125,7 @@ impl DsparkDrafterGpu {
             {
                 let mut pctxm = self.scr.d_ctxm.ptr + (step * 768 * 4) as u64;
                 let mut pj01 = self.j01.ptr;
-                let mut pw1 = self.w1_pinned.dev_ptr;
+                let mut pw1 = self.w1_dev_ptr;
                 let mut pst = self.scr.d_state.ptr;
                 let mut pprev = prev_ptr;
                 let mut praw = self.scr.d_raw.ptr;

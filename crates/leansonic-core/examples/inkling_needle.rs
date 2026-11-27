@@ -10,7 +10,7 @@ use leansonic_core::tiktoken::{
     TiktokenBpe, TOK_CONTENT_TEXT, TOK_END_MESSAGE, TOK_END_SAMPLING, TOK_MSG_MODEL,
 };
 
-const MAX_NEW: usize = 192;
+const MAX_NEW: usize = 512;
 
 fn prompt(tok: &TiktokenBpe, len: usize, depth: usize, code: &str) -> Result<Vec<u32>, String> {
     if !(1..100).contains(&depth) || !(32..=1_048_576 - MAX_NEW).contains(&len) {
