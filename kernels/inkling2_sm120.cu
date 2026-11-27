@@ -3772,26 +3772,24 @@ extern "C" __global__ void ink2_q8_dp4a_gemm_b_ms8(
 
 // Register-Persistent Causal `short_conv4` over `b = 0..B-1` (`0-ULP` bit-identical!)
 // Optional `seq_out` (`[3 + B, channels]`) records `[hist3; x_0..x_{B-1}]` for `O(1)` speculative rewind!
-extern "C" __global__ void ink2_short_conv4_b(
-    const float* __restrict__ cur_base,      // [B, in_stride]
+// One channel of `ink2_short_conv4_b` (shared with `ink2_short_conv4_pair_b`).
+__device__ __forceinline__ void short_conv4_b_channel(
+    int c,
+    const float* __restrict__ cur_base,
     int32_t in_stride,
-    const float4* __restrict__ w_conv4,      // [channels]
-    const float4* __restrict__ dyn_base,     // nullable (`[B, dyn_f4_stride]`)
+    const float4* __restrict__ w_conv4,
+    const float4* __restrict__ dyn_base,
     int32_t dyn_f4_stride,
-    float* __restrict__ hist3,               // [channels * 3]
-    float* out_base,                         // [B, out_stride]
+    float* __restrict__ hist3,
+    float* out_base,
     int32_t out_stride,
-    const float* res_base,                   // nullable (`[B, res_stride]`)
+    const float* res_base,
     int32_t res_stride,
-    float* __restrict__ seq_out,             // nullable (`[3 + B, channels]`)
+    float* __restrict__ seq_out,
     int32_t channels,
     int32_t B,
     int32_t has_dyn,
     int32_t do_res_add) {
-    pdl_wait();
-    pdl_trigger();
-    const int c = blockIdx.x * blockDim.x + threadIdx.x;
-    if (c >= channels) return;
 
     float* h = hist3 + c * 3;
     float h0 = h[0];
@@ -3822,6 +3820,68 @@ extern "C" __global__ void ink2_short_conv4_b(
     h[0] = h0;
     h[1] = h1;
     h[2] = h2;
+}
+
+extern "C" __global__ void ink2_short_conv4_b(
+    const float* __restrict__ cur_base,      // [B, in_stride]
+    int32_t in_stride,
+    const float4* __restrict__ w_conv4,      // [channels]
+    const float4* __restrict__ dyn_base,     // nullable (`[B, dyn_f4_stride]`)
+    int32_t dyn_f4_stride,
+    float* __restrict__ hist3,               // [channels * 3]
+    float* out_base,                         // [B, out_stride]
+    int32_t out_stride,
+    const float* res_base,                   // nullable (`[B, res_stride]`)
+    int32_t res_stride,
+    float* __restrict__ seq_out,             // nullable (`[3 + B, channels]`)
+    int32_t channels,
+    int32_t B,
+    int32_t has_dyn,
+    int32_t do_res_add) {
+    pdl_wait();
+    pdl_trigger();
+    const int c = blockIdx.x * blockDim.x + threadIdx.x;
+    if (c >= channels) return;
+    short_conv4_b_channel(c, cur_base, in_stride, w_conv4, dyn_base, dyn_f4_stride, hist3, out_base,
+                          out_stride, res_base, res_stride, seq_out, channels, B, has_dyn,
+                          do_res_add);
+}
+
+// Arguments of one `ink2_short_conv4_b` launch, passed by value (pointers first: 88 bytes).
+struct Conv4BArgs {
+    const float* cur_base;
+    const float4* w_conv4;
+    const float4* dyn_base;
+    float* hist3;
+    float* out_base;
+    const float* res_base;
+    float* seq_out;
+    int32_t in_stride;
+    int32_t dyn_f4_stride;
+    int32_t out_stride;
+    int32_t res_stride;
+    int32_t channels;
+    int32_t B;
+    int32_t has_dyn;
+    int32_t do_res_add;
+};
+
+// Two independent `ink2_short_conv4_b` launches in one grid (`blockIdx.y` picks the K or V
+// arguments): the per-channel arithmetic is unchanged. `Grid (ceil(max channels / 256), 2)`.
+extern "C" __global__ void ink2_short_conv4_pair_b(Conv4BArgs a0, Conv4BArgs a1) {
+    pdl_wait();
+    pdl_trigger();
+    const bool second = blockIdx.y != 0;
+#define INK2_PICK(field) (second ? a1.field : a0.field)
+    const int c = blockIdx.x * blockDim.x + threadIdx.x;
+    const int32_t channels = INK2_PICK(channels);
+    if (c >= channels) return;
+    short_conv4_b_channel(c, INK2_PICK(cur_base), INK2_PICK(in_stride), INK2_PICK(w_conv4),
+                          INK2_PICK(dyn_base), INK2_PICK(dyn_f4_stride), INK2_PICK(hist3),
+                          INK2_PICK(out_base), INK2_PICK(out_stride), INK2_PICK(res_base),
+                          INK2_PICK(res_stride), INK2_PICK(seq_out), channels, INK2_PICK(B),
+                          INK2_PICK(has_dyn), INK2_PICK(do_res_add));
+#undef INK2_PICK
 }
 
 // Row `b` of a multi-sequence batch (#107): `ms_rows[b] = {pos, seq}`; sequence `seq`'s KV
@@ -4333,18 +4393,17 @@ extern "C" __global__ void ink2_bf16_gemv_router_b(
 }
 
 // Grid: `(B, 1)`, Block: `32`
-extern "C" __global__ void ink2_router_topk8_b(
-    const float* __restrict__ logits128_base, // [B, 128]
-    const float* __restrict__ bias128,        // [128]
-    int32_t* __restrict__ sel_ids_base,       // [B, 8]
-    float* __restrict__ sel_wts_base) {       // [B, 8]
-    pdl_wait();
-    pdl_trigger();
-    __shared__ int smem_ids[8];
-    __shared__ float smem_ps[8];
-
-    const int b = blockIdx.x;
-    const int lane = threadIdx.x & 31;
+// Top-8 of one token's 128 router logits (one warp); shared by `ink2_router_topk8_b` and
+// `ink2_router_topk8_groups_b`.
+__device__ __forceinline__ void router_topk8_row(
+    const float* __restrict__ logits128_base,
+    const float* __restrict__ bias128,
+    int32_t* __restrict__ sel_ids_base,
+    float* __restrict__ sel_wts_base,
+    int* smem_ids,
+    float* smem_ps,
+    int b,
+    int lane) {
     const int base = lane * 4;
     const float* logits128 = logits128_base + static_cast<size_t>(b) * kExp;
 
@@ -4396,6 +4455,21 @@ extern "C" __global__ void ink2_router_topk8_b(
         sel_ids_base[b * 8 + lane] = smem_ids[lane];
         sel_wts_base[b * 8 + lane] = smem_ps[lane] * inv;
     }
+}
+
+extern "C" __global__ void ink2_router_topk8_b(
+    const float* __restrict__ logits128_base, // [B, 128]
+    const float* __restrict__ bias128,        // [128]
+    int32_t* __restrict__ sel_ids_base,       // [B, 8]
+    float* __restrict__ sel_wts_base) {       // [B, 8]
+    pdl_wait();
+    pdl_trigger();
+    __shared__ int smem_ids[8];
+    __shared__ float smem_ps[8];
+
+    const int b = blockIdx.x;
+    const int lane = threadIdx.x & 31;
+    router_topk8_row(logits128_base, bias128, sel_ids_base, sel_wts_base, smem_ids, smem_ps, b, lane);
 }
 
 // Deterministic Zero-Atomic Expert Grouping (`1` CTA, `128` threads = `1` thread/expert!)
@@ -8593,6 +8667,74 @@ extern "C" __global__ void ink2_build_expert_groups_active_b(
     }
 }
 
+// Speculative verify (`1 <= B <= 8`): `ink2_router_topk8_b` (warp `w` = token `w`) followed by
+// `ink2_build_expert_groups_active_b` (threads `0..127` = experts) in one CTA, reading the
+// selected ids from shared memory. Same per-token top-8 and the same grouping order.
+// `Grid (1, 1)`, `Block 256`.
+extern "C" __global__ void ink2_router_topk8_groups_b(
+    const float* __restrict__ logits128_base, // [B, 128]
+    const float* __restrict__ bias128,        // [128]
+    int32_t* __restrict__ sel_ids_base,       // [B, 8]
+    float* __restrict__ sel_wts_base,         // [B, 8]
+    int32_t* __restrict__ exp_counts,         // [128]
+    int32_t* __restrict__ exp_toks,           // [128, 64]
+    int32_t* __restrict__ exp_pairs,          // [128, 64]
+    int32_t* __restrict__ active_exps,        // [128]
+    int32_t B) {
+    pdl_wait();
+    pdl_trigger();
+    __shared__ int smem_ids[8][8];
+    __shared__ float smem_ps[8][8];
+    __shared__ int32_t smem_sel[64];
+    __shared__ int32_t sm_wcnt[4];
+    const int tid = threadIdx.x;
+    const int warp = tid >> 5;
+    const int lane = tid & 31;
+    if (warp < B) {
+        router_topk8_row(logits128_base, bias128, sel_ids_base, sel_wts_base, smem_ids[warp],
+                         smem_ps[warp], warp, lane);
+        if (lane < 8) smem_sel[warp * 8 + lane] = smem_ids[warp][lane];
+    }
+    __syncthreads();
+    if (tid >= 128) return;
+
+    const int ex = tid;
+    const int total_pairs = B * 8;
+    int cnt = 0;
+    int32_t* dst_tok = exp_toks + ex * 64;
+    int32_t* dst_pair = exp_pairs + ex * 64;
+    for (int p = 0; p < total_pairs; ++p) {
+        if (smem_sel[p] == ex) {
+            dst_tok[cnt] = p >> 3;
+            dst_pair[cnt] = p;
+            ++cnt;
+        }
+    }
+    exp_counts[ex] = cnt;
+
+    const bool active = (cnt > 0);
+    const unsigned mask = __ballot_sync(0xffffffffu, active);
+    if (lane == 0) {
+        sm_wcnt[warp] = __popc(mask);
+    }
+    // Only the 128 expert threads remain: named barrier 1 instead of `__syncthreads()`.
+    asm volatile("bar.sync 1, 128;" ::: "memory");
+
+    int base = 0;
+    #pragma unroll
+    for (int w = 0; w < 4; ++w) {
+        if (w < warp) base += sm_wcnt[w];
+    }
+    const int total_active = sm_wcnt[0] + sm_wcnt[1] + sm_wcnt[2] + sm_wcnt[3];
+    if (active) {
+        const int dst = base + __popc(mask & ((1u << lane) - 1u));
+        active_exps[dst] = ex;
+    }
+    if (total_active + ex < 128) {
+        active_exps[total_active + ex] = -1;
+    }
+}
+
 // Active-Expert Register-Cached Half-Warp NVFP4 Gate/Up + Fused `Q8_16` Epilogue (`1 <= B <= 8`):
 // `Grid: (72, min(128, B * 8))`, `Block: 512` (`2` CTAs/SM = `32` warps/SM, `544 B` SMEM, `120 KiB` L1!).
 // Loads `w13` weights ONCE into registers per active expert and reuses across all `t = 0 .. cnt - 1` tokens,
@@ -12189,6 +12331,56 @@ extern "C" __global__ void ink2_moe_combine_top8_vec4_b(
         sum.w = __fmaf_rn(y.w, wk, sum.w);
     }
     moe_out4[static_cast<size_t>(b) * 576u + d4] = sum;
+}
+
+// Speculative verify: `ink2_moe_combine_top8_vec4_b` + the MLP `ink2_short_conv4_b` (no dynamic
+// taps, residual add into `cur`) per channel in one launch. The top-8 sum keeps the `k = 0..7`
+// FMA order per channel and the conv step is the same `eval_conv4_step`, so both outputs are
+// bit-identical to the two kernels. `Grid (ceil(D / 256), 1)`, `Block 256`.
+extern "C" __global__ void ink2_moe_combine_conv4_b(
+    const float* __restrict__ pair_y,     // [B * 8, D]
+    const float* __restrict__ sel_wts,    // [B, 8]
+    float* __restrict__ moe_out,          // [B, D]
+    const float4* __restrict__ w_conv4,   // [D]
+    float* __restrict__ hist3,            // [D * 3]
+    float* cur,                           // [B, D] residual in, conv output out
+    float* __restrict__ seq_out,          // nullable (`[3 + B, D]`)
+    int32_t B) {
+    pdl_wait();
+    pdl_trigger();
+    const int c = blockIdx.x * blockDim.x + threadIdx.x;
+    if (c >= kD) return;
+    float* h = hist3 + c * 3;
+    float h0 = h[0];
+    float h1 = h[1];
+    float h2 = h[2];
+    if (seq_out != nullptr) {
+        seq_out[c] = h0;
+        seq_out[kD + c] = h1;
+        seq_out[2 * kD + c] = h2;
+    }
+    const float4 w = w_conv4[c];
+    const float4 no_dyn = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+    for (int b = 0; b < B; ++b) {
+        float x = 0.0f;
+        #pragma unroll
+        for (int k = 0; k < 8; ++k) {
+            x = __fmaf_rn(pair_y[(static_cast<size_t>(b) * 8u + k) * kD + c], sel_wts[b * 8 + k], x);
+        }
+        moe_out[static_cast<size_t>(b) * kD + c] = x;
+        if (seq_out != nullptr) {
+            seq_out[static_cast<size_t>(3 + b) * kD + c] = x;
+        }
+        const float res = cur[static_cast<size_t>(b) * kD + c];
+        const float y = eval_conv4_step(w, h0, h1, h2, x, 0, no_dyn, 1, res);
+        h0 = h1;
+        h1 = h2;
+        h2 = x;
+        cur[static_cast<size_t>(b) * kD + c] = y;
+    }
+    h[0] = h0;
+    h[1] = h1;
+    h[2] = h2;
 }
 
 // 18.9 `0-ULP` Multi-Query (`n_q = 1..4`) `100%` Occupancy (`<= 40` regs, `48` warps/SM) `float4` `depth_mix`
