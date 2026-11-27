@@ -28,10 +28,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = env::args().skip(1).collect();
     let [mode, shard, offset, size, code_out, scale_out] = args.as_slice() else {
         return Err(
-            "expected control|refine SHARD BYTE_OFFSET ELEMENTS CODES_OUT SCALES_OUT".into(),
+            "expected control|refine|rate SHARD BYTE_OFFSET ELEMENTS CODES_OUT SCALES_OUT".into(),
         );
     };
-    if !matches!(mode.as_str(), "control" | "refine")
+    if !matches!(mode.as_str(), "control" | "refine" | "rate")
         || Path::new(code_out).exists()
         || Path::new(scale_out).exists()
     {
@@ -48,6 +48,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut codes = vec![0; size];
     let mut scales = vec![0; size / 64 * 4];
     pack_q8_rows(&source, 64, &mut codes, &mut scales);
+    // Cross entropy under the parent tensor's code histogram. Pseudocounts keep
+    // previously unseen bytes finite. Each block has the same 64-symbol length.
+    let mut histogram = [1u64; 256];
+    if mode == "rate" {
+        for &value in &codes {
+            histogram[value as usize] += 1;
+        }
+    }
+    let symbol_cost = histogram.map(|count| -(count as f64).log2());
+    let cost = |bytes: &[u8]| bytes.iter().map(|&q| symbol_cost[q as usize]).sum::<f64>();
     let mut old_error = 0.;
     let mut new_error = 0.;
     let mut counts = [0u64; 5];
@@ -69,8 +79,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut best_scale = f32::from_le_bytes(word.try_into()?);
         let mut best = error(&w, codes, best_scale);
         old_error += best;
+        let original_error = best;
+        let mut best_cost = if mode == "rate" { cost(codes) } else { 0. };
         let mut choice = 0;
-        if mode == "refine" && peak != 0 {
+        if mode != "control" && peak != 0 {
             for (i, offset) in [1, 2, 4, 8].iter().enumerate() {
                 let cap_bits = peak + offset;
                 if cap_bits >= 0x7f80 {
@@ -81,7 +93,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let inv = 127. / cap;
                 let trial = w.map(|v| (v * inv).round().clamp(-127., 127.) as i8 as u8);
                 let err = error(&w, &trial, scale);
-                if err < best {
+                let trial_cost = if mode == "rate" { cost(&trial) } else { 0. };
+                let improves = if mode == "rate" {
+                    err <= original_error
+                        && (trial_cost < best_cost || (trial_cost == best_cost && err < best))
+                } else {
+                    err < best
+                };
+                if improves {
+                    best_cost = trial_cost;
                     best = err;
                     best_scale = scale;
                     codes.copy_from_slice(&trial);
