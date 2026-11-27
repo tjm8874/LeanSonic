@@ -878,6 +878,12 @@ fn cmd_bench(args: &[String]) -> Result<(), String> {
                     acc_pct,
                     mean_step
                 );
+                if gpu.spec_copy_rounds > 0 {
+                    println!(
+                        "[run {run_idx}] context-copy rounds: {}/{}",
+                        gpu.spec_copy_rounds, gpu.spec_verify_steps
+                    );
+                }
             } else {
                 println!(
                     "[run {run_idx}] generated {n_gen} tokens: {:.2} ms ({:.2} ms/tok, {:.1} tok/s)",

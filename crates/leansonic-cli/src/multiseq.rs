@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use leansonic_core::inkling2_gpu::Inkling2GpuEngine;
-use leansonic_core::inkling2_mtp::SuffixDrafter;
+use leansonic_core::inkling2_mtp::{spec_copy_match, ContextCopyIndex, SuffixDrafter};
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let mut dir = None;
@@ -126,18 +126,35 @@ pub fn run(args: &[String]) -> Result<(), String> {
     } else {
         // `--spec K`: suffix (n-gram) drafts per sequence, verified for all sequences in
         // shared `verify_round`s of at most `--round` rows (#107 stage 3).
+        let mut copy_hist: Vec<Vec<u32>> = prompts.clone();
+        let mut copy_idx: Vec<ContextCopyIndex> = (0..seqs)
+            .map(|_| ContextCopyIndex::new(if dspark { spec_copy_match() } else { 0 }))
+            .collect();
+        let mut copy_rounds = 0usize;
         loop {
             let mut runs: Vec<(usize, Vec<u32>)> = Vec::new();
             let mut rows = 0usize;
             // DSpark: all sequences draft concurrently (`draft_for_seqs`).
             let mut dsp: Vec<Vec<u32>> = vec![Vec::new(); seqs];
             if dspark {
+                // A sequence repeating its own context copies it instead of drafting (#177).
+                for s in (0..seqs).filter(|&s| round[s].len() < gen) {
+                    while copy_hist[s].len() < prompts[s].len() + round[s].len() - 1 {
+                        let i = copy_hist[s].len() - prompts[s].len();
+                        copy_hist[s].push(round[s][i]);
+                    }
+                    let k = spec.min(gen - round[s].len() - 1);
+                    dsp[s] = copy_idx[s].run(&copy_hist[s], cur3[s], k);
+                    copy_rounds += usize::from(!dsp[s].is_empty());
+                }
                 let reqs: Vec<(usize, u32, usize)> = (0..seqs)
-                    .filter(|&s| round[s].len() < gen)
+                    .filter(|&s| round[s].len() < gen && dsp[s].is_empty())
                     .map(|s| (s, cur3[s], spec.min(gen - round[s].len() - 1)))
                     .collect();
                 let td = Instant::now();
-                let drafts = if serial_drafts {
+                let drafts = if reqs.is_empty() {
+                    Vec::new()
+                } else if serial_drafts {
                     reqs.iter()
                         .map(|&(s, t, k)| eng.draft_for_seq(s, t, k))
                         .collect::<Result<Vec<_>, _>>()?
@@ -198,7 +215,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         for r in &mut round {
             r.truncate(gen);
         }
-        println!("spec: {verify_rounds} verify rounds, accepted {accepted}/{drafted} drafts, drafting {draft_ms:.1} ms");
+        println!("spec: {verify_rounds} verify rounds, accepted {accepted}/{drafted} drafts, drafting {draft_ms:.1} ms, {copy_rounds} context copies");
     }
     let ms3 = t1.elapsed().as_secs_f64() * 1e3;
     println!(

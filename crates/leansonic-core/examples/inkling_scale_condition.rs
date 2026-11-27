@@ -1,0 +1,66 @@
+//! Test whether the existing lossless scales can select smaller NVFP4 streams.
+use leansonic_core::inkling_mxfp8::{
+    pack_scale_split, unpack_mean8_scale_codes, unpack_nvfp4_trim_context, unpack_scale_split,
+};
+use std::error::Error;
+use std::fs::{self, File};
+use std::io::{Read, Seek, SeekFrom};
+use std::time::Instant;
+
+fn section(file: &mut File, offset: &str, length: &str) -> Result<Vec<u8>, Box<dyn Error>> {
+    file.seek(SeekFrom::Start(offset.parse()?))?;
+    let mut bytes = vec![0; length.parse()?];
+    file.read_exact(&mut bytes)?;
+    Ok(bytes)
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let mut args: Vec<_> = std::env::args().skip(1).collect();
+    let direct = args.last().is_some_and(|s| s == "--direct");
+    if direct {
+        args.pop();
+    }
+    let destination = if args.len() == 9 { args.pop() } else { None };
+    let [path, weight_off, weight_len, scale_off, scale_len, row_width, raw_len, cutoff_file] =
+        args.as_slice()
+    else {
+        return Err("expected shard, weight and scale slices, raw length and cutoff file".into());
+    };
+    let count: usize = raw_len.parse()?;
+    if count == 0 || !count.is_multiple_of(8 * 128) {
+        return Err("invalid original NVFP4 plane length".into());
+    }
+    let mut file = File::open(path)?;
+    let scale = unpack_mean8_scale_codes(
+        &section(&mut file, scale_off, scale_len)?,
+        count / 8,
+        row_width.parse()?,
+    )?;
+    let raw = unpack_nvfp4_trim_context(&section(&mut file, weight_off, weight_len)?, count)?;
+    let cuts: [u8; 128] = fs::read(cutoff_file)?
+        .try_into()
+        .map_err(|_| "expected 128 cutoff bytes")?;
+    let frame = if direct {
+        let mut bytes = Vec::new();
+        leansonic_core::inkling_mxfp8::pack_scale_direct(&raw, scale.clone(), &cuts, &mut bytes)?;
+        bytes
+    } else {
+        pack_scale_split(&raw, &scale, &cuts)?
+    };
+    let start = Instant::now();
+    let roundtrip = if direct {
+        leansonic_core::inkling_mxfp8::unpack_scale_direct(&frame, scale)?
+    } else {
+        unpack_scale_split(&frame, &scale)?
+    };
+    let elapsed = start.elapsed().as_secs_f64();
+    if roundtrip != raw {
+        return Err("changed a reconstructed byte".into());
+    }
+    if let Some(path) = destination {
+        use std::io::Write;
+        File::create_new(path)?.write_all(&frame)?;
+    }
+    println!("{} {} {:.6}", frame.len(), roundtrip.len(), elapsed);
+    Ok(())
+}
