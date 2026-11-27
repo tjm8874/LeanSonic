@@ -27,3 +27,5 @@ The loader materializes the two streams, scale codes and one decoded CPU weight 
 [GPU free-generation parity and the 25,500-position BF16 test](runtime.md) were verified with the fully assembled distribution.
 
 [Fresh-process loader time and peak host RSS](load.md) quantify the 8.131 s startup cost.
+
+[Direct decoding in model order](direct/README.md) builds the alternative 13,479,710,294-byte package and includes its BF16 checks.
