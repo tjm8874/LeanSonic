@@ -22,9 +22,10 @@ python3 assemble.py "$PARENT_MODEL" frames model
 
 Verify the hashes above. Use engine 38e8d57 to load the new weights. The 14 focused core tests cover interleaved expert scatter, truncated frames, invalid lengths and empty classes.
 
-For the CPU comparison, use a disposable checkout of 38e8d57. Expose the two readers for the benchmark by making unpack_class_scale_banks public in inkling_mxfp8.rs, and append the same function from ca0fff1 under the public name benchmark_prior_class_frame. Build host/bench.rs as a leansonic-core release example and copy it to the timing directory as bench. Run the preparation script against the two model directories and the fit report, then run the alternating comparisons.
+For the CPU comparison, copy the host scripts to a fresh timing directory. The build helper extracts 38e8d57 into a temporary directory and builds both readers into one executable. The source repository must contain both measured commits.
 
 ```sh
+python3 build.py "$ENGINE_REPO" ./bench
 python3 prepare.py "$PARENT_MODEL" "$NEW_MODEL" "$FIT_JSON"
 bash time.sh
 ```
