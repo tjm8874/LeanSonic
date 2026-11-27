@@ -848,6 +848,27 @@ fn bf16_to_f32(b: u16) -> f32 {
     f32::from_bits((b as u32) << 16)
 }
 
+fn read_control_weight<'a>(
+    st: &'a MappedSafeTensors,
+    name: &str,
+    shape: &[usize],
+) -> Result<std::borrow::Cow<'a, [u8]>, String> {
+    let count = shape.iter().product::<usize>();
+    match (st.get(name), st.get(&format!("{name}.bf16planes_v1"))) {
+        (Some(t), None) if t.dtype == "BF16" && t.shape == shape && t.data.len() == count * 2 => {
+            Ok(std::borrow::Cow::Borrowed(t.data))
+        }
+        (None, Some(t)) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+            crate::inkling_bf16_planes::unpack(t.data, count)
+                .map(std::borrow::Cow::Owned)
+                .map_err(|e| format!("{name}: {e}"))
+        }
+        _ => Err(format!(
+            "missing, ambiguous or invalid control weight {name}"
+        )),
+    }
+}
+
 fn concat_slices(slices: &[&[u8]]) -> Vec<u8> {
     let total: usize = slices.iter().map(|s| s.len()).sum();
     let mut out = Vec::with_capacity(total);
@@ -1637,8 +1658,7 @@ impl Inkling2GpuEngine {
             // Keep tiny router (`128 x 2304 = 576 KB`) in exact BF16 to prevent top-8 router tie flips!
             let router_w = DeviceBuf::from_host_bytes(
                 &ctx,
-                st.require(&format!("{pfx}mlp.gate.weight"), "BF16", &[N_EXP, D])
-                    .data,
+                &read_control_weight(&st, &format!("{pfx}mlp.gate.weight"), &[N_EXP, D])?,
             )?;
             let router_bias = DeviceBuf::from_host_bytes(
                 &ctx,
@@ -1646,44 +1666,30 @@ impl Inkling2GpuEngine {
                     .data,
             )?;
 
-            let ctrl_slices = |cname: &str| -> (&[u8], &[u8], &[u8]) {
-                (
-                    st.require(
-                        &format!("{pfx}controllers.{cname}.down_weight"),
-                        "BF16",
-                        &[RANK, 2 * D],
-                    )
-                    .data,
-                    st.require(
-                        &format!("{pfx}controllers.{cname}.gain_weight"),
-                        "BF16",
-                        &[D, RANK],
-                    )
-                    .data,
-                    st.require(
-                        &format!("{pfx}controllers.{cname}.forget_weight"),
-                        "BF16",
-                        &[D, RANK],
-                    )
-                    .data,
-                )
+            let ctrl_slices = |cname: &str| {
+                let prefix = format!("{pfx}controllers.{cname}.");
+                Ok::<_, String>([
+                    read_control_weight(&st, &format!("{prefix}down_weight"), &[RANK, 2 * D])?,
+                    read_control_weight(&st, &format!("{prefix}gain_weight"), &[D, RANK])?,
+                    read_control_weight(&st, &format!("{prefix}forget_weight"), &[D, RANK])?,
+                ])
             };
 
             let (ctrl3, ctrl_mlp) = if in_core {
-                let (da, ga, fa) = ctrl_slices("attn");
-                let (dk, gk, fk) = ctrl_slices("k");
-                let (dv, gv, fv) = ctrl_slices("v");
-                let (dm, gm, fm) = ctrl_slices("mlp");
+                let [da, ga, fa] = ctrl_slices("attn")?;
+                let [dk, gk, fk] = ctrl_slices("k")?;
+                let [dv, gv, fv] = ctrl_slices("v")?;
+                let [dm, gm, fm] = ctrl_slices("mlp")?;
                 (
                     Some(CtrlGpu {
-                        down: DeviceBuf::from_host_bytes(&ctx, &concat_slices(&[da, dk, dv]))?,
-                        gain: DeviceBuf::from_host_bytes(&ctx, &concat_slices(&[ga, gk, gv]))?,
-                        forget: DeviceBuf::from_host_bytes(&ctx, &concat_slices(&[fa, fk, fv]))?,
+                        down: DeviceBuf::from_host_bytes(&ctx, &concat_slices(&[&da, &dk, &dv]))?,
+                        gain: DeviceBuf::from_host_bytes(&ctx, &concat_slices(&[&ga, &gk, &gv]))?,
+                        forget: DeviceBuf::from_host_bytes(&ctx, &concat_slices(&[&fa, &fk, &fv]))?,
                     }),
                     Some(CtrlGpu {
-                        down: DeviceBuf::from_host_bytes(&ctx, dm)?,
-                        gain: DeviceBuf::from_host_bytes(&ctx, gm)?,
-                        forget: DeviceBuf::from_host_bytes(&ctx, fm)?,
+                        down: DeviceBuf::from_host_bytes(&ctx, &dm)?,
+                        gain: DeviceBuf::from_host_bytes(&ctx, &gm)?,
+                        forget: DeviceBuf::from_host_bytes(&ctx, &fm)?,
                     }),
                 )
             } else {

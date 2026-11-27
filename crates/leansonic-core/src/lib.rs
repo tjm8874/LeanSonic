@@ -10,6 +10,7 @@ pub mod engine;
 pub mod generated_spec;
 pub mod inkling2_gpu;
 pub mod inkling2_mtp;
+pub mod inkling_bf16_planes;
 pub mod inkling_embedding;
 pub mod inkling_mxfp8;
 pub mod inkling_q8_scales;

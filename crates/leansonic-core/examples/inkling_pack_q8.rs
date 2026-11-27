@@ -28,6 +28,21 @@ fn main() -> io::Result<()> {
         }
     }
     if let [mode, size] = args.as_slice() {
+        if matches!(mode.as_str(), "bf16planes-size" | "bf16planes-pack") {
+            let n: usize = size.parse().map_err(io::Error::other)?;
+            if n > 128 * 2304 * 2 {
+                return Err(io::Error::other("unexpected router/controller length"));
+            }
+            let mut raw = vec![0; n];
+            io::stdin().lock().read_exact(&mut raw)?;
+            let frame = leansonic_core::inkling_bf16_planes::pack(&raw)?;
+            if mode == "bf16planes-size" {
+                println!("{}", frame.len());
+            } else {
+                io::stdout().lock().write_all(&frame)?;
+            }
+            return Ok(());
+        }
         if matches!(mode.as_str(), "q8dict-size" | "q8dict-pack") {
             let n: usize = size.parse().map_err(io::Error::other)?;
             if n > 200_058 * 36 * 4 {
