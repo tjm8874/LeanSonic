@@ -7,6 +7,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use leansonic_core::inkling2_gpu::Inkling2GpuEngine;
+use leansonic_core::inkling2_mtp::SuffixDrafter;
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let mut dir = None;
@@ -15,6 +16,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut gen = 32usize;
     let mut round_rows = 8usize;
     let mut check = true;
+    let mut spec = 0usize;
     let mut i = 0;
     while i < args.len() {
         let v = args.get(i + 1).cloned();
@@ -24,6 +26,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             "--seqs" => seqs = v.and_then(|s| s.parse().ok()).ok_or("bad --seqs")?,
             "--gen" => gen = v.and_then(|s| s.parse().ok()).ok_or("bad --gen")?,
             "--round" => round_rows = v.and_then(|s| s.parse().ok()).ok_or("bad --round")?,
+            "--spec" => spec = v.and_then(|s| s.parse().ok()).ok_or("bad --spec")?,
             "--no-check" => {
                 check = false;
                 i += 1;
@@ -97,15 +100,70 @@ pub fn run(args: &[String]) -> Result<(), String> {
         round.push(vec![tok]);
     }
     let t1 = Instant::now();
-    for _ in 1..gen {
-        for chunk in (0..seqs).collect::<Vec<_>>().chunks(round_rows) {
-            let toks: Vec<u32> = chunk.iter().map(|&s| cur3[s]).collect();
-            let next = eng.decode_round(chunk, &toks)?;
-            for (k, &s) in chunk.iter().enumerate() {
-                cur3[s] = next[k];
-                round[s].push(next[k]);
+    let (mut drafted, mut accepted, mut verify_rounds) = (0usize, 0usize, 0usize);
+    if spec == 0 {
+        for _ in 1..gen {
+            for chunk in (0..seqs).collect::<Vec<_>>().chunks(round_rows) {
+                let toks: Vec<u32> = chunk.iter().map(|&s| cur3[s]).collect();
+                let next = eng.decode_round(chunk, &toks)?;
+                for (k, &s) in chunk.iter().enumerate() {
+                    cur3[s] = next[k];
+                    round[s].push(next[k]);
+                }
             }
         }
+    } else {
+        // `--spec K`: suffix (n-gram) drafts per sequence, verified for all sequences in
+        // shared `verify_round`s of at most `--round` rows (#107 stage 3).
+        loop {
+            let mut runs: Vec<(usize, Vec<u32>)> = Vec::new();
+            let mut rows = 0usize;
+            for s in 0..seqs {
+                let rem = gen.saturating_sub(round[s].len());
+                if rem == 0 {
+                    continue;
+                }
+                let mut hist = prompts[s].clone();
+                hist.extend_from_slice(&round[s][..round[s].len() - 1]);
+                let mut run = vec![cur3[s]];
+                run.extend(SuffixDrafter::draft_from_history(
+                    &hist,
+                    cur3[s],
+                    spec.min(rem - 1),
+                ));
+                if rows + run.len() > round_rows {
+                    if rows + 1 > round_rows {
+                        break;
+                    }
+                    run.truncate(round_rows - rows);
+                }
+                rows += run.len();
+                runs.push((s, run));
+            }
+            if runs.is_empty() {
+                break;
+            }
+            let refs: Vec<(usize, &[u32])> = runs.iter().map(|(s, r)| (*s, r.as_slice())).collect();
+            let preds = eng.verify_round(&refs)?;
+            verify_rounds += 1;
+            let mut keep = Vec::with_capacity(runs.len());
+            for ((s, run), p) in runs.iter().zip(&preds) {
+                let mut a = 0;
+                while a + 1 < run.len() && p[a] == run[a + 1] {
+                    a += 1;
+                }
+                drafted += run.len() - 1;
+                accepted += a;
+                round[*s].extend_from_slice(&p[..=a]);
+                cur3[*s] = p[a];
+                keep.push(a + 1);
+            }
+            eng.commit_verify_round(&keep)?;
+        }
+        for r in &mut round {
+            r.truncate(gen);
+        }
+        println!("spec: {verify_rounds} verify rounds, accepted {accepted}/{drafted} drafts");
     }
     let ms3 = t1.elapsed().as_secs_f64() * 1e3;
     println!(

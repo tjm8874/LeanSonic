@@ -53,6 +53,8 @@ pub const MAX_SPEC_TOKENS: usize = 8;
 pub const TAP_SLOTS: [usize; 3] = [4, 28, 46];
 const CONV_SEQ_STEPS: usize = MAX_SPEC_TOKENS + 3; // 11
 const CONV_SEQ_SLOT_FLOATS: usize = (1024 + 1024 + D + D) * CONV_SEQ_STEPS; // 6656 * 11 = 73,216
+/// Verify-round `short_conv4` inputs per slot: `(1024 + 1024 + D + D) * MAX_MS_ROWS` floats.
+const CONV_XREC_SLOT_FLOATS: usize = (1024 + 1024 + D + D) * MAX_MS_ROWS;
 const QRGS_ROWS: usize = N_HEAD * HD + N_REL * N_HEAD + N_HEAD * HD + N_HEAD; // 6552
 const SWA_K_OFFSET: usize = QRGS_ROWS; // 6552
 const SWA_V_OFFSET: usize = QRGS_ROWS + N_KV * HD; // 7576
@@ -492,6 +494,9 @@ struct KernelFns {
     gqa_attn_combine_q8_dyn_ms: Option<CUfunction>,
     short_conv4_ms: Option<CUfunction>,
     short_conv4_save_ms: Option<CUfunction>,
+    short_conv4_vms: Option<CUfunction>,
+    short_conv4_save_vms: Option<CUfunction>,
+    conv_commit_ms: Option<CUfunction>,
     argmax_b: CUfunction,
     conv_rewind: CUfunction,
     q8_dp4a_gemm_ktiled: CUfunction,
@@ -763,6 +768,13 @@ pub struct Inkling2GpuEngine {
     d_ms_rows: DeviceBuf,
     d_ms_tokens: DeviceBuf,
     ms_rows: std::cell::Cell<CUdeviceptr>,
+    /// Verify rounds (#107 stage 3): row index inside its sequence, kept-prefix runs, and the
+    /// recorded `short_conv4` inputs (`[N_SLOT][6656 * MAX_MS_ROWS]`, allocated on first use).
+    d_ms_j: DeviceBuf,
+    d_ms_runs: DeviceBuf,
+    d_ms_xrec: Option<DeviceBuf>,
+    ms_xrec: std::cell::Cell<CUdeviceptr>,
+    ms_verify_runs: Vec<(usize, usize)>,
     /// Captured decode rounds per row count (captured on a row count's second use).
     ms_graphs: std::collections::HashMap<usize, CapturedGraphExec>,
     ms_round_hits: std::collections::HashMap<usize, u32>,
@@ -1910,6 +1922,8 @@ impl Inkling2GpuEngine {
             && ctx.api.cuLaunchKernelEx.is_some()
             && fns.depth_mix_inv.is_some();
         let d_ms_rows = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 8)?;
+        let d_ms_j = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 4)?;
+        let d_ms_runs = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 16)?;
         let d_ms_tokens = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 4)?;
         let mut eng = Self {
             d_token_in: DeviceBuf::alloc_zeroed(&ctx, 4)?,
@@ -1984,6 +1998,11 @@ impl Inkling2GpuEngine {
             d_ms_rows,
             d_ms_tokens,
             ms_rows: std::cell::Cell::new(0),
+            d_ms_j,
+            d_ms_runs,
+            d_ms_xrec: None,
+            ms_xrec: std::cell::Cell::new(0),
+            ms_verify_runs: Vec::new(),
             ms_graphs: std::collections::HashMap::new(),
             ms_round_hits: std::collections::HashMap::new(),
             ms_graph: std::env::var("LEANSONIC_MS_GRAPH").map_or(true, |v| v != "0"),
@@ -2513,6 +2532,9 @@ impl Inkling2GpuEngine {
             gqa_attn_combine_q8_dyn_ms: get_fn("ink2_gqa_attn_combine_q8_dyn_ms").ok(),
             short_conv4_ms: get_fn("ink2_short_conv4_ms").ok(),
             short_conv4_save_ms: get_fn("ink2_short_conv4_save_ms").ok(),
+            short_conv4_vms: get_fn("ink2_short_conv4_vms").ok(),
+            short_conv4_save_vms: get_fn("ink2_short_conv4_save_vms").ok(),
+            conv_commit_ms: get_fn("ink2_conv_commit_ms").ok(),
             argmax_b: get_fn("ink2_argmax_b")?,
             conv_rewind: get_fn("ink2_conv_rewind")?,
             q8_dp4a_gemm_ktiled: get_fn("ink2_q8_dp4a_gemm_ktiled")?,
@@ -4823,6 +4845,190 @@ impl Inkling2GpuEngine {
         Ok(out_i32.into_iter().map(|v| v as u32).collect())
     }
 
+    /// Speculative verify round over several sequences (#107 stage 3). `runs[r] = (seq, tokens)`
+    /// feeds `tokens` (the last accepted token, then drafts) to `seq` at consecutive positions;
+    /// all runs share one batched pass of at most `MAX_MS_ROWS` rows. Returns every row's greedy
+    /// token, which equals what B = 1 decode steps of that sequence would produce. Positions and
+    /// `short_conv4` histories do not move until `commit_verify_round` keeps each run's
+    /// accepted prefix.
+    pub fn verify_round(&mut self, runs: &[(usize, &[u32])]) -> Result<Vec<Vec<u32>>, String> {
+        let b_len: usize = runs.iter().map(|r| r.1.len()).sum();
+        let max_rows = MAX_MS_ROWS.min(self.prefill.capacity);
+        if self.n_seqs < 2 || runs.is_empty() || b_len > max_rows {
+            return Err(format!(
+                "verify_round: LEANSONIC_SEQS > 1 and 1..={max_rows} rows"
+            ));
+        }
+        if self.attn_split_g == 0 || self.drafter.is_some() {
+            return Err("verify_round needs split-KV attention and --spec 0".into());
+        }
+        if self.fns.short_conv4_vms.is_none() || self.fns.conv_commit_ms.is_none() {
+            return Err("cubin lacks ink2_short_conv4_vms / ink2_conv_commit_ms".into());
+        }
+        if self.d_ms_xrec.is_none() {
+            self.d_ms_xrec = Some(DeviceBuf::alloc_zeroed(
+                &self.ctx,
+                N_SLOT * CONV_XREC_SLOT_FLOATS * 4,
+            )?);
+        }
+        let mut rows = Vec::with_capacity(b_len * 2);
+        let mut js = Vec::with_capacity(b_len);
+        let mut tokens = Vec::with_capacity(b_len);
+        for (i, &(s, toks)) in runs.iter().enumerate() {
+            if s >= self.n_seqs || runs[..i].iter().any(|r| r.0 == s) || toks.is_empty() {
+                return Err(format!("verify_round: bad, repeated or empty sequence {s}"));
+            }
+            let pos = if s == self.cur_seq {
+                self.host_pos
+            } else {
+                self.seq_pos[s]
+            };
+            if pos + toks.len() > self.max_ctx {
+                return Err(format!("verify_round: sequence {s} would pass max_ctx"));
+            }
+            for (j, &t) in toks.iter().enumerate() {
+                rows.push((pos + j) as i32);
+                rows.push(s as i32);
+                js.push(j as i32);
+                tokens.push(t);
+            }
+        }
+        self.ctx.bind_current()?;
+        unsafe {
+            for (dst, src, bytes, what) in [
+                (
+                    self.d_ms_rows.ptr,
+                    rows.as_ptr().cast::<c_void>(),
+                    b_len * 8,
+                    "HtoD(ms_rows)",
+                ),
+                (self.d_ms_j.ptr, js.as_ptr().cast(), b_len * 4, "HtoD(ms_j)"),
+                (
+                    self.d_ms_tokens.ptr,
+                    tokens.as_ptr().cast(),
+                    b_len * 4,
+                    "HtoD(ms_tokens)",
+                ),
+            ] {
+                check_cu(
+                    (self.ctx.api.cuMemcpyHtoDAsync_v2)(dst, src, bytes, self.ctx.compute_stream),
+                    what,
+                )?;
+            }
+        }
+        self.ms_rows.set(self.d_ms_rows.ptr);
+        self.ms_xrec
+            .set(self.d_ms_xrec.as_ref().map_or(0, |b| b.ptr));
+        let r = self.enqueue_batch_step_impl(
+            self.ctx.compute_stream,
+            self.d_ms_tokens.ptr,
+            b_len,
+            BatchHeadMode::AllHeads,
+            false,
+        );
+        self.ms_rows.set(0);
+        self.ms_xrec.set(0);
+        r?;
+        self.ctx.sync_compute()?;
+        let mut out_i32 = vec![0i32; b_len];
+        unsafe {
+            check_cu(
+                (self.ctx.api.cuMemcpyDtoH_v2)(
+                    out_i32.as_mut_ptr().cast(),
+                    self.d_spec_tokens_out.ptr,
+                    b_len * 4,
+                ),
+                "DtoH(ms_tokens_out)",
+            )?;
+        }
+        self.ms_verify_runs = runs.iter().map(|r| (r.0, r.1.len())).collect();
+        let mut out = Vec::with_capacity(runs.len());
+        let mut b = 0;
+        for &(_, toks) in runs {
+            out.push(
+                out_i32[b..b + toks.len()]
+                    .iter()
+                    .map(|&v| v as u32)
+                    .collect(),
+            );
+            b += toks.len();
+        }
+        Ok(out)
+    }
+
+    /// Keeps the first `keep[r]` rows (`1..=len`) of each run of the last `verify_round`:
+    /// advances those sequences' positions and sets their `short_conv4` histories to what
+    /// `keep[r]` B = 1 decode steps would have left. Later rows' KV entries are overwritten
+    /// by the next rounds, as in single-sequence speculative decoding.
+    pub fn commit_verify_round(&mut self, keep: &[usize]) -> Result<(), String> {
+        let runs = std::mem::take(&mut self.ms_verify_runs);
+        if keep.len() != runs.len() {
+            return Err("commit_verify_round: one keep count per run".into());
+        }
+        let mut table = Vec::with_capacity(runs.len() * 4);
+        let mut first = 0usize;
+        for (&(s, len), &k) in runs.iter().zip(keep) {
+            if k == 0 || k > len {
+                return Err(format!("commit_verify_round: keep {k} outside 1..={len}"));
+            }
+            table.extend_from_slice(&[first as i32, k as i32, s as i32, 0]);
+            first += len;
+        }
+        let f = self
+            .fns
+            .conv_commit_ms
+            .ok_or("cubin lacks ink2_conv_commit_ms")?;
+        let xrec = self
+            .d_ms_xrec
+            .as_ref()
+            .ok_or("commit_verify_round without a round")?;
+        unsafe {
+            check_cu(
+                (self.ctx.api.cuMemcpyHtoDAsync_v2)(
+                    self.d_ms_runs.ptr,
+                    table.as_ptr().cast(),
+                    table.len() * 4,
+                    self.ctx.compute_stream,
+                ),
+                "HtoD(ms_runs)",
+            )?;
+        }
+        let mut p_x = xrec.ptr;
+        let mut p_h = self.d_conv_hist_ptrs.ptr;
+        let mut p_r = self.d_ms_runs.ptr;
+        let mut stride = MAX_MS_ROWS as i32;
+        let mut args: [*mut c_void; 4] = [
+            (&mut p_x as *mut _) as *mut c_void,
+            (&mut p_h as *mut _) as *mut c_void,
+            (&mut p_r as *mut _) as *mut c_void,
+            (&mut stride as *mut _) as *mut c_void,
+        ];
+        self.launch_smem_3d(
+            self.ctx.compute_stream,
+            f,
+            (9, (N_SLOT * 4) as u32, runs.len() as u32),
+            256,
+            0,
+            &mut args,
+        )?;
+        self.ctx.sync_compute()?;
+        for (&(s, _), &k) in runs.iter().zip(keep) {
+            if s == self.cur_seq {
+                self.host_pos += k;
+            } else {
+                self.seq_pos[s] += k;
+            }
+        }
+        let pos = self.host_pos as i32;
+        unsafe {
+            check_cu(
+                (self.ctx.api.cuMemcpyHtoD_v2)(self.d_pos.ptr, (&pos as *const i32).cast(), 4),
+                "HtoD(pos)",
+            )?;
+        }
+        Ok(())
+    }
+
     /// Benchmark-only: move the decode position to `pos` without prefilling the rows in between.
     /// Those KV rows hold whatever the cache contains (zeros after load), so the logits are not
     /// meaningful, but each decode step reads exactly as many KV rows as a real `pos`-token
@@ -5456,6 +5662,8 @@ impl Inkling2GpuEngine {
         b_len: usize,
         has_dyn: i32,
         do_res_add: i32,
+        slot_idx: usize,
+        kind_off: usize,
     ) -> Result<(), String> {
         let (mut p_cur, mut ins, mut p_w, mut p_dyn, mut df4, mut p_hist) =
             (cur, in_stride, w, dyn_ptr, dyn_f4_stride, hist_seq0);
@@ -5465,6 +5673,65 @@ impl Inkling2GpuEngine {
         let (mut ch, mut hd, mut dr) = (channels, has_dyn, do_res_add);
         let mut hsf = (hist_seq_bytes / 4) as i32;
         let grid = ((channels as u32).div_ceil(256), b_len as u32);
+        let xrec_base = self.ms_xrec.get();
+        if xrec_base != 0 {
+            // Verify round: rows read earlier rows of their sequence; histories are committed
+            // afterwards (`commit_verify_round`).
+            let mut p_j = self.d_ms_j.ptr;
+            let mut p_x = xrec_base
+                + ((slot_idx * CONV_XREC_SLOT_FLOATS + kind_off * MAX_MS_ROWS) * 4) as u64;
+            if save_prev != 0 {
+                let f = self
+                    .fns
+                    .short_conv4_save_vms
+                    .ok_or("cubin lacks ink2_short_conv4_save_vms")?;
+                let mut args: [*mut c_void; 18] = [
+                    (&mut p_cur as *mut _) as *mut c_void,
+                    (&mut ins as *mut _) as *mut c_void,
+                    (&mut p_w as *mut _) as *mut c_void,
+                    (&mut p_dyn as *mut _) as *mut c_void,
+                    (&mut df4 as *mut _) as *mut c_void,
+                    (&mut p_hist as *mut _) as *mut c_void,
+                    (&mut p_out as *mut _) as *mut c_void,
+                    (&mut outs as *mut _) as *mut c_void,
+                    (&mut p_res as *mut _) as *mut c_void,
+                    (&mut ress as *mut _) as *mut c_void,
+                    (&mut p_save as *mut _) as *mut c_void,
+                    (&mut p_rows as *mut _) as *mut c_void,
+                    (&mut p_j as *mut _) as *mut c_void,
+                    (&mut p_x as *mut _) as *mut c_void,
+                    (&mut ch as *mut _) as *mut c_void,
+                    (&mut hd as *mut _) as *mut c_void,
+                    (&mut dr as *mut _) as *mut c_void,
+                    (&mut hsf as *mut _) as *mut c_void,
+                ];
+                return self.launch(stream, f, grid, 256, &mut args);
+            }
+            let f = self
+                .fns
+                .short_conv4_vms
+                .ok_or("cubin lacks ink2_short_conv4_vms")?;
+            let mut args: [*mut c_void; 17] = [
+                (&mut p_cur as *mut _) as *mut c_void,
+                (&mut ins as *mut _) as *mut c_void,
+                (&mut p_w as *mut _) as *mut c_void,
+                (&mut p_dyn as *mut _) as *mut c_void,
+                (&mut df4 as *mut _) as *mut c_void,
+                (&mut p_hist as *mut _) as *mut c_void,
+                (&mut p_out as *mut _) as *mut c_void,
+                (&mut outs as *mut _) as *mut c_void,
+                (&mut p_res as *mut _) as *mut c_void,
+                (&mut ress as *mut _) as *mut c_void,
+                (&mut p_rows as *mut _) as *mut c_void,
+                (&mut p_j as *mut _) as *mut c_void,
+                (&mut p_x as *mut _) as *mut c_void,
+                (&mut ch as *mut _) as *mut c_void,
+                (&mut hd as *mut _) as *mut c_void,
+                (&mut dr as *mut _) as *mut c_void,
+                (&mut hsf as *mut _) as *mut c_void,
+            ];
+            return self.launch(stream, f, grid, 256, &mut args);
+        }
         if save_prev != 0 {
             let f = self
                 .fns
@@ -5910,6 +6177,8 @@ impl Inkling2GpuEngine {
                     b_len,
                     i32::from(l.global),
                     0,
+                    slot_idx,
+                    seq_off_floats / CONV_SEQ_STEPS,
                 )?;
                 continue;
             }
@@ -6355,6 +6624,8 @@ impl Inkling2GpuEngine {
                 b_len,
                 0,
                 i32::from(!is_block_start),
+                slot_idx,
+                2048,
             )?;
             true
         } else {
@@ -7519,6 +7790,8 @@ impl Inkling2GpuEngine {
                 b_len,
                 0,
                 1,
+                slot_idx,
+                4352,
             )?;
         } else if record_seq
             || !self.enqueue_short_conv4_par_b(
