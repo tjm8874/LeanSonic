@@ -12,3 +12,17 @@ LeanSonic uses 775,134 fewer distribution bytes. Prefill takes 121.530 vs 529.65
 ## Reproduction
 
 Use the original IQ3_XXS and bounded parent hashes in timing.json.gz. Build [the traced fixed-token Rust and native examples](https://github.com/tjm8874/LeanSonic/tree/c30829e/docs/benchmarks/inkling-mixed-ternary-down/5070Ti/native-iq1) at LeanSonic d15b1d6 and Unsloth llama.cpp 8832860 respectively. Use the compiled sm_120a module and executable hashes below. Keep full-width gate/up and down, PDL and PDL_ALL enabled, MXFP8_DEVICE_U4=1 and MXFP8_DIRECT_ALL=1. Use the IQ3 model file in iq and the bounded package directory in model-path. Run the included forced.py for cycles 1 through 5 on an idle card with the GPU UUID in CUDA_VISIBLE_DEVICES. The native binary uses batch and microbatch 1,024. NVML samples per-process allocation approximately every 4 ms; peaks include loading. [Requests, executable and input hashes, traces and peaks](timing.json.gz) · [Matched runner](forced.py).
+
+
+## Prefill workspace and the VRAM gap
+
+A one-process pilot per setting used the same card, executable, 217-expert package and 1,024 + 32 fixed IDs. Each process ran one warmup and four measured requests. All 32 predictions match across settings. Observed process peaks can vary across process launches; the five-cycle default result above uses the maximum across ten LeanSonic processes.
+
+| Prefill cap | Prefill tok/s | Decode tok/s | Peak process GPU bytes |
+| --- | ---: | ---: | ---: |
+| default | 8,423.2 | 170.97 | 15,950,938,112 |
+| 512 | 5,962.1 | 170.91 | 15,634,268,160 |
+| 256 | 3,790.3 | 170.95 | 15,577,645,056 |
+| 64 | 1,365.4 | 171.00 | 15,521,021,952 |
+
+Capping the workspace at 512 saves 316,669,952 bytes versus the pilot default and costs about 29% of prefill throughput. Even at 64 the peak is above the native five-cycle maximum. Keep the default as the speed candidate. To reproduce, run the same LeanSonic fixed-token command once with each LEANSONIC_PREFILL_CHUNK setting, and unset it for default. [Pilot traces, timings and sampling counts](workspace-pilot.json).
