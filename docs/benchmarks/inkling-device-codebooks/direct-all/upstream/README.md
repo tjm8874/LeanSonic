@@ -7,6 +7,9 @@ Compare upstream e9daee8 (#157 and #171) with PR #160 at a1bf5e3. Each revision 
 | PRO4500 | 32 | 45.310 → 36.059 | -9.251 [-9.260, -9.241] | 400.105 → 373.876 | -26.229 [-26.390, -26.067] |
 | PRO4500 | 1024 | 194.886 → 176.794 | -18.092 [-18.125, -18.067] | 542.346 → 516.154 | -26.192 [-26.324, -26.031] |
 | PRO4500 | 2048 | 391.352 → 354.918 | -36.434 [-36.522, -36.357] | 566.721 → 540.677 | -26.044 [-26.167, -25.865] |
+| 5060Ti | 32 | 87.737 → 70.328 | -17.410 [-17.431, -17.385] | 698.967 → 642.957 | -56.010 [-56.099, -55.937] |
+| 5060Ti | 1024 | 400.783 → 366.532 | -34.251 [-34.317, -34.144] | 833.109 → 777.094 | -56.015 [-56.408, -55.623] |
+| 5060Ti | 2048 | 816.064 → 747.432 | -68.632 [-68.769, -68.445] | 855.724 → 799.740 | -55.984 [-56.402, -55.566] |
 
 Each GPU ran five paired ABBA/BAAB cycles (ten processes per arm). Four passes per process exercised all three input lengths. Phase times exclude the first pass. Every request reproduced the 64 greedy IDs, next ID and final digest of 200,058 finite FP32 logits for its prompt across both revisions. All 24 expert layers remained resident. The loader lines in each JSON are initialization snapshots.
 
