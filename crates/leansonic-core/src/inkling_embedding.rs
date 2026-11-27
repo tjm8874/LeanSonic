@@ -8,6 +8,39 @@ use std::mem::MaybeUninit;
 const TILE: usize = 128 * 1024;
 const COMMON: [u8; 7] = [63, 62, 61, 64, 60, 59, 58];
 
+/// Decode a BF16 lookup table, one index per weight, then exact BF16 escapes.
+pub fn unpack_lut8_embedding(frame: &[u8], dst: &mut [MaybeUninit<u8>]) -> Result<(), String> {
+    if dst.is_empty() || !dst.len().is_multiple_of(2) {
+        return Err("invalid lookup embedding dimensions".into());
+    }
+    let (table, body) = frame
+        .split_first_chunk::<512>()
+        .ok_or("truncated embedding lookup table")?;
+    let values = table.as_chunks::<2>().0;
+    let (indices, literals) = body
+        .split_at_checked(dst.len() / 2)
+        .ok_or("truncated embedding indices")?;
+    let (literal_words, trailing) = literals.as_chunks::<2>();
+    let finite = |word: &[u8; 2]| u16::from_le_bytes(*word) & 0x7f80 != 0x7f80;
+    if !trailing.is_empty() || !values.iter().all(finite) || !literal_words.iter().all(finite) {
+        return Err("invalid BF16 embedding table or literals".into());
+    }
+    let mut escapes = literal_words.iter();
+    for (&index, out) in indices.iter().zip(dst.as_chunks_mut::<2>().0) {
+        let &[lo, hi] = if index == 255 {
+            escapes.next().ok_or("missing embedding literal")?
+        } else {
+            &values[usize::from(index)]
+        };
+        out[0].write(lo);
+        out[1].write(hi);
+    }
+    if escapes.next().is_some() {
+        return Err("unused embedding literals".into());
+    }
+    Ok(())
+}
+
 pub fn pack_embedding(
     mut input: impl Read,
     bytes: usize,
@@ -255,6 +288,29 @@ pub fn unpack_embedding(mut data: &[u8], dst: &mut [MaybeUninit<u8>]) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn lookup_embedding_preserves_literal_bits_and_rejects_bad_frames() {
+        let mut frame = vec![0; 512];
+        frame[4..6].copy_from_slice(&0x3f80u16.to_le_bytes());
+        frame.extend_from_slice(&[255, 2, 255, 0, 0x34, 0xc1, 0, 0x80]);
+        let mut out = [MaybeUninit::uninit(); 8];
+        unpack_lut8_embedding(&frame, &mut out).unwrap();
+        // Success initializes the complete destination.
+        let bytes = out.map(|v| unsafe { v.assume_init() });
+        assert_eq!(bytes, [0x34, 0xc1, 0x80, 0x3f, 0, 0x80, 0, 0]);
+        for length in [0, 511, 515, 516, 518, 519] {
+            assert!(unpack_lut8_embedding(&frame[..length], &mut out).is_err());
+        }
+        frame.extend_from_slice(&[0, 0]);
+        assert!(unpack_lut8_embedding(&frame, &mut out).is_err());
+        frame.truncate(520);
+        frame[516..518].copy_from_slice(&0x7f80u16.to_le_bytes());
+        assert!(unpack_lut8_embedding(&frame, &mut out).is_err());
+        frame[516..518].fill(0);
+        frame[0..2].copy_from_slice(&0xffc0u16.to_le_bytes());
+        assert!(unpack_lut8_embedding(&frame, &mut out).is_err());
+    }
+
     #[test]
     fn round_trip_all_bf16_patterns_and_partial_last_tile() {
         let raw: Vec<u8> = (0..65536u32 + 24)
