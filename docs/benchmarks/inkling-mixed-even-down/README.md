@@ -20,3 +20,9 @@ export LEANSONIC_MIXED_EVEN_UP=1 LEANSONIC_MIXED_EVEN_DOWN=1
 ```
 
 Keep both ternary flags disabled, FP16 KV, one sequence, context 8,192 and prefill workspace 1,024. For the diagnostic chunks use workspace 512, a separate row output per invocation, and compare the raw and mixed row files byte-for-byte within each prefill mode.
+
+## Full test split after integration with main
+
+[Integration commit bd048b8](https://github.com/tjm8874/LeanSonic/commit/bd048b8) combines the candidate with main cce6f21. On the WikiText test split the four runs (raw and packed on each of RTX PRO 4500 and RTX PRO 5000) produced the same ordered full-logit fingerprint file across all 25,500 positions. Mean KL was 0.0172238, worst KL 6.1395663, BF16 top-1 agreement 24,071/25,500 and PPL 7.128123. The worst row is chunk 2, position 478. The pre-integration 571-expert build measured a worst KL of 2.8585658. Use the integration commit when reproducing the new result. [Four score reports and whole-row digests](main-cross-gpu.json).
+
+For this split, use the observer and flags above with the full WikiText test reference and `--chunks 100`. To isolate the worst row, use `--start-chunk 2 --chunks 1`.

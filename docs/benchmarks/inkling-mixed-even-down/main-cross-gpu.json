@@ -1,0 +1,108 @@
+{
+  "source": "bd048b80a4af885dd15faac570b77d56ba5a0a23",
+  "package_sha256": {
+    "model-00001-of-00001.safetensors": {
+      "sha256": "fd69ae5cdbdb1eb8835bcbc2eae03493a178193ed0d1d2a6b8494d3e38ac45a8",
+      "bytes": 11484081296
+    },
+    "tiktoken/tokenizer.model": {
+      "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8",
+      "bytes": 3386494
+    }
+  },
+  "cards": {
+    "0": "NVIDIA RTX PRO 4500 Blackwell, 595.99.02",
+    "1": "NVIDIA RTX PRO 5000 72GB Blackwell, 595.99.02"
+  },
+  "splits": {
+    "test": {
+      "runs": {
+        "test-0-0": {
+          "scores": {
+            "chunks": 100,
+            "context": 512,
+            "rows": 25500,
+            "ppl": 7.128123421246044,
+            "ref_ppl": 7.064408191101908,
+            "mean_kld": 0.01722382971701655,
+            "median_kld": 0.007870187806128703,
+            "p99_kld": 0.14868429813484524,
+            "max_kld": 6.1395662820723125,
+            "start_chunk": 0,
+            "max_kld_chunk": 2,
+            "max_kld_position": 478,
+            "ref_floor_targets": 14,
+            "top1_matches": 24071,
+            "top1_agreement": 0.9439607843137255
+          },
+          "rows_sha256": "c937c689ee909fa0756ef216bfffa4e6d235e9f1812c950017f34c478433f9d5"
+        },
+        "test-0-1": {
+          "scores": {
+            "chunks": 100,
+            "context": 512,
+            "rows": 25500,
+            "ppl": 7.128123421246044,
+            "ref_ppl": 7.064408191101908,
+            "mean_kld": 0.01722382971701655,
+            "median_kld": 0.007870187806128703,
+            "p99_kld": 0.14868429813484524,
+            "max_kld": 6.1395662820723125,
+            "start_chunk": 0,
+            "max_kld_chunk": 2,
+            "max_kld_position": 478,
+            "ref_floor_targets": 14,
+            "top1_matches": 24071,
+            "top1_agreement": 0.9439607843137255
+          },
+          "rows_sha256": "c937c689ee909fa0756ef216bfffa4e6d235e9f1812c950017f34c478433f9d5"
+        },
+        "test-1-0": {
+          "scores": {
+            "chunks": 100,
+            "context": 512,
+            "rows": 25500,
+            "ppl": 7.128123421246044,
+            "ref_ppl": 7.064408191101908,
+            "mean_kld": 0.01722382971701655,
+            "median_kld": 0.007870187806128703,
+            "p99_kld": 0.14868429813484524,
+            "max_kld": 6.1395662820723125,
+            "start_chunk": 0,
+            "max_kld_chunk": 2,
+            "max_kld_position": 478,
+            "ref_floor_targets": 14,
+            "top1_matches": 24071,
+            "top1_agreement": 0.9439607843137255
+          },
+          "rows_sha256": "c937c689ee909fa0756ef216bfffa4e6d235e9f1812c950017f34c478433f9d5"
+        },
+        "test-1-1": {
+          "scores": {
+            "chunks": 100,
+            "context": 512,
+            "rows": 25500,
+            "ppl": 7.128123421246044,
+            "ref_ppl": 7.064408191101908,
+            "mean_kld": 0.01722382971701655,
+            "median_kld": 0.007870187806128703,
+            "p99_kld": 0.14868429813484524,
+            "max_kld": 6.1395662820723125,
+            "start_chunk": 0,
+            "max_kld_chunk": 2,
+            "max_kld_position": 478,
+            "ref_floor_targets": 14,
+            "top1_matches": 24071,
+            "top1_agreement": 0.9439607843137255
+          },
+          "rows_sha256": "c937c689ee909fa0756ef216bfffa4e6d235e9f1812c950017f34c478433f9d5"
+        }
+      },
+      "all_hashes_equal": true
+    }
+  },
+  "digests": [
+    "28a00a68fd037e42cd262c6a9196b61bf8c521d2c4bdbcc8ee71712463986081  cli",
+    "eccdd6d460d19d404cbf9fb19c4273dc021d00c2e63ebdd7ee24772044dfb04e  candidate.cubin"
+  ]
+}
