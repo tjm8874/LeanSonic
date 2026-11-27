@@ -10,7 +10,7 @@ The compact Inkling-2-Mini text package contains 10,192,158,720 bytes of packed 
 
 The new package saves 80,649,368 bytes (0.50%). We independently encoded every NVFP4 matrix, reopened the completed shard and decoded all 40 matrices against the original byte ranges. All 999 tensor payloads of the production-packed shard matched the independently assembled file. Two hosts produced the same shard SHA-256, `c0b42b8bf338a0690000e57668f03e9f2d27450c8187c89555165a4bf22588f4`.
 
-Compact storage increases startup time. On RTX 5060 Ti, the first complete cycle with both files fully resident in the OS page cache took about 5.5 s to load the baseline and 9.0 s to load the compressed package. All 64 greedy outputs matched. Each arm started a fresh CLI twice per cycle and ran three decode repeats per process. The measurement file includes the page residency of each run. Only complete cycles with 100% residency before every launch enter the warm summary. [Raw timings and per-matrix byte counts](inkling-nvfp4-code-storage.json)
+Compact storage increases startup time. On RTX 5060 Ti, 2 complete cycles with 100% file residency averaged 5.55 s to load the baseline and 8.92 s for the compressed package. Warm 64-step decode took 1331.17 and 1331.23 ms. All 64 greedy IDs matched. On RTX 5070 Ti, both packages produced identical FP32 logits for the prefill position and 16 teacher-forced steps, covering every one of 200,058 vocabulary entries. Each arm started a fresh CLI twice per cycle and ran three decode repeats per process. The measurement file includes the page residency of each run. Only complete cycles with 100% residency before every launch enter the warm summary. [Raw timings and per-matrix byte counts](inkling-nvfp4-code-storage.json)
 
 ## Reproduce
 
