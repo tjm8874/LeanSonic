@@ -1,0 +1,111 @@
+{
+  "selection": {
+    "thresholds": {
+      "model.llm.layers.20.mlp.experts.w13_weight": 95,
+      "model.llm.layers.20.mlp.experts.w2_weight": 91,
+      "model.llm.layers.21.mlp.experts.w13_weight": 101,
+      "model.llm.layers.21.mlp.experts.w2_weight": 95,
+      "model.llm.layers.22.mlp.experts.w13_weight": 101,
+      "model.llm.layers.22.mlp.experts.w2_weight": 95,
+      "model.llm.layers.23.mlp.experts.w13_weight": 101,
+      "model.llm.layers.23.mlp.experts.w2_weight": 95
+    },
+    "predicted_saved": 151800252.42052883,
+    "mean_per_plane_relative_weight_mse": 3.786043751438267e-05,
+    "previous_mean": 4.9889531603782915e-05,
+    "predicted_byte_window": [
+      151796021.76047298,
+      151896021.76047298
+    ],
+    "search_levels": [
+      85,
+      87,
+      89,
+      91,
+      93,
+      95,
+      97,
+      99,
+      101,
+      103,
+      105,
+      107,
+      109,
+      111
+    ]
+  },
+  "package": {
+    "raw_source": "official Inkling-2-Mini",
+    "parent_sha256": "9b242a81188f0f552625639dec98879a0090a7f9a003141631d3a836aed3fcb3",
+    "unchanged_tensors": 991,
+    "shard_sha256": "a92a576de1f4b12e00f75c515a1d930213055c7d3b6edf83c28fb8292d6decaa",
+    "package_bytes": 15396357022,
+    "selected": {
+      "model.llm.layers.23.mlp.experts.w13_weight.rans_v1": {
+        "bytes": 524813272,
+        "sha256": "c77e7dfd28396424c846ccf999de1428647fd2b18211dfba2398f1d02f79b320",
+        "changed_codes": 102689794,
+        "codes": 679477248,
+        "normalized_code_mse": 5.0383859296556045e-05,
+        "threshold": 101
+      },
+      "model.llm.layers.23.mlp.experts.w2_weight.rans_v1": {
+        "bytes": 268507936,
+        "sha256": "9041d44d7e10f48346447fe2bd3b0100a80b19415e1177fe51815a76c18cb272",
+        "changed_codes": 33716754,
+        "codes": 339738624,
+        "normalized_code_mse": 1.1609118359329263e-05,
+        "threshold": 95
+      },
+      "model.llm.layers.22.mlp.experts.w13_weight.rans_v1": {
+        "bytes": 524775032,
+        "sha256": "a21b2e5d456e44af99dfc217b79d7a3ee85f732abc869ec817a1e5c444f275fb",
+        "changed_codes": 102479028,
+        "codes": 679477248,
+        "normalized_code_mse": 5.021098399838196e-05,
+        "threshold": 101
+      },
+      "model.llm.layers.22.mlp.experts.w2_weight.rans_v1": {
+        "bytes": 268320824,
+        "sha256": "354f30f6aba1b71418426df986fd039815ff4ae1b00bf39469970367182cc300",
+        "changed_codes": 33164800,
+        "codes": 339738624,
+        "normalized_code_mse": 1.1304708872851076e-05,
+        "threshold": 95
+      },
+      "model.llm.layers.21.mlp.experts.w13_weight.rans_v1": {
+        "bytes": 524756696,
+        "sha256": "8c52a99fffab751b3471d20aa133cc7334d5865591e0e6659d9bf248792312f7",
+        "changed_codes": 102327814,
+        "codes": 679477248,
+        "normalized_code_mse": 5.006951509423104e-05,
+        "threshold": 101
+      },
+      "model.llm.layers.21.mlp.experts.w2_weight.rans_v1": {
+        "bytes": 268255528,
+        "sha256": "903de29f1e2faf332a5012de6bc4650f59694c908e913b12a4ede55ffc9cc716",
+        "changed_codes": 32981925,
+        "codes": 339738624,
+        "normalized_code_mse": 1.1203676967082439e-05,
+        "threshold": 95
+      },
+      "model.llm.layers.20.mlp.experts.w13_weight.rans_v1": {
+        "bytes": 537132384,
+        "sha256": "f553d11038256a3b7804f10acdfca17abb7d1f5c57612df08135000bdfc4a5c3",
+        "changed_codes": 59780181,
+        "codes": 679477248,
+        "normalized_code_mse": 8.326952534727199e-06,
+        "threshold": 95
+      },
+      "model.llm.layers.20.mlp.experts.w2_weight.rans_v1": {
+        "bytes": 270829968,
+        "sha256": "aad61a576a01bc7168570ca884f9f282cbde01bb31bfeca5c1407806ce51839f",
+        "changed_codes": 24764667,
+        "codes": 339738624,
+        "normalized_code_mse": 6.306713250434535e-06,
+        "threshold": 91
+      }
+    }
+  },
+  "prior_bytes": 15396361558
+}
