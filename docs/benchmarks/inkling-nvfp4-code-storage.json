@@ -406,5 +406,13 @@
       "gpu": "5060Ti"
     }
   ],
-  "base_commit": "144430561eda9ff87bf557dbf984a169dd353810"
+  "base_commit": "144430561eda9ff87bf557dbf984a169dd353810",
+  "independently_packed_shard_sha256_on_second_host": "c0b42b8bf338a0690000e57668f03e9f2d27450c8187c89555165a4bf22588f4",
+  "rtx5070ti_raw_vs_compressed_full_logits": {
+    "positions": 17,
+    "vocab": 200058,
+    "dtype": "FP32",
+    "bytes": 13603944,
+    "sha256": "68538b83e50b2df69e032bc05740bd5f019a9dd279f7077905553fe792df3489"
+  }
 }
