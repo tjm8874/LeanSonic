@@ -10,5 +10,8 @@ WikiText-2 rows below use the same release scorer on RTX PRO 4500, FP16 KV and a
 | valid | previous compact | 0.0131739 | 0.9835867 (7/467) | 24,341/25,500 | 6.564200 |
 | valid | routing-weighted | 0.0073719 | 1.4013990 (46/379) | 24,559/25,500 | 6.521989 |
 | valid | fifteen-symbol capped | 0.0076511 | 1.9394759 (12/317) | 24,588/25,500 | 6.530274 |
+| chat | previous compact | 0.0126191 | 0.4765965 (q06_translate_fr/13) | 585/613 | 3.732578 |
+| chat | routing-weighted | 0.0108587 | 0.4207198 (q10_ml_gradient/21) | 589/613 | 3.810583 |
+| chat | fifteen-symbol capped | 0.0083901 | 0.1302973 (q11_json_schema/25) | 595/613 | 3.790257 |
 
 [Build, distribution bytes and weight-file fingerprints](README.md) · [Native scorer output](quality.json).
