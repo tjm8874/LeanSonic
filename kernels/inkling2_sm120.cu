@@ -5286,6 +5286,132 @@ extern "C" __global__ void mtp_attn(
     }
 }
 
+// Long-context DSpark attention (#107): `mtp_attn` with the keys `[lo..hi) + 8 block rows`
+// split into `gridDim.y` slices of `kps` keys. Grid `(8 KV heads, S)`, Block 256: warp `t` is
+// draft row `t` and keeps the online softmax of its 3 query heads over its slice (one K/V load
+// per key per warp, shared through L1). `mtp_attn_merge` combines the slices.
+extern "C" __global__ void mtp_attn_split(
+    const float* __restrict__ qkv,            // [8, 5120]
+    const uint16_t* __restrict__ kc_fp16,     // [cap, 1024]
+    const uint16_t* __restrict__ vc_fp16,     // [cap, 1024]
+    int32_t ring,
+    int32_t lo,
+    int32_t hi,
+    int32_t kps,
+    float* __restrict__ part_ml,              // [S, 8, 24, 2]
+    float* __restrict__ part_o) {             // [S, 8, 24, 128]
+    const int kvh = blockIdx.x;
+    const int s = blockIdx.y;
+    const int t = threadIdx.x >> 5;
+    const int lane = threadIdx.x & 31;
+    const int nc = hi - lo;
+    const int total = nc + 8;
+    const int j0 = s * kps;
+    const int j1 = min(total, j0 + kps);
+    const float scale = 0.08838834764831845f; // 1 / sqrt(128)
+
+    float q[3][4];
+    #pragma unroll
+    for (int hh = 0; hh < 3; ++hh) {
+        const float4 q4 = reinterpret_cast<const float4*>(
+            qkv + static_cast<size_t>(t) * 5120u + (kvh * 3 + hh) * 128)[lane];
+        q[hh][0] = q4.x; q[hh][1] = q4.y; q[hh][2] = q4.z; q[hh][3] = q4.w;
+    }
+    float m_w[3] = {-1e30f, -1e30f, -1e30f};
+    float l_w[3] = {0.0f, 0.0f, 0.0f};
+    float o[3][4] = {};
+
+    auto load_kv = [&](int j, float (&k)[4], float (&v)[4]) {
+        if (j < nc) {
+            const int cpos = lo + j;
+            const int row = (ring > 0) ? (cpos % ring) : cpos;
+            const uint64_t kw = reinterpret_cast<const uint64_t*>(
+                kc_fp16 + static_cast<size_t>(row) * 1024u + kvh * 128)[lane];
+            const uint64_t vw = reinterpret_cast<const uint64_t*>(
+                vc_fp16 + static_cast<size_t>(row) * 1024u + kvh * 128)[lane];
+            #pragma unroll
+            for (int i = 0; i < 4; ++i) {
+                k[i] = fp16_bits_to_f32(static_cast<uint16_t>((kw >> (16 * i)) & 0xFFFFu));
+                v[i] = fp16_bits_to_f32(static_cast<uint16_t>((vw >> (16 * i)) & 0xFFFFu));
+            }
+        } else {
+            const float* b_row = qkv + static_cast<size_t>(j - nc) * 5120u;
+            const float4 kv4 = reinterpret_cast<const float4*>(b_row + 3072 + kvh * 128)[lane];
+            const float4 vv4 = reinterpret_cast<const float4*>(b_row + 4096 + kvh * 128)[lane];
+            k[0] = kv4.x; k[1] = kv4.y; k[2] = kv4.z; k[3] = kv4.w;
+            v[0] = vv4.x; v[1] = vv4.y; v[2] = vv4.z; v[3] = vv4.w;
+        }
+    };
+
+    float kc[4], vc[4];
+    if (j0 < j1) load_kv(j0, kc, vc);
+    for (int j = j0; j < j1; ++j) {
+        float kn[4], vn[4];
+        if (j + 1 < j1) load_kv(j + 1, kn, vn);
+        float dots[3];
+        #pragma unroll
+        for (int hh = 0; hh < 3; ++hh) {
+            dots[hh] = q[hh][0] * kc[0] + q[hh][1] * kc[1] + q[hh][2] * kc[2] + q[hh][3] * kc[3];
+        }
+        #pragma unroll
+        for (int mask = 16; mask > 0; mask >>= 1) {
+            #pragma unroll
+            for (int hh = 0; hh < 3; ++hh) {
+                dots[hh] += __shfl_xor_sync(0xFFFFFFFFu, dots[hh], mask);
+            }
+        }
+        #pragma unroll
+        for (int hh = 0; hh < 3; ++hh) {
+            const float dot = dots[hh] * scale;
+            const float m_new = (dot > m_w[hh]) ? dot : m_w[hh];
+            const float alpha = (l_w[hh] > 0.0f) ? ptx_exp(m_w[hh] - m_new) : 0.0f;
+            const float p = ptx_exp(dot - m_new);
+            l_w[hh] = l_w[hh] * alpha + p;
+            m_w[hh] = m_new;
+            #pragma unroll
+            for (int i = 0; i < 4; ++i) o[hh][i] = o[hh][i] * alpha + p * vc[i];
+        }
+        #pragma unroll
+        for (int i = 0; i < 4; ++i) { kc[i] = kn[i]; vc[i] = vn[i]; }
+    }
+    #pragma unroll
+    for (int hh = 0; hh < 3; ++hh) {
+        const size_t idx = (static_cast<size_t>(s) * 8 + t) * 24 + kvh * 3 + hh;
+        reinterpret_cast<float4*>(part_o + idx * 128)[lane] = make_float4(o[hh][0], o[hh][1], o[hh][2], o[hh][3]);
+        if (lane == 0) {
+            part_ml[idx * 2] = m_w[hh];
+            part_ml[idx * 2 + 1] = l_w[hh];
+        }
+    }
+}
+
+// Grid `(24, 8)`, Block 128: merges the `S` slices of `mtp_attn_split` into `att_out`.
+extern "C" __global__ void mtp_attn_merge(
+    const float* __restrict__ part_ml,
+    const float* __restrict__ part_o,
+    int32_t S,
+    float* __restrict__ att_out) {            // [8, 3072]
+    const int h = blockIdx.x;
+    const int t = blockIdx.y;
+    const int d = threadIdx.x;
+    float m_max = -1e30f;
+    for (int s = 0; s < S; ++s) {
+        const size_t idx = (static_cast<size_t>(s) * 8 + t) * 24 + h;
+        if (part_ml[idx * 2 + 1] > 0.0f) m_max = fmaxf(m_max, part_ml[idx * 2]);
+    }
+    float denom = 0.0f, sum_d = 0.0f;
+    for (int s = 0; s < S; ++s) {
+        const size_t idx = (static_cast<size_t>(s) * 8 + t) * 24 + h;
+        const float l = part_ml[idx * 2 + 1];
+        if (l > 0.0f) {
+            const float sc = ptx_exp(part_ml[idx * 2] - m_max);
+            denom += l * sc;
+            sum_d += part_o[idx * 128 + d] * sc;
+        }
+    }
+    att_out[static_cast<size_t>(t) * 3072u + h * 128 + d] = sum_d * ptx_rcp(fmaxf(denom, 1e-20f));
+}
+
 extern "C" __global__ void mtp_add_inplace(
     float* __restrict__ x,
     const float* __restrict__ o,
