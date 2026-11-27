@@ -16,5 +16,6 @@ PRO 4500, 100 chunks and 25,500 scored positions per split, prefill width 512 an
 | Split | Mean KL | Worst KL | Top-1 matches | PPL |
 |---|---:|---:|---:|---:|
 | test | 0.0077481 | 1.4620404 | 24,537 | 7.083731 |
+| valid | 0.0069527 | 0.7446714 | 24,645 | 6.530797 |
 
 Build the local model using the [storage recipe](README.md) and use the [fixed-input driver, IDs, environment and procedure](https://github.com/tjm8874/LeanSonic/tree/18ae3c2/docs/benchmarks/inkling-nvfp4-trim-context/fixed-replay.md). [Individual requests, phase times, peaks, scores and checksums](fixed-q3.json).

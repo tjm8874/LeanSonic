@@ -4,4 +4,6 @@ On RTX PRO 4500, the same integrated executable loaded the 13,608,770,734-byte s
 
 At explicit width 512 the complete BF16 WikiText-2 test scorer summaries also matched, including 25,500 positions, mean KL 0.0077481, worst KL 1.4620404, 24,537 top-1 matches, and PPL 7.083731.
 
+The validation split also matched the entire previous summary: mean KL 0.0069527, worst 0.7446714, 24,645/25,500 BF16 top-1 matches and PPL 6.530797.
+
 Apply the scale-split patches to the [integrated trim loader](https://github.com/tjm8874/LeanSonic/tree/8c77955); the resulting source is 9ecca0858abc40d072cd04c47e73b47eaa805db5. The parity driver, environment settings, fixed input and BF16 test command are [documented here](https://github.com/tjm8874/LeanSonic/tree/cc62564/docs/benchmarks/inkling-nvfp4-trim-context). [Observations](runtime.json).
