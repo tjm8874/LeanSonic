@@ -1650,16 +1650,13 @@ struct Mxfp8Row {
     }
 };
 
-#define INK2_INDEXED_KERNEL_WITH_WAIT(name, bounds, wait_op, params, args) \
-    template<bool PackedScales, bool Indexed> __device__ __forceinline__ void name##_impl params; \
-    extern "C" __global__ bounds void name params { wait_op; name##_impl<false, false> args; } \
-    extern "C" __global__ bounds void name##_packed_scales params { wait_op; name##_impl<true, false> args; } \
-    extern "C" __global__ bounds void name##_u4 params { wait_op; name##_impl<false, true> args; } \
-    extern "C" __global__ bounds void name##_u4_packed_scales params { wait_op; name##_impl<true, true> args; } \
-    template<bool PackedScales, bool Indexed> __device__ __forceinline__ void name##_impl params
-// Down kernels defer the dependency wait until after the weight prefetch.
 #define INK2_INDEXED_KERNEL(name, bounds, params, args) \
-    INK2_INDEXED_KERNEL_WITH_WAIT(name, bounds, pdl_wait(), params, args)
+    template<bool PackedScales, bool Indexed> __device__ __forceinline__ void name##_impl params; \
+    extern "C" __global__ bounds void name params { name##_impl<false, false> args; } \
+    extern "C" __global__ bounds void name##_packed_scales params { name##_impl<true, false> args; } \
+    extern "C" __global__ bounds void name##_u4 params { name##_impl<false, true> args; } \
+    extern "C" __global__ bounds void name##_u4_packed_scales params { name##_impl<true, true> args; } \
+    template<bool PackedScales, bool Indexed> __device__ __forceinline__ void name##_impl params
 
 template<bool PackedScales, bool Indexed>
 __device__ __forceinline__ void mxfp8_up_situ_body(
@@ -1771,6 +1768,7 @@ INK2_INDEXED_KERNEL(ink2_moe_mxfp8_down, , (
     const float* __restrict__ sel_wts,     // [8]
     float* __restrict__ moe_out),
     (w2_u128, s2_u32, act4, sel_ids, sel_wts, moe_out)) {         // [2304]
+    pdl_wait();
     const int warp_id = threadIdx.x >> 5;
     const int lane = threadIdx.x & 31;
     const int row = blockIdx.x * 8 + warp_id;
@@ -1796,7 +1794,7 @@ INK2_INDEXED_KERNEL(ink2_moe_mxfp8_down, , (
 // Expert-parallel MXFP8 MoE Down (`Grid: 1152`, `Block: 256`, `2` output rows/CTA, `0-ULP` exact!):
 // Warp `k` owns selected expert `k`; since `router_topk8` completed prior to `mxfp8_up_situ`,
 // `sel_ids[k]` is already visible before `pdl_wait()`, allowing `w2` weights to stream during `up_situ`'s tail!
-INK2_INDEXED_KERNEL_WITH_WAIT(ink2_moe_mxfp8_down_xw, , (void)0, (
+INK2_INDEXED_KERNEL(ink2_moe_mxfp8_down_xw, , (
     const uint4* __restrict__ w2_u128,     // [128, 2304, 72]
     const uint32_t* __restrict__ s2_u32,   // [128, 2304, 9]
     const float4* __restrict__ act4,       // [8, 288]
@@ -4886,6 +4884,7 @@ INK2_INDEXED_KERNEL(ink2_moe_mxfp8_grouped_up_situ, , (
     const int32_t* __restrict__ exp_pairs, // [page, 128, 64]
     float* __restrict__ act_out),
     (w13_u128, s13_u32, x4_base, exp_counts, exp_toks, exp_pairs, act_out)) {         // [B * 8, 1152]
+    pdl_wait();
     const int ex = blockIdx.y;
     const int cnt = exp_counts[ex];
     if (cnt == 0) return;
@@ -4976,6 +4975,7 @@ INK2_INDEXED_KERNEL(ink2_moe_mxfp8_grouped_down, , (
     const int32_t* __restrict__ exp_pairs, // [page, 128, 64]
     float* __restrict__ pair_y),
     (w2_u128, s2_u32, act4_base, exp_counts, exp_pairs, pair_y)) {          // [B * 8, 2304]
+    pdl_wait();
     const int ex = blockIdx.y;
     const int cnt = exp_counts[ex];
     if (cnt == 0) return;
@@ -8716,7 +8716,7 @@ template<bool PackedScales> __device__ __forceinline__ void ink2_moe_nvfp4_dp4a_
 
 // Fused Expert-Parallel MXFP8 MoE Down + `mlp_sconv` + Residual Add (`Grid: 1152`, `Block: 256`, `64 B` SMEM):
 // Eliminates `mlp_sconv` (`-4` launches/tok) and `d_moe_y` DRAM round-trips (`0-ULP` exact).
-INK2_INDEXED_KERNEL_WITH_WAIT(ink2_moe_mxfp8_down_xw_conv, , (void)0, (
+INK2_INDEXED_KERNEL(ink2_moe_mxfp8_down_xw_conv, , (
     const uint4* __restrict__ w2_u128,     // [128, 2304, 72]
     const uint32_t* __restrict__ s2_u32,   // [128, 2304, 9]
     const float4* __restrict__ act4,       // [8, 288]
@@ -9165,6 +9165,7 @@ INK2_INDEXED_KERNEL(ink2_moe_mxfp8_verify_up_situ, __launch_bounds__(256, 2), (
     const int32_t* __restrict__ exp_pairs,     // [128, 64]
     float* __restrict__ act_out),              // [B * 8, 1152]
     (w13_u128, s13_u32, x4_base, active_exps, exp_counts, exp_toks, exp_pairs, act_out)) {
+    pdl_wait();
     pdl_trigger();
     const int ex = active_exps[blockIdx.y];
     if (ex < 0) return;
@@ -9230,7 +9231,7 @@ INK2_INDEXED_KERNEL(ink2_moe_mxfp8_verify_up_situ, __launch_bounds__(256, 2), (
 
 // Active-Expert Register-Cached MXFP8 Down (`Grid: (288, min(128, B * 8))`, `Block: 256`, `0 B` SMEM!):
 // `4` CTAs/SM = `32` warps/SM, `0` barriers, `0.0000-ULP` exact!
-INK2_INDEXED_KERNEL_WITH_WAIT(ink2_moe_mxfp8_verify_down, , (void)0, (
+INK2_INDEXED_KERNEL(ink2_moe_mxfp8_verify_down, , (
     const uint4* __restrict__ w2_u128,         // [128, 2304, 72]
     const uint32_t* __restrict__ s2_u32,       // [128, 2304, 9]
     const float4* __restrict__ act4_base,      // [B * 8, 288]
@@ -9293,7 +9294,6 @@ INK2_INDEXED_KERNEL_WITH_WAIT(ink2_moe_mxfp8_verify_down, , (void)0, (
 }
 
 #undef INK2_INDEXED_KERNEL
-#undef INK2_INDEXED_KERNEL_WITH_WAIT
 #undef INK2_SCALE_KERNEL_LB
 #undef INK2_SCALE_KERNEL
 

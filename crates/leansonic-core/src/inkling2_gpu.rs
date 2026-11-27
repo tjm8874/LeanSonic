@@ -9827,7 +9827,10 @@ mod tests {
                 let entry = src[at..].lines().next().unwrap();
                 let (_, body) = entry.split_once('{').expect("kernel macro entry body");
                 assert!(
-                    body.trim_start().starts_with("pdl_wait();"),
+                    body.trim_start().starts_with("pdl_wait();")
+                        || (src[..at].rfind("#define ").is_some_and(|start| {
+                            src[start..].starts_with("#define INK2_INDEXED_KERNEL(")
+                        }) && body.trim_start().starts_with("name##_impl<")),
                     "kernel macro reads before waiting on its predecessor: {entry}"
                 );
                 macro_entries += 1;
@@ -9869,6 +9872,42 @@ mod tests {
             macro_entries >= 4,
             "parsed only {macro_entries} macro entries"
         );
+        // These wrappers forward directly to an inlined template. Three down kernels
+        // prefetch persistent weights before waiting for predecessor-produced activations.
+        let mut indexed = 0;
+        for definition in src.split("\nINK2_INDEXED_KERNEL(").skip(1) {
+            let (signature, rest) = definition.split_once(")) {").unwrap();
+            let (_, rest) = rest.split_once('\n').unwrap();
+            let body = rest.split_once("\n}").unwrap().0;
+            let name = signature.split(',').next().unwrap();
+            let inputs: &[&str] = match name {
+                "ink2_moe_mxfp8_down_xw" => &["act4", "sel_wts"],
+                "ink2_moe_mxfp8_down_xw_conv" => &["act4", "sel_wts", "hist3", "cur_inout"],
+                "ink2_moe_mxfp8_verify_down" => &["act4_base", "exp_pairs"],
+                _ => &[],
+            };
+            if inputs.is_empty() {
+                assert!(body.trim_start().starts_with("pdl_wait();"), "{name}");
+            } else {
+                let (prefetch, _) = body.split_once("\n    pdl_wait();").expect(name);
+                for input in inputs {
+                    assert!(
+                        !prefetch.contains(input),
+                        "{name} reads {input} before waiting"
+                    );
+                }
+                for (branch, _) in prefetch.match_indices("return;") {
+                    assert!(
+                        prefetch[..branch]
+                            .trim_end()
+                            .ends_with("pdl_wait();\n        pdl_trigger();"),
+                        "{name}"
+                    );
+                }
+            }
+            indexed += 1;
+        }
+        assert!(indexed >= 7, "parsed only {indexed} indexed kernels");
         assert!(src.contains("void ink2_pdl_all_marker()"));
     }
 
