@@ -2790,8 +2790,8 @@ INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_down, (
 // fold is the same `__fmaf_rn` chain over `k = 0..7`, so `moe_out` is bit-identical to
 // `ink2_moe_nvfp4_dp4a_down`. The 8 independent expert rows per CTA (vs. 8 sequential rows per
 // warp) give 8x the warps and loads in flight; the activations stay in registers (no smem copy).
-template<bool PackedScales> __device__ __forceinline__ void ink2_moe_nvfp4_dp4a_down_xw_impl(
-    const uint4* __restrict__ w2_u128, const uint32_t* __restrict__ s2_u32, const float* __restrict__ a2,
+template<bool PackedScales, class Weight> __device__ __forceinline__ void ink2_moe_nvfp4_dp4a_down_xw_impl(
+    const Weight* __restrict__ weights, const uint32_t* __restrict__ s2_u32, const float* __restrict__ a2,
     const uint4* __restrict__ act_q8_u128, const float* __restrict__ act_sc16,
     const int32_t* __restrict__ sel_ids, const float* __restrict__ sel_wts, float* __restrict__ moe_out);
 extern "C" __global__ void ink2_moe_nvfp4_dp4a_down_xw(
@@ -2808,8 +2808,33 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_down_xw_packed_scales(
     // Executes `pdl_wait()` inside `_impl` after prefetching `w2` weights.
     ink2_moe_nvfp4_dp4a_down_xw_impl<true>(w2_u128, s2_u32, a2, act_q8_u128, act_sc16, sel_ids, sel_wts, moe_out);
 }
-template<bool PackedScales> __device__ __forceinline__ void ink2_moe_nvfp4_dp4a_down_xw_impl(
-    const uint4* __restrict__ w2_u128,     // [128, 2304, 36]
+// Two bits per resident ternary weight (00 = 0, 01 = +6, 11 = -6).
+// The shared implementation executes pdl_wait() after immutable weight prefetch.
+extern "C" __global__ void ink2_moe_ternary_dp4a_down_xw_packed_scales(
+    const uint2* __restrict__ weights, const uint32_t* __restrict__ scales, const float* __restrict__ a2,
+    const uint4* __restrict__ act_q8, const float* __restrict__ act_scales,
+    const int32_t* __restrict__ ids, const float* __restrict__ gates, float* __restrict__ out) {
+    // pdl_wait() is in the same implementation as the NVFP4 path.
+    ink2_moe_nvfp4_dp4a_down_xw_impl<true>(weights, scales, a2, act_q8, act_scales, ids, gates, out);
+}
+
+__device__ __forceinline__ unsigned ternary_four_s8(unsigned codes) {
+    // Convert four two-bit selectors to PRMT selectors; E2M1 integers are doubled.
+    unsigned x = codes & 255u;
+    x = (x | (x << 4)) & 0x0f0fu;
+    x = (x | (x << 2)) & 0x3333u;
+    return __byte_perm(0xf4000c00u, 0u, x);
+}
+
+__device__ __forceinline__ int ternary_block_dp4a(unsigned codes, uint4 activation) {
+    int dot = __dp4a(static_cast<int>(ternary_four_s8(codes)), static_cast<int>(activation.x), 0);
+    dot = __dp4a(static_cast<int>(ternary_four_s8(codes >> 8)), static_cast<int>(activation.y), dot);
+    dot = __dp4a(static_cast<int>(ternary_four_s8(codes >> 16)), static_cast<int>(activation.z), dot);
+    return __dp4a(static_cast<int>(ternary_four_s8(codes >> 24)), static_cast<int>(activation.w), dot);
+}
+
+template<bool PackedScales, class Weight> __device__ __forceinline__ void ink2_moe_nvfp4_dp4a_down_xw_impl(
+    const Weight* __restrict__ weights,     // [128, 2304, 36]
     const uint32_t* __restrict__ s2_u32,   // [128, 2304, 18]
     const float* __restrict__ a2,          // [128]
     const uint4* __restrict__ act_q8_u128, // [8, 72]
@@ -2829,21 +2854,21 @@ template<bool PackedScales> __device__ __forceinline__ void ink2_moe_nvfp4_dp4a_
     const int row0 = blockIdx.x * kRows;
     const bool tail = lane < 4;
 
-    uint4 pk_a[kRows], pk_b[kRows];
+    Weight pk_a[kRows], pk_b[kRows];
     uint32_t sc_a[kRows], sc_b[kRows];
     #pragma unroll
     for (int r = 0; r < kRows; ++r) {
         const size_t r_idx = static_cast<size_t>(ex) * kD + (row0 + r);
-        const uint4* row_u128 = w2_u128 + r_idx * 36u;
+        const Weight* row = weights + r_idx * 36u;
         const size_t sc_start = r_idx * 18u;
-        pk_a[r] = row_u128[lane];
+        pk_a[r] = row[lane];
         sc_a[r] = expert_scale_word<PackedScales, 6, 64>(s2_u32, sc_start + (lane >> 1));
         if (tail) {
             const int u16_b = lane + 32;
-            pk_b[r] = row_u128[u16_b];
+            pk_b[r] = row[u16_b];
             sc_b[r] = expert_scale_word<PackedScales, 6, 64>(s2_u32, sc_start + (u16_b >> 1));
         } else {
-            pk_b[r] = make_uint4(0u, 0u, 0u, 0u);
+            pk_b[r] = {};
             sc_b[r] = 0u;
         }
     }
@@ -2870,19 +2895,25 @@ template<bool PackedScales> __device__ __forceinline__ void ink2_moe_nvfp4_dp4a_
         sb1 = asc[(lane + 32) * 2 + 1];
     }
 
-    auto step_hoisted = [&](float acc, int u16, const uint4& pk16, uint32_t sc4,
+    auto step_hoisted = [&](float acc, int u16, const Weight& pk16, uint32_t sc4,
                             const uint4& xq0, const uint4& xq1, float xs0, float xs1) {
         int sh = (u16 & 1) * 16;
         float s0 = __fmul_rn(e4m3_byte_to_f32((sc4 >> sh) & 0xFFu) * 0.5f, xs0);
         float s1 = __fmul_rn(e4m3_byte_to_f32((sc4 >> (sh + 8)) & 0xFFu) * 0.5f, xs1);
-        int d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x & 0xFFFFu)), static_cast<int>(xq0.x), 0);
-        d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x >> 16)), static_cast<int>(xq0.y), d0);
-        d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.y & 0xFFFFu)), static_cast<int>(xq0.z), d0);
-        d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.y >> 16)), static_cast<int>(xq0.w), d0);
-        int d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.z & 0xFFFFu)), static_cast<int>(xq1.x), 0);
-        d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.z >> 16)), static_cast<int>(xq1.y), d1);
-        d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w & 0xFFFFu)), static_cast<int>(xq1.z), d1);
-        d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w >> 16)), static_cast<int>(xq1.w), d1);
+        int d0, d1;
+        if constexpr (sizeof(Weight) == sizeof(uint2)) {
+            d0 = ternary_block_dp4a(pk16.x, xq0);
+            d1 = ternary_block_dp4a(pk16.y, xq1);
+        } else {
+            d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x & 0xFFFFu)), static_cast<int>(xq0.x), 0);
+            d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x >> 16)), static_cast<int>(xq0.y), d0);
+            d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.y & 0xFFFFu)), static_cast<int>(xq0.z), d0);
+            d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.y >> 16)), static_cast<int>(xq0.w), d0);
+            d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.z & 0xFFFFu)), static_cast<int>(xq1.x), 0);
+            d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.z >> 16)), static_cast<int>(xq1.y), d1);
+            d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w & 0xFFFFu)), static_cast<int>(xq1.z), d1);
+            d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w >> 16)), static_cast<int>(xq1.w), d1);
+        }
         return __fmaf_rn(static_cast<float>(d1), s1, __fmaf_rn(static_cast<float>(d0), s0, acc));
     };
 
