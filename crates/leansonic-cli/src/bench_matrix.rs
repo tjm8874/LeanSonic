@@ -628,6 +628,8 @@ struct Opts {
     skip_canary: bool,
     /// `--c64`: 64 independent sequences decoded in shared rounds (`multiseq`, #107).
     c64: bool,
+    /// `--c4-32k <ids>`: 4 sequences of a 32K-token prompt, DSpark verify rounds (#107).
+    c4_32k: Option<PathBuf>,
     /// `--kld <ref.kld>`: run `eval-kld` once per GPU for the `kld_mean` cell.
     kld_ref: Option<PathBuf>,
     spec_prompts: Option<PathBuf>,
@@ -651,6 +653,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         long: false,
         skip_canary: false,
         c64: false,
+        c4_32k: None,
         kld_ref: None,
         spec_prompts: None,
         wide_prompts: None,
@@ -678,6 +681,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--long" => o.long = true,
             "--no-canary" => o.skip_canary = true,
             "--c64" => o.c64 = true,
+            "--c4-32k" => o.c4_32k = Some(PathBuf::from(val(&mut i, "--c4-32k")?)),
             "--kld" => o.kld_ref = Some(PathBuf::from(val(&mut i, "--kld")?)),
             "--require-idle" => o.require_idle = true,
             "--wide-prompts" => {
@@ -748,6 +752,15 @@ fn probes(o: &Opts) -> Vec<Probe> {
             spec: 0,
             gen: 64,
             ctx: Some(4096),
+        });
+    }
+    if let Some(ids) = &o.c4_32k {
+        v.push(Probe {
+            id: "c4_32k",
+            tokens: format!("@{}", ids.display()),
+            spec: 7,
+            gen: 256,
+            ctx: Some(32_768 + 512),
         });
     }
     if o.long && !o.quick {
@@ -840,24 +853,31 @@ fn run_probe(o: &Opts, gpu: usize, p: &Probe) -> ProbeSamples {
         ..Default::default()
     };
     for _ in 0..o.n {
-        if p.id == "c64" {
-            // 64 sequences, one batched decode round per step; the total decode rate is the
+        if p.id == "c64" || p.id == "c4_32k" {
+            // `c64`: 64 sequences, one batched decode round per step. `c4_32k`: 4 sequences,
+            // per-sequence DSpark drafts verified together. The total decode rate is the
             // sample (`gen_tok_s`). LEANSONIC_SEQS is set by `multiseq` itself.
+            let gen = p.gen.to_string();
+            let spec = p.spec.to_string();
+            let mut args = vec![
+                "multiseq",
+                "--weights",
+                &o.weights,
+                "--tokens",
+                &p.tokens,
+                "--round",
+                "64",
+                "--gen",
+                &gen,
+                "--no-check",
+            ];
+            if p.id == "c64" {
+                args.extend(["--seqs", "64"]);
+            } else {
+                args.extend(["--seqs", "4", "--spec", &spec, "--dspark"]);
+            }
             let out = Command::new(&o.bin)
-                .args([
-                    "multiseq",
-                    "--weights",
-                    &o.weights,
-                    "--tokens",
-                    &p.tokens,
-                    "--seqs",
-                    "64",
-                    "--round",
-                    "64",
-                    "--gen",
-                    &p.gen.to_string(),
-                    "--no-check",
-                ])
+                .args(&args)
                 .env("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
                 .env("CUDA_VISIBLE_DEVICES", gpu.to_string())
                 .env("LEANSONIC_CTX", p.ctx.unwrap_or(o.ctx).to_string())
@@ -1108,6 +1128,12 @@ const CELLS: &[(&str, &str, bool, Extract)] = &[
         "C=64 aggregate decode (tok/s, --c64)",
         true,
         |m| col(m, "c64", |r| r.gen_tok_s),
+    ),
+    (
+        "c4_32k_code",
+        "32K C=4 aggregate, DSpark (tok/s, --c4-32k)",
+        true,
+        |m| col(m, "c4_32k", |r| r.gen_tok_s),
     ),
     (
         "kld_mean",
