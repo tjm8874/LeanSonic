@@ -30,8 +30,21 @@ impl ScaleContext {
         };
         usize::from(left) * self.categories + usize::from(above)
     }
+}
 
-    pub(super) fn decode(
+pub(super) trait ScaleDecoder: Send + Sync {
+    fn decode(
+        &self,
+        lookup: &[[u32; 4096]],
+        bytes: &[u8],
+        states: [u32; 4],
+        first: usize,
+        dst: &mut [MaybeUninit<u8>],
+    ) -> Result<(), String>;
+}
+
+impl ScaleDecoder for ScaleContext {
+    fn decode(
         &self,
         lookup: &[[u32; 4096]],
         bytes: &[u8],
@@ -74,7 +87,7 @@ impl ScaleContext {
     }
 }
 
-fn valid_shape(count: usize, width: usize) -> bool {
+pub(super) fn valid_shape(count: usize, width: usize) -> bool {
     matches!(width, 36 | 72 | 144)
         && count != 0
         && count <= u32::MAX as usize
@@ -107,10 +120,26 @@ pub fn pack_scale_context(raw: &[u8], width: usize, mut output: impl Write) -> i
     header[1..1 + edges.len()].copy_from_slice(&edges);
     output.write_all(&header)?;
     let ctx = ScaleContext::new(&edges, width);
-    let mut counts = vec![[0; 256]; ctx.categories * ctx.categories];
+    encode_with_context(
+        raw,
+        output,
+        16,
+        ctx.categories * ctx.categories,
+        |tile, p, first| ctx.context(tile, p, first),
+    )
+}
+
+pub(super) fn encode_with_context(
+    raw: &[u8],
+    mut output: impl Write,
+    header_bytes: usize,
+    n_tables: usize,
+    index: impl Fn(&[u8], usize, usize) -> usize,
+) -> io::Result<usize> {
+    let mut counts = vec![[0; 256]; n_tables];
     for (tile_index, tile) in raw.chunks(TILE).enumerate() {
         for (p, &value) in tile.iter().enumerate() {
-            counts[ctx.context(tile, p, tile_index * TILE)][usize::from(value)] += 1;
+            counts[index(tile, p, tile_index * TILE)][usize::from(value)] += 1;
         }
     }
     let mut tables = Vec::with_capacity(counts.len());
@@ -123,10 +152,10 @@ pub fn pack_scale_context(raw: &[u8], width: usize, mut output: impl Write) -> i
     write_frames(
         raw,
         output,
-        16 + tables.len() * 512,
+        header_bytes + tables.len() * 512,
         |tile, states, payload| {
             for (p, &v) in tile.iter().enumerate().rev() {
-                let (freq, base) = &tables[ctx.context(tile, p, first)];
+                let (freq, base) = &tables[index(tile, p, first)];
                 encode_symbol(
                     &mut states[p % 4],
                     freq[v as usize],
