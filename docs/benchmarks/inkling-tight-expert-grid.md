@@ -8,7 +8,11 @@ For a short prefill tail, each input token routes to at most eight experts. The 
 | PRO4500 | 80 | 76.776 | 76.762 | -0.015 [-0.033, -0.000] |
 | PRO4500 | 95 | 87.140 | 87.121 | -0.019 [-0.039, -0.000] |
 | PRO4500 | 1024 | 793.927 | 793.818 | -0.109 [-0.170, -0.048] |
+| 5070Ti | 66 | 174.769 | 174.390 | -0.379 [-0.760, +0.002] |
+| 5070Ti | 80 | 218.325 | 218.041 | -0.284 [-0.574, +0.014] |
+| 5070Ti | 95 | 248.579 | 248.441 | -0.139 [-0.513, +0.287] |
+| 5070Ti | 1024 | 2167.912 | 2167.211 | -0.701 [-1.848, +0.651] |
 
 Five mirrored four-process cycles; each process performed one warm-up then three measured passes for every length. Fixed prefill width 64, context 2048, FP16 KV, PDL on, one sequence, identical #117 weights and README prefix. Decode replay used the same eight input tokens. The paired interval enumerates the 3,125 ordered bootstrap samples of the five per-cycle deltas. The separate 64-slot parity case compares the 64-row workspace against independent runs with a 256-row workspace and covers 25,607,424 FP32 values. See [the earlier kernel-level profile](inkling-tail-profile/README.md).
 
-[All lengths and parity results](inkling-tight-expert-grid.json) · [PRO4500 raw requests](inkling-tight-expert-grid-PRO4500.csv)
+[All lengths and parity results](inkling-tight-expert-grid.json) · [PRO4500 raw requests](inkling-tight-expert-grid-PRO4500.csv) · [5070Ti raw requests](inkling-tight-expert-grid-5070Ti.csv)
