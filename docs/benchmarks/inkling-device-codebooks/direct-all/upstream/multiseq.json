@@ -1,0 +1,102 @@
+{
+  "main-0": {
+    "traces": [
+      [
+        "0",
+        "1024",
+        "59427b33e78d0869"
+      ],
+      [
+        "1",
+        "1021",
+        "56af0e7979ec110d"
+      ],
+      [
+        "2",
+        "1018",
+        "010b76ed4e3f5d64"
+      ],
+      [
+        "3",
+        "1015",
+        "827bb98c0dce3605"
+      ]
+    ],
+    "log": "[LeanSonic GPU] Packed 48 expert scale planes, saving 398131008 device bytes\n[LeanSonic GPU] NVIDIA RTX PRO 4500 Blackwell | VRAM used: 16.02 GiB / 31.37 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 512 | Loaded in 6.25s\nbatched rounds: 662.0 ms for 124 tokens (187.3 tok/s total)\nseq 0: alone vs batched rounds first diff None\nseq 1: alone vs batched rounds first diff None\nseq 2: alone vs batched rounds first diff None\nseq 3: alone vs batched rounds first diff None\nseq 0: prompt 1024 tokens, alone vs interleaved first diff None, hash 59427b33e78d0869\nseq 1: prompt 1021 tokens, alone vs interleaved first diff None, hash 56af0e7979ec110d\nseq 2: prompt 1018 tokens, alone vs interleaved first diff None, hash 010b76ed4e3f5d64\nseq 3: prompt 1015 tokens, alone vs interleaved first diff None, hash 827bb98c0dce3605\ninterleaved decode: 820.0 ms for 124 tokens\nMULTISEQ CHECK PASS\n"
+  },
+  "main-3": {
+    "traces": [
+      [
+        "0",
+        "1024",
+        "59427b33e78d0869"
+      ],
+      [
+        "1",
+        "1021",
+        "56af0e7979ec110d"
+      ],
+      [
+        "2",
+        "1018",
+        "010b76ed4e3f5d64"
+      ],
+      [
+        "3",
+        "1015",
+        "827bb98c0dce3605"
+      ]
+    ],
+    "log": "[LeanSonic GPU] Packed 48 expert scale planes, saving 398131008 device bytes\n[LeanSonic GPU] NVIDIA RTX PRO 4500 Blackwell | VRAM used: 16.02 GiB / 31.37 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 512 | Loaded in 6.24s\nspec: 54 verify rounds, accepted 24/82 drafts, drafting 0.0 ms\nbatched rounds: 1103.3 ms for 124 tokens (112.4 tok/s total)\nseq 0: alone vs batched rounds first diff None\nseq 1: alone vs batched rounds first diff None\nseq 2: alone vs batched rounds first diff None\nseq 3: alone vs batched rounds first diff None\nseq 0: prompt 1024 tokens, alone vs interleaved first diff None, hash 59427b33e78d0869\nseq 1: prompt 1021 tokens, alone vs interleaved first diff None, hash 56af0e7979ec110d\nseq 2: prompt 1018 tokens, alone vs interleaved first diff None, hash 010b76ed4e3f5d64\nseq 3: prompt 1015 tokens, alone vs interleaved first diff None, hash 827bb98c0dce3605\ninterleaved decode: 817.9 ms for 124 tokens\nMULTISEQ CHECK PASS\n"
+  },
+  "indexed-0": {
+    "traces": [
+      [
+        "0",
+        "1024",
+        "59427b33e78d0869"
+      ],
+      [
+        "1",
+        "1021",
+        "56af0e7979ec110d"
+      ],
+      [
+        "2",
+        "1018",
+        "010b76ed4e3f5d64"
+      ],
+      [
+        "3",
+        "1015",
+        "827bb98c0dce3605"
+      ]
+    ],
+    "log": "[LeanSonic GPU] Packed 48 expert scale planes, saving 398131008 device bytes\n[LeanSonic GPU] NVIDIA RTX PRO 4500 Blackwell | VRAM used: 15.39 GiB / 31.37 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 512 | Loaded in 6.33s\nbatched rounds: 392.5 ms for 124 tokens (315.9 tok/s total)\nseq 0: alone vs batched rounds first diff None\nseq 1: alone vs batched rounds first diff None\nseq 2: alone vs batched rounds first diff None\nseq 3: alone vs batched rounds first diff None\nseq 0: prompt 1024 tokens, alone vs interleaved first diff None, hash 59427b33e78d0869\nseq 1: prompt 1021 tokens, alone vs interleaved first diff None, hash 56af0e7979ec110d\nseq 2: prompt 1018 tokens, alone vs interleaved first diff None, hash 010b76ed4e3f5d64\nseq 3: prompt 1015 tokens, alone vs interleaved first diff None, hash 827bb98c0dce3605\ninterleaved decode: 769.3 ms for 124 tokens\nMULTISEQ CHECK PASS\n"
+  },
+  "indexed-3": {
+    "traces": [
+      [
+        "0",
+        "1024",
+        "59427b33e78d0869"
+      ],
+      [
+        "1",
+        "1021",
+        "56af0e7979ec110d"
+      ],
+      [
+        "2",
+        "1018",
+        "010b76ed4e3f5d64"
+      ],
+      [
+        "3",
+        "1015",
+        "827bb98c0dce3605"
+      ]
+    ],
+    "log": "[LeanSonic GPU] Packed 48 expert scale planes, saving 398131008 device bytes\n[LeanSonic GPU] NVIDIA RTX PRO 4500 Blackwell | VRAM used: 15.39 GiB / 31.37 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 512 | Loaded in 6.35s\nspec: 54 verify rounds, accepted 24/82 drafts, drafting 0.0 ms\nbatched rounds: 632.3 ms for 124 tokens (196.1 tok/s total)\nseq 0: alone vs batched rounds first diff None\nseq 1: alone vs batched rounds first diff None\nseq 2: alone vs batched rounds first diff None\nseq 3: alone vs batched rounds first diff None\nseq 0: prompt 1024 tokens, alone vs interleaved first diff None, hash 59427b33e78d0869\nseq 1: prompt 1021 tokens, alone vs interleaved first diff None, hash 56af0e7979ec110d\nseq 2: prompt 1018 tokens, alone vs interleaved first diff None, hash 010b76ed4e3f5d64\nseq 3: prompt 1015 tokens, alone vs interleaved first diff None, hash 827bb98c0dce3605\ninterleaved decode: 767.3 ms for 124 tokens\nMULTISEQ CHECK PASS\n"
+  }
+}
