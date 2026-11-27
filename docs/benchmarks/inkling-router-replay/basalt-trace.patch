@@ -1,0 +1,91 @@
+--- a/src/models/inkling2/session.cpp
++++ b/src/models/inkling2/session.cpp
+@@ -42,6 +42,9 @@
+ 
+ #include <algorithm>
+ #include <cstring>
++#include <cstdio>
++#include <cstdlib>
++#include <vector>
+ #include <map>
+ #include <memory>
+ #include <optional>
+@@ -1477,6 +1480,20 @@
+             moe_plan(ids, rows, g_.n_used, g_.n_expert, w.blob_table, x.ex_ptr_, x.ex_start_, x.ex_ng_, x.ex_dst_, x.ex_tok_, k.stream,
+                      k.ex_tally + (size_t) l * g_.n_expert, k.rec_blobs + (size_t) vi * kAheadExperts, k.rec_n + vi);
+         }
++        if (rows == 1) {
++            if (const char* dst = std::getenv("BASALT_ROUTER_TRACE")) {
++                std::vector<float> norm(E);
++                std::vector<int32_t> selected(g_.n_used);
++                if (cudaMemcpyAsync(norm.data(), nrm, E * sizeof(float), cudaMemcpyDeviceToHost, k.stream) != cudaSuccess ||
++                    cudaMemcpyAsync(selected.data(), ids, g_.n_used * sizeof(int32_t), cudaMemcpyDeviceToHost, k.stream) != cudaSuccess ||
++                    cudaStreamSynchronize(k.stream) != cudaSuccess) std::abort();
++                FILE* f = std::fopen(dst, "ab");
++                int32_t header[] = {vi, l, E, g_.n_used};
++                if (!f || std::fwrite(header, sizeof(header), 1, f) != 1 ||
++                    std::fwrite(norm.data(), sizeof(float), E, f) != (size_t)E ||
++                    std::fwrite(selected.data(), sizeof(int32_t), g_.n_used, f) != (size_t)g_.n_used || std::fclose(f)) std::abort();
++            }
++        }
+         const bool on_cpu = cpu_ >> l & 1;   // the RAM experts' pairs on the CPU, beside the card's
+         if (on_cpu) {   // open until finish has queued the join: a throw between leaves the fork outside the call's sync
+             fork_open_ = true;
+@@ -1596,7 +1613,7 @@
+     // window (its first runs direct, outside a capture).
+     bool layers(int rows, int head, int64_t full_keys, std::string& err, bool graphed = true) {
+         if (!drop_stale_read_ahead(err)) return false;
+-        if (!graphed) {
++        if (!graphed || std::getenv("BASALT_ROUTER_TRACE")) {
+             window_cold_ = true;
+             body(rows, head, full_keys);
+             return true;
+--- a/src/program/generate/adapter.cpp
++++ b/src/program/generate/adapter.cpp
+@@ -1,3 +1,5 @@
++#include <algorithm>
++#include <cstdlib>
+ // src/program/generate/adapter.cpp - models served by their adapter session: the CLI path and the --serve line protocol.
+ #include "run.hpp"
+ #include "session_model.hpp"
+@@ -149,6 +151,32 @@
+                 done = end;
+                 continue;
+             }
++            if (std::getenv("BASALT_REPLAY_STREAM")) {
++                int offset = 0;
++                while (offset < pr.n_tokens && r.ok()) {
++                    if (pos < 256) {
++                        auto step = pr;
++                        step.n_tokens = std::min({64, pr.n_tokens - offset, (int)(256 - pos)});
++                        step.tokens += offset;
++                        step.pos = pos;
++                        step.rows_after = total - 1 - (pos + step.n_tokens);
++                        r = sess.prefill_chunk(step);
++                        pos += step.n_tokens;
++                        offset += step.n_tokens;
++                    } else {
++                        int32_t ignored = -1;
++                        basalt::model::DecodeRequest one;
++                        one.tokens = pr.tokens + offset;
++                        one.n_tokens = 1;
++                        one.pos = pos++;
++                        one.next_token = &ignored;
++                        r = sess.decode_window(one);
++                        ++offset;
++                    }
++                }
++                done = end;
++                continue;
++            }
+             const int64_t base = pos;
+             if (report) pr.progress = [&, base](int n) { report_at(base + n); };
+             if (report) pr.live = [&, base](int n) { live_at(base + n); };
+@@ -182,6 +210,7 @@
+             logits = diag_row.data();
+         }
+         dr.logits = logits;
++        if (const char* path = std::getenv("BASALT_TRACE_FINAL")) setenv("BASALT_ROUTER_TRACE", path, 1);
+         r = sess.decode_window(dr);
+         if (r.ok() && g_diag_logits) std::fwrite(logits, sizeof(float), (size_t) g_n_vocab, g_diag_logits);
+         ++pos;

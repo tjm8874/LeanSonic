@@ -1,0 +1,110 @@
+[
+  {
+    "chunk": 69,
+    "position": 353,
+    "visit": 11,
+    "router_input": "stock",
+    "expert_ids_sorted": [
+      5,
+      13,
+      41,
+      44,
+      45,
+      53,
+      68,
+      113
+    ],
+    "kl": 0.6639923296258949,
+    "argmax": 1057
+  },
+  {
+    "chunk": 69,
+    "position": 353,
+    "visit": 11,
+    "router_input": "native",
+    "expert_ids_sorted": [
+      5,
+      13,
+      41,
+      44,
+      45,
+      68,
+      86,
+      113
+    ],
+    "kl": 0.012323019242388647,
+    "argmax": 1057
+  },
+  {
+    "chunk": 69,
+    "position": 353,
+    "visit": 11,
+    "router_input": "stream",
+    "expert_ids_sorted": [
+      5,
+      13,
+      20,
+      41,
+      44,
+      45,
+      68,
+      113
+    ],
+    "kl": 0.005933323855411513,
+    "argmax": 2952
+  },
+  {
+    "chunk": 29,
+    "position": 443,
+    "visit": 13,
+    "router_input": "stock",
+    "expert_ids_sorted": [
+      23,
+      31,
+      36,
+      50,
+      64,
+      76,
+      89,
+      122
+    ],
+    "kl": 0.1935466551641499,
+    "argmax": 149918
+  },
+  {
+    "chunk": 29,
+    "position": 443,
+    "visit": 13,
+    "router_input": "native",
+    "expert_ids_sorted": [
+      12,
+      23,
+      31,
+      36,
+      50,
+      64,
+      89,
+      122
+    ],
+    "kl": 0.14571898278820145,
+    "argmax": 149918
+  },
+  {
+    "chunk": 29,
+    "position": 443,
+    "visit": 13,
+    "router_input": "stream",
+    "expert_ids_sorted": [
+      12,
+      23,
+      31,
+      36,
+      50,
+      64,
+      89,
+      122
+    ],
+    "kl": 0.14708658779355305,
+    "argmax": 149918
+  }
+]
