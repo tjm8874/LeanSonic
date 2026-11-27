@@ -91,7 +91,7 @@ def q8_planes(header, prefix, rows, cols):
 
 def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack_attention: bool = False,
          prepack_scales: bool = False, prepack_embedding: bool = False, prepack_mxfp8: bool = False,
-         prepack_nvfp4: bool = False,
+         prepack_nvfp4: bool = False, contextual_nvfp4: bool = False,
          entropy_scales: bool = False, compact_q8_scales: bool = False, compact_q8_codes: bool = False) -> tuple[int, int]:
     """Publish a complete shard atomically without replacing an existing file."""
     if destination.exists():
@@ -160,16 +160,19 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
                     converted = True
             if not matrices and not converted:
                 raise ValueError("no requested raw Q8 planes to compact; select --prepack-attention or --prepack-head for BF16 input")
+        if prepack_nvfp4 and contextual_nvfp4:
+            raise ValueError("choose one NVFP4 code format")
         for enabled, layers, per_byte, dtype in (
             (prepack_mxfp8, range(20, 24), 1, "F8_E4M3"),
-            (prepack_nvfp4, range(20), 2, "U8"),
+            (prepack_nvfp4 or contextual_nvfp4, range(20), 2, "U8"),
         ):
             if not enabled:
                 continue
             for name, shape in expert_weight_shapes(layers, per_byte).items():
-                if name not in header or name + ".rans_v1" in header:
+                if name not in header or name + ".rans_v1" in header or name + ".nvctx_v1" in header:
                     raise ValueError(f"missing or conflicting expert weight {name}")
-                lossless[name] = (dtype, shape, "rans", ".rans_v1")
+                mode, suffix = ("nvctx", ".nvctx_v1") if contextual_nvfp4 and per_byte == 2 else ("rans", ".rans_v1")
+                lossless[name] = (dtype, shape, mode, suffix)
         if prepack_embedding and packed_embed is None:
             lossless[EMBED_NAME] = ("BF16", EMBED_SHAPE, "embedding", ".prefix_v1")
         packer = build_packer() if matrices or lossless else None
@@ -301,10 +304,11 @@ def main() -> None:
     parser.add_argument("--prepack-embedding", action="store_true", help="store the BF16 input embedding losslessly (requires Cargo)")
     parser.add_argument("--prepack-mxfp8", action="store_true", help="store MXFP8 expert weights losslessly (requires Cargo)")
     parser.add_argument("--prepack-nvfp4", action="store_true", help="losslessly rANS-code packed NVFP4 expert weights when smaller")
+    parser.add_argument("--contextual-nvfp4", action="store_true", help="use block-context rANS for NVFP4 expert weights when smaller")
     args = parser.parse_args()
     try:
         removed, saved = pack(args.source, args.destination, prepack_head=args.prepack_head, prepack_attention=args.prepack_attention,
-                              prepack_scales=args.prepack_scales, prepack_embedding=args.prepack_embedding, prepack_mxfp8=args.prepack_mxfp8, prepack_nvfp4=args.prepack_nvfp4,
+                              prepack_scales=args.prepack_scales, prepack_embedding=args.prepack_embedding, prepack_mxfp8=args.prepack_mxfp8, prepack_nvfp4=args.prepack_nvfp4, contextual_nvfp4=args.contextual_nvfp4,
                               entropy_scales=args.entropy_scales, compact_q8_scales=args.compact_q8_scales, compact_q8_codes=args.compact_q8_codes)
     except (OSError, ValueError, TypeError, KeyError, subprocess.CalledProcessError) as exc:
         parser.exit(1, f"pack failed: {exc}\n")
