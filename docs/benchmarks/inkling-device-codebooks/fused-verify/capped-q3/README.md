@@ -4,8 +4,12 @@ Both engines see the same 1,024 README prompt IDs and consume the same 32 contin
 
 | GPU | Engine | Prefill ms (tok/s) | Decode 32 ms (tok/s) | Peak bytes | Matched fixture IDs |
 |---|---|---:|---:|---:|---:|
+| 5070Ti | LeanSonic capped | 121.853 (8,403.6) | 192.447 (166.28) | 16,118,710,272 | 32/32 |
+| 5070Ti | Unsloth llama.cpp Q3_K_XL | 526.560 (1,944.7) | 402.454 (79.51) | 16,150,167,552 | 31/32 |
 | 5060Ti | LeanSonic capped | 257.592 (3,975.3) | 339.832 (94.16) | 16,013,852,672 | 32/32 |
 | 5060Ti | Unsloth llama.cpp Q3_K_XL | 882.035 (1,161.0) | 574.012 (55.75) | 16,030,629,888 | 30/32 |
+
+5070Ti LeanSonic retained 24/24 expert layers. Speedup over native Q3, with paired-cycle 95% intervals: prefill 4.321× (4.320–4.323), decode 2.091× (2.089–2.093).
 
 5060Ti LeanSonic retained 24/24 expert layers. Speedup over native Q3, with paired-cycle 95% intervals: prefill 3.424× (3.421–3.427), decode 1.689× (1.688–1.691).
 
