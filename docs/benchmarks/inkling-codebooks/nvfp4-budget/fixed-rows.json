@@ -622,6 +622,40 @@
             "engine_top": 220
           }
         }
+      ],
+      "valid": [
+        {
+          "chunk": 30,
+          "position": 331,
+          "target": 20,
+          "engine_logits_sha256": "a267598c46baf2654a61088d86f50b9e20a4f7efc4b5c3f9c63b79977764a2e1",
+          "canonical": {
+            "kl": 0.08991950896648541,
+            "reference_top": 18,
+            "engine_top": 18
+          },
+          "serial": {
+            "kl": 0.038564314712450996,
+            "reference_top": 18,
+            "engine_top": 18
+          }
+        },
+        {
+          "chunk": 46,
+          "position": 379,
+          "target": 220,
+          "engine_logits_sha256": "198f61ac63ffcfcf62d44f320e8039ab397672feca517d5c964dfb99f341796c",
+          "canonical": {
+            "kl": 0.9911636685524602,
+            "reference_top": 170558,
+            "engine_top": 17
+          },
+          "serial": {
+            "kl": 1.2237830374570655,
+            "reference_top": 170558,
+            "engine_top": 17
+          }
+        }
       ]
     },
     "model": {
