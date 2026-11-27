@@ -1,0 +1,208 @@
+{
+  "package_bytes": 13628279942,
+  "shard_sha256": "093efaf66be89563b3fc401d810ea034dd02383d0a19559f9489c85cc4185881",
+  "target": 13623991319,
+  "estimated": 13623976374,
+  "planes": {
+    "model.llm.layers.0.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 284981200,
+      "changed": 165512012,
+      "sha256": "1de196e020569f86492be32dae95785242cbc30c4865ef3102b9ec0ab097289a"
+    },
+    "model.llm.layers.0.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 142689088,
+      "changed": 82178038,
+      "sha256": "36687cca76a28fd276b5b7d53f684f673b582eb2a052b33cec0117e5eee32e72"
+    },
+    "model.llm.layers.1.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 284187784,
+      "changed": 166940519,
+      "sha256": "349e0682ecd29fa3342f07255bc870a4b2a36581e06284ab928b6663c08cc9c4"
+    },
+    "model.llm.layers.1.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 142206464,
+      "changed": 83033550,
+      "sha256": "98aa6b26f53cb12a4dc42fc26040ccd2dc5061f911f5ae96965437b19ccc89ce"
+    },
+    "model.llm.layers.10.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 305275752,
+      "changed": 123967684,
+      "sha256": "290ebfa0d79bb6127b095529adff6253d179bed61619ebf01c0d88dc6acabc14"
+    },
+    "model.llm.layers.10.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 152709528,
+      "changed": 61785139,
+      "sha256": "797a39479e591033597e06f0cf0922bd70a93d648efbfc3c800dc6e088a59538"
+    },
+    "model.llm.layers.11.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 307013360,
+      "changed": 119079012,
+      "sha256": "d4b61176150dd2a3e30ddc9556bf57088817505da5e68c7f2df29cc5ce1a02e4"
+    },
+    "model.llm.layers.11.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 153698400,
+      "changed": 59215768,
+      "sha256": "2982df791f66b09d29181065d31ea1ccc657bfd7c30e11eb3cd2f222756eaa5e"
+    },
+    "model.llm.layers.12.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 307465552,
+      "changed": 117714445,
+      "sha256": "df41613ffe1ecc450a5cb798d5db5f8417a91076ab8836a206c4498604566891"
+    },
+    "model.llm.layers.12.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 153690120,
+      "changed": 59102404,
+      "sha256": "55fcf32c4f6ed44bfc21c314e9a8f5f35c321cb2aa9b7c40daf067929f66b379"
+    },
+    "model.llm.layers.13.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 305926248,
+      "changed": 121959248,
+      "sha256": "023a60cd7afe284d603d5a7622a7eb3a656241786b6b50a8ef7323a535b5dbfb"
+    },
+    "model.llm.layers.13.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 153133256,
+      "changed": 60647875,
+      "sha256": "835e6bf62f6ea91e3c2d4f8d920b54057288bfcb7a2340ff82c4470d28737758"
+    },
+    "model.llm.layers.14.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 306053560,
+      "changed": 121670621,
+      "sha256": "34b99e485e4c077c52f3877e31fbe0bb82bfa3511fbcf9e3ee3805d0ac20c702"
+    },
+    "model.llm.layers.14.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 153150496,
+      "changed": 60681137,
+      "sha256": "d9265f8525e4021a322e330ce8c3bd8b0ace6e11275d875d84d6392dc315ecd9"
+    },
+    "model.llm.layers.15.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 306520824,
+      "changed": 120392483,
+      "sha256": "dac9206be7708811d2dc647d0138b6adab27f9ae12c55ec4b819e68406b24880"
+    },
+    "model.llm.layers.15.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 153351592,
+      "changed": 60313454,
+      "sha256": "1f7a7b88f24b6b0161539007378e89969ee3cf08e03d7d6e0282e9969f780084"
+    },
+    "model.llm.layers.16.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 306716184,
+      "changed": 119982708,
+      "sha256": "dd8fec77c48583639e64d979622347d5efc005c8018baecfae37d40efcf3440e"
+    },
+    "model.llm.layers.16.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 153639320,
+      "changed": 59661186,
+      "sha256": "16ea376e1ca30a2630b612523d1e501e06dff7b05940fe09f058c981ba66f642"
+    },
+    "model.llm.layers.17.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 303520720,
+      "changed": 128318681,
+      "sha256": "2e5c187661ef7c7e04f65c869e44453ca4722754b54ae781ef24f63ca2f338f9"
+    },
+    "model.llm.layers.17.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 152179880,
+      "changed": 63854982,
+      "sha256": "e50040f18ec9a0d4e262d7219d151982be2dc13d9247a8f8c3c679dc162c01bc"
+    },
+    "model.llm.layers.18.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 285440408,
+      "changed": 163917408,
+      "sha256": "b9c512661f9d6d0337af4e89724205fe160d1480489690b2c1f0d3500564e7b5"
+    },
+    "model.llm.layers.18.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 142659544,
+      "changed": 82224087,
+      "sha256": "ecd8abeb074540bb4cb32b93664ca63cd4ca8f258b90e65ee518898cb0757489"
+    },
+    "model.llm.layers.19.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 285260552,
+      "changed": 164061194,
+      "sha256": "8fceea6544af51526c5a4cab284c7bda5b886b3446e5748a221d6d1608154230"
+    },
+    "model.llm.layers.19.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 142854200,
+      "changed": 81904666,
+      "sha256": "aea80ad2a2a46382ce05260c649b428f30eb0078eecad55449a3663063514580"
+    },
+    "model.llm.layers.2.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 283947888,
+      "changed": 167744406,
+      "sha256": "5eb027672f4972549f1ebbe5a23b0cb93cfa96b214ad4defc1c392a5a9bc09ac"
+    },
+    "model.llm.layers.2.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 142094352,
+      "changed": 83177105,
+      "sha256": "4a93bbcc11e594b834762f9360f4055e3c2b58b2886afa2357a7ec3eadddde73"
+    },
+    "model.llm.layers.3.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 283362568,
+      "changed": 168595684,
+      "sha256": "8ab91fa48ffb706d4e06d48572793dba85d45b5ac142ecd9a02757d949269545"
+    },
+    "model.llm.layers.3.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 141831720,
+      "changed": 83573337,
+      "sha256": "b087922b98397f9b30045d3330cb9d385761a15356a3af392aba7c09388a3526"
+    },
+    "model.llm.layers.4.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 283516520,
+      "changed": 168192480,
+      "sha256": "74c4fa40aa1e776f274e2be6bd1b45e08508e2ff0c7b99427f3f7a74ae7a5a05"
+    },
+    "model.llm.layers.4.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 141890440,
+      "changed": 83463689,
+      "sha256": "2329ec81ab9be4d5d8d71774572721c2271bfdc4b15150f4fe8060acd719d654"
+    },
+    "model.llm.layers.5.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 283808216,
+      "changed": 167511292,
+      "sha256": "845c1eb1d683330b675b0bc8cbb5f9771fc4dcbcb5777c107dcebdb17f83c88c"
+    },
+    "model.llm.layers.5.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 142040136,
+      "changed": 83385760,
+      "sha256": "03fbb86172e3cb719c49f22485e9545bf08b4cc47c90dac634dcb5f1cf22e0b2"
+    },
+    "model.llm.layers.6.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 306740240,
+      "changed": 119877493,
+      "sha256": "01c1b9a333fd83aa53fca7d66ec26e9ab8c6b13d6a2674f187c51397ea5aebe3"
+    },
+    "model.llm.layers.6.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 153389552,
+      "changed": 59892318,
+      "sha256": "43299a048f2fbf16888e3f5d45e9932d1731a863afe17ec43608ccfc6a9167e4"
+    },
+    "model.llm.layers.7.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 306496456,
+      "changed": 120559353,
+      "sha256": "499674eaff7fc9fb9ccdd1f781bbd38bbc709ca28c061c05f3b08af927d7e783"
+    },
+    "model.llm.layers.7.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 153246896,
+      "changed": 60164837,
+      "sha256": "ae5ed8c6af7ec04f43c1f99a06e0312cc68e6c64255d68d704b4c16297605f07"
+    },
+    "model.llm.layers.8.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 306231184,
+      "changed": 121471902,
+      "sha256": "3f2f98a9d1e71ea6281ca419bd3cbb5e45429d3ac90103cf12c6f0a3a5001cb3"
+    },
+    "model.llm.layers.8.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 153088496,
+      "changed": 60641826,
+      "sha256": "3be17177f1c68a62c8853fd88766a89e9f3cfa040e6144fc6b2181887b4a3092"
+    },
+    "model.llm.layers.9.mlp.experts.w13_weight.nvctx_v1": {
+      "size": 306123440,
+      "changed": 121674150,
+      "sha256": "7653731afa16dbd96f1d256a4b77a1c4d0dfaae9078f478e64906ef8120f622a"
+    },
+    "model.llm.layers.9.mlp.experts.w2_weight.nvctx_v1": {
+      "size": 153146432,
+      "changed": 60500332,
+      "sha256": "8cd2b66a26e29dc447ebc4bdd406d78e3b45cfee1c3a8e857adb5970f6ac517a"
+    }
+  }
+}

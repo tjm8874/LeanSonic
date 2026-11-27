@@ -40,3 +40,9 @@ python3 "$tool/nvfp4_budget/select_cutoffs.py" "$OFFICIAL_SHARD" "$MIDDLE" selec
 Compare the SHA-256 of windows.ids and routes.bin with fixture.window_sha256 and routing.source_sha256 in the receipt. An independent run of the published preprocessing and fitter reproduced windows.ids, routing.json and selection.json byte for byte; selection.json had SHA-256 `4767bbd768f3f83b9da50ab3f4526a41e15a733f899e4eddb862df8018a6ff00`. The evaluation uses separate WikiText-2 test, validation and bilingual fixtures.
 
 [Held-out quality scores and adoption decision](quality.md).
+
+## Second build within the public Q3 size budget
+
+The first routing-weighted package left 19,097,562 bytes below original Q3. A second fit kept the training windows and routing factors fixed and spent part of that difference on precision. The target sent to the fitter was 13,623,991,319 bytes, subtracting the first fit’s measured sampling error and a 3,000,000-byte reserve from the 13,631,778,016-byte public file. This relaxed rounding in 779 of the 5,120 per-expert, per-plane cutoffs. All remaining cutoffs are identical.
+
+The rebuilt package occupies 13,628,279,942 bytes, 3,498,074 bytes below original Q3. It modifies 4,178,544,265 weights and its shard has SHA-256 `093efaf66be89563b3fc401d810ea034dd02383d0a19559f9489c85cc4185881`. Use the same assembly command with [the second cutoff file](higher-budget-cutoffs.json). The [build receipt](higher-budget-build.json) records every frame. Quality is evaluated separately for each build.
