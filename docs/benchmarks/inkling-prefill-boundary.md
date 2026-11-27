@@ -35,10 +35,23 @@ Automatic prefill width, FP16 KV, PDL, context 256, 64 independent prompts, 2 fo
 | PRO5000 | 32–95 | 0 | 0 | 0 |
 | PRO4500 | 32–95 | 0 | 0 | 0 |
 | PRO4500 | 96–159 | 0 | 0 | 0 |
+| PRO4500 | 160–223 | 0 | 0 | 0 |
 | 5070Ti | 32–95 | 0 | 0 | 0 |
 | 5070Ti | 96–159 | 0 | 0 | 0 |
 | 5070Ti | 160–223 | 0 | 0 | 0 |
 | 5060Ti | 32–95 | 0 | 0 | 0 |
+
+### Latency on PRO4500
+
+One sequence, FP16 KV, context 2,048, fixed prefill width 64. Three ABBA/BAAB cycles produce 18 measured requests per length and revision after the first request of each fresh process is removed. Both arms consume identical IDs. The [machine-readable result](inkling-prefill-boundary.json) includes the other lengths and the eight forced decode steps.
+
+| Input tokens | Original prefill ms | Rebalanced prefill ms |
+|---:|---:|---:|
+| 66 | 57.49 | 75.24 |
+| 80 | 70.24 | 78.70 |
+| 95 | 82.44 | 87.30 |
+| 96 | 87.68 | 87.57 |
+| 1024 | 794.29 | 794.27 |
 
 ### Latency on 5070Ti
 
