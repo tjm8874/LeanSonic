@@ -1,0 +1,122 @@
+[
+  {
+    "id": "q00_code_merge",
+    "language": "en",
+    "prompt": "Write a Python function that merges two sorted lists, with tests.",
+    "answer": "def merge(a, b):\n    i = j = 0\n    out = []\n    while i < len(a) and j < len(b):\n"
+  },
+  {
+    "id": "q01_net_tcp_udp",
+    "language": "en",
+    "prompt": "Explain the difference between TCP and UDP for a beginner.",
+    "answer": "TCP delivers bytes in order and retransmits missing data. UDP sends individual datagrams, which can arrive out of order or go missing."
+  },
+  {
+    "id": "q02_hist_french_rev",
+    "language": "en",
+    "prompt": "Summarize the causes of the French Revolution in five bullet points.",
+    "answer": "- The state owed large sums after years of war.\n- Many people resented tax privileges enjoyed by the nobility and clergy."
+  },
+  {
+    "id": "q03_story_lighthouse",
+    "language": "en",
+    "prompt": "Write a short story about a lighthouse keeper who finds a message in a bottle.",
+    "answer": "The bottle rolled against Mara's boot as she crossed the beach. Inside was a map of the lighthouse, drawn from memory."
+  },
+  {
+    "id": "q04_sql_top_customers",
+    "language": "en",
+    "prompt": "Give me a SQL query that finds the top 3 customers by total order value per month.",
+    "answer": "WITH monthly AS (\n    SELECT date_trunc('month', order_date) AS month, customer_id, SUM(order_value) AS total\n"
+  },
+  {
+    "id": "q05_arch_microservices",
+    "language": "en",
+    "prompt": "What are the pros and cons of microservices versus a monolith?",
+    "answer": "A monolith is usually simpler to deploy and debug. Microservices let teams release components independently, but introduce network failures and coordination costs."
+  },
+  {
+    "id": "q06_translate_fr",
+    "language": "en",
+    "prompt": "Translate to French: The meeting has been moved to Thursday afternoon because the manager is travelling.",
+    "answer": "La réunion a été reportée à jeudi après-midi car le responsable est en déplacement."
+  },
+  {
+    "id": "q07_poem_autumn",
+    "language": "en",
+    "prompt": "Write a haiku-free poem about autumn rain in a city, about 12 lines.",
+    "answer": "Rain darkens the steps of the station.\nA leaf catches on the ticket gate.\nTwo strangers fold their umbrellas"
+  },
+  {
+    "id": "q08_cs_hashmap",
+    "language": "en",
+    "prompt": "How does a hash map handle collisions? Include a C# example.",
+    "answer": "A collision occurs when different keys map to the same bucket. The dictionary still compares the keys for equality before returning a value."
+  },
+  {
+    "id": "q09_travel_kyoto",
+    "language": "en",
+    "prompt": "Plan a 3-day itinerary for Kyoto focused on temples and food.",
+    "answer": "Day 1: Start at Kiyomizu-dera in the morning, then walk through Higashiyama and stop for a tofu lunch."
+  },
+  {
+    "id": "q10_ml_gradient",
+    "language": "en",
+    "prompt": "Explain gradient descent with a simple numeric example.",
+    "answer": "For f(x) = x², the gradient is 2x. Starting at x = 3 with a learning rate of 0.1, the next value is 2.4."
+  },
+  {
+    "id": "q11_json_schema",
+    "language": "en",
+    "prompt": "Write a JSON schema for a blog post with title, author, tags and comments.",
+    "answer": "{\n  \"type\": \"object\",\n  \"required\": [\"title\", \"author\", \"tags\", \"comments\"],\n  \"properties\": {"
+  },
+  {
+    "id": "ja_allocation",
+    "language": "ja",
+    "prompt": "17個のりんごを4人に同じ数ずつ配ります。一人分と余りを、式を添えて答えてください。",
+    "answer": "17 ÷ 4 = 4 あまり 1 です。1人に4個ずつ配ると、1個残ります。"
+  },
+  {
+    "id": "ja_reading",
+    "language": "ja",
+    "prompt": "「金曜日までに連絡がなければ、月曜日に発送します」とあります。いつ、どんな条件で発送しますか。",
+    "answer": "金曜日までに連絡がなかった場合、翌週の月曜日に発送します。"
+  },
+  {
+    "id": "ja_translation",
+    "language": "ja",
+    "prompt": "「検査が終わり次第、結果をお送りします」を自然な英語にしてください。",
+    "answer": "We will send you the results as soon as the inspection is complete."
+  },
+  {
+    "id": "ja_python",
+    "language": "ja",
+    "prompt": "Pythonで空のリストにも対応する平均値の関数を書いてください。空ならNoneを返します。",
+    "answer": "def mean(values):\n    if not values:\n        return None\n    return sum(values) / len(values)"
+  },
+  {
+    "id": "ja_reasoning",
+    "language": "ja",
+    "prompt": "赤、青、黄の順にランプが繰り返し点灯します。最初が赤なら、14回目は何色ですか。",
+    "answer": "青です。3回で一巡し、14を3で割った余りは2なので、順番の2番目に当たります。"
+  },
+  {
+    "id": "ja_summary",
+    "language": "ja",
+    "prompt": "次のメモを一文にまとめてください。「部品は火曜に到着。組み立ては水曜。検品が済めば木曜に出荷。」",
+    "answer": "火曜に届く部品を水曜に組み立て、検品が済み次第、木曜に出荷する予定です。"
+  },
+  {
+    "id": "ja_units",
+    "language": "ja",
+    "prompt": "毎秒250ミリリットルの水が流れる管があります。2リットルをためるには何秒かかりますか。",
+    "answer": "2リットルは2,000ミリリットルなので、2,000を250で割ると8秒です。"
+  },
+  {
+    "id": "ja_story",
+    "language": "ja",
+    "prompt": "真夜中の無人駅を舞台に、短編の書き出しを二文で書いてください。",
+    "answer": "終電が去って十分もたつのに、改札の向こうから切符を切る音がした。駅員室の鍵は、私の手の中にあった。"
+  }
+]
