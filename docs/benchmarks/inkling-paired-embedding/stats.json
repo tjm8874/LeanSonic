@@ -1,0 +1,13 @@
+{
+  "ryzen": {
+    "baseline_ms": 56.19434215,
+    "paired_ms": 51.53637055,
+    "elapsed_change_pct": -8.289040180533547,
+    "paired_cycle_bootstrap_95pct": [
+      -10.058396134319914,
+      -6.059459771161491
+    ],
+    "scored_cycles": 10,
+    "matching_full_decodes": 44
+  }
+}
