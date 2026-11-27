@@ -12,4 +12,6 @@ c++ -O2 -std=c++17 tools/check_inkling_split_overflow.cpp -I"$CUDA_HOME/include"
 
 The executable returns 0 only if all cases have finite FP16 partials, finite dequantized outputs, and maximum absolute output error below 0.005. Setup or launch errors return 2. Maximum error is computed over finite outputs; the nonfinite counts separately detect infinities and NaNs.
 
-On RTX 5060 Ti, before #110 (`1444305`) both formats passed at 4,096 keys. At 98,304 and 131,072 keys each run produced 55,296 nonfinite partial values and 9,216 nonfinite output values. With `11758a0` all six cases passed. The maximum absolute errors over all heads and query rows were 0.00001400, 0.00004068 and 0.00003050 at the three respective lengths, in both KV formats. The real-model retrieval results are tracked separately in #101.
+On RTX PRO 5000 72GB, RTX PRO 4500 and RTX 5060 Ti, before #110 (`1444305`) both formats passed at 4,096 keys. At 98,304 and 131,072 keys each run produced 55,296 nonfinite partial values and 9,216 nonfinite output values. With `11758a0` all six cases passed. The maximum absolute errors over all heads and query rows were 0.00001400, 0.00004068 and 0.00003050 at the three respective lengths, in both KV formats. The real-model retrieval results are tracked separately in #101.
+
+The RTX 5060 Ti also passed the same six cases with the merged #113 kernel source (main `02b293e`). FP16 and INT8 both produced zero nonfinite values and the same maximum errors at each length.
