@@ -140,6 +140,28 @@ fn nvfp4_prefix<const SPLIT: bool>(previous: u8, value: u8) -> u8 {
     }
 }
 
+// The split decoder updates four independent prefix states. Keep all transitions
+// in 4 KiB so the hot loop needs only one operation per decoded symbol.
+const TRIM_PREFIX: [[u8; 256]; 16] = {
+    let mut table = [[0; 256]; 16];
+    let mut previous = 0;
+    while previous < 16 {
+        let mut symbol = 0;
+        while symbol < 256 {
+            let lo = symbol as u8 & 7;
+            let hi = (symbol as u8 >> 4) & 7;
+            let preceding = previous as u8 & 7;
+            let pair = if lo > hi { lo } else { hi };
+            let largest = if preceding > pair { preceding } else { pair };
+            let seen = previous & 8 != 0 || matches!(lo, 1 | 3) || matches!(hi, 1 | 3);
+            table[previous][symbol] = largest | ((seen as u8) << 3);
+            symbol += 1;
+        }
+        previous += 1;
+    }
+    table
+};
+
 /// Four independent eight-byte NVFP4 blocks are interleaved. The column and
 /// previous largest E2M1 magnitude select a table; both sign bits are retained.
 pub fn pack_nvfp4_context(raw: &[u8], output: impl Write) -> io::Result<usize> {
@@ -395,7 +417,11 @@ impl<'a> Matrix<'a> {
                     let entry = table[(*state & (TOTAL - 1)) as usize];
                     let v = (entry >> 24) as u8;
                     group[8 * lane + column].write(v);
-                    prev[lane] = nvfp4_prefix::<SPLIT>(prev[lane], v);
+                    prev[lane] = if SPLIT {
+                        TRIM_PREFIX[usize::from(prev[lane])][usize::from(v)]
+                    } else {
+                        nvfp4_prefix::<false>(prev[lane], v)
+                    };
                     *state = ((entry & 4095) + 1) * (*state >> PRECISION) + ((entry >> 12) & 4095);
                     while *state < LOWER {
                         let byte = bytes.get(cursor).ok_or("short contextual NVFP4 payload")?;
@@ -473,6 +499,15 @@ impl<'a> Matrix<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn trim_lookup_matches_all_encoder_transitions() {
+        for (previous, transitions) in TRIM_PREFIX.iter().enumerate() {
+            for (symbol, &next) in transitions.iter().enumerate() {
+                assert_eq!(next, nvfp4_prefix::<true>(previous as u8, symbol as u8));
+            }
+        }
+    }
+
     #[test]
     fn nvfp4_zero_canonicalization_only_changes_negative_zero_nibbles() {
         let mut raw: Vec<u8> = (0..=255).collect();

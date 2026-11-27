@@ -1,0 +1,704 @@
+{
+  "summary": {
+    "0": {
+      "prior_ms": 198.2752584,
+      "candidate_ms": 163.7487886,
+      "delta_ms": -34.5264698,
+      "ci95_ms": [
+        -44.15259473333333,
+        -24.900344866666675
+      ]
+    },
+    "11": {
+      "prior_ms": 381.3852562,
+      "candidate_ms": 289.40079256666667,
+      "delta_ms": -91.98446363333333,
+      "ci95_ms": [
+        -120.1123353333333,
+        -56.943051300000015
+      ]
+    }
+  },
+  "runs": [
+    {
+      "cycle": 1,
+      "leg": 0,
+      "arm": "prior",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.190950423,
+        0.187065557,
+        0.18613078
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 1,
+      "leg": 0,
+      "arm": "prior",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.370298866,
+        0.372465731,
+        0.368307011
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 1,
+      "leg": 1,
+      "arm": "candidate",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.149884834,
+        0.195540024,
+        0.149134874
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 1,
+      "leg": 1,
+      "arm": "candidate",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.273536975,
+        0.259461966,
+        0.263465093
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 1,
+      "leg": 2,
+      "arm": "candidate",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.148818969,
+        0.147111959,
+        0.153473563
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 1,
+      "leg": 2,
+      "arm": "candidate",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.278796696,
+        0.280283452,
+        0.385399684
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 1,
+      "leg": 3,
+      "arm": "prior",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.271648213,
+        0.202967111,
+        0.20322708
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 1,
+      "leg": 3,
+      "arm": "prior",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.382593437,
+        0.369112714,
+        0.369941002
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 2,
+      "leg": 0,
+      "arm": "candidate",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.153000483,
+        0.166724422,
+        0.150560805
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 2,
+      "leg": 0,
+      "arm": "candidate",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.272335564,
+        0.268732489,
+        0.267768696
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 2,
+      "leg": 1,
+      "arm": "prior",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.199120135,
+        0.195950615,
+        0.194755738
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 2,
+      "leg": 1,
+      "arm": "prior",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.385804063,
+        0.366455947,
+        0.364727597
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 2,
+      "leg": 2,
+      "arm": "prior",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.200061937,
+        0.195539943,
+        0.195402584
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 2,
+      "leg": 2,
+      "arm": "prior",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.377285142,
+        0.371852335,
+        0.370858115
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 2,
+      "leg": 3,
+      "arm": "candidate",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.151076935,
+        0.148734429,
+        0.151466627
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 2,
+      "leg": 3,
+      "arm": "candidate",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.269930942,
+        0.268136025,
+        0.269940309
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 3,
+      "leg": 0,
+      "arm": "prior",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.196161741,
+        0.193555069,
+        0.194824035
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 3,
+      "leg": 0,
+      "arm": "prior",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.376787114,
+        0.412212003,
+        0.437018694
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 3,
+      "leg": 1,
+      "arm": "candidate",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.176787075,
+        0.155476559,
+        0.163415038
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 3,
+      "leg": 1,
+      "arm": "candidate",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.273826707,
+        0.264564309,
+        0.255431182
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 3,
+      "leg": 2,
+      "arm": "candidate",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.162820679,
+        0.148290935,
+        0.152236806
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 3,
+      "leg": 2,
+      "arm": "candidate",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.271138151,
+        0.26697962,
+        0.265423304
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 3,
+      "leg": 3,
+      "arm": "prior",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.198197066,
+        0.193691553,
+        0.192591086
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 3,
+      "leg": 3,
+      "arm": "prior",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.375790509,
+        0.379419743,
+        0.369753465
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 4,
+      "leg": 0,
+      "arm": "candidate",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.151399961,
+        0.148910751,
+        0.152577315
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 4,
+      "leg": 0,
+      "arm": "candidate",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.268576883,
+        0.267073416,
+        0.265293949
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 4,
+      "leg": 1,
+      "arm": "prior",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.189163469,
+        0.187198654,
+        0.18776505
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 4,
+      "leg": 1,
+      "arm": "prior",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.373769738,
+        0.370204172,
+        0.372110266
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 4,
+      "leg": 2,
+      "arm": "prior",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.193815637,
+        0.189950388,
+        0.246381011
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 4,
+      "leg": 2,
+      "arm": "prior",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.372185537,
+        0.370423003,
+        0.53755051
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 4,
+      "leg": 3,
+      "arm": "candidate",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.212006066,
+        0.207779557,
+        0.196529601
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 4,
+      "leg": 3,
+      "arm": "candidate",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.286042107,
+        0.289114725,
+        0.282144958
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 5,
+      "leg": 0,
+      "arm": "prior",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.196676167,
+        0.192740104,
+        0.193494392
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 5,
+      "leg": 0,
+      "arm": "prior",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.372335228,
+        0.369152352,
+        0.368958848
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 5,
+      "leg": 1,
+      "arm": "candidate",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.201621025,
+        0.155654692,
+        0.148571501
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 5,
+      "leg": 1,
+      "arm": "candidate",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.476408757,
+        0.445708482,
+        0.337385462
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 5,
+      "leg": 2,
+      "arm": "candidate",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.155401545,
+        0.208420202,
+        0.149036426
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 5,
+      "leg": 2,
+      "arm": "candidate",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.268363079,
+        0.268681127,
+        0.272079668
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    },
+    {
+      "cycle": 5,
+      "leg": 3,
+      "arm": "prior",
+      "layer": 0,
+      "decoded_bytes": 169869312,
+      "seconds": [
+        0.194501045,
+        0.195151138,
+        0.189580031
+      ],
+      "hashes": [
+        "fec3b0452899a126",
+        "fec3b0452899a126",
+        "fec3b0452899a126"
+      ]
+    },
+    {
+      "cycle": 5,
+      "leg": 3,
+      "arm": "prior",
+      "layer": 11,
+      "decoded_bytes": 339738624,
+      "seconds": [
+        0.37250741,
+        0.369420214,
+        0.37225692
+      ],
+      "hashes": [
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44",
+        "bbb32b0c59d0aa44"
+      ]
+    }
+  ]
+}
