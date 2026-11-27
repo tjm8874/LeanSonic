@@ -11,9 +11,29 @@ parser.add_argument("output_dir", type=Path)
 parser.add_argument(
     "--encoder", type=Path, default=Path("target/release/examples/inkling_mxfp8_round")
 )
+parser.add_argument(
+    "--cutoffs",
+    type=Path,
+    help="Use eight per-plane magnitude cutoffs from choose_cutoffs.py and write the budget variant.",
+)
 args = parser.parse_args()
+thresholds = (
+    json.loads(args.cutoffs.read_text())["thresholds"] if args.cutoffs else None
+)
+if thresholds is not None:
+    keys = {
+        f"model.llm.layers.{layer}.mlp.experts.{kind}"
+        for layer in range(20, 24)
+        for kind in ("w13_weight", "w2_weight")
+    }
+    if set(thresholds) != keys or any(
+        type(v) != int or not 0 <= v <= 125 for v in thresholds.values()
+    ):
+        raise ValueError(
+            "expected a finite magnitude cutoff for each of the eight planes"
+        )
 args.output_dir.mkdir(parents=True, exist_ok=True)
-for arm in ("last", "all"):
+for arm in ("budget",) if thresholds else ("last", "all"):
     if (args.output_dir / arm).exists():
         raise FileExistsError(args.output_dir / arm)
 
@@ -66,6 +86,7 @@ with tempfile.TemporaryDirectory(prefix="round-frame-", dir=args.output_dir) as 
             key = name + ".rans_v1"
             a, b = raw[name]["data_offsets"]
             assert raw[name]["dtype"] == "F8_E4M3" and old[key]["dtype"] == "U8"
+            cutoff = thresholds[name] if thresholds else 125
             dest = Path(scratch) / key
             lines = subprocess.check_output(
                 [
@@ -74,6 +95,7 @@ with tempfile.TemporaryDirectory(prefix="round-frame-", dir=args.output_dir) as 
                     str(roff + a),
                     str(b - a),
                     str(dest),
+                    str(cutoff),
                 ],
                 text=True,
             ).splitlines()
@@ -84,20 +106,29 @@ with tempfile.TemporaryDirectory(prefix="round-frame-", dir=args.output_dir) as 
                 and hist[127] == hist[255] == 0
             )
             err = sum(
-                n * (number(i & 127) - number(rounded(i & 127))) ** 2
+                n
+                * (
+                    number(i & 127)
+                    - number(rounded(i & 127) if (i & 127) <= cutoff else i & 127)
+                )
+                ** 2
                 for i, n in hist.items()
             )
             power = sum(n * number(i & 127) ** 2 for i, n in hist.items())
             frames[key] = dict(
                 bytes=int(lines[0]),
                 sha256=hashlib.sha256(dest.read_bytes()).hexdigest(),
-                changed_codes=sum(n for v, n in hist.items() if v % 2),
+                changed_codes=sum(
+                    n for v, n in hist.items() if v % 2 and (v & 127) <= cutoff
+                ),
                 codes=b - a,
                 normalized_code_mse=err / power,
             )
-        if layer not in (20, 23):
+            if thresholds:
+                frames[key]["threshold"] = cutoff
+        if layer not in ((20,) if thresholds else (20, 23)):
             continue
-        arm = "last" if layer == 23 else "all"
+        arm = "budget" if thresholds else ("last" if layer == 23 else "all")
         target = Path(tempfile.mkdtemp(dir=args.output_dir, prefix=arm + ".partial."))
         meta = {}
         o = 0
