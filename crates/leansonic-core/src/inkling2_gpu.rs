@@ -775,6 +775,9 @@ pub struct Inkling2GpuEngine {
     d_ms_xrec: Option<DeviceBuf>,
     ms_xrec: std::cell::Cell<CUdeviceptr>,
     ms_verify_runs: Vec<(usize, usize)>,
+    /// Streams and start event for concurrent per-sequence drafts (`draft_for_seqs`).
+    draft_streams: Vec<CUstream>,
+    draft_ready: CUevent,
     /// Captured decode rounds per row count (captured on a row count's second use).
     ms_graphs: std::collections::HashMap<usize, CapturedGraphExec>,
     ms_round_hits: std::collections::HashMap<usize, u32>,
@@ -2003,6 +2006,8 @@ impl Inkling2GpuEngine {
             d_ms_xrec: None,
             ms_xrec: std::cell::Cell::new(0),
             ms_verify_runs: Vec::new(),
+            draft_streams: Vec::new(),
+            draft_ready: core::ptr::null_mut(),
             ms_graphs: std::collections::HashMap::new(),
             ms_round_hits: std::collections::HashMap::new(),
             ms_graph: std::env::var("LEANSONIC_MS_GRAPH").map_or(true, |v| v != "0"),
@@ -5050,6 +5055,84 @@ impl Inkling2GpuEngine {
             )?;
         }
         Ok(())
+    }
+
+    /// DSpark drafts for several sequences at once: `reqs[i] = (seq, next_tok, max_k)`. Each
+    /// sequence drafts from its own context and scratch on its own stream, so the drafts run
+    /// concurrently; the tokens equal `draft_for_seq` one sequence at a time.
+    pub fn draft_for_seqs(
+        &mut self,
+        reqs: &[(usize, u32, usize)],
+    ) -> Result<Vec<Vec<u32>>, String> {
+        if self.drafter.is_none() {
+            return Ok(vec![Vec::new(); reqs.len()]);
+        }
+        while self.draft_streams.len() < reqs.len() {
+            let mut st: CUstream = core::ptr::null_mut();
+            unsafe {
+                check_cu(
+                    (self.ctx.api.cuStreamCreate)(&mut st, 1 /* CU_STREAM_NON_BLOCKING */),
+                    "cuStreamCreate(draft)",
+                )?;
+            }
+            self.draft_streams.push(st);
+        }
+        if self.draft_ready.is_null() {
+            unsafe {
+                check_cu(
+                    (self.ctx.api.cuEventCreate)(&mut self.draft_ready, CU_EVENT_DISABLE_TIMING),
+                    "cuEventCreate(draft_ready)",
+                )?;
+            }
+        }
+        // Drafts read the contexts the compute stream last appended to.
+        unsafe {
+            check_cu(
+                (self.ctx.api.cuEventRecord)(self.draft_ready, self.ctx.compute_stream),
+                "cuEventRecord(draft_ready)",
+            )?;
+        }
+        let mut pending = Vec::with_capacity(reqs.len());
+        for (i, &(seq, tok, max_k)) in reqs.iter().enumerate() {
+            let pos = if seq == self.cur_seq {
+                self.host_pos
+            } else {
+                self.seq_pos[seq]
+            };
+            let max_k = max_k.min(self.max_ctx.saturating_sub(pos + 1));
+            let stream = self.draft_streams[i];
+            unsafe {
+                check_cu(
+                    (self.ctx.api.cuStreamWaitEvent)(stream, self.draft_ready, 0),
+                    "cuStreamWaitEvent(draft)",
+                )?;
+            }
+            let d = self.drafter.as_mut().unwrap();
+            d.select_seq(seq)?;
+            pending.push(d.enqueue_draft(
+                stream,
+                self.embed.ptr(),
+                self.embed_norm.ptr,
+                &self.unembed_q8,
+                tok,
+                max_k,
+            )?);
+        }
+        let mut out = Vec::with_capacity(reqs.len());
+        for (i, &(seq, _, _)) in reqs.iter().enumerate() {
+            self.ctx.sync_stream(self.draft_streams[i])?;
+            let (k, tau) = pending[i];
+            let d = self.drafter.as_mut().unwrap();
+            d.select_seq(seq)?;
+            out.push(if k == 0 {
+                Vec::new()
+            } else {
+                d.finish_draft(k, tau)?
+            });
+        }
+        let cur = self.cur_seq;
+        self.drafter.as_mut().unwrap().select_seq(cur)?;
+        Ok(out)
     }
 
     /// DSpark drafts (up to `max_k`) for sequence `seq` after its pending token `next_tok`,

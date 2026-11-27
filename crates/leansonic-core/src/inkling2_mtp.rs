@@ -80,10 +80,65 @@ struct MtpLayerGpu {
     win: usize,
 }
 
+/// Scratch buffers of one draft (`draft_tokens`) or context update (`enqueue_add_ctx`).
+struct DraftScratch {
+    d_mix: DeviceBuf,
+    d_kv: DeviceBuf,
+    d_x: DeviceBuf,
+    d_qkv: DeviceBuf,
+    d_att: DeviceBuf,
+    d_o: DeviceBuf,
+    d_gu: DeviceBuf,
+    d_act: DeviceBuf,
+    d_hidden: DeviceBuf,
+    d_base: DeviceBuf,
+    d_frnn: DeviceBuf,
+    d_x2: DeviceBuf,
+    d_ctxm: DeviceBuf,
+    d_state: DeviceBuf,
+    d_raw: DeviceBuf,
+    d_lat_q8: DeviceBuf,
+    d_lat_sc64: DeviceBuf,
+    d_fpart: DeviceBuf,
+    d_res: DeviceBuf,
+    d_q8: DeviceBuf,
+    d_sc64: DeviceBuf,
+}
+
+impl DraftScratch {
+    fn alloc(ctx: &Arc<CudaContextHandle>) -> Result<Self, String> {
+        let nb_fold = VOCAB.div_ceil(64);
+        Ok(Self {
+            d_mix: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * D * 4)?,
+            d_kv: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * 2048 * 4)?,
+            d_x: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * D * 4)?,
+            d_qkv: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * 5120 * 4)?,
+            d_att: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * 3072 * 4)?,
+            d_o: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * D * 4)?,
+            d_gu: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * 2 * DFF * 4)?,
+            d_act: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * DFF * 4)?,
+            d_hidden: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * D * 4)?,
+            d_base: DeviceBuf::alloc_zeroed(ctx, 7 * VOCAB * 4)?,
+            d_frnn: DeviceBuf::alloc_zeroed(ctx, D * 4)?,
+            d_x2: DeviceBuf::alloc_zeroed(ctx, 7 * 2 * D * 4)?,
+            d_ctxm: DeviceBuf::alloc_zeroed(ctx, 7 * 768 * 4)?,
+            d_state: DeviceBuf::alloc_zeroed(ctx, R_MARKOV * 4)?,
+            d_raw: DeviceBuf::alloc_zeroed(ctx, 768 * 4)?,
+            d_lat_q8: DeviceBuf::alloc_zeroed(ctx, R_MARKOV)?,
+            d_lat_sc64: DeviceBuf::alloc_zeroed(ctx, (R_MARKOV / 64) * 4)?,
+            d_fpart: DeviceBuf::alloc_zeroed(ctx, nb_fold * 3 * 4)?,
+            d_res: DeviceBuf::alloc_zeroed(ctx, 2 * B_DRAFT * 4)?,
+            d_q8: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * DFF)?,
+            d_sc64: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * (DFF / 64) * 4)?,
+        })
+    }
+}
+
 /// One sequence's drafter context (#107): the three layers' context KV, the anchor taps and the
 /// acceptance calibration. The weights and draft scratch buffers are shared.
 struct DraftSeqState {
     kv: Vec<(DeviceBuf, DeviceBuf)>,
+    scr: DraftScratch,
     anchor: DeviceBuf,
     ctx_end: usize,
     cal: (f32, f32),
@@ -105,29 +160,9 @@ pub struct DsparkDrafterGpu {
     w1_pinned: PinnedHostBuf,
     fold_q8: PlanarQ8Gpu,
     d_fold_b: DeviceBuf,
-    // Persistent draft scratch buffers
-    d_mix: DeviceBuf,
-    d_kv: DeviceBuf,
+    // Draft scratch (one set per sequence so sequences can draft concurrently)
+    scr: DraftScratch,
     d_anchor: DeviceBuf,
-    d_x: DeviceBuf,
-    d_qkv: DeviceBuf,
-    d_att: DeviceBuf,
-    d_o: DeviceBuf,
-    d_gu: DeviceBuf,
-    d_act: DeviceBuf,
-    d_hidden: DeviceBuf,
-    d_base: DeviceBuf,
-    d_frnn: DeviceBuf,
-    d_x2: DeviceBuf,
-    d_ctxm: DeviceBuf,
-    d_state: DeviceBuf,
-    d_raw: DeviceBuf,
-    d_lat_q8: DeviceBuf,
-    d_lat_sc64: DeviceBuf,
-    d_fpart: DeviceBuf,
-    d_res: DeviceBuf,
-    d_q8: DeviceBuf,
-    d_sc64: DeviceBuf,
     pub ctx_end: usize,
     /// Parked states of the other sequences (`LEANSONIC_SEQS > 1`); `cur_seq`'s is live.
     seq_states: Vec<Option<DraftSeqState>>,
@@ -336,32 +371,11 @@ impl DsparkDrafterGpu {
         let (fold_q8, d_fold_b) =
             Self::precompute_fold_on_gpu(ctx, &fns, unembed_q8, ho_u16, hb_u16)?;
 
-        let nb_fold = VOCAB.div_ceil(64);
         Ok(Self {
-            d_mix: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * D * 4)?,
-            d_kv: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * 2048 * 4)?,
             d_anchor: DeviceBuf::alloc_zeroed(ctx, 4 * D * 4)?,
+            scr: DraftScratch::alloc(ctx)?,
             seq_states: Vec::new(),
             cur_seq: 0,
-            d_x: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * D * 4)?,
-            d_qkv: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * 5120 * 4)?,
-            d_att: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * 3072 * 4)?,
-            d_o: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * D * 4)?,
-            d_gu: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * 2 * DFF * 4)?,
-            d_act: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * DFF * 4)?,
-            d_hidden: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * D * 4)?,
-            d_base: DeviceBuf::alloc_zeroed(ctx, 7 * VOCAB * 4)?,
-            d_frnn: DeviceBuf::alloc_zeroed(ctx, D * 4)?,
-            d_x2: DeviceBuf::alloc_zeroed(ctx, 7 * 2 * D * 4)?,
-            d_ctxm: DeviceBuf::alloc_zeroed(ctx, 7 * 768 * 4)?,
-            d_state: DeviceBuf::alloc_zeroed(ctx, R_MARKOV * 4)?,
-            d_raw: DeviceBuf::alloc_zeroed(ctx, 768 * 4)?,
-            d_lat_q8: DeviceBuf::alloc_zeroed(ctx, R_MARKOV)?,
-            d_lat_sc64: DeviceBuf::alloc_zeroed(ctx, (R_MARKOV / 64) * 4)?,
-            d_fpart: DeviceBuf::alloc_zeroed(ctx, nb_fold * 3 * 4)?,
-            d_res: DeviceBuf::alloc_zeroed(ctx, 2 * B_DRAFT * 4)?,
-            d_q8: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * DFF)?,
-            d_sc64: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * (DFF / 64) * 4)?,
             ctx: Arc::clone(ctx),
             fns,
             layers,
@@ -557,6 +571,7 @@ impl DsparkDrafterGpu {
                 }
                 DraftSeqState {
                     kv,
+                    scr: DraftScratch::alloc(&self.ctx)?,
                     anchor: DeviceBuf::alloc_zeroed(&self.ctx, self.d_anchor.byte_len)?,
                     ctx_end: 0,
                     cal: (1.0, 1.0),
@@ -569,6 +584,7 @@ impl DsparkDrafterGpu {
             std::mem::swap(&mut l.vc, vc);
         }
         std::mem::swap(&mut self.d_anchor, &mut st.anchor);
+        std::mem::swap(&mut self.scr, &mut st.scr);
         std::mem::swap(&mut self.ctx_end, &mut st.ctx_end);
         std::mem::swap(&mut self.cal, &mut st.cal);
         std::mem::swap(&mut self.sent, &mut st.sent);
@@ -620,8 +636,8 @@ impl DsparkDrafterGpu {
     ) -> Result<(), String> {
         let mut pin = inp_ptr;
         let mut pg = gamma_ptr;
-        let mut pq = self.d_q8.ptr;
-        let mut ps = self.d_sc64.ptr;
+        let mut pq = self.scr.d_q8.ptr;
+        let mut ps = self.scr.d_sc64.ptr;
         let mut bi = b_len as i32;
         let mut args: [*mut c_void; 5] = [
             (&mut pin as *mut _) as *mut c_void,
@@ -647,8 +663,8 @@ impl DsparkDrafterGpu {
         b_len: usize,
     ) -> Result<(), String> {
         let mut px = x_ptr;
-        let mut pq = self.d_q8.ptr;
-        let mut ps = self.d_sc64.ptr;
+        let mut pq = self.scr.d_q8.ptr;
+        let mut ps = self.scr.d_sc64.ptr;
         let mut c = cols as i32;
         let mut args: [*mut c_void; 4] = [
             (&mut px as *mut _) as *mut c_void,
@@ -675,8 +691,8 @@ impl DsparkDrafterGpu {
     ) -> Result<(), String> {
         let mut pw = w.codes.ptr;
         let mut pws = w.scales64.ptr;
-        let mut px = self.d_q8.ptr;
-        let mut pxs = self.d_sc64.ptr;
+        let mut px = self.scr.d_q8.ptr;
+        let mut pxs = self.scr.d_sc64.ptr;
         let mut py = y_ptr;
         let mut r = rows;
         let mut c = w.cols;
@@ -750,7 +766,7 @@ impl DsparkDrafterGpu {
                     let mut a2 = a[2];
                     let mut a3 = a[3];
                     let mut nf = (m * D) as i32;
-                    let mut pout = self.d_mix.ptr;
+                    let mut pout = self.scr.d_mix.ptr;
                     let mut args: [*mut c_void; 8] = [
                         (&mut pt as *mut _) as *mut c_void,
                         (&mut ts as *mut _) as *mut c_void,
@@ -765,11 +781,17 @@ impl DsparkDrafterGpu {
                     self.launch(stream, self.fns.tapmix, (gx, 1), 256, &mut args)?;
                 }
                 let dflare_ptr = self.layers[li].dflare_norm.ptr;
-                self.enqueue_rmsnorm_quant_q8(stream, self.d_mix.ptr, dflare_ptr, m)?;
-                self.enqueue_q8_ktiled(stream, &self.layers[li].kvc_q8, 2048, m, self.d_kv.ptr)?;
+                self.enqueue_rmsnorm_quant_q8(stream, self.scr.d_mix.ptr, dflare_ptr, m)?;
+                self.enqueue_q8_ktiled(
+                    stream,
+                    &self.layers[li].kvc_q8,
+                    2048,
+                    m,
+                    self.scr.d_kv.ptr,
+                )?;
                 {
                     let l = &self.layers[li];
-                    let mut pkv = self.d_kv.ptr;
+                    let mut pkv = self.scr.d_kv.ptr;
                     let mut pknc = l.k_norm_ctx.ptr;
                     let mut pinv = self.d_inv_freq.ptr;
                     let mut p0 = (self.ctx_end + c0) as i32;
@@ -818,9 +840,35 @@ impl DsparkDrafterGpu {
         next_tok: u32,
         max_k: usize,
     ) -> Result<Vec<u32>, String> {
-        let max_k = max_k.min(B_DRAFT - 1);
+        let (max_k, tau) = self.enqueue_draft(
+            stream,
+            embed_ptr,
+            embed_norm_ptr,
+            unembed_q8,
+            next_tok,
+            max_k,
+        )?;
         if max_k == 0 {
             return Ok(Vec::new());
+        }
+        self.ctx.sync_stream(stream)?;
+        self.finish_draft(max_k, tau)
+    }
+
+    /// Enqueues a draft on `stream` without waiting for it; returns `(max_k, tau)` for
+    /// `finish_draft` once `stream` has completed (`max_k == 0`: nothing was enqueued).
+    pub fn enqueue_draft(
+        &mut self,
+        stream: CUstream,
+        embed_ptr: CUdeviceptr,
+        embed_norm_ptr: CUdeviceptr,
+        unembed_q8: &PlanarQ8Gpu,
+        next_tok: u32,
+        max_k: usize,
+    ) -> Result<(usize, f32), String> {
+        let max_k = max_k.min(B_DRAFT - 1);
+        if max_k == 0 {
+            return Ok((0, 0.0));
         }
         let tau = self.base_tau * (self.cal.0 / self.cal.1.max(1e-3)).clamp(0.5, 2.0);
         let p = self.ctx_end;
@@ -831,9 +879,9 @@ impl DsparkDrafterGpu {
             let mut pn = embed_norm_ptr;
             let mut pm = self.d_mask_embed.ptr;
             let mut nt = next_tok as i32;
-            let mut px = self.d_x.ptr;
-            let mut pst = self.d_state.ptr;
-            let mut pres = self.d_res.ptr;
+            let mut px = self.scr.d_x.ptr;
+            let mut pst = self.scr.d_state.ptr;
+            let mut pres = self.scr.d_res.ptr;
             let mut args: [*mut c_void; 7] = [
                 (&mut pe as *mut _) as *mut c_void,
                 (&mut pn as *mut _) as *mut c_void,
@@ -849,17 +897,17 @@ impl DsparkDrafterGpu {
         // 1. 3 Dense SwiGLU + Bidirectional Block/Context Attention Layers (`B = 8`)
         for li in 0..3 {
             let attn_norm_ptr = self.layers[li].attn_norm.ptr;
-            self.enqueue_rmsnorm_quant_q8(stream, self.d_x.ptr, attn_norm_ptr, B_DRAFT)?;
+            self.enqueue_rmsnorm_quant_q8(stream, self.scr.d_x.ptr, attn_norm_ptr, B_DRAFT)?;
             self.enqueue_q8_ktiled(
                 stream,
                 &self.layers[li].qkv_q8,
                 5120,
                 B_DRAFT,
-                self.d_qkv.ptr,
+                self.scr.d_qkv.ptr,
             )?;
             {
                 let l = &self.layers[li];
-                let mut pqkv = self.d_qkv.ptr;
+                let mut pqkv = self.scr.d_qkv.ptr;
                 let mut pqn = l.q_norm.ptr;
                 let mut pkn = l.k_norm.ptr;
                 let mut pinv = self.d_inv_freq.ptr;
@@ -876,13 +924,13 @@ impl DsparkDrafterGpu {
             {
                 let l = &self.layers[li];
                 let lo = p.saturating_sub(l.win);
-                let mut pqkv = self.d_qkv.ptr;
+                let mut pqkv = self.scr.d_qkv.ptr;
                 let mut pkc = l.kc.ptr;
                 let mut pvc = l.vc.ptr;
                 let mut rng = l.ring as i32;
                 let mut loi = lo as i32;
                 let mut hii = p as i32;
-                let mut patt = self.d_att.ptr;
+                let mut patt = self.scr.d_att.ptr;
                 let mut args: [*mut c_void; 7] = [
                     (&mut pqkv as *mut _) as *mut c_void,
                     (&mut pkc as *mut _) as *mut c_void,
@@ -894,28 +942,28 @@ impl DsparkDrafterGpu {
                 ];
                 self.launch(stream, self.fns.attn, (24, 8), 256, &mut args)?;
             }
-            self.enqueue_quant_q8(stream, self.d_att.ptr, 3072, B_DRAFT)?;
+            self.enqueue_quant_q8(stream, self.scr.d_att.ptr, 3072, B_DRAFT)?;
             self.enqueue_q8_ktiled(
                 stream,
                 &self.layers[li].wo_q8,
                 D as i32,
                 B_DRAFT,
-                self.d_o.ptr,
+                self.scr.d_o.ptr,
             )?;
-            self.enqueue_add_inplace(stream, self.d_x.ptr, self.d_o.ptr, B_DRAFT * D)?;
+            self.enqueue_add_inplace(stream, self.scr.d_x.ptr, self.scr.d_o.ptr, B_DRAFT * D)?;
 
             let ffn_norm_ptr = self.layers[li].ffn_norm.ptr;
-            self.enqueue_rmsnorm_quant_q8(stream, self.d_x.ptr, ffn_norm_ptr, B_DRAFT)?;
+            self.enqueue_rmsnorm_quant_q8(stream, self.scr.d_x.ptr, ffn_norm_ptr, B_DRAFT)?;
             self.enqueue_q8_ktiled(
                 stream,
                 &self.layers[li].gu_q8,
                 (2 * DFF) as i32,
                 B_DRAFT,
-                self.d_gu.ptr,
+                self.scr.d_gu.ptr,
             )?;
             {
-                let mut pgu = self.d_gu.ptr;
-                let mut pact = self.d_act.ptr;
+                let mut pgu = self.scr.d_gu.ptr;
+                let mut pact = self.scr.d_act.ptr;
                 let mut args: [*mut c_void; 2] = [
                     (&mut pgu as *mut _) as *mut c_void,
                     (&mut pact as *mut _) as *mut c_void,
@@ -923,22 +971,22 @@ impl DsparkDrafterGpu {
                 let gx = ((B_DRAFT * DFF) as u32).div_ceil(256);
                 self.launch(stream, self.fns.silu_mul, (gx, 1), 256, &mut args)?;
             }
-            self.enqueue_quant_q8(stream, self.d_act.ptr, DFF, B_DRAFT)?;
+            self.enqueue_quant_q8(stream, self.scr.d_act.ptr, DFF, B_DRAFT)?;
             self.enqueue_q8_ktiled(
                 stream,
                 &self.layers[li].down_q8,
                 D as i32,
                 B_DRAFT,
-                self.d_o.ptr,
+                self.scr.d_o.ptr,
             )?;
-            self.enqueue_add_inplace(stream, self.d_x.ptr, self.d_o.ptr, B_DRAFT * D)?;
+            self.enqueue_add_inplace(stream, self.scr.d_x.ptr, self.scr.d_o.ptr, B_DRAFT * D)?;
         }
 
         // 2. Final Norm + Shared `unembed_q8` Base Logits (`rows 1..7`) + `frnn` + `ctxm`
         {
-            let mut pin = self.d_x.ptr;
+            let mut pin = self.scr.d_x.ptr;
             let mut pg = self.norm.ptr;
-            let mut pout = self.d_hidden.ptr;
+            let mut pout = self.scr.d_hidden.ptr;
             let mut hg = 1i32;
             let mut args: [*mut c_void; 4] = [
                 (&mut pin as *mut _) as *mut c_void,
@@ -954,14 +1002,14 @@ impl DsparkDrafterGpu {
                 &mut args,
             )?;
         }
-        let hidden_1_7 = self.d_hidden.ptr + (D * 4) as u64;
+        let hidden_1_7 = self.scr.d_hidden.ptr + (D * 4) as u64;
         self.enqueue_quant_q8(stream, hidden_1_7, D, 7)?;
         {
             let mut pw = unembed_q8.codes.ptr;
             let mut pws = unembed_q8.scales64.ptr;
-            let mut px = self.d_q8.ptr;
-            let mut pxs = self.d_sc64.ptr;
-            let mut py = self.d_base.ptr;
+            let mut px = self.scr.d_q8.ptr;
+            let mut pxs = self.scr.d_sc64.ptr;
+            let mut py = self.scr.d_base.ptr;
             let mut r = VOCAB as i32;
             let mut c = D as i32;
             let mut bi = 7i32;
@@ -996,7 +1044,7 @@ impl DsparkDrafterGpu {
             let mut v2 = a3[2];
             let mut v3 = a3[3];
             let mut nf = D as i32;
-            let mut pout = self.d_frnn.ptr;
+            let mut pout = self.scr.d_frnn.ptr;
             let mut args: [*mut c_void; 8] = [
                 (&mut pt as *mut _) as *mut c_void,
                 (&mut ts as *mut _) as *mut c_void,
@@ -1010,9 +1058,9 @@ impl DsparkDrafterGpu {
             self.launch(stream, self.fns.tapmix, (9, 1), 256, &mut args)?;
         }
         {
-            let mut pin = self.d_frnn.ptr;
+            let mut pin = self.scr.d_frnn.ptr;
             let mut pg = self.markov_norm.ptr;
-            let mut pout = self.d_frnn.ptr;
+            let mut pout = self.scr.d_frnn.ptr;
             let mut hg = 1i32;
             let mut args: [*mut c_void; 4] = [
                 (&mut pin as *mut _) as *mut c_void,
@@ -1024,8 +1072,8 @@ impl DsparkDrafterGpu {
         }
         {
             let mut ph = hidden_1_7;
-            let mut pf = self.d_frnn.ptr;
-            let mut px2 = self.d_x2.ptr;
+            let mut pf = self.scr.d_frnn.ptr;
+            let mut px2 = self.scr.d_x2.ptr;
             let mut args: [*mut c_void; 3] = [
                 (&mut ph as *mut _) as *mut c_void,
                 (&mut pf as *mut _) as *mut c_void,
@@ -1034,10 +1082,10 @@ impl DsparkDrafterGpu {
             let gx = ((7 * 4608) as u32).div_ceil(256);
             self.launch(stream, self.fns.concat_frnn, (gx, 1), 256, &mut args)?;
         }
-        self.enqueue_quant_q8(stream, self.d_x2.ptr, 4608, 7)?;
-        self.enqueue_q8_ktiled(stream, &self.jctx_q8, 768, 7, self.d_ctxm.ptr)?;
+        self.enqueue_quant_q8(stream, self.scr.d_x2.ptr, 4608, 7)?;
+        self.enqueue_q8_ktiled(stream, &self.jctx_q8, 768, 7, self.scr.d_ctxm.ptr)?;
         {
-            let mut py = self.d_ctxm.ptr;
+            let mut py = self.scr.d_ctxm.ptr;
             let mut pb = self.jb.ptr;
             let mut cols = 768i32;
             let mut tot = 7 * 768i32;
@@ -1053,19 +1101,19 @@ impl DsparkDrafterGpu {
 
         // 3. 7-Step Autoregressive Markov RNN Head (100% on GPU, single 64B DtoH at the end!)
         let nb = VOCAB.div_ceil(64) as i32;
-        let cum_ptr = self.d_res.ptr + 4;
+        let cum_ptr = self.scr.d_res.ptr + 4;
         for step in 0..max_k {
-            let prev_ptr = self.d_res.ptr + (step * 8) as u64;
-            let out_best_ptr = self.d_res.ptr + ((step + 1) * 8) as u64;
+            let prev_ptr = self.scr.d_res.ptr + (step * 8) as u64;
+            let out_best_ptr = self.scr.d_res.ptr + ((step + 1) * 8) as u64;
             let out_sumexp_ptr = out_best_ptr + 4;
 
             {
-                let mut pctxm = self.d_ctxm.ptr + (step * 768 * 4) as u64;
+                let mut pctxm = self.scr.d_ctxm.ptr + (step * 768 * 4) as u64;
                 let mut pj01 = self.j01.ptr;
                 let mut pw1 = self.w1_pinned.dev_ptr;
-                let mut pst = self.d_state.ptr;
+                let mut pst = self.scr.d_state.ptr;
                 let mut pprev = prev_ptr;
-                let mut praw = self.d_raw.ptr;
+                let mut praw = self.scr.d_raw.ptr;
                 let mut pcum = cum_ptr;
                 let mut args: [*mut c_void; 7] = [
                     (&mut pctxm as *mut _) as *mut c_void,
@@ -1079,10 +1127,10 @@ impl DsparkDrafterGpu {
                 self.launch(stream, self.fns.markov_raw, (96, 1), 256, &mut args)?;
             }
             {
-                let mut praw = self.d_raw.ptr;
-                let mut pst = self.d_state.ptr;
-                let mut plq = self.d_lat_q8.ptr;
-                let mut pls = self.d_lat_sc64.ptr;
+                let mut praw = self.scr.d_raw.ptr;
+                let mut pst = self.scr.d_state.ptr;
+                let mut plq = self.scr.d_lat_q8.ptr;
+                let mut pls = self.scr.d_lat_sc64.ptr;
                 let mut pcum = cum_ptr;
                 let mut args: [*mut c_void; 5] = [
                     (&mut praw as *mut _) as *mut c_void,
@@ -1096,11 +1144,11 @@ impl DsparkDrafterGpu {
             {
                 let mut pfq = self.fold_q8.codes.ptr;
                 let mut pfs = self.fold_q8.scales64.ptr;
-                let mut plq = self.d_lat_q8.ptr;
-                let mut pls = self.d_lat_sc64.ptr;
+                let mut plq = self.scr.d_lat_q8.ptr;
+                let mut pls = self.scr.d_lat_sc64.ptr;
                 let mut pfb = self.d_fold_b.ptr;
-                let mut pbase = self.d_base.ptr + (step * VOCAB * 4) as u64;
-                let mut ppart = self.d_fpart.ptr;
+                let mut pbase = self.scr.d_base.ptr + (step * VOCAB * 4) as u64;
+                let mut ppart = self.scr.d_fpart.ptr;
                 let mut pcum = cum_ptr;
                 let mut args: [*mut c_void; 8] = [
                     (&mut pfq as *mut _) as *mut c_void,
@@ -1115,7 +1163,7 @@ impl DsparkDrafterGpu {
                 self.launch(stream, self.fns.fold_mv_q8, (nb as u32, 1), 256, &mut args)?;
             }
             {
-                let mut ppart = self.d_fpart.ptr;
+                let mut ppart = self.scr.d_fpart.ptr;
                 let mut nbi = nb;
                 let mut pbest = out_best_ptr;
                 let mut psum = out_sumexp_ptr;
@@ -1135,13 +1183,17 @@ impl DsparkDrafterGpu {
             }
         }
 
-        self.ctx.sync_compute()?;
+        Ok((max_k, tau))
+    }
+
+    /// Reads the draft enqueued by `enqueue_draft` (its stream must have completed).
+    pub fn finish_draft(&mut self, max_k: usize, tau: f32) -> Result<Vec<u32>, String> {
         let mut raw_res = [0u32; 2 * B_DRAFT];
         unsafe {
             check_cu(
                 (self.ctx.api.cuMemcpyDtoH_v2)(
                     raw_res.as_mut_ptr().cast(),
-                    self.d_res.ptr,
+                    self.scr.d_res.ptr,
                     2 * B_DRAFT * 4,
                 ),
                 "DtoH(mtp_res)",

@@ -111,6 +111,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let t1 = Instant::now();
     let (mut drafted, mut accepted, mut verify_rounds) = (0usize, 0usize, 0usize);
     let mut draft_ms = 0f64;
+    let serial_drafts = std::env::var("LEANSONIC_SERIAL_DRAFTS").is_ok_and(|v| v == "1");
     if spec == 0 {
         for _ in 1..gen {
             for chunk in (0..seqs).collect::<Vec<_>>().chunks(round_rows) {
@@ -128,6 +129,26 @@ pub fn run(args: &[String]) -> Result<(), String> {
         loop {
             let mut runs: Vec<(usize, Vec<u32>)> = Vec::new();
             let mut rows = 0usize;
+            // DSpark: all sequences draft concurrently (`draft_for_seqs`).
+            let mut dsp: Vec<Vec<u32>> = vec![Vec::new(); seqs];
+            if dspark {
+                let reqs: Vec<(usize, u32, usize)> = (0..seqs)
+                    .filter(|&s| round[s].len() < gen)
+                    .map(|s| (s, cur3[s], spec.min(gen - round[s].len() - 1)))
+                    .collect();
+                let td = Instant::now();
+                let drafts = if serial_drafts {
+                    reqs.iter()
+                        .map(|&(s, t, k)| eng.draft_for_seq(s, t, k))
+                        .collect::<Result<Vec<_>, _>>()?
+                } else {
+                    eng.draft_for_seqs(&reqs)?
+                };
+                draft_ms += td.elapsed().as_secs_f64() * 1e3;
+                for (&(s, _, _), d) in reqs.iter().zip(drafts) {
+                    dsp[s] = d;
+                }
+            }
             for s in 0..seqs {
                 let rem = gen.saturating_sub(round[s].len());
                 if rem == 0 {
@@ -135,9 +156,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 }
                 let mut run = vec![cur3[s]];
                 if dspark {
-                    let td = Instant::now();
-                    run.extend(eng.draft_for_seq(s, cur3[s], spec.min(rem - 1))?);
-                    draft_ms += td.elapsed().as_secs_f64() * 1e3;
+                    run.extend(std::mem::take(&mut dsp[s]));
                 } else {
                     let mut hist = prompts[s].clone();
                     hist.extend_from_slice(&round[s][..round[s].len() - 1]);

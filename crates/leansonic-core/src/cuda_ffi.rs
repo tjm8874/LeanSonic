@@ -351,6 +351,15 @@ impl CudaContextHandle {
         }
     }
 
+    pub(crate) fn sync_stream(&self, stream: CUstream) -> Result<(), String> {
+        unsafe {
+            check_cu(
+                (self.api.cuStreamSynchronize)(stream),
+                "cuStreamSynchronize",
+            )
+        }
+    }
+
     pub fn sync_h2d(&self) -> Result<(), String> {
         unsafe {
             check_cu(
