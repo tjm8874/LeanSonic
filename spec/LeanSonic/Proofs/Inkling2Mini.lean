@@ -259,6 +259,13 @@ def kInk2Q8Dp4aGemv : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
+/-- `wo` (`cols = 3072`) twin of the Q8 GEMV with all weight loads hoisted (`48` regs -> `5` CTAs). -/
+def kInk2Q8Dp4aGemvC3072 : KernelResourceSpec :=
+  { kInk2Q8Dp4aGemv with
+    name := "ink2_q8_dp4a_gemv_c3072"
+    rawRegsPerThread := 48          -- 12,288 regs/CTA; 5 CTAs = 61,440 <= 65,536
+    ctasPerSm := 5 }
+
 /-- Wide `uint4` (`16B` `LDG.E.128`) `__dp4a` NVFP4 MoE Up+SITU (`40` regs -> `6` CTAs = `48` warps/SM!). -/
 def kInk2MoeNvfp4Dp4aUpSitu : KernelResourceSpec :=
   { name := "ink2_moe_nvfp4_dp4a_up_situ"
@@ -326,6 +333,7 @@ def kInk2RmsnormQuantQ8 : KernelResourceSpec :=
 
 def wave1Inkling2KernelSuite : List KernelResourceSpec :=
   [ kInk2Q8Dp4aGemv
+  , kInk2Q8Dp4aGemvC3072
   , kInk2MoeNvfp4Dp4aUpSitu
   , kInk2MoeNvfp4Dp4aDown
   , kInk2MoeMxfp8Down
@@ -333,6 +341,7 @@ def wave1Inkling2KernelSuite : List KernelResourceSpec :=
   , kInk2RmsnormQuantQ8 ]
 
 theorem ink2_q8_dp4a_gemv_valid : ValidSm120Kernel kInk2Q8Dp4aGemv := by decide
+theorem ink2_q8_dp4a_gemv_c3072_valid : ValidSm120Kernel kInk2Q8Dp4aGemvC3072 := by decide
 theorem ink2_moe_nvfp4_dp4a_up_situ_valid : ValidSm120Kernel kInk2MoeNvfp4Dp4aUpSitu := by decide
 theorem ink2_moe_nvfp4_dp4a_down_valid : ValidSm120Kernel kInk2MoeNvfp4Dp4aDown := by decide
 theorem ink2_moe_mxfp8_down_valid : ValidSm120Kernel kInk2MoeMxfp8Down := by decide
