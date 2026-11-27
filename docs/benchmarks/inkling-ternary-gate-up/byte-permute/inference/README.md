@@ -12,6 +12,16 @@ Both arms used the same merged gate/up host, two-bit gate/up and down, actual 7,
 
 Peak observed process VRAM was 11,813,257,216 / 12,064,915,456 bytes. [Per-request times, predictions, module hashes and peaks](5070Ti.json).
 
+## 5060Ti
+
+| Prefix | Prefill ms, prior / trial | Decode tok/s, prior / trial | Decode 64 change ms [95%] | Prefill + decode 64 change ms [95%] |
+|---:|---:|---:|---:|---:|
+| 32 | 49.506 / 48.925 | 116.49 / 116.45 | +0.185 [+0.050, +0.320] | -0.395 [-0.554, -0.236] |
+| 1024 | 238.269 / 237.195 | 93.52 / 93.50 | +0.127 [-0.131, +0.415] | -0.946 [-1.278, -0.574] |
+| 2048 | 428.545 / 427.363 | 90.60 / 90.59 | +0.139 [-0.226, +0.534] | -1.043 [-1.448, -0.605] |
+
+Peak observed process VRAM was 11,966,349,312 / 11,865,686,016 bytes. [Per-request times, predictions, module hashes and peaks](5060Ti.json).
+
 The two modules contain 234 named SASS functions. Only the four grouped ternary Tensor Core functions and the fallback expander changed instruction words. All four ternary DP4A decode variants have identical instruction words and scheduling-control bits. This leaves the cause of any small decode timing shift open. [SASS comparison](sass-diff.json).
 
 Reproduce with the [merged timing driver](../../merged-timing/) using LEANSONIC_TERNARY_UP=1 and LEANSONIC_TERNARY_DOWN=1 in both arms. Change only LEANSONIC_CUBIN_PATH between the original module and [the lookup experiment](../).
