@@ -49,6 +49,7 @@ pub const MAX_BATCH_TOKENS: usize = 2048;
 pub const MAX_MS_ROWS: usize = 64;
 const NVFP4_LAYERS: usize = 20;
 const EXPERT_PAGE: usize = 64;
+const TC_MIN_ROWS: usize = 32;
 pub const MAX_SPEC_TOKENS: usize = 8;
 pub const TAP_SLOTS: [usize; 3] = [4, 28, 46];
 const CONV_SEQ_STEPS: usize = MAX_SPEC_TOKENS + 3; // 11
@@ -1106,6 +1107,18 @@ fn extend_expert_placement(
         }
     }
     resident
+}
+
+// A small tail uses scalar kernels when a narrow workspace splits it off.
+// Give it the same arithmetic on wider workspaces, including the single-token shortcut.
+fn next_prefill_chunk(remaining: usize, capacity: usize) -> usize {
+    let rows = remaining.min(capacity);
+    let tail = rows % EXPERT_PAGE;
+    if rows > EXPERT_PAGE && (1..TC_MIN_ROWS).contains(&tail) {
+        rows - tail
+    } else {
+        rows
+    }
 }
 
 fn known_prompt_limit(tokens: usize) -> usize {
@@ -4565,11 +4578,7 @@ impl Inkling2GpuEngine {
         let mut next_tok = 0u32;
         while offset < tokens.len() {
             let rem = tokens.len() - offset;
-            let chunk_len = if rem > 1 && rem <= self.prefill.capacity && rem % EXPERT_PAGE == 1 {
-                rem - 1
-            } else {
-                rem.min(self.prefill.capacity)
-            };
+            let chunk_len = next_prefill_chunk(rem, self.prefill.capacity);
             let is_last = offset + chunk_len == tokens.len();
 
             if is_last && chunk_len == 1 {
@@ -4660,7 +4669,7 @@ impl Inkling2GpuEngine {
     /// Tensor Core batch paths (>= 32 rows) are off in multi-sequence rounds, whose rows must
     /// match B = 1 decode arithmetic for any batch size.
     fn tc_rows(&self, b_len: usize) -> bool {
-        b_len >= 32 && self.ms_rows.get() == 0
+        b_len >= TC_MIN_ROWS && self.ms_rows.get() == 0
     }
     /// Decode / verify-style rows: `<= MAX_SPEC_TOKENS`, or any multi-sequence round.
     fn small_rows(&self, b_len: usize) -> bool {
@@ -8038,6 +8047,28 @@ impl Inkling2GpuEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prefill_tail_keeps_its_kernel_family_across_workspace_widths() {
+        for capacity in [64, 128, 256, 512, 1024, 2048] {
+            for length in 1..=2049 {
+                let mut left = length;
+                while left > 0 {
+                    let take = next_prefill_chunk(left, capacity);
+                    assert!((1..=left.min(capacity)).contains(&take));
+                    if take == left {
+                        let tail = length % EXPERT_PAGE;
+                        if (1..TC_MIN_ROWS).contains(&tail) {
+                            assert_eq!(take, tail);
+                        }
+                    } else {
+                        assert!(take.is_multiple_of(EXPERT_PAGE));
+                    }
+                    left -= take;
+                }
+            }
+        }
+    }
 
     #[test]
     fn known_prompt_rounds_up_to_a_supported_workspace() {
