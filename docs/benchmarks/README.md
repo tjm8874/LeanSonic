@@ -30,6 +30,7 @@ leansonic bench-matrix --merge results_cuda01.json results_cudaserver.json
 | `--quick` | — | N=1 にし、16K を省く（動作確認用） |
 | `--long` | — | 128K のセル（`prefill_128k` / `long_128k_decode`）も計測する |
 | `--c64` | — | `c64_total` を計測する（`multiseq` で 64 系列を共有ラウンドで decode） |
+| `--c4-32k <ids>` | — | `c4_32k_code` を計測する（32K トークンの入力を 4 系列で、系列ごとの DSpark draft をまとめて verify。例: `docs/benchmarks/inputs/inkling-code32k.ids`） |
 | `--wide-prompts` | — | ディレクトリ内の `*.txt`（`bench --tokens chat:@file` でチェックポイントの tokenizer を通す）と `*.ids` を DSpark で 1 本ずつ計測し、`spec_wide` / `spec_accept_wide` を記録する（例: `docs/benchmarks/prompts`） |
 | `--kld` | — | BF16 参照ファイル（`.kld`）を指定すると、GPU ごとに `eval-kld` を 1 回実行して `kld_mean` を埋める（決定的なので N=1）。max / Top-1 / PPL も JSON の `kld` に記録する |
 | `--require-idle` | — | 他のプロセスが GPU を使っていたら中止する |
@@ -62,3 +63,4 @@ leansonic bench-matrix --merge results_cuda01.json results_cudaserver.json
 | `spec_wide` / `spec_accept_wide` | `--wide-prompts` 指定時のみ。全プロンプトの `--spec 7 --gen 256` の平均 tok/s と平均受理率（目標なし、RECORDED）。3 本だけの `spec_avg` は生成文の違いで ±10% 程度振れるので、傾向はこちらで見る |
 | `kld_mean` | `--kld <ref.kld>` 指定時のみ。`eval-kld`（100 chunk × 512、teacher forcing）の平均 KLD |
 | `c64_total` | `--c64` 指定時のみ。`multiseq --seqs 64 --round 64 --gen 64 --no-check`（`synth:400` を末尾 3s トークンずつ削った 64 本、`LEANSONIC_CTX=4096`）。64 行の decode ラウンドを 63 回実行した合計 tok/s。各系列の出力は単独 decode と bit 一致する（#107、`multiseq` の検査モードで確認） |
+| `c4_32k_code` | `--c4-32k` 指定時のみ。`multiseq --seqs 4 --round 64 --gen 256 --spec 7 --dspark --no-check`（`LEANSONIC_CTX=33280`、系列 s は入力の末尾 3s トークンを削る）。合計 tok/s。重みディレクトリに `mtp.safetensors` が必要。`inputs/inkling-code32k.ids` は `kernels/inkling2_sm120.cu` と `crates/leansonic-core/src/inkling2_gpu.rs`（`1f70908`）を連結し、Inkling トークナイザで先頭 32,000 トークンにしたもの（#107 の 32K C=4 Code ゲート） |
