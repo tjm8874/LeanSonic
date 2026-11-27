@@ -1328,10 +1328,18 @@ impl Inkling2GpuEngine {
             _ => return Err("LEANSONIC_GPU_SCALES must be raw or packed".into()),
         };
 
-        let direct_device_tc = std::env::var("LEANSONIC_MXFP8_DEVICE_U4").as_deref() == Ok("1")
-            && std::env::var("LEANSONIC_MXFP8_LOOKUP_PREFILL").as_deref() == Ok("1");
-        let fns =
-            Self::load_module_functions(&ctx, &module_image, pack_gpu_scales, direct_device_tc)?;
+        let device_u4 = std::env::var("LEANSONIC_MXFP8_DEVICE_U4").as_deref() == Ok("1");
+        let direct_all =
+            device_u4 && std::env::var("LEANSONIC_MXFP8_DIRECT_ALL").as_deref() == Ok("1");
+        let direct_device_tc = direct_all
+            || (device_u4 && std::env::var("LEANSONIC_MXFP8_LOOKUP_PREFILL").as_deref() == Ok("1"));
+        let fns = Self::load_module_functions(
+            &ctx,
+            &module_image,
+            pack_gpu_scales,
+            direct_device_tc,
+            direct_all,
+        )?;
         let has_split_attn = fns.gqa_attn_split.is_some() && fns.gqa_attn_combine.is_some();
         let attn_split_g = match attn_split_explicit {
             Some(g) => {
@@ -2013,10 +2021,8 @@ impl Inkling2GpuEngine {
         let d_ms_runs = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 16)?;
         let d_ms_tokens = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 4)?;
         let mut device_codebooks = Vec::new();
-        let device_codebook_scratch = if std::env::var("LEANSONIC_MXFP8_DEVICE_U4").as_deref()
-            == Ok("1")
-        {
-            if fns.expand_mxfp8_indices.is_none() {
+        let device_codebook_scratch = if device_u4 {
+            if !direct_all && fns.expand_mxfp8_indices.is_none() {
                 return Err("missing ink2_expand_mxfp8_indices in the selected CUDA module".into());
             }
             for &[up, down] in &expert_views[NVFP4_LAYERS..] {
@@ -2034,7 +2040,11 @@ impl Inkling2GpuEngine {
             {
                 *views = [ExpertMatrix::Raw(&packed[0]), ExpertMatrix::Raw(&packed[1])];
             }
-            Some(DeviceBuf::alloc_zeroed(&ctx, largest)?)
+            if direct_all {
+                None
+            } else {
+                Some(DeviceBuf::alloc_zeroed(&ctx, largest)?)
+            }
         } else {
             None
         };
@@ -2134,8 +2144,8 @@ impl Inkling2GpuEngine {
             slots,
             expert_weights: Vec::with_capacity(N_LAYER),
             direct_device_tc,
-            direct_device_up: device_codebook_scratch.is_some()
-                && std::env::var("LEANSONIC_MXFP8_LOOKUP_UP").as_deref() == Ok("1"),
+            direct_device_up: direct_all
+                || (device_u4 && std::env::var("LEANSONIC_MXFP8_LOOKUP_UP").as_deref() == Ok("1")),
             device_codebook_scratch,
             resident_expert_layers: 0,
             spilled_expert_layers: 0,
@@ -2539,6 +2549,7 @@ impl Inkling2GpuEngine {
         image: &[u8],
         pack_gpu_scales: bool,
         direct_device_tc: bool,
+        direct_all: bool,
     ) -> Result<KernelFns, String> {
         let mut module: CUmodule = core::ptr::null_mut();
         unsafe {
@@ -2573,6 +2584,9 @@ impl Inkling2GpuEngine {
             };
         let expert_kernels = |suffix: &str| -> Result<ExpertKernels, String> {
             let load = |name| get_fn(&format!("ink2_moe_{name}{suffix}"));
+            let scalar_variant = if direct_all { "_u4" } else { "" };
+            let load_scalar =
+                |name| get_fn(&format!("ink2_moe_mxfp8_{name}{scalar_variant}{suffix}"));
             let tc_variant = if direct_device_tc { "_u4" } else { "" };
             let load_mxfp8_tc = |name, bytes| {
                 let kernel = get_fn(&format!("ink2_moe_mxfp8_tc_{name}{tc_variant}{suffix}"));
@@ -2592,17 +2606,17 @@ impl Inkling2GpuEngine {
                 nvfp4_dp4a_down_xw_conv: load("nvfp4_dp4a_down_xw_conv").ok(),
                 mxfp8_up_situ: load("mxfp8_up_situ")?,
                 mxfp8_up_situ_u4: load("mxfp8_up_situ_u4").ok(),
-                mxfp8_down: load("mxfp8_down")?,
-                mxfp8_down_xw: load("mxfp8_down_xw").ok(),
-                mxfp8_down_xw_conv: load("mxfp8_down_xw_conv").ok(),
+                mxfp8_down: load_scalar("down")?,
+                mxfp8_down_xw: load_scalar("down_xw").ok(),
+                mxfp8_down_xw_conv: load_scalar("down_xw_conv").ok(),
                 nvfp4_dp4a_grouped_up_situ: load("nvfp4_dp4a_grouped_up_situ")?,
                 nvfp4_dp4a_grouped_down: load("nvfp4_dp4a_grouped_down")?,
-                mxfp8_grouped_up_situ: load("mxfp8_grouped_up_situ")?,
-                mxfp8_grouped_down: load("mxfp8_grouped_down")?,
+                mxfp8_grouped_up_situ: load_scalar("grouped_up_situ")?,
+                mxfp8_grouped_down: load_scalar("grouped_down")?,
                 nvfp4_dp4a_verify_up_half_q8: load("nvfp4_dp4a_verify_up_half_q8").ok(),
                 nvfp4_dp4a_verify_down: load("nvfp4_dp4a_verify_down").ok(),
-                mxfp8_verify_up_situ: load("mxfp8_verify_up_situ").ok(),
-                mxfp8_verify_down: load("mxfp8_verify_down").ok(),
+                mxfp8_verify_up_situ: load_scalar("verify_up_situ").ok(),
+                mxfp8_verify_down: load_scalar("verify_down").ok(),
                 nvfp4_tc_up_situ: set_dyn_smem(load("nvfp4_tc_up_situ").ok(), 62_976)?,
                 nvfp4_tc_down: set_dyn_smem(load("nvfp4_tc_down").ok(), 62_976)?,
                 nvfp4_tc_up_situ_t160: set_dyn_smem(load("nvfp4_tc_up_situ_t160").ok(), 58_112)?,
