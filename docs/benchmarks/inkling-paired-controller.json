@@ -1,0 +1,635 @@
+{
+  "source_sha256": "97d51ba1bb0430a61cacd81a0b1c713e470bf75c1063d27df3a36b438ef02bb0",
+  "source_base": "ea6ae0e",
+  "baseline_cubin_base": "ea6ae0e",
+  "workload": "Inkling-2-Mini official weights, docs/benchmarks/inputs/inkling-readme1024.ids, 16 greedy output tokens, spec 0 and context 8192. Five interleaved ABBA rounds per GPU, fresh CLI per arm. Same CLI selects the previous symbol from the old cubin.",
+  "gpus": {
+    "current-pro5000": {
+      "prefill": {
+        "means_ms": {
+          "baseline": 444.078,
+          "candidate": 442.872
+        },
+        "paired": {
+          "mean_speedup_pct": 0.2716,
+          "ci95_lo_pct": 0.2603,
+          "ci95_hi_pct": 0.2825,
+          "rounds": 5.0
+        },
+        "rounds": [
+          {
+            "a1_ms": 442.69,
+            "b1_ms": 441.68,
+            "b2_ms": 441.94,
+            "a2_ms": 443.49
+          },
+          {
+            "a1_ms": 443.69,
+            "b1_ms": 442.46,
+            "b2_ms": 442.47,
+            "a2_ms": 443.73
+          },
+          {
+            "a1_ms": 443.68,
+            "b1_ms": 442.89,
+            "b2_ms": 442.95,
+            "a2_ms": 444.57
+          },
+          {
+            "a1_ms": 444.48,
+            "b1_ms": 443.47,
+            "b2_ms": 443.47,
+            "a2_ms": 444.82
+          },
+          {
+            "a1_ms": 444.69,
+            "b1_ms": 443.8,
+            "b2_ms": 443.59,
+            "a2_ms": 444.94
+          }
+        ]
+      },
+      "decode": {
+        "means_ms": {
+          "baseline": 107.115,
+          "candidate": 107.143
+        },
+        "paired": {
+          "mean_speedup_pct": -0.0262,
+          "ci95_lo_pct": -0.0682,
+          "ci95_hi_pct": 0.0149,
+          "rounds": 5.0
+        },
+        "rounds": [
+          {
+            "a1_ms": 106.99,
+            "b1_ms": 107.07,
+            "b2_ms": 107.05,
+            "a2_ms": 106.96
+          },
+          {
+            "a1_ms": 107.05,
+            "b1_ms": 107.05,
+            "b2_ms": 107.04,
+            "a2_ms": 107.13
+          },
+          {
+            "a1_ms": 107.14,
+            "b1_ms": 107.18,
+            "b2_ms": 107.23,
+            "a2_ms": 107.11
+          },
+          {
+            "a1_ms": 107.27,
+            "b1_ms": 107.24,
+            "b2_ms": 107.22,
+            "a2_ms": 107.13
+          },
+          {
+            "a1_ms": 107.18,
+            "b1_ms": 107.19,
+            "b2_ms": 107.16,
+            "a2_ms": 107.19
+          }
+        ]
+      },
+      "generated_token_ids": [
+        145026,
+        220,
+        39446,
+        220,
+        19,
+        154978,
+        152792,
+        189134,
+        149860,
+        185136,
+        198,
+        84375,
+        149859,
+        23033,
+        220,
+        137294
+      ],
+      "fp32_eight_row_score_sha256_by_spec": {
+        "0": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce",
+        "7": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce"
+      },
+      "config": [
+        "VRAM used: 17.09 GiB / 71.12 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 1024"
+      ],
+      "component": "Both controller stages matched the reference bit-for-bit at every tested shape."
+    }
+  },
+  "source_commit": "c22b17c",
+  "earlier_base_four_gpu": {
+    "source_sha256": "fd4ba505ca96036aad4ca362fcb49ce50eed53cebdd90e89f3083c790e9f0207",
+    "source_base": "a7d7cdb",
+    "baseline_cubin_base": "67156f7 (identical CUDA source to a7d7cdb)",
+    "workload": "Inkling-2-Mini official weights, docs/benchmarks/inputs/inkling-readme1024.ids, 16 greedy output tokens, spec 0 and context 8192. Five interleaved ABBA rounds per GPU, fresh CLI per arm. Same CLI selects the previous symbol from the old cubin.",
+    "gpus": {
+      "pro4500": {
+        "prefill": {
+          "means_ms": {
+            "baseline": 624.886,
+            "candidate": 621.34
+          },
+          "paired": {
+            "mean_speedup_pct": 0.5676,
+            "ci95_lo_pct": 0.508,
+            "ci95_hi_pct": 0.6181,
+            "rounds": 5.0
+          },
+          "rounds": [
+            {
+              "a1_ms": 620.97,
+              "b1_ms": 617.36,
+              "b2_ms": 618.71,
+              "a2_ms": 621.84
+            },
+            {
+              "a1_ms": 622.02,
+              "b1_ms": 618.1,
+              "b2_ms": 618.23,
+              "a2_ms": 622.32
+            },
+            {
+              "a1_ms": 625.54,
+              "b1_ms": 622.13,
+              "b2_ms": 622.58,
+              "a2_ms": 626.84
+            },
+            {
+              "a1_ms": 626.78,
+              "b1_ms": 623.28,
+              "b2_ms": 623.45,
+              "a2_ms": 627.2
+            },
+            {
+              "a1_ms": 627.34,
+              "b1_ms": 624.44,
+              "b2_ms": 625.12,
+              "a2_ms": 628.01
+            }
+          ]
+        },
+        "decode": {
+          "means_ms": {
+            "baseline": 126.359,
+            "candidate": 126.371
+          },
+          "paired": {
+            "mean_speedup_pct": -0.0095,
+            "ci95_lo_pct": -0.0261,
+            "ci95_hi_pct": 0.0055,
+            "rounds": 5.0
+          },
+          "rounds": [
+            {
+              "a1_ms": 126.22,
+              "b1_ms": 126.3,
+              "b2_ms": 126.23,
+              "a2_ms": 126.25
+            },
+            {
+              "a1_ms": 126.3,
+              "b1_ms": 126.23,
+              "b2_ms": 126.58,
+              "a2_ms": 126.55
+            },
+            {
+              "a1_ms": 126.37,
+              "b1_ms": 126.41,
+              "b2_ms": 126.4,
+              "a2_ms": 126.35
+            },
+            {
+              "a1_ms": 126.43,
+              "b1_ms": 126.36,
+              "b2_ms": 126.44,
+              "a2_ms": 126.37
+            },
+            {
+              "a1_ms": 126.34,
+              "b1_ms": 126.37,
+              "b2_ms": 126.39,
+              "a2_ms": 126.41
+            }
+          ]
+        },
+        "generated_token_ids": [
+          145026,
+          220,
+          39446,
+          220,
+          19,
+          154978,
+          152792,
+          189134,
+          149860,
+          185136,
+          198,
+          84375,
+          149859,
+          23033,
+          220,
+          137294
+        ],
+        "fp32_eight_row_score_sha256_by_spec": {
+          "0": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce",
+          "7": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce"
+        },
+        "config": [
+          "VRAM used: 17.01 GiB / 31.37 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 1024"
+        ],
+        "component": "Both controller stages matched the reference bit-for-bit at every tested shape."
+      },
+      "pro5000": {
+        "prefill": {
+          "means_ms": {
+            "baseline": 451.60699999999997,
+            "candidate": 450.322
+          },
+          "paired": {
+            "mean_speedup_pct": 0.2845,
+            "ci95_lo_pct": 0.2649,
+            "ci95_hi_pct": 0.3084,
+            "rounds": 5.0
+          },
+          "rounds": [
+            {
+              "a1_ms": 451.68,
+              "b1_ms": 450.47,
+              "b2_ms": 450.54,
+              "a2_ms": 451.68
+            },
+            {
+              "a1_ms": 451.86,
+              "b1_ms": 450.55,
+              "b2_ms": 450.34,
+              "a2_ms": 451.68
+            },
+            {
+              "a1_ms": 451.56,
+              "b1_ms": 450.31,
+              "b2_ms": 450.34,
+              "a2_ms": 451.55
+            },
+            {
+              "a1_ms": 451.57,
+              "b1_ms": 450.16,
+              "b2_ms": 449.95,
+              "a2_ms": 451.53
+            },
+            {
+              "a1_ms": 451.39,
+              "b1_ms": 450.13,
+              "b2_ms": 450.43,
+              "a2_ms": 451.57
+            }
+          ]
+        },
+        "decode": {
+          "means_ms": {
+            "baseline": 107.205,
+            "candidate": 107.176
+          },
+          "paired": {
+            "mean_speedup_pct": 0.027,
+            "ci95_lo_pct": -0.0709,
+            "ci95_hi_pct": 0.1351,
+            "rounds": 5.0
+          },
+          "rounds": [
+            {
+              "a1_ms": 107.15,
+              "b1_ms": 107.12,
+              "b2_ms": 107.14,
+              "a2_ms": 107.17
+            },
+            {
+              "a1_ms": 107.16,
+              "b1_ms": 107.39,
+              "b2_ms": 107.25,
+              "a2_ms": 107.18
+            },
+            {
+              "a1_ms": 107.18,
+              "b1_ms": 107.11,
+              "b2_ms": 107.16,
+              "a2_ms": 107.17
+            },
+            {
+              "a1_ms": 107.17,
+              "b1_ms": 107.2,
+              "b2_ms": 107.11,
+              "a2_ms": 107.13
+            },
+            {
+              "a1_ms": 107.65,
+              "b1_ms": 107.16,
+              "b2_ms": 107.12,
+              "a2_ms": 107.09
+            }
+          ]
+        },
+        "generated_token_ids": [
+          145026,
+          220,
+          39446,
+          220,
+          19,
+          154978,
+          152792,
+          189134,
+          149860,
+          185136,
+          198,
+          84375,
+          149859,
+          23033,
+          220,
+          137294
+        ],
+        "fp32_eight_row_score_sha256_by_spec": {
+          "0": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce",
+          "7": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce"
+        },
+        "config": [
+          "VRAM used: 17.09 GiB / 71.12 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 1024"
+        ],
+        "component": "Both controller stages matched the reference bit-for-bit at every tested shape."
+      },
+      "ti5060": {
+        "prefill": {
+          "means_ms": {
+            "baseline": 1961.193,
+            "candidate": 1956.88
+          },
+          "paired": {
+            "mean_speedup_pct": 0.2199,
+            "ci95_lo_pct": 0.2105,
+            "ci95_hi_pct": 0.2279,
+            "rounds": 5.0
+          },
+          "rounds": [
+            {
+              "a1_ms": 1960.16,
+              "b1_ms": 1956.34,
+              "b2_ms": 1956.4,
+              "a2_ms": 1961.29
+            },
+            {
+              "a1_ms": 1961.46,
+              "b1_ms": 1957.1,
+              "b2_ms": 1957.56,
+              "a2_ms": 1961.79
+            },
+            {
+              "a1_ms": 1961.72,
+              "b1_ms": 1958.03,
+              "b2_ms": 1958.26,
+              "a2_ms": 1962.53
+            },
+            {
+              "a1_ms": 1962.16,
+              "b1_ms": 1957.93,
+              "b2_ms": 1958.16,
+              "a2_ms": 1962.68
+            },
+            {
+              "a1_ms": 1958.39,
+              "b1_ms": 1954.38,
+              "b2_ms": 1954.64,
+              "a2_ms": 1959.75
+            }
+          ]
+        },
+        "decode": {
+          "means_ms": {
+            "baseline": 397.396,
+            "candidate": 397.38599999999997
+          },
+          "paired": {
+            "mean_speedup_pct": 0.0025,
+            "ci95_lo_pct": -0.0048,
+            "ci95_hi_pct": 0.0078,
+            "rounds": 5.0
+          },
+          "rounds": [
+            {
+              "a1_ms": 397.32,
+              "b1_ms": 397.33,
+              "b2_ms": 397.37,
+              "a2_ms": 397.41
+            },
+            {
+              "a1_ms": 397.4,
+              "b1_ms": 397.4,
+              "b2_ms": 397.45,
+              "a2_ms": 397.36
+            },
+            {
+              "a1_ms": 397.48,
+              "b1_ms": 397.41,
+              "b2_ms": 397.45,
+              "a2_ms": 397.4
+            },
+            {
+              "a1_ms": 397.46,
+              "b1_ms": 397.38,
+              "b2_ms": 397.47,
+              "a2_ms": 397.45
+            },
+            {
+              "a1_ms": 397.33,
+              "b1_ms": 397.33,
+              "b2_ms": 397.27,
+              "a2_ms": 397.35
+            }
+          ]
+        },
+        "generated_token_ids": [
+          145026,
+          220,
+          39446,
+          220,
+          19,
+          154978,
+          152792,
+          189134,
+          149860,
+          185136,
+          198,
+          84375,
+          149859,
+          23033,
+          220,
+          137294
+        ],
+        "fp32_eight_row_score_sha256_by_spec": {
+          "0": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce",
+          "7": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce"
+        },
+        "config": [
+          "VRAM used: 15.44 GiB / 15.48 GiB | Resident expert layers: 20/24 (Spilled: 4) | Mixed VRAM/host layers: 4 | Spec: off | KV: fp16 | Prefill chunk: 256"
+        ],
+        "component": "Both controller stages matched the reference bit-for-bit at every tested shape."
+      },
+      "ti5070": {
+        "prefill": {
+          "means_ms": {
+            "baseline": 798.97,
+            "candidate": 795.4159999999999
+          },
+          "paired": {
+            "mean_speedup_pct": 0.4448,
+            "ci95_lo_pct": 0.4194,
+            "ci95_hi_pct": 0.4697,
+            "rounds": 5.0
+          },
+          "rounds": [
+            {
+              "a1_ms": 800.37,
+              "b1_ms": 796.7,
+              "b2_ms": 796.5,
+              "a2_ms": 799.91
+            },
+            {
+              "a1_ms": 798.98,
+              "b1_ms": 795.17,
+              "b2_ms": 795.04,
+              "a2_ms": 798.86
+            },
+            {
+              "a1_ms": 798.38,
+              "b1_ms": 795.15,
+              "b2_ms": 795.19,
+              "a2_ms": 798.73
+            },
+            {
+              "a1_ms": 799.27,
+              "b1_ms": 795.31,
+              "b2_ms": 795.16,
+              "a2_ms": 798.81
+            },
+            {
+              "a1_ms": 798.06,
+              "b1_ms": 795.17,
+              "b2_ms": 794.77,
+              "a2_ms": 798.33
+            }
+          ]
+        },
+        "decode": {
+          "means_ms": {
+            "baseline": 234.607,
+            "candidate": 234.499
+          },
+          "paired": {
+            "mean_speedup_pct": 0.046,
+            "ci95_lo_pct": -0.0021,
+            "ci95_hi_pct": 0.1124,
+            "rounds": 5.0
+          },
+          "rounds": [
+            {
+              "a1_ms": 234.59,
+              "b1_ms": 234.31,
+              "b2_ms": 235.16,
+              "a2_ms": 234.91
+            },
+            {
+              "a1_ms": 234.44,
+              "b1_ms": 234.38,
+              "b2_ms": 234.35,
+              "a2_ms": 234.53
+            },
+            {
+              "a1_ms": 235.13,
+              "b1_ms": 234.96,
+              "b2_ms": 234.11,
+              "a2_ms": 234.76
+            },
+            {
+              "a1_ms": 234.52,
+              "b1_ms": 234.1,
+              "b2_ms": 234.84,
+              "a2_ms": 234.32
+            },
+            {
+              "a1_ms": 234.61,
+              "b1_ms": 234.57,
+              "b2_ms": 234.21,
+              "a2_ms": 234.26
+            }
+          ]
+        },
+        "generated_token_ids": [
+          145026,
+          220,
+          39446,
+          220,
+          19,
+          154978,
+          152792,
+          189134,
+          149860,
+          185136,
+          198,
+          84375,
+          149859,
+          23033,
+          220,
+          137294
+        ],
+        "fp32_eight_row_score_sha256_by_spec": {
+          "0": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce",
+          "7": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce"
+        },
+        "config": [
+          "VRAM used: 15.40 GiB / 15.47 GiB | Resident expert layers: 18/24 (Spilled: 6) | Mixed VRAM/host layers: 6 | Spec: off | KV: fp16 | Prefill chunk: 512"
+        ],
+        "component": "Both controller stages matched the reference bit-for-bit at every tested shape."
+      }
+    },
+    "native_cubin_bytes": {
+      "baseline": 1190464,
+      "candidate": 1210168
+    }
+  },
+  "native_cubin_bytes": {
+    "baseline": 1189968,
+    "candidate": 1209672
+  },
+  "component_shapes": {
+    "controller_count": [
+      1,
+      3
+    ],
+    "batch": [
+      1,
+      2,
+      3,
+      7,
+      8,
+      9,
+      15,
+      16,
+      17,
+      31,
+      32,
+      47,
+      63,
+      64,
+      65,
+      129,
+      256
+    ],
+    "checked": [
+      "FP32 down gate",
+      "FP32 apply output"
+    ]
+  },
+  "nvrtc_pro5000": "Both controller stages matched the reference bit-for-bit at every tested shape."
+}
