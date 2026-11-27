@@ -59,5 +59,9 @@ Same canonical BF16 oracle, context 512, greedy, FP16 KV, PDL. Each row covers 1
 | valid | parent | 0.002760741 | 0.352436097 | 24,963 | 6.50462099 | 46, 379 |
 | valid | last | 0.003007726 | 0.379497650 | 24,942 | 6.50520427 | 46, 379 |
 | valid | all | 0.003759845 | 0.375053389 | 24,865 | 6.50675857 | 46, 379 |
+| valid | budget | 0.002768641 | 0.351009065 | 24,944 | 6.50412658 | 46, 379 |
 
 Run `LEANSONIC_PDL=1 LEANSONIC_KV=fp16 LEANSONIC_CUBIN_PATH="$CUBIN" leansonic eval-kld --weights "$OUTPUT/last" --ref "$ORACLE" --chunks 100`, then repeat for `all`. Scoring uses CLI `64200ed` and cubin source `48b7ec2`. The [full metrics](inkling-rounded-corpus.json) also include the reference PPL, median and p99 KL. The layer-23-only candidate lost top-1 matches and increased mean and worst KL on test; it is not proposed as a quality-equivalent replacement.
+
+
+The budget variant lowered worst KL on both splits relative to the canonical parent (test 0.680977 to 0.671736, validation 0.352436 to 0.351009). Mean KL rose by 0.00001688 and 0.00000790, respectively. Top-1 corresponded to 3 additional matches on test and 19 fewer on validation. Its test PPL rose by 0.00097042 and its validation PPL fell by 0.00049441. At the same byte budget it had lower mean and worst KL than rounding all magnitudes in layer 23 on both splits. We are retaining the candidate for broader testing; default encoding remains the canonical package. The public cutoff-selection and repacking procedure reproduced the candidate hash independently.
