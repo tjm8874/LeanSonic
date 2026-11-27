@@ -30,3 +30,7 @@ For this split, use the observer and flags above with the full WikiText test ref
 The original mixed-reader commit 9f65bb2 also completed both 100-chunk BF16 splits on RTX 5070 Ti. All score fields, including the worst row and top-1 counts, equal the corresponding uncompressed 571-expert results on that card. [Full test and validation scores with reference hashes](5070-corpus.json).
 
 Comparing the original reader on RTX 5070 Ti with the integration build on RTX PRO 4500, the predicted token changed at 455 of 25,500 test positions. Of these changes, 215 lost BF16 top-1 agreement and 202 gained it. The largest increase in KL came at chunk 2, position 478, from 0.0354035 (candidate and BF16 both predict 44259) to 6.1395663 (candidate predicts 39618). These builds differ in more than one source change. [Largest increases and decreases, split-level metrics and row hashes](main-row-changes.json).
+
+## RTX 5060 Ti reproduction
+
+With bd048b8 and the same 571-expert package, raw vs packed peak process VRAM was 15,661,531,136 vs 14,686,355,456 bytes, a reduction of 975,175,680 bytes. Warm prefill measured 3,982.35 vs 3,959.01 tok/s and decode measured 94.54 vs 95.50 tok/s in the single-process pilot. All 32 predictions matched on five requests. The 1,530 Tensor Core and 255 generic-path full-logit fingerprints matched within each mode. [RTX 5060 Ti process readings and score files](5060-parity.json).
