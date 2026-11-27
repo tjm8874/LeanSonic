@@ -125,56 +125,72 @@ fn write_frames(
 
 const NVFP4_CONTEXTS: usize = 64;
 
+// Bits 0..2 hold the largest preceding magnitude in this eight-byte block.
 #[inline]
-fn update_max(previous: u8, value: u8) -> u8 {
-    previous.max(value & 7).max((value >> 4) & 7)
+fn nvfp4_prefix<const SPLIT: bool>(previous: u8, value: u8) -> u8 {
+    let lo = value & 7;
+    let hi = (value >> 4) & 7;
+    let largest = (previous & 7).max(lo).max(hi);
+    if SPLIT {
+        // A 0.5 or 1.5 magnitude proves the block did not use the trim mapping.
+        let seen = (previous & 8 != 0) || matches!(lo, 1 | 3) || matches!(hi, 1 | 3);
+        largest | (u8::from(seen) << 3)
+    } else {
+        largest
+    }
 }
 
 /// Four independent eight-byte NVFP4 blocks are interleaved. The column and
 /// previous largest E2M1 magnitude select a table; both sign bits are retained.
-pub fn pack_nvfp4_context(raw: &[u8], mut output: impl Write) -> io::Result<usize> {
+pub fn pack_nvfp4_context(raw: &[u8], output: impl Write) -> io::Result<usize> {
+    pack_nvfp4_tables::<false>(raw, output)
+}
+
+/// Lossless NVFP4 coding for planes containing both trimmed and untrimmed blocks.
+pub fn pack_nvfp4_trim_context(raw: &[u8], output: impl Write) -> io::Result<usize> {
+    pack_nvfp4_tables::<true>(raw, output)
+}
+
+fn pack_nvfp4_tables<const SPLIT: bool>(raw: &[u8], mut output: impl Write) -> io::Result<usize> {
+    let states_per_column = if SPLIT { 16 } else { 8 };
+    let table_count = 8 * states_per_column;
     if raw.is_empty() || !raw.len().is_multiple_of(32) || raw.len() > u32::MAX as usize {
         return Err(io::Error::other("invalid contextual NVFP4 matrix size"));
     }
-    let mut hist = vec![[0i64; 256]; NVFP4_CONTEXTS];
+    let mut hist = vec![[0i64; 256]; table_count];
     for block in raw.as_chunks::<8>().0 {
         let mut prev = 0;
         for (column, &v) in block.iter().enumerate() {
-            hist[column * 8 + usize::from(prev)][usize::from(v)] += 1;
-            prev = update_max(prev, v);
+            hist[column * states_per_column + usize::from(prev)][usize::from(v)] += 1;
+            prev = nvfp4_prefix::<SPLIT>(prev, v);
         }
     }
-    let mut tables = Vec::with_capacity(NVFP4_CONTEXTS);
+    let mut tables = Vec::with_capacity(table_count);
     for h in &hist {
         let freq = normalize(h);
         let base = write_table(&freq, &mut output)?;
         tables.push((freq, base));
     }
-    write_frames(
-        raw,
-        output,
-        512 * NVFP4_CONTEXTS,
-        |tile, states, payload| {
-            for group in tile.as_chunks::<32>().0.iter().rev() {
-                let mut contexts = [0; 32];
-                for (lane, block) in group.as_chunks::<8>().0.iter().enumerate() {
-                    let mut prev = 0;
-                    for (j, &v) in block.iter().enumerate() {
-                        contexts[8 * lane + j] = 8 * j + usize::from(prev);
-                        prev = update_max(prev, v);
-                    }
-                }
-                for j in (0..8).rev() {
-                    for lane in (0..4).rev() {
-                        let i = 8 * lane + j;
-                        let v = usize::from(group[i]);
-                        let (freq, base) = &tables[contexts[i]];
-                        encode_symbol(&mut states[lane], freq[v], base[v], payload);
-                    }
+    write_frames(raw, output, 512 * table_count, |tile, states, payload| {
+        for group in tile.as_chunks::<32>().0.iter().rev() {
+            let mut contexts = [0; 32];
+            for (lane, block) in group.as_chunks::<8>().0.iter().enumerate() {
+                let mut prev = 0;
+                for (j, &v) in block.iter().enumerate() {
+                    contexts[8 * lane + j] = states_per_column * j + usize::from(prev);
+                    prev = nvfp4_prefix::<SPLIT>(prev, v);
                 }
             }
-        },
-    )
+            for j in (0..8).rev() {
+                for lane in (0..4).rev() {
+                    let i = 8 * lane + j;
+                    let v = usize::from(group[i]);
+                    let (freq, base) = &tables[contexts[i]];
+                    encode_symbol(&mut states[lane], freq[v], base[v], payload);
+                }
+            }
+        }
+    })
 }
 
 /// E2M1 codes 0 and 8 both decode to integer zero in the NVFP4 dot products.
@@ -196,6 +212,15 @@ pub fn unpack_nvfp4_codes(data: &[u8], count: usize, contextual: bool) -> Result
     } else {
         Matrix::parse(data, count)?
     };
+    unpack_codes(matrix, count)
+}
+
+/// Offline verification of the separately tagged trim-aware NVFP4 format.
+pub fn unpack_nvfp4_trim_context(data: &[u8], count: usize) -> Result<Vec<u8>, String> {
+    unpack_codes(Matrix::parse_nvfp4_trim(data, count)?, count)
+}
+
+fn unpack_codes(matrix: Matrix<'_>, count: usize) -> Result<Vec<u8>, String> {
     let mut raw = Vec::with_capacity(count);
     matrix.for_each_chunk(|_, tile| {
         raw.extend_from_slice(tile);
@@ -217,10 +242,18 @@ impl<'a> Matrix<'a> {
     }
 
     pub(crate) fn parse_nvfp4(data: &'a [u8], count: usize) -> Result<Self, String> {
+        Self::parse_nvfp4_tables(data, count, NVFP4_CONTEXTS)
+    }
+
+    pub(crate) fn parse_nvfp4_trim(data: &'a [u8], count: usize) -> Result<Self, String> {
+        Self::parse_nvfp4_tables(data, count, 2 * NVFP4_CONTEXTS)
+    }
+
+    fn parse_nvfp4_tables(data: &'a [u8], count: usize, tables: usize) -> Result<Self, String> {
         if !count.is_multiple_of(32) {
             return Err("invalid contextual NVFP4 matrix size".into());
         }
-        Self::parse_tables(data, count, NVFP4_CONTEXTS)
+        Self::parse_tables(data, count, tables)
     }
 
     fn parse_tables(data: &'a [u8], count: usize, tables: usize) -> Result<Self, String> {
@@ -289,7 +322,10 @@ impl<'a> Matrix<'a> {
             return context.decode(&self.lookup, bytes, states, first, dst);
         }
         if self.lookup.len() == NVFP4_CONTEXTS {
-            return self.decode_nvfp4(bytes, states, dst);
+            return self.decode_nvfp4::<false>(bytes, states, dst);
+        }
+        if self.lookup.len() == 2 * NVFP4_CONTEXTS {
+            return self.decode_nvfp4::<true>(bytes, states, dst);
         }
         let lookup = &self.lookup[0];
         let mut cursor = 0;
@@ -343,7 +379,7 @@ impl<'a> Matrix<'a> {
         Ok(())
     }
 
-    fn decode_nvfp4(
+    fn decode_nvfp4<const SPLIT: bool>(
         &self,
         bytes: &[u8],
         mut states: [u32; 4],
@@ -354,11 +390,12 @@ impl<'a> Matrix<'a> {
             let mut prev = [0u8; 4];
             for column in 0..8 {
                 for (lane, state) in states.iter_mut().enumerate() {
-                    let table = &self.lookup[8 * column + usize::from(prev[lane])];
+                    let stride = if SPLIT { 16 } else { 8 };
+                    let table = &self.lookup[stride * column + usize::from(prev[lane])];
                     let entry = table[(*state & (TOTAL - 1)) as usize];
                     let v = (entry >> 24) as u8;
                     group[8 * lane + column].write(v);
-                    prev[lane] = update_max(prev[lane], v);
+                    prev[lane] = nvfp4_prefix::<SPLIT>(prev[lane], v);
                     *state = ((entry & 4095) + 1) * (*state >> PRECISION) + ((entry >> 12) & 4095);
                     while *state < LOWER {
                         let byte = bytes.get(cursor).ok_or("short contextual NVFP4 payload")?;
@@ -478,6 +515,28 @@ mod tests {
             .unwrap()
             .for_each_chunk(|_, _| Ok(()))
             .is_err());
+    }
+
+    #[test]
+    fn trim_context_restores_every_byte_and_rejects_corrupt_frames() {
+        let raw: Vec<_> = (0..TILE + 64)
+            .map(|i| match (i / 8) % 3 {
+                0 => 0x48,
+                1 => 0x31,
+                _ => (i.wrapping_mul(227) ^ (i >> 5)) as u8,
+            })
+            .collect();
+        let mut packed = Vec::new();
+        assert_eq!(
+            pack_nvfp4_trim_context(&raw, &mut packed).unwrap(),
+            packed.len()
+        );
+        assert_eq!(unpack_nvfp4_trim_context(&packed, raw.len()).unwrap(), raw);
+        assert!(unpack_nvfp4_trim_context(&packed, raw.len() - 1).is_err());
+        assert!(unpack_nvfp4_trim_context(&packed[..packed.len() - 8], raw.len()).is_err());
+        let state = 2 * NVFP4_CONTEXTS * 512 + 4;
+        packed[state..state + 4].fill(0);
+        assert!(unpack_nvfp4_trim_context(&packed, raw.len()).is_err());
     }
 
     #[test]
