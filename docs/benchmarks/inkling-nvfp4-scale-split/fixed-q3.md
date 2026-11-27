@@ -6,6 +6,8 @@ Both engines consume exactly the same 1,024 README IDs and fixed 32-token contin
 
 | GPU | Engine | Prefill ms (tok/s) | Decode 32 ms (tok/s) | Peak VRAM B | Matched continuation IDs |
 |---|---|---:|---:|---:|---:|
+| 5070Ti | lean | 121.788 (8,408.0) | 192.379 (166.34) | 16,104,030,208 | 32/32 |
+| 5070Ti | llama | 526.395 (1,945.3) | 402.299 (79.54) | 16,150,167,552 | 31/32 |
 | 5060Ti | lean | 257.078 (3,983.2) | 339.782 (94.18) | 15,994,978,304 | 32/32 |
 | 5060Ti | llama | 879.979 (1,163.7) | 573.176 (55.83) | 16,030,629,888 | 30/32 |
 
