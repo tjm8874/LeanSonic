@@ -11611,7 +11611,7 @@ mod tests {
             count / 8 * width + 4
         }
 
-        /// Decode MoE kernels (NVFP4 / MXFP8 down, MXFP8 up) on expert planes holding exactly
+        /// Decode and verify MoE kernels (NVFP4 / MXFP8 down, MXFP8 up) on expert planes holding exactly
         /// `E = 9` experts, routed so the last expert is selected twice: an over-read past the
         /// last expert row or the last scale word lands outside its allocation. Only the
         /// sanitizer verdict matters (random weights); the launches must also succeed.
@@ -11703,6 +11703,99 @@ mod tests {
                     (288, 8),
                     256,
                     &mut args![pw, ps, px, pi, po],
+                )
+                .map_err(|e| format!("{name}: {e}"))?;
+            }
+            // Verify path (B = 3 tokens, 24 (token, slot) pairs): the routing tables have the
+            // engine's sizes (`[128]` active list and counts, `[128, 64]` pair / token lists),
+            // the expert planes and activations are exact.
+            let b = 3usize;
+            let pairs = b * 8;
+            let mut active = vec![-1i32; 128];
+            let mut counts = vec![0i32; 128];
+            let mut toks = vec![0i32; 128 * 64];
+            let mut plist = vec![0i32; 128 * 64];
+            let mut order: Vec<i32> = Vec::new();
+            for p in 0..pairs {
+                let ex = sel[p % 8] as usize;
+                if counts[ex] == 0 {
+                    order.push(ex as i32);
+                }
+                plist[ex * 64 + counts[ex] as usize] = p as i32;
+                toks[ex * 64 + counts[ex] as usize] = (p / 8) as i32;
+                counts[ex] += 1;
+            }
+            active[..order.len()].copy_from_slice(&order);
+            let (act_d, cnt_d, tok_d, pair_d) = (
+                i32s(ctx, &active)?,
+                i32s(ctx, &counts)?,
+                i32s(ctx, &toks)?,
+                i32s(ctx, &plist)?,
+            );
+            let grid = (288u32, pairs as u32);
+            let y = DeviceBuf::alloc_zeroed(ctx, pairs * d * 4)?;
+            let w2 = noise(ctx, &mut rng, e * d * 36 * 16)?;
+            let aq = noise(ctx, &mut rng, pairs * 72 * 16)?;
+            let asc = f32s(ctx, &vec![0.01; pairs * 72])?;
+            for (name, packed) in [
+                ("ink2_moe_nvfp4_dp4a_verify_down", false),
+                ("ink2_moe_nvfp4_dp4a_verify_down_packed_scales", true),
+            ] {
+                let s2 = if packed {
+                    noise(ctx, &mut rng, packed_scale_bytes(e * d * 72, 6))?
+                } else {
+                    noise(ctx, &mut rng, e * d * 18 * 4)?
+                };
+                let (mut pw, mut ps, mut pa, mut pq, mut pqs) =
+                    (w2.ptr, s2.ptr, a2.ptr, aq.ptr, asc.ptr);
+                let (mut pac, mut pc, mut pp, mut py) = (act_d.ptr, cnt_d.ptr, pair_d.ptr, y.ptr);
+                run(
+                    ctx,
+                    func(ctx, m, name)?,
+                    grid,
+                    256,
+                    &mut args![pw, ps, pa, pq, pqs, pac, pc, pp, py],
+                )
+                .map_err(|e| format!("{name}: {e}"))?;
+            }
+            let w2 = noise(ctx, &mut rng, e * d * 72 * 16)?;
+            let act4 = f32s(ctx, &vec![0.01; pairs * ff])?;
+            let w13 = noise(ctx, &mut rng, e * 2 * ff * 144 * 16)?;
+            let x4 = f32s(ctx, &vec![0.01; b * d])?;
+            let act_out = DeviceBuf::alloc_zeroed(ctx, pairs * ff * 4)?;
+            for packed in [false, true] {
+                let sfx = if packed { "_packed_scales" } else { "" };
+                let s2 = if packed {
+                    noise(ctx, &mut rng, packed_scale_bytes(e * d * 36, 3))?
+                } else {
+                    noise(ctx, &mut rng, e * d * 9 * 4)?
+                };
+                let name = format!("ink2_moe_mxfp8_verify_down{sfx}");
+                let (mut pw, mut ps, mut px) = (w2.ptr, s2.ptr, act4.ptr);
+                let (mut pac, mut pc, mut pp, mut py) = (act_d.ptr, cnt_d.ptr, pair_d.ptr, y.ptr);
+                run(
+                    ctx,
+                    func(ctx, m, &name)?,
+                    grid,
+                    256,
+                    &mut args![pw, ps, px, pac, pc, pp, py],
+                )
+                .map_err(|e| format!("{name}: {e}"))?;
+                let s13 = if packed {
+                    noise(ctx, &mut rng, packed_scale_bytes(e * 2 * ff * 72, 3))?
+                } else {
+                    noise(ctx, &mut rng, e * 2 * ff * 18 * 4)?
+                };
+                let name = format!("ink2_moe_mxfp8_verify_up_situ{sfx}");
+                let (mut pw, mut ps, mut px) = (w13.ptr, s13.ptr, x4.ptr);
+                let (mut pac, mut pc, mut pt, mut pp, mut po) =
+                    (act_d.ptr, cnt_d.ptr, tok_d.ptr, pair_d.ptr, act_out.ptr);
+                run(
+                    ctx,
+                    func(ctx, m, &name)?,
+                    grid,
+                    256,
+                    &mut args![pw, ps, px, pac, pc, pt, pp, po],
                 )
                 .map_err(|e| format!("{name}: {e}"))?;
             }
