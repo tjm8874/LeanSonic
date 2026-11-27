@@ -1,0 +1,133 @@
+{
+  "source_bytes": 635801416,
+  "source_sha256": "7c3b651317f01f73bcf4e1dceba66ef8b7e1a1eac6bc171e882e690a4b10a1d2",
+  "packed_bytes": 386970072,
+  "packed_sha256": "53f857d1a7deaa1b3e22aca83d9db42dab3c9e507c41412b8b37e998c177ca3e",
+  "verified_output_tensors": 59,
+  "retained_bf16": [
+    "fuse_weight",
+    "layers.0.dflare_norm.weight",
+    "layers.0.input_layernorm.weight",
+    "layers.0.post_attention_layernorm.weight",
+    "layers.0.self_attn.k_norm.weight",
+    "layers.0.self_attn.k_norm_ctx.weight",
+    "layers.0.self_attn.q_norm.weight",
+    "layers.1.dflare_norm.weight",
+    "layers.1.input_layernorm.weight",
+    "layers.1.post_attention_layernorm.weight",
+    "layers.1.self_attn.k_norm.weight",
+    "layers.1.self_attn.k_norm_ctx.weight",
+    "layers.1.self_attn.q_norm.weight",
+    "layers.2.dflare_norm.weight",
+    "layers.2.input_layernorm.weight",
+    "layers.2.post_attention_layernorm.weight",
+    "layers.2.self_attn.k_norm.weight",
+    "layers.2.self_attn.k_norm_ctx.weight",
+    "layers.2.self_attn.q_norm.weight",
+    "markov_head.dflare_norm.weight",
+    "markov_head.hidden_out.bias",
+    "markov_head.hidden_out.weight",
+    "markov_head.markov_w1.weight",
+    "markov_head.rnn_proj.bias",
+    "mask_embed",
+    "norm.weight"
+  ],
+  "verified_matrices": {
+    "layers.0.self_attn.qkv_proj": {
+      "rows": 5120,
+      "cols": 2304,
+      "codes": 11796480,
+      "scales": 184320
+    },
+    "layers.0.self_attn.kv_ctx_proj": {
+      "rows": 2048,
+      "cols": 2304,
+      "codes": 4718592,
+      "scales": 73728
+    },
+    "layers.0.self_attn.o_proj": {
+      "rows": 2304,
+      "cols": 3072,
+      "codes": 7077888,
+      "scales": 110592
+    },
+    "layers.0.mlp.gate_up_proj": {
+      "rows": 18432,
+      "cols": 2304,
+      "codes": 42467328,
+      "scales": 663552
+    },
+    "layers.0.mlp.down_proj": {
+      "rows": 2304,
+      "cols": 9216,
+      "codes": 21233664,
+      "scales": 331776
+    },
+    "layers.1.self_attn.qkv_proj": {
+      "rows": 5120,
+      "cols": 2304,
+      "codes": 11796480,
+      "scales": 184320
+    },
+    "layers.1.self_attn.kv_ctx_proj": {
+      "rows": 2048,
+      "cols": 2304,
+      "codes": 4718592,
+      "scales": 73728
+    },
+    "layers.1.self_attn.o_proj": {
+      "rows": 2304,
+      "cols": 3072,
+      "codes": 7077888,
+      "scales": 110592
+    },
+    "layers.1.mlp.gate_up_proj": {
+      "rows": 18432,
+      "cols": 2304,
+      "codes": 42467328,
+      "scales": 663552
+    },
+    "layers.1.mlp.down_proj": {
+      "rows": 2304,
+      "cols": 9216,
+      "codes": 21233664,
+      "scales": 331776
+    },
+    "layers.2.self_attn.qkv_proj": {
+      "rows": 5120,
+      "cols": 2304,
+      "codes": 11796480,
+      "scales": 184320
+    },
+    "layers.2.self_attn.kv_ctx_proj": {
+      "rows": 2048,
+      "cols": 2304,
+      "codes": 4718592,
+      "scales": 73728
+    },
+    "layers.2.self_attn.o_proj": {
+      "rows": 2304,
+      "cols": 3072,
+      "codes": 7077888,
+      "scales": 110592
+    },
+    "layers.2.mlp.gate_up_proj": {
+      "rows": 18432,
+      "cols": 2304,
+      "codes": 42467328,
+      "scales": 663552
+    },
+    "layers.2.mlp.down_proj": {
+      "rows": 2304,
+      "cols": 9216,
+      "codes": 21233664,
+      "scales": 331776
+    },
+    "markov_head.rnn_proj.jctx": {
+      "rows": 768,
+      "cols": 4608,
+      "codes": 3538944,
+      "scales": 55296
+    }
+  }
+}
