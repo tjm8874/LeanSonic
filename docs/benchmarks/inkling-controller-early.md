@@ -7,5 +7,6 @@ Mean warm 64-step decode times below use the same main host binary with baseline
 | GPU | Main (ms) | Early products (ms) | Time saved | Paired bootstrap 95% interval |
 |---|---:|---:|---:|---:|
 | 5070Ti | 599.73 | 591.45 | 1.38% | 1.35% to 1.42% |
+| 5060Ti | 1330.16 | 1323.40 | 0.51% | 0.50% to 0.51% |
 
 For reproduction build the baseline and candidate kernels separately using `nvcc -std=c++17 -O3 -arch=sm_120a --cubin kernels/inkling2_sm120.cu`. Build `cargo build --release -p leansonic-cli`, then run the same binary with each `LEANSONIC_CUBIN_PATH`, setting `LEANSONIC_KV=fp16` and `LEANSONIC_CTX=8192`. Use `bench --weights "$WEIGHTS" --tokens "@$IDS32" --gen 64 --spec 0 --repeat 4` and the input fingerprint in the [per-process evidence](inkling-controller-early.json). Run `lake build` in spec and the repository SASS audit on the candidate cubin. Two-row RMS sharing was mixed across actual shapes and explicit weight prefetch alone slowed down both GeForce cards in the initial microbenchmark; neither was adopted.
