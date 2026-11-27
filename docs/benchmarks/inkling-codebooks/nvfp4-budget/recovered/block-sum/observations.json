@@ -1,0 +1,435 @@
+{
+  "trim": {
+    "package_bytes": 13656270126,
+    "shard_sha256": "6246d256700f9995d61f718d0d46fd5ae17966f52cad94ed1ddc498962298424",
+    "planes": {
+      "model.llm.layers.0.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 298350272,
+        "changed": 130444354,
+        "sha256": "f4bb764caf3569be3c572635d677863ca58d37fdcbdd141b15313d0414ee1f3c"
+      },
+      "model.llm.layers.0.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 149252008,
+        "changed": 65098061,
+        "sha256": "c98805fb74a0945e5a5160288d412bd4e23d1cca28b902919044e3e8e0ffd080"
+      },
+      "model.llm.layers.1.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 299088312,
+        "changed": 127770882,
+        "sha256": "f9ace4e428cbec85816b0629db4160de337f87fa52a480d6ee6e9926bad936b3"
+      },
+      "model.llm.layers.1.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 149560336,
+        "changed": 63917886,
+        "sha256": "0153728f1ee914229d0fc5c70bb0f5cb47551fb907195ffd3852a7607e5438c9"
+      },
+      "model.llm.layers.10.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 323858048,
+        "changed": 34407355,
+        "sha256": "537909d8e6adf2f4f4b3f857f396dc998abd9c3618c84af09a5463010f3e056d"
+      },
+      "model.llm.layers.10.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 161983608,
+        "changed": 17015961,
+        "sha256": "2042823be2fe5b965a9b56178932a9c002af5f4663664c45bb2c5bcd1bcea92f"
+      },
+      "model.llm.layers.11.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 324692064,
+        "changed": 30672300,
+        "sha256": "e7b616dcf6c11e885bc679df420395d98d85c8b5ed6e77eca5e690b39ebfd50a"
+      },
+      "model.llm.layers.11.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 162404360,
+        "changed": 14991363,
+        "sha256": "987c70944b0c2e9a0308c9b66569a8cd3824cd238ef241e6fbf4a7769ed05c4d"
+      },
+      "model.llm.layers.12.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 324311920,
+        "changed": 32612836,
+        "sha256": "45479bf50aeb4c8808e0c5e35387ca7d16244dda2ecbbe9029ef9ca7d74a8deb"
+      },
+      "model.llm.layers.12.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 162263256,
+        "changed": 15803778,
+        "sha256": "bee548dc6c9f681cf9841dc93fbdb4e115d44cc3e33125ec05d3b4345510bf8e"
+      },
+      "model.llm.layers.13.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 323927192,
+        "changed": 34381514,
+        "sha256": "b312c96276846bf776f831d27ba5d631e3508be4214be791f630a86807141f4f"
+      },
+      "model.llm.layers.13.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 162029472,
+        "changed": 16875037,
+        "sha256": "1b9b377f45032a0ca5468044acb86adf49797fcffe3ede3ba88997c7cedef8a2"
+      },
+      "model.llm.layers.14.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 324321544,
+        "changed": 32491610,
+        "sha256": "bc6a9913e446fb93aa3ed066c10fa612c38ca593273b5fec2a0e78484091812e"
+      },
+      "model.llm.layers.14.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 162037488,
+        "changed": 16721733,
+        "sha256": "60270aa1722b2288fe191f806e4732225bf9cbc1d99607ba339722ce43ee37e8"
+      },
+      "model.llm.layers.15.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 323769752,
+        "changed": 35126117,
+        "sha256": "0c93be38d12ae708f5862dfee8aef36af5b2d3584cbb5ee27aba7678e37998a7"
+      },
+      "model.llm.layers.15.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 161831872,
+        "changed": 17517648,
+        "sha256": "979ffb20713739f160cfb5783ff01d6cbbca52773552a48f2c9acdb3912bc4b5"
+      },
+      "model.llm.layers.16.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 324035296,
+        "changed": 33769563,
+        "sha256": "cb3df04a41bc60f9ce30371eac7d57a6dea7f23d29634d5fbc5022a3e9f37a5a"
+      },
+      "model.llm.layers.16.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 161825264,
+        "changed": 17073243,
+        "sha256": "8c9babe5bf09f0a375232c2c77ef647a9fbbc0efaaa6960ee9afe253f2a98c20"
+      },
+      "model.llm.layers.17.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 323247560,
+        "changed": 37151888,
+        "sha256": "714ce8077ea66843c34b1cd027038e8681371d4acb40b3265e71af77cfad8b9f"
+      },
+      "model.llm.layers.17.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 161231448,
+        "changed": 19126716,
+        "sha256": "9154b57e694bdb690bbae4fda43e2e841432cdd22204149b741d44962eab7f89"
+      },
+      "model.llm.layers.18.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 298399200,
+        "changed": 130405695,
+        "sha256": "9a6386025e9d9face98f3067e41d46006acaa9012a4505946b31f273d2601353"
+      },
+      "model.llm.layers.18.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 149222536,
+        "changed": 65132532,
+        "sha256": "cd53536c65496441376cda5abe57f498ab73e327c0d51e6b2e1d89df3ea74db2"
+      },
+      "model.llm.layers.19.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 298493768,
+        "changed": 130092539,
+        "sha256": "f20a349038560dd573c1a447cd930699bfce2158e625383507c128a58a647eb3"
+      },
+      "model.llm.layers.19.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 149256360,
+        "changed": 65081580,
+        "sha256": "4433555fad6fa3dba4595a545e1b6879248bd860da44bfbfcf2c232ece4e8c7f"
+      },
+      "model.llm.layers.2.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 298603296,
+        "changed": 129099363,
+        "sha256": "32ed831eeb6c9ec02d2599f78c3f524441e13dc29cbfc9efb770381adba1cc72"
+      },
+      "model.llm.layers.2.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 149380904,
+        "changed": 64318827,
+        "sha256": "6e3f2985642a989927f23aa2655f6b987e18cfa11f5278fcce68e075d615bc46"
+      },
+      "model.llm.layers.3.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 299215384,
+        "changed": 127171613,
+        "sha256": "732ce6c11caa4c72faadd022a9e573c1c9d97cb03a156a17cf6aaa8874bd7116"
+      },
+      "model.llm.layers.3.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 149762528,
+        "changed": 63145674,
+        "sha256": "22d32603dd59280f466f3f21762449a9615d88f83ce47f3eee82176c4b0fe3db"
+      },
+      "model.llm.layers.4.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 299284848,
+        "changed": 126960654,
+        "sha256": "63863177b477e42ead2bbcfa54110f8670888436a696ee64ebe2302343798803"
+      },
+      "model.llm.layers.4.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 149728000,
+        "changed": 63274290,
+        "sha256": "7e89d1223fe315fd671af8d2c18a859ea8c76d8cb51db2a8a45df2015f3b6caf"
+      },
+      "model.llm.layers.5.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 299330488,
+        "changed": 126975102,
+        "sha256": "f98f0694b880731204a8720891af0660f602c9968b7fc380e7cabe3888a3fbc8"
+      },
+      "model.llm.layers.5.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 149709864,
+        "changed": 63382079,
+        "sha256": "2049e4bc9d256611a599930085931c480c34da92eea8c01ba0bc5aa13b6eb9fe"
+      },
+      "model.llm.layers.6.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 324225208,
+        "changed": 32741233,
+        "sha256": "06001196681bbec0fdafadd6d6470950db10567ccbaff914f2eff75228161bae"
+      },
+      "model.llm.layers.6.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 162168952,
+        "changed": 16243332,
+        "sha256": "7c8c0a23f551dfcc8d5fe4ff9acfc55746b7ec14bc874b2c30e1c192b620f9b4"
+      },
+      "model.llm.layers.7.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 324767656,
+        "changed": 30211276,
+        "sha256": "b0ffcd1c5cea6725fd1c1541019038ef38654a60f2ed3a5103f82a5d0ddecb4e"
+      },
+      "model.llm.layers.7.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 162389256,
+        "changed": 15264799,
+        "sha256": "a37c256a86255bd043f6c4c1336bedcc301cb9f4fecd46e4fd272c4996256918"
+      },
+      "model.llm.layers.8.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 324454376,
+        "changed": 31620053,
+        "sha256": "d4aa12398bc47312f6e38a2361400804453de12b1eca98c5fb9e8371ae616f28"
+      },
+      "model.llm.layers.8.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 162218616,
+        "changed": 16028270,
+        "sha256": "3e1af392bcd0c5270341d9ca7e74b0bff458dfa1176945f09ad6178422eaba1a"
+      },
+      "model.llm.layers.9.mlp.experts.w13_weight.nvctx_trim_v1": {
+        "size": 324440720,
+        "changed": 31728910,
+        "sha256": "3302ad81f50c9b7322e04caae84db5689bbd118519bea4cbcb5dabd972339505"
+      },
+      "model.llm.layers.9.mlp.experts.w2_weight.nvctx_trim_v1": {
+        "size": 162212288,
+        "changed": 16087327,
+        "sha256": "9e1f9c43f19272ceb8d24258cca3451b36db1dfec33c8a64c3ada72235a0b9cf"
+      }
+    }
+  },
+  "direct": {
+    "files": {
+      "model-00001-of-00001.safetensors": {
+        "bytes": 13525800776,
+        "sha256": "f155cf837f11d978e027e49588bec896bb63161005a756fd8da3d571c8a6a34c"
+      },
+      "tiktoken/tokenizer.model": {
+        "bytes": 3386494,
+        "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+      }
+    },
+    "package_bytes": 13529187270,
+    "planes": {
+      "model.llm.layers.0.mlp.experts.w13_weight": {
+        "old_bytes": 298350272,
+        "trial_bytes": 293964440,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.0.mlp.experts.w2_weight": {
+        "old_bytes": 149252008,
+        "trial_bytes": 147069248,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.1.mlp.experts.w13_weight": {
+        "old_bytes": 299088312,
+        "trial_bytes": 294588112,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.1.mlp.experts.w2_weight": {
+        "old_bytes": 149560336,
+        "trial_bytes": 147328304,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.10.mlp.experts.w13_weight": {
+        "old_bytes": 323858048,
+        "trial_bytes": 319665872,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.10.mlp.experts.w2_weight": {
+        "old_bytes": 161983608,
+        "trial_bytes": 159896736,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.11.mlp.experts.w13_weight": {
+        "old_bytes": 324692064,
+        "trial_bytes": 320749984,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.11.mlp.experts.w2_weight": {
+        "old_bytes": 162404360,
+        "trial_bytes": 160461816,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.12.mlp.experts.w13_weight": {
+        "old_bytes": 324311920,
+        "trial_bytes": 320243968,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.12.mlp.experts.w2_weight": {
+        "old_bytes": 162263256,
+        "trial_bytes": 160261696,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.13.mlp.experts.w13_weight": {
+        "old_bytes": 323927192,
+        "trial_bytes": 319742440,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.13.mlp.experts.w2_weight": {
+        "old_bytes": 162029472,
+        "trial_bytes": 159958336,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.14.mlp.experts.w13_weight": {
+        "old_bytes": 324321544,
+        "trial_bytes": 320254856,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.14.mlp.experts.w2_weight": {
+        "old_bytes": 162037488,
+        "trial_bytes": 159976480,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.15.mlp.experts.w13_weight": {
+        "old_bytes": 323769752,
+        "trial_bytes": 319542856,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.15.mlp.experts.w2_weight": {
+        "old_bytes": 161831872,
+        "trial_bytes": 159728872,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.16.mlp.experts.w13_weight": {
+        "old_bytes": 324035296,
+        "trial_bytes": 319897992,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.16.mlp.experts.w2_weight": {
+        "old_bytes": 161825264,
+        "trial_bytes": 159755544,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.17.mlp.experts.w13_weight": {
+        "old_bytes": 323247560,
+        "trial_bytes": 318892264,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.17.mlp.experts.w2_weight": {
+        "old_bytes": 161231448,
+        "trial_bytes": 159043560,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.18.mlp.experts.w13_weight": {
+        "old_bytes": 298399200,
+        "trial_bytes": 294071608,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.18.mlp.experts.w2_weight": {
+        "old_bytes": 149222536,
+        "trial_bytes": 147051296,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.19.mlp.experts.w13_weight": {
+        "old_bytes": 298493768,
+        "trial_bytes": 294160080,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.19.mlp.experts.w2_weight": {
+        "old_bytes": 149256360,
+        "trial_bytes": 147081936,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.2.mlp.experts.w13_weight": {
+        "old_bytes": 298603296,
+        "trial_bytes": 294151488,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.2.mlp.experts.w2_weight": {
+        "old_bytes": 149380904,
+        "trial_bytes": 147179288,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.3.mlp.experts.w13_weight": {
+        "old_bytes": 299215384,
+        "trial_bytes": 294682008,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.3.mlp.experts.w2_weight": {
+        "old_bytes": 149762528,
+        "trial_bytes": 147506744,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.4.mlp.experts.w13_weight": {
+        "old_bytes": 299284848,
+        "trial_bytes": 294750552,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.4.mlp.experts.w2_weight": {
+        "old_bytes": 149728000,
+        "trial_bytes": 147477552,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.5.mlp.experts.w13_weight": {
+        "old_bytes": 299330488,
+        "trial_bytes": 294798048,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.5.mlp.experts.w2_weight": {
+        "old_bytes": 149709864,
+        "trial_bytes": 147452200,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.6.mlp.experts.w13_weight": {
+        "old_bytes": 324225208,
+        "trial_bytes": 320144152,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.6.mlp.experts.w2_weight": {
+        "old_bytes": 162168952,
+        "trial_bytes": 160136192,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.7.mlp.experts.w13_weight": {
+        "old_bytes": 324767656,
+        "trial_bytes": 320859416,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.7.mlp.experts.w2_weight": {
+        "old_bytes": 162389256,
+        "trial_bytes": 160422288,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.8.mlp.experts.w13_weight": {
+        "old_bytes": 324454376,
+        "trial_bytes": 320446016,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.8.mlp.experts.w2_weight": {
+        "old_bytes": 162218616,
+        "trial_bytes": 160196280,
+        "decoded_bytes": 169869312
+      },
+      "model.llm.layers.9.mlp.experts.w13_weight": {
+        "old_bytes": 324440720,
+        "trial_bytes": 320424848,
+        "decoded_bytes": 339738624
+      },
+      "model.llm.layers.9.mlp.experts.w2_weight": {
+        "old_bytes": 162212288,
+        "trial_bytes": 160186936,
+        "decoded_bytes": 169869312
+      }
+    },
+    "adopted_planes": 40,
+    "verified_payloads": 999
+  },
+  "intermediate_scores": {},
+  "baseline_control": "original encoded frames match for layer 0 down and layer 11 gate/up",
+  "map_counts": [
+    123028154,
+    0,
+    196893678,
+    250431455
+  ],
+  "absolute_sum_error_before": 856058287,
+  "absolute_sum_error_after": 552701807
+}
