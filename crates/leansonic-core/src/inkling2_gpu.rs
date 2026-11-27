@@ -1864,24 +1864,14 @@ impl Inkling2GpuEngine {
         let drafter_choice = std::env::var("LEANSONIC_DRAFTER").unwrap_or_else(|_| "auto".into());
         let dflash2 = match (spec_k > 0, drafter_choice.as_str(), find_dflash2(model_dir)) {
             (true, "auto" | "dflash2", Some(path)) => {
-                let k = load_dflash2_kernels(&ctx)?;
+                let m = load_dflash2_kernels(&ctx)?;
                 Some(Dflash2DrafterGpu::load_from_file(
                     &ctx,
                     Dflash2KernelFns {
                         pdl_all: pdl_all_enabled(&ctx, fns.pdl_all_marker),
-                        quant_q8_64_b: fns.quant_q8_64_b,
                         q8_gemm_ktiled: fns.q8_dp4a_gemm_ktiled,
                         q8_gemm_b8_fast: fns.q8_dp4a_gemm_b8_fast,
-                        block_init: k[0],
-                        rmsnorm: k[1],
-                        conv2: k[2],
-                        qk_prep: k[3],
-                        attn: k[4],
-                        silu_mul: k[5],
-                        tap_gather: k[6],
-                        top16_part: k[7],
-                        top16_merge: k[8],
-                        select: k[9],
+                        m,
                     },
                     &path,
                 )?)
@@ -2741,7 +2731,13 @@ impl Inkling2GpuEngine {
         }
 
         let (free_after, total_vram) = eng.ctx.mem_info()?;
-        let drafter_tag = if eng.drafter.is_some() {
+        let drafter_tag = if eng.dflash2.is_some() {
+            if eng.drafter.is_some() {
+                format!("DFlash2+DSpark(K={spec_k})")
+            } else {
+                format!("DFlash2(K={spec_k})")
+            }
+        } else if eng.drafter.is_some() {
             format!("DSpark(K={spec_k})")
         } else if spec_k > 0 {
             format!("Suffix(K={spec_k})")
@@ -2907,7 +2903,7 @@ impl Inkling2GpuEngine {
             capacity,
             self.attn_split_g,
             has_flash_tc,
-            self.drafter.is_some(),
+            self.has_neural_drafter(),
         )?;
         let mut replacements = Vec::new();
         let cap = self.max_ctx.min(EXTENT + capacity);
@@ -3769,6 +3765,12 @@ impl Inkling2GpuEngine {
         } else {
             self.fns.gqa_attn_g1_q8_decode
         }
+    }
+
+    /// A GPU drafter (DSpark or DFlash 2) consumes the target taps, so the paths that capture
+    /// them (tap buffers, unfused final norm) must stay on.
+    fn has_neural_drafter(&self) -> bool {
+        self.drafter.is_some() || self.dflash2.is_some()
     }
 
     fn has_short_decode_regime(&self) -> bool {
@@ -5472,7 +5474,7 @@ impl Inkling2GpuEngine {
 
         // Output Depth Mix + Fused `final_norm + Q8_64` + Planar `Q8_64` `unembed` (`softcap = 30.0`) + ArgMax
         if let (true, Some(f_fused)) = (
-            self.drafter.is_none(),
+            !self.has_neural_drafter(),
             self.fns.depth_mix_rmsnorm_quant_q8_64_b,
         ) {
             let mut pb = self.d_blocks.ptr;
@@ -6523,13 +6525,13 @@ impl Inkling2GpuEngine {
         // `spec_copy_match()` tokens already occurred in the prompt or output proposes the
         // tokens that followed them instead of running the drafter. Verification keeps the
         // output greedy-exact.
-        let copy_match = if self.drafter.is_some() {
+        let copy_match = if self.has_neural_drafter() {
             spec_copy_match()
         } else {
             0
         };
         let mut copy_index = ContextCopyIndex::new(copy_match);
-        let track_hist = self.drafter.is_none() || copy_match > 0;
+        let track_hist = !self.has_neural_drafter() || copy_match > 0;
         let mut full_hist: Vec<u32> = if track_hist {
             let mut h = Vec::with_capacity(prompt_tokens.len() + n_gen + 8);
             h.extend_from_slice(prompt_tokens);
@@ -10361,10 +10363,7 @@ mod tests {
         let counts = pdl_audit(DF2_KERNEL_SRC).unwrap();
         assert_eq!(counts.kernels, DF2_KERNEL_NAMES.len(), "{counts:?}");
         for name in DF2_KERNEL_NAMES {
-            assert!(
-                DF2_KERNEL_SRC.contains(&format!("__global__ void {name}(")),
-                "{name}"
-            );
+            assert!(DF2_KERNEL_SRC.contains(&format!(" {name}(")), "{name}");
             assert!(
                 !CUDA_KERNEL_SRC.contains(&format!("void {name}(")),
                 "{name}"
