@@ -490,6 +490,7 @@ struct KernelFns {
     prep_qkv_and_cache_b: CUfunction,
     gqa_rel_sink_attn_b: CUfunction,
     bf16_gemm_router_b: CUfunction,
+    bf16_gemv_router_b: Option<CUfunction>,
     router_topk8_b: CUfunction,
     build_expert_groups_b: CUfunction,
     build_expert_groups_wide_b: Option<CUfunction>,
@@ -2654,6 +2655,7 @@ impl Inkling2GpuEngine {
             prep_qkv_and_cache_b: get_fn("ink2_prep_qkv_and_cache_b")?,
             gqa_rel_sink_attn_b: get_fn("ink2_gqa_rel_sink_attn_b")?,
             bf16_gemm_router_b: get_fn("ink2_bf16_gemm_router_b")?,
+            bf16_gemv_router_b: get_fn("ink2_bf16_gemv_router_b").ok(),
             router_topk8_b: get_fn("ink2_router_topk8_b")?,
             build_expert_groups_b: get_fn("ink2_build_expert_groups_b")?,
             build_expert_groups_wide_b: get_fn("ink2_build_expert_groups_wide_b").ok(),
@@ -7515,13 +7517,18 @@ impl Inkling2GpuEngine {
                 (&mut py as *mut _) as *mut c_void,
                 (&mut bi as *mut _) as *mut c_void,
             ];
-            self.launch(
-                stream,
-                self.fns.bf16_gemm_router_b,
-                (16, b_u32.div_ceil(4)),
-                256,
-                &mut args,
-            )?;
+            match self.fns.bf16_gemv_router_b {
+                Some(f) if std::env::var("LEANSONIC_ROUTER_GEMV").map_or(true, |v| v != "0") => {
+                    self.launch(stream, f, (N_EXP as u32, b_u32.div_ceil(4)), 32, &mut args)?
+                }
+                _ => self.launch(
+                    stream,
+                    self.fns.bf16_gemm_router_b,
+                    (16, b_u32.div_ceil(4)),
+                    256,
+                    &mut args,
+                )?,
+            }
         }
         {
             let mut pl = self.prefill.layer_workspace.router_logits;
