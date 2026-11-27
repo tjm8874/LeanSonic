@@ -1,0 +1,217 @@
+{
+  "unchanged_tensor_payloads": 959,
+  "planes": {
+    "model.llm.layers.0.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 25,
+      "saved_bytes": 10848
+    },
+    "model.llm.layers.0.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 22,
+      "saved_bytes": 5208
+    },
+    "model.llm.layers.1.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 19,
+      "saved_bytes": 5152
+    },
+    "model.llm.layers.1.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 28,
+      "saved_bytes": 5480
+    },
+    "model.llm.layers.10.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 28,
+      "saved_bytes": 15392
+    },
+    "model.llm.layers.10.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 29,
+      "saved_bytes": 4960
+    },
+    "model.llm.layers.11.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 26,
+      "saved_bytes": 10752
+    },
+    "model.llm.layers.11.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 43,
+      "saved_bytes": 6504
+    },
+    "model.llm.layers.12.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 22,
+      "saved_bytes": 9488
+    },
+    "model.llm.layers.12.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 26,
+      "saved_bytes": 4272
+    },
+    "model.llm.layers.13.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 26,
+      "saved_bytes": 13152
+    },
+    "model.llm.layers.13.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 18,
+      "saved_bytes": 4352
+    },
+    "model.llm.layers.14.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 27,
+      "saved_bytes": 14824
+    },
+    "model.llm.layers.14.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 31,
+      "saved_bytes": 7536
+    },
+    "model.llm.layers.15.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 33,
+      "saved_bytes": 11864
+    },
+    "model.llm.layers.15.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 24,
+      "saved_bytes": 4144
+    },
+    "model.llm.layers.16.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 20,
+      "saved_bytes": 6160
+    },
+    "model.llm.layers.16.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 21,
+      "saved_bytes": 3312
+    },
+    "model.llm.layers.17.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 30,
+      "saved_bytes": 10208
+    },
+    "model.llm.layers.17.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 17,
+      "saved_bytes": 2592
+    },
+    "model.llm.layers.18.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 26,
+      "saved_bytes": 10800
+    },
+    "model.llm.layers.18.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 30,
+      "saved_bytes": 5872
+    },
+    "model.llm.layers.19.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 23,
+      "saved_bytes": 8424
+    },
+    "model.llm.layers.19.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 19,
+      "saved_bytes": 3376
+    },
+    "model.llm.layers.2.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 30,
+      "saved_bytes": 10800
+    },
+    "model.llm.layers.2.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 19,
+      "saved_bytes": 2576
+    },
+    "model.llm.layers.3.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 29,
+      "saved_bytes": 8944
+    },
+    "model.llm.layers.3.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 20,
+      "saved_bytes": 3304
+    },
+    "model.llm.layers.4.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 17,
+      "saved_bytes": 4912
+    },
+    "model.llm.layers.4.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 18,
+      "saved_bytes": 2440
+    },
+    "model.llm.layers.5.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 24,
+      "saved_bytes": 8864
+    },
+    "model.llm.layers.5.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 20,
+      "saved_bytes": 3352
+    },
+    "model.llm.layers.6.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 28,
+      "saved_bytes": 13120
+    },
+    "model.llm.layers.6.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 24,
+      "saved_bytes": 5656
+    },
+    "model.llm.layers.7.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 24,
+      "saved_bytes": 12272
+    },
+    "model.llm.layers.7.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 20,
+      "saved_bytes": 4536
+    },
+    "model.llm.layers.8.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 25,
+      "saved_bytes": 12056
+    },
+    "model.llm.layers.8.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 45,
+      "saved_bytes": 6640
+    },
+    "model.llm.layers.9.mlp.experts.w13_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 339738624,
+      "boundaries_changed": 28,
+      "saved_bytes": 13424
+    },
+    "model.llm.layers.9.mlp.experts.w2_weight.nvscale_four_v1": {
+      "bytes_reconstructed": 169869312,
+      "boundaries_changed": 19,
+      "saved_bytes": 3696
+    }
+  },
+  "bytes_saved": 301264,
+  "package_bytes": 13448974014,
+  "files": {
+    "model-00001-of-00001.safetensors": {
+      "bytes": 13445587520,
+      "sha256": "20058b671e1eea2ffb0c54acbb2f9752f4355afb12d14388433733cae3a2f61e"
+    },
+    "tiktoken/tokenizer.model": {
+      "bytes": 3386494,
+      "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+    }
+  }
+}

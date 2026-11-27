@@ -1,4 +1,6 @@
 //! Test whether the existing lossless scales can select smaller NVFP4 streams.
+#[path = "inkling_scale_condition/cost.rs"]
+mod cost;
 use leansonic_core::inkling_mxfp8::{
     pack_scale_split, unpack_mean8_scale_codes, unpack_nvfp4_trim_context, unpack_scale_split,
 };
@@ -59,7 +61,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let direct = args.last().is_some_and(|s| s == "--direct");
     let four_banks = args.last().is_some_and(|s| s == "--four-banks");
     let retune = args.last().is_some_and(|s| s == "--retune-four-banks");
-    if direct || four_banks || retune {
+    let refit = args.last().is_some_and(|s| s == "--refit-four-banks");
+    let from_four = retune || refit;
+    if direct || four_banks || from_four {
         args.pop();
     }
     let destination = if args.len() == 9 { args.pop() } else { None };
@@ -82,11 +86,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let cuts: [u8; 128] = fs::read(cutoff_file)?
         .try_into()
         .map_err(|_| "expected 128 cutoff bytes")?;
-    let raw = if four_banks || retune {
+    let raw = if four_banks || from_four {
         if !source.starts_with(&cuts) {
             return Err("cutoffs differ from source frame".into());
         }
-        if retune {
+        if from_four {
             if !matches!(row_width.parse::<usize>()?, 72 | 144)
                 || scale.len() != 128 * 2304 * row_width.parse::<usize>()?
             {
@@ -104,7 +108,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     } else {
         [2, 2]
     };
-    let frame = if four_banks || retune {
+    let frame = if refit {
+        let boundaries = cost::fit(&raw, &scale, &source)?;
+        let mut bytes = Vec::new();
+        leansonic_core::inkling_mxfp8::pack_four_scale_boundaries(
+            &raw,
+            scale.clone(),
+            &boundaries,
+            &mut bytes,
+        )?;
+        bytes
+    } else if four_banks || from_four {
         let mut bytes = Vec::new();
         leansonic_core::inkling_mxfp8::pack_four_scale_quantiles(
             &raw,
@@ -122,7 +136,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         pack_scale_split(&raw, &scale, &cuts)?
     };
     let start = Instant::now();
-    let roundtrip = if four_banks || retune {
+    let roundtrip = if four_banks || from_four {
         leansonic_core::inkling_mxfp8::unpack_four_scale_banks(&frame, scale)?
     } else if direct {
         leansonic_core::inkling_mxfp8::unpack_scale_direct(&frame, scale)?

@@ -34,8 +34,8 @@ def copy_verified(source, offset, length, destination):
     return h.hexdigest()
 
 
-def repack(src, official, encoder, dest, scale_cutoffs=None, direct=False, four_banks=False, retune_four_banks=False):
-    if (direct or four_banks or retune_four_banks) and scale_cutoffs is None:
+def repack(src, official, encoder, dest, scale_cutoffs=None, direct=False, four_banks=False, retune_four_banks=False, refit_four_banks=False):
+    if (direct or four_banks or retune_four_banks or refit_four_banks) and scale_cutoffs is None:
         raise ValueError("scale-conditioned encoding requires cutoffs")
     if dest.exists():
         raise FileExistsError(dest)
@@ -54,7 +54,7 @@ def repack(src, official, encoder, dest, scale_cutoffs=None, direct=False, four_
         source_suffix, output_suffix = NEW, (".nvscale_direct_v1" if direct else ".nvscale_split_v1")
         if four_banks:
             source_suffix, output_suffix = ".nvscale_direct_v1", ".nvscale_four_v1"
-        if retune_four_banks:
+        if retune_four_banks or refit_four_banks:
             source_suffix = output_suffix = ".nvscale_four_v1"
         cuts = json.loads(scale_cutoffs.read_text())["cutoffs"]
         if set(cuts) != expected or any(
@@ -100,7 +100,9 @@ def repack(src, official, encoder, dest, scale_cutoffs=None, direct=False, four_
                     width = base[name + "_scale"]["shape"][-1]
                     args.extend([str(start + sa), str(sb - sa), str(width),
                                  str(ob - oa), cutfile, frame])
-                if retune_four_banks:
+                if refit_four_banks:
+                    args.append("--refit-four-banks")
+                elif retune_four_banks:
                     args.append("--retune-four-banks")
                 elif four_banks:
                     args.append("--four-banks")
@@ -180,13 +182,14 @@ if __name__ == "__main__":
         parser.add_argument(arg, type=Path)
     parser.add_argument("--scale-cutoffs", type=Path, help="enable scale-conditioned coding for an existing trim package")
     coding = parser.add_mutually_exclusive_group()
+    coding.add_argument("--refit-four-banks", action="store_true", help="fit each expert split to the preceding four-bank entropy tables")
     coding.add_argument("--retune-four-banks", action="store_true", help="select the two splits by sampled compressed byte count in existing four-bank frames")
     coding.add_argument("--four-banks", action="store_true", help="re-encode an existing direct package with four lossless scale bands")
     coding.add_argument("--direct", action="store_true", help="encode weights in decoded order using per-block scales")
     a = parser.parse_args()
     print(
         json.dumps(
-            repack(a.source, a.official_shard, a.encoder.resolve(), a.destination, a.scale_cutoffs, a.direct, a.four_banks, a.retune_four_banks),
+            repack(a.source, a.official_shard, a.encoder.resolve(), a.destination, a.scale_cutoffs, a.direct, a.four_banks, a.retune_four_banks, a.refit_four_banks),
             indent=2,
         )
     )
