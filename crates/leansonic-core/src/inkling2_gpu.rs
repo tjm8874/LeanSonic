@@ -3194,7 +3194,7 @@ impl Inkling2GpuEngine {
             q8_tc_qkv3_gemm_b,
             quant_nvfp4_2term_b: get_fn("ink2_quant_nvfp4_2term_b").ok(),
             gather_nvfp4_sorted_b: get_fn("ink2_gather_nvfp4_sorted_b").ok(),
-            expand_ternary_nibbles: get_fn("ink2_expand_ternary_nibbles").ok(),
+            expand_ternary_nibbles: get_fn("ink2_expand_ternary_pair_selectors").ok(),
             expand_mxfp8_indices: get_fn("ink2_expand_mxfp8_indices").ok(),
             quant_mxfp8_b: get_fn("ink2_quant_mxfp8_b").ok(),
             flash_attn_tc_q8_b,
