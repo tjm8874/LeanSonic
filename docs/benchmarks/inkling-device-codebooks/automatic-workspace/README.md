@@ -15,8 +15,13 @@ Lengths 32 and 1,024 alternate on one engine for four passes. Each trace include
 
 | GPU | Phase | Control ms | Candidate ms | Paired change ms (95% interval) |
 |---|---|---:|---:|---:|
+| 5060Ti | prefill_ms | 403.807 | 274.270 | -129.537 [-131.021, -128.338] |
+| 5060Ti | decode32_ms | 366.333 | 366.390 | +0.057 [-0.028, +0.125] |
 | 5070Ti | prefill_ms | 540.632 | 130.733 | -409.899 [-411.278, -409.102] |
 | 5070Ti | decode32_ms | 205.202 | 205.247 | +0.045 [+0.007, +0.085] |
+
+Peak sampled process VRAM on 5060Ti was 16,596,860,928 B for control and 16,338,911,232 B for candidate.
+
 
 Peak sampled process VRAM on 5070Ti was 16,596,860,928 B for control and 16,437,477,376 B for candidate.
 
