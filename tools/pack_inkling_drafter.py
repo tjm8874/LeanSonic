@@ -76,7 +76,7 @@ def copy_bytes(src, out, count):
         count -= len(data)
 
 
-def pack(source, destination, packer):
+def pack(source, destination, packer, compact=False):
     if destination.exists():
         raise FileExistsError(destination)
     with source.open("rb") as src, tempfile.TemporaryDirectory(dir=destination.parent) as temp:
@@ -97,12 +97,28 @@ def pack(source, destination, packer):
             fp.seek(0)
             path = work / prefix
             total = rows * cols
+            code = ("codes", "I8", [rows, cols], total)
+            scale = ("scales", "F32", [rows, cols // 64], total // 16)
+            params = [str(rows), str(cols)]
+            if compact:
+                result = subprocess.run([packer, "matrix-size", "rans", "dict", *params],
+                                        stdin=fp, capture_output=True, text=True, check=True)
+                code_size, scale_size = map(int, result.stdout.split())
+                if min(code_size, scale_size) <= 0 or code_size % 8 or scale_size % 8:
+                    raise ValueError(f"invalid compact plane sizes for {prefix}")
+                if code_size < code[3]:
+                    code = ("codes.rans_v1", "U8", [code_size], code_size)
+                if scale_size < scale[3]:
+                    scale = ("scales.dict_v1", "U8", [scale_size], scale_size)
+                params = ["matrix-pack", "rans" if code[1] == "U8" else "raw",
+                          "dict" if scale[1] == "U8" else "raw", *params]
+                fp.seek(0)
             with path.open("xb") as out:
-                subprocess.run([packer, str(rows), str(cols)], stdin=fp, stdout=out, check=True)
-            if path.stat().st_size != total + total // 16:
+                subprocess.run([packer, *params], stdin=fp, stdout=out, check=True)
+            if path.stat().st_size != code[3] + scale[3]:
                 raise ValueError(f"unexpected packed shape for {prefix}")
-            segments[prefix + ".q8_64.codes"] = ("I8", [rows, cols], path, 0, total)
-            segments[prefix + ".q8_64.scales"] = ("F32", [rows, cols // 64], path, total, total // 16)
+            for (suffix, dtype, shape, size), offset in ((code, 0), (scale, code[3])):
+                segments[f"{prefix}.q8_64.{suffix}"] = (dtype, shape, path, offset, size)
 
         for prefix, parts, cols in projections():
             with tempfile.TemporaryFile(dir=work) as fp:
@@ -151,5 +167,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--compact", action="store_true", help="losslessly entropy-code each Q8 plane when smaller")
     args = parser.parse_args()
-    print(pack(args.source, args.output, build_packer()))
+    print(pack(args.source, args.output, build_packer(), compact=args.compact))
