@@ -1,0 +1,470 @@
+{
+  "model.llm.layers.0.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 229905312,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 233854632,
+      "2+2": 230294160,
+      "3+1-low": 230331024,
+      "3+1-high": 229905312,
+      "1+3-low": 230970472,
+      "1+3-high": 230906896
+    }
+  },
+  "model.llm.layers.0.mlp.experts.w2_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 115129032,
+    "decoded_bytes": 169869312,
+    "trials": {
+      "original": 117085656,
+      "2+2": 115314320,
+      "3+1-low": 115330096,
+      "3+1-high": 115129032,
+      "1+3-low": 115644616,
+      "1+3-high": 115612056
+    }
+  },
+  "model.llm.layers.1.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 225773200,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 228318552,
+      "2+2": 226372544,
+      "3+1-low": 226295368,
+      "3+1-high": 225773200,
+      "1+3-low": 226993472,
+      "1+3-high": 226973296
+    }
+  },
+  "model.llm.layers.1.mlp.experts.w2_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 113028096,
+    "decoded_bytes": 169869312,
+    "trials": {
+      "original": 114280088,
+      "2+2": 113335544,
+      "3+1-low": 113294848,
+      "3+1-high": 113028096,
+      "1+3-low": 113643008,
+      "1+3-high": 113632248
+    }
+  },
+  "model.llm.layers.10.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 262505304,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 270814888,
+      "2+2": 263566720,
+      "3+1-low": 263588896,
+      "3+1-high": 262505304,
+      "1+3-low": 263708496,
+      "1+3-high": 263456184
+    }
+  },
+  "model.llm.layers.10.mlp.experts.w2_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 131274520,
+    "decoded_bytes": 169869312,
+    "trials": {
+      "original": 135437480,
+      "2+2": 131829208,
+      "3+1-low": 131840344,
+      "3+1-high": 131274520,
+      "1+3-low": 131900336,
+      "1+3-high": 131768248
+    }
+  },
+  "model.llm.layers.11.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 263817008,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 272503160,
+      "2+2": 264852840,
+      "3+1-low": 264890176,
+      "3+1-high": 263817008,
+      "1+3-low": 264978936,
+      "1+3-high": 264706080
+    }
+  },
+  "model.llm.layers.11.mlp.experts.w2_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 131339920,
+    "decoded_bytes": 169869312,
+    "trials": {
+      "original": 135612680,
+      "2+2": 131902824,
+      "3+1-low": 131920864,
+      "3+1-high": 131339920,
+      "1+3-low": 131967168,
+      "1+3-high": 131824928
+    }
+  },
+  "model.llm.layers.12.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 265919320,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 275122072,
+      "2+2": 266899912,
+      "3+1-low": 266946936,
+      "3+1-high": 265919320,
+      "1+3-low": 267033264,
+      "1+3-high": 266731496
+    }
+  },
+  "model.llm.layers.12.mlp.experts.w2_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 145946480,
+    "decoded_bytes": 169869312,
+    "trials": {
+      "original": 150373928,
+      "2+2": 146235752,
+      "3+1-low": 146235872,
+      "3+1-high": 145946480,
+      "1+3-low": 146562336,
+      "1+3-high": 146416784
+    }
+  },
+  "model.llm.layers.13.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 262730768,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 271006600,
+      "2+2": 263770904,
+      "3+1-low": 263803448,
+      "3+1-high": 262730768,
+      "1+3-low": 263915824,
+      "1+3-high": 263666320
+    }
+  },
+  "model.llm.layers.13.mlp.experts.w2_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 131551056,
+    "decoded_bytes": 169869312,
+    "trials": {
+      "original": 135801120,
+      "2+2": 132096680,
+      "3+1-low": 132115592,
+      "3+1-high": 131551056,
+      "1+3-low": 132170760,
+      "1+3-high": 132033976
+    }
+  },
+  "model.llm.layers.14.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 263339496,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 271824624,
+      "2+2": 264390256,
+      "3+1-low": 264418616,
+      "3+1-high": 263339496,
+      "1+3-low": 264523760,
+      "1+3-high": 264257328
+    }
+  },
+  "model.llm.layers.14.mlp.experts.w2_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 145664296,
+    "decoded_bytes": 169869312,
+    "trials": {
+      "original": 149999896,
+      "2+2": 145958808,
+      "3+1-low": 145950344,
+      "3+1-high": 145664296,
+      "1+3-low": 146311032,
+      "1+3-high": 146165192
+    }
+  },
+  "model.llm.layers.15.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 264587888,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 273415400,
+      "2+2": 265595088,
+      "3+1-low": 265641072,
+      "3+1-high": 264587888,
+      "1+3-low": 265747664,
+      "1+3-high": 265460000
+    }
+  },
+  "model.llm.layers.15.mlp.experts.w2_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 146070136,
+    "decoded_bytes": 169869312,
+    "trials": {
+      "original": 150578448,
+      "2+2": 146344184,
+      "3+1-low": 146341520,
+      "3+1-high": 146070136,
+      "1+3-low": 146711656,
+      "1+3-high": 146543544
+    }
+  },
+  "model.llm.layers.16.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 263704616,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 272382096,
+      "2+2": 264757528,
+      "3+1-low": 264793888,
+      "3+1-high": 263704616,
+      "1+3-low": 264907720,
+      "1+3-high": 264621480
+    }
+  },
+  "model.llm.layers.17.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 288511752,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 295586000,
+      "2+2": 289128568,
+      "3+1-low": 289090064,
+      "3+1-high": 288511752,
+      "1+3-low": 289866264,
+      "1+3-high": 289681968
+    }
+  },
+  "model.llm.layers.18.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 227928336,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 231012088,
+      "2+2": 228429080,
+      "3+1-low": 228364904,
+      "3+1-high": 227928336,
+      "1+3-low": 229085792,
+      "1+3-high": 229046584
+    }
+  },
+  "model.llm.layers.18.mlp.experts.w2_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 113955312,
+    "decoded_bytes": 169869312,
+    "trials": {
+      "original": 115471928,
+      "2+2": 114203392,
+      "3+1-low": 114173160,
+      "3+1-high": 113955312,
+      "1+3-low": 114553664,
+      "1+3-high": 114533016
+    }
+  },
+  "model.llm.layers.19.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 227992976,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 231089232,
+      "2+2": 228494256,
+      "3+1-low": 228430336,
+      "3+1-high": 227992976,
+      "1+3-low": 229165992,
+      "1+3-high": 229126088
+    }
+  },
+  "model.llm.layers.19.mlp.experts.w2_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 114354776,
+    "decoded_bytes": 169869312,
+    "trials": {
+      "original": 116026648,
+      "2+2": 114590928,
+      "3+1-low": 114579216,
+      "3+1-high": 114354776,
+      "1+3-low": 114953456,
+      "1+3-high": 114929488
+    }
+  },
+  "model.llm.layers.2.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 227236432,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 230440832,
+      "2+2": 227773000,
+      "3+1-low": 227766648,
+      "3+1-high": 227236432,
+      "1+3-low": 228446120,
+      "1+3-high": 228410192
+    }
+  },
+  "model.llm.layers.2.mlp.experts.w2_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 113835888,
+    "decoded_bytes": 169869312,
+    "trials": {
+      "original": 115443032,
+      "2+2": 114119296,
+      "3+1-low": 114109552,
+      "3+1-high": 113835888,
+      "1+3-low": 114453760,
+      "1+3-high": 114433768
+    }
+  },
+  "model.llm.layers.4.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 225703096,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 228309424,
+      "2+2": 226312528,
+      "3+1-low": 226266504,
+      "3+1-high": 225703096,
+      "1+3-low": 226948408,
+      "1+3-high": 226929240
+    }
+  },
+  "model.llm.layers.4.mlp.experts.w2_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 113043264,
+    "decoded_bytes": 169869312,
+    "trials": {
+      "original": 114326784,
+      "2+2": 113343008,
+      "3+1-low": 113322424,
+      "3+1-high": 113043264,
+      "1+3-low": 113663360,
+      "1+3-high": 113653864
+    }
+  },
+  "model.llm.layers.5.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 225783280,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 228326568,
+      "2+2": 226374376,
+      "3+1-low": 226307432,
+      "3+1-high": 225783280,
+      "1+3-low": 226987952,
+      "1+3-high": 226968816
+    }
+  },
+  "model.llm.layers.5.mlp.experts.w2_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 113002160,
+    "decoded_bytes": 169869312,
+    "trials": {
+      "original": 114265168,
+      "2+2": 113296776,
+      "3+1-low": 113266648,
+      "3+1-high": 113002160,
+      "1+3-low": 113608480,
+      "1+3-high": 113598256
+    }
+  },
+  "model.llm.layers.6.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 264507936,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 273402288,
+      "2+2": 265522088,
+      "3+1-low": 265552544,
+      "3+1-high": 264507936,
+      "1+3-low": 265655336,
+      "1+3-high": 265381920
+    }
+  },
+  "model.llm.layers.6.mlp.experts.w2_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 132364280,
+    "decoded_bytes": 169869312,
+    "trials": {
+      "original": 136812144,
+      "2+2": 132871264,
+      "3+1-low": 132888752,
+      "3+1-high": 132364280,
+      "1+3-low": 132937512,
+      "1+3-high": 132791256
+    }
+  },
+  "model.llm.layers.7.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 260578824,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 268262488,
+      "2+2": 261674864,
+      "3+1-low": 261696168,
+      "3+1-high": 260578824,
+      "1+3-low": 261795168,
+      "1+3-high": 261583104
+    }
+  },
+  "model.llm.layers.7.mlp.experts.w2_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 130455872,
+    "decoded_bytes": 169869312,
+    "trials": {
+      "original": 134295984,
+      "2+2": 131015168,
+      "3+1-low": 131025352,
+      "3+1-high": 130455872,
+      "1+3-low": 131075064,
+      "1+3-high": 130966960
+    }
+  },
+  "model.llm.layers.8.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 261803232,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 269913384,
+      "2+2": 262867064,
+      "3+1-low": 262886888,
+      "3+1-high": 261803232,
+      "1+3-low": 262994376,
+      "1+3-high": 262757000
+    }
+  },
+  "model.llm.layers.8.mlp.experts.w2_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 145276736,
+    "decoded_bytes": 169869312,
+    "trials": {
+      "original": 149384176,
+      "2+2": 145595448,
+      "3+1-low": 145582040,
+      "3+1-high": 145276736,
+      "1+3-low": 145932240,
+      "1+3-high": 145817312
+    }
+  },
+  "model.llm.layers.9.mlp.experts.w13_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 263763208,
+    "decoded_bytes": 339738624,
+    "trials": {
+      "original": 272457696,
+      "2+2": 264791336,
+      "3+1-low": 264822416,
+      "3+1-high": 263763208,
+      "1+3-low": 264919552,
+      "1+3-high": 264651944
+    }
+  },
+  "model.llm.layers.9.mlp.experts.w2_weight.nvscale_four_v1": {
+    "choice": "3+1-high",
+    "bytes": 145651184,
+    "decoded_bytes": 169869312,
+    "trials": {
+      "original": 149920072,
+      "2+2": 145947152,
+      "3+1-low": 145937480,
+      "3+1-high": 145651184,
+      "1+3-low": 146285344,
+      "1+3-high": 146157320
+    }
+  }
+}

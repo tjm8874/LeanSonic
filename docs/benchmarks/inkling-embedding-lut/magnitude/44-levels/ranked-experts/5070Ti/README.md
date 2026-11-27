@@ -12,3 +12,14 @@ The 11,662,590,054-byte package reproduces every aggregate BF16 statistic from R
 | valid | llama.cpp IQ3_XXS | 0.0256590 | 3.7240360 | 23,786 | 6.616409 |
 
 Against native the 571-expert model improves all four metrics on both splits. Compared with the bounded 217-expert package, it costs 55,684 more bytes, improves mean KL, top-1 agreement and PPL on both splits, and improves test worst KL, while validation worst KL increases. [Package assembly](../README.md) · [Raw scores and hashes](scores.json) · [Same-GPU native scorer, inputs and commands](https://github.com/tjm8874/LeanSonic/tree/3f05d37/docs/benchmarks/inkling-embedding-lut/refit/native-corpus).
+
+## Matched timing and peaks
+
+Same 1,024 input tokens and 32 forced decode steps, context 8,192, one sequence, FP16 KV, no speculation. Five mirrored ABBA/BAAB cycles, ten processes per engine, one excluded warmup and four timed requests per process. All LeanSonic expert layers and all 25 native layers remained resident.
+
+| Engine | Prefill tok/s | Decode tok/s | Peak process GPU bytes |
+|---|---:|---:|---:|
+| 571 experts | 8,424.59 | 170.96 | 16,083,058,688 |
+| llama.cpp IQ3_XXS | 1,934.82 | 80.03 | 15,049,162,752 |
+
+Use the [same fixed-token runner and native engine](https://github.com/tjm8874/LeanSonic/blob/f6dbff3/docs/benchmarks/inkling-embedding-lut/refit/native-corpus/timing.md) with the 571-expert weights and release loader 726b6f2. The timing archive includes every request, both input digests, sampled peaks and paired cycle intervals. [Raw timing](timing.json.gz).

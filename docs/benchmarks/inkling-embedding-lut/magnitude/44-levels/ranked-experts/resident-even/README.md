@@ -14,3 +14,22 @@ cmp "$work/report.json" "$FIXTURE/report.json"
 ```
 
 The [per-tensor receipt](report.json) records the raw and encoded byte counts and the number of eligible slices.
+
+## CUDA reader
+
+The layer-0 gate/up projection has 121 compact experts out of 128. Its weight buffer shrinks from 339,738,624 to 259,449,344 bytes. The harness runs the fused gate/up plus Q8 activation kernel for 16 selections of eight experts, covering each expert once. It compares every Q8 value and FP32 scale byte-for-byte and checks 512 gate/up dot products using a separate double-precision calculation. Each timing is the median of 18 CUDA-event observations per representation across nine mirrored four-leg cycles. Each observation covers the same 16 kernel launches.
+
+| GPU | Raw ms | Mixed ms | Raw / mixed |
+| --- | ---: | ---: | ---: |
+| RTX 5060 Ti | 0.922160 | 0.786192 | 1.173× |
+
+To reproduce, first run the packer as above. In the directory containing its four binary fixtures, build and run the harness using the same engine checkout and an sm_120a GPU.
+
+```sh
+python3 "$FIXTURE/generate.py" "$ENGINE/kernels/inkling2_sm120.cu"
+nvcc -I"$ENGINE/kernels" -arch=sm_120a -O3 -std=c++17 --cubin candidate.cu -o candidate.cubin
+nvcc -std=c++17 -O3 -arch=sm_120a "$FIXTURE/up.cu" -lcuda -o up
+./up
+```
+
+The log for each tested GPU includes all 36 timings plus the executable, module and input digests.
