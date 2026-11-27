@@ -76,3 +76,7 @@ For each recurrence we aligned the same 25,500 positions and resampled 100 whole
 | Chunks with lower mean KL out of 100 | 53 | 53 |
 
 Removing the strongest improvement still leaves a lower empirical mean KL in both splits. The whole-chunk intervals nevertheless include zero for both mean KL differences, and for both top-1 and relative PPL changes. The full-corpus worst-case and operator improvements stand on their directly observed results. [Per-chunk deltas, intervals and hashes](single-round/paired-blocks.json) · [Reproduction with two DIAG_ROWS files](single-round/paired.py).
+
+### Runtime of the single-round head on RTX 5060 Ti
+
+With the 571-slice model and the integrated 85523a7 operators, the current and single-round paths reached **3,955.90 / 3,956.03 prefill tok/s** and **95.460 / 95.457 decode tok/s**. Maximum sampled process GPU allocation was **14,686,355,456 bytes** in both arms. The 95% paired ratio intervals span one for both phases, 0.99954–1.00066 prefill and 0.99988–1.00004 decode. There were five mirrored cycles, ten fresh processes per arm, four warm repetitions per process, 1,024 identical input IDs and 32 forced decode steps, one sequence and FP16 KV. This measures the single-round operator, separately from the earlier ea3a7cf timing. [Hashes, GPU, predicted IDs and all warm/cold timings](single-round/timing-5060.json).
