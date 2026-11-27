@@ -1,0 +1,20 @@
+--- a/tools/perplexity/perplexity.cpp
++++ b/tools/perplexity/perplexity.cpp
+@@ -610,4 +610,17 @@
+             llama_token * tokens_data = tokens.data() + start + seq*n_ctx + first;
++            if (const char * path = std::getenv("LEANSONIC_BF16_ROWS")) {
++                const char * ids_path = std::getenv("LEANSONIC_BF16_IDS");
++                if (!ids_path) {
++                    throw std::runtime_error("LEANSONIC_BF16_IDS is required with LEANSONIC_BF16_ROWS");
++                }
++                static std::ofstream rows(path, std::ios::binary), ids(ids_path, std::ios::binary);
++                rows.write(reinterpret_cast<const char *>(all_logits),
++                           std::streamsize(n_ctx - 1 - first) * n_vocab * sizeof(float));
++                ids.write(reinterpret_cast<const char *>(tokens_data - first), n_ctx * sizeof(llama_token));
++                if (!rows || !ids) {
++                    throw std::runtime_error("could not write BF16 rows or chunk IDs");
++                }
++            }
+             if (!params.logits_file.empty()) {
+                 process_logits(logits_stream, n_vocab, all_logits,
+                         tokens_data, n_ctx - 1 - first,

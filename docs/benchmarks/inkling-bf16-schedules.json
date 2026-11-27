@@ -1,0 +1,63 @@
+{
+  "model": "Inkling-2-Mini",
+  "gpu": "RTX PRO 5000 72 GB Blackwell",
+  "llama_commit": "29b52d398b294509746ec0a3f28948a3107c0213",
+  "gguf_sha256": "d4b5181aeb49acf2b08acaa2ad5e0f9f9710e8030d589b3c6e9f43150cf10804",
+  "scorer": "LeanSonic eval-kld --logits-f32 - (CLI SHA a2c90f2756878242b76391b955c69a132d1b95b1b6231a41614300d4ddbcf9e9)",
+  "oracle_test_sha256": "895fac2136c06dce1854568c83eb76a0225a05fab3c37897a12fec1d56949b97",
+  "oracle_valid_sha256": "b3d804824373950c9b6d7cd37e5607d132d2f3caca6f80ffd26739b2776a2ca0",
+  "method": "Same llama-perplexity and GGUF across runs. All original 512 input IDs in each chunk verified byte-for-byte, 255 raw FP32 vocabulary rows streamed per chunk to the project scorer. Reference schedule 8192 logical / 8192 physical, shortened control uses first 16 chunks. ub64 uses 8192/64. single uses 512/512 (one sequence). All 100-chunk comparisons use their own split-specific oracle.",
+  "results": {
+    "control": {
+      "chunks": 16,
+      "context": 512,
+      "rows": 4080,
+      "ppl": 8.185805454199754,
+      "ref_ppl": 8.178078471980376,
+      "mean_kld": 1.4069544520367297e-07,
+      "median_kld": 4.2891823800366227e-10,
+      "p99_kld": 3.932987136077545e-05,
+      "max_kld": 5.617714144970381e-05,
+      "start_chunk": 0,
+      "max_kld_chunk": 7,
+      "max_kld_position": 260,
+      "ref_floor_targets": 3,
+      "top1_matches": 4080,
+      "top1_agreement": 1
+    },
+    "ub64-test": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.0730062144208885,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.0019194307485348265,
+      "median_kld": 0.0006945052825586453,
+      "p99_kld": 0.019268320463326858,
+      "max_kld": 0.2816403871384837,
+      "start_chunk": 0,
+      "max_kld_chunk": 28,
+      "max_kld_position": 275,
+      "ref_floor_targets": 14,
+      "top1_matches": 25037,
+      "top1_agreement": 0.9818431372549019
+    },
+    "ub64-valid": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 6.501775387352502,
+      "ref_ppl": 6.498588819010602,
+      "mean_kld": 0.00169229841027493,
+      "median_kld": 0.0005429480292529149,
+      "p99_kld": 0.017906285521638192,
+      "max_kld": 0.35712851975658866,
+      "start_chunk": 0,
+      "max_kld_chunk": 58,
+      "max_kld_position": 274,
+      "ref_floor_targets": 10,
+      "top1_matches": 25100,
+      "top1_agreement": 0.984313725490196
+    }
+  }
+}
