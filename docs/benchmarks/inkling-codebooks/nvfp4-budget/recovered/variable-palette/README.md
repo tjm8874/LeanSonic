@@ -29,3 +29,5 @@ cmp audit.json "$RECIPE/audit.json"
 ```
 
 Compare both BF16 splits against the original 13.48 GB control, fixed seven-level model and public IQ3_XXS. [Predeclared decision criteria](https://github.com/tjm8874/LeanSonic/issues/35#issuecomment-7221051793).
+
+[Fixed-input speed and peak VRAM versus public IQ3_XXS](fixed-iq3.md).
