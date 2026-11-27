@@ -2,6 +2,7 @@
 #include "ggml-backend.h"
 #include "llama.h"
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -26,7 +27,13 @@ std::vector<llama_token> read_ids(const fs::path &path) {
 
 void run(int argc, char **argv) {
     if (argc < 4) throw std::runtime_error("expected MODEL.gguf FIXTURE_DIR CASE ...");
-    ggml_backend_load_all();
+    if (const char *directory = std::getenv("LEANSONIC_LLAMA_BACKEND_DIR")) {
+        ggml_backend_load_all_from_path(directory);
+    } else {
+        ggml_backend_load_all();
+    }
+    if (!ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_GPU))
+        throw std::runtime_error("missing GPU backend");
     llama_backend_init();
     auto mp = llama_model_default_params();
     mp.n_gpu_layers = 99;
