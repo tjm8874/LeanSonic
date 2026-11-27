@@ -1,6 +1,7 @@
 // Compare the original FP16 attention+Q8 kernel with the decode and speculative verification specialization.
 // c++ -O2 -I/usr/local/cuda/include kernels/tests/inkling_decode_attention.cpp -lcuda -o parity
-// ./parity reference.cubin candidate.cubin
+// ./parity reference.cubin candidate.cubin [int8]
+// `int8` compares the INT8-KV instantiations (`*_i8`, `LEANSONIC_KV=int8`) on random INT8 KV + scales.
 #include <cuda.h>
 
 #include <algorithm>
@@ -41,7 +42,8 @@ static CUdeviceptr cache(std::mt19937& rng, size_t count) {
 }
 
 int main(int argc, char** argv) {
-    if (argc != 3) return 2;
+    if (argc != 3 && argc != 4) return 2;
+    const bool int8 = argc == 4 && std::strcmp(argv[3], "int8") == 0;
     check(cuInit(0));
     CUdevice gpu;
     CUcontext ctx;
@@ -52,8 +54,10 @@ int main(int argc, char** argv) {
     CUfunction kernels[2];
     check(cuModuleLoad(&modules[0], argv[1]));
     check(cuModuleLoad(&modules[1], argv[2]));
-    check(cuModuleGetFunction(&kernels[0], modules[0], "ink2_gqa_rel_sink_attn_q8_b"));
-    check(cuModuleGetFunction(&kernels[1], modules[1], "ink2_gqa_rel_sink_attn_q8_decode"));
+    check(cuModuleGetFunction(&kernels[0], modules[0],
+                              int8 ? "ink2_gqa_rel_sink_attn_q8_b_i8" : "ink2_gqa_rel_sink_attn_q8_b"));
+    check(cuModuleGetFunction(&kernels[1], modules[1],
+                              int8 ? "ink2_gqa_rel_sink_attn_q8_decode_i8" : "ink2_gqa_rel_sink_attn_q8_decode"));
 
     constexpr int max_ctx = 131072;
     std::mt19937 rng(41);
@@ -69,7 +73,16 @@ int main(int argc, char** argv) {
         x = static_cast<uint16_t>(bits >> 16);
     }
     auto q = upload(qrgs), r = upload(rel);
+    // FP16: `count` halves; INT8: the same buffers hold `count` bytes of int8 codes (half used).
     auto k = cache(rng, size_t(max_ctx) * 1024), v = cache(rng, size_t(max_ctx) * 1024);
+    CUdeviceptr k_scale = 0, v_scale = 0; // nullptr for the FP16 kernels
+    if (int8) {
+        std::vector<float> ks(size_t(max_ctx) * 8), vs(size_t(max_ctx) * 8);
+        for (float& x : ks) x = (1 + rng() % 4096) / 65536.0f;
+        for (float& x : vs) x = (1 + rng() % 4096) / 65536.0f;
+        k_scale = upload(ks);
+        v_scale = upload(vs);
+    }
     auto pos = upload(std::vector<int>{0});
     constexpr size_t code_bytes = 24 * 128, scale_bytes = 48 * sizeof(float);
     std::array<CUdeviceptr, 2> codes{}, scales{};
@@ -92,7 +105,7 @@ int main(int argc, char** argv) {
                     output[i].resize(nc + ns);
                     check(cuMemsetD8(codes[i], i ? 0xaa : 0x55, nc));
                     check(cuMemsetD8(scales[i], i ? 0xaa : 0x55, ns));
-                    void* args[]{&q, &qstride, &r, &k, &v, &pos, &cap, &global, &codes[i], &scales[i]};
+                    void* args[]{&q, &qstride, &r, &k, &v, &k_scale, &v_scale, &pos, &cap, &global, &codes[i], &scales[i]};
                     check(cuLaunchKernel(kernels[i], 24, batch, 1, 256, 1, 1, 0, nullptr, args, nullptr));
                     check(cuMemcpyDtoH(output[i].data(), codes[i], nc));
                     check(cuMemcpyDtoH(output[i].data() + nc, scales[i], ns));
@@ -106,6 +119,10 @@ int main(int argc, char** argv) {
         }
     }
     for (auto p : {q, r, k, v, pos, codes[0], codes[1], scales[0], scales[1]}) check(cuMemFree(p));
+    if (int8) {
+        check(cuMemFree(k_scale));
+        check(cuMemFree(v_scale));
+    }
     for (auto m : modules) check(cuModuleUnload(m));
     check(cuDevicePrimaryCtxRelease(gpu));
     std::printf("%d cases matched (all Q8 codes and FP32 scales)\n", cases);
