@@ -289,5 +289,6 @@
     "raw_sha256": "e48ec0c89e591a7d8985a4529e5e297975ef132995a16c43660b69b3759d9b05",
     "dictionary_sha256": "a4ba3e60d1838325a4d5109687d0a7ddb3e3722a726424ce68057beee8e9441a",
     "dictionary_shard_bytes": 16035182576
-  }
+  },
+  "validation_oracle_sha256": "b3d804824373950c9b6d7cd37e5607d132d2f3caca6f80ffd26739b2776a2ca0"
 }

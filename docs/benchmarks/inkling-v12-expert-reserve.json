@@ -1,0 +1,517 @@
+{
+  "base": "7a02b538048d819fa76d2efb084b734d4c3bf2cb",
+  "gpu": "RTX 5060 Ti",
+  "scan": [
+    {
+      "file": "scan-0-1024.json",
+      "reserve": 0,
+      "n": 1024,
+      "prefill_ms": 388.84,
+      "decode16_ms": 392.5,
+      "peak": 16554917888,
+      "identical": true,
+      "placement": "20/24 (Spilled: 4) | Mixed VRAM/host layers: 4"
+    },
+    {
+      "file": "scan-0-32.json",
+      "reserve": 0,
+      "n": 32,
+      "prefill_ms": 246.29,
+      "decode16_ms": 335.67,
+      "peak": 16559112192,
+      "identical": true,
+      "placement": "21/24 (Spilled: 3) | Mixed VRAM/host layers: 3"
+    },
+    {
+      "file": "scan-1024-1024.json",
+      "reserve": 1024,
+      "n": 1024,
+      "prefill_ms": 534.2,
+      "decode16_ms": 543.37,
+      "peak": 15642656768,
+      "identical": true,
+      "placement": "17/24 (Spilled: 7) | Mixed VRAM/host layers: 7"
+    },
+    {
+      "file": "scan-1024-32.json",
+      "reserve": 1024,
+      "n": 32,
+      "prefill_ms": 496.37,
+      "decode16_ms": 486.73,
+      "peak": 15745417216,
+      "identical": true,
+      "placement": "18/24 (Spilled: 6) | Mixed VRAM/host layers: 6"
+    },
+    {
+      "file": "scan-1536-1024.json",
+      "reserve": 1536,
+      "n": 1024,
+      "prefill_ms": 584.42,
+      "decode16_ms": 593.97,
+      "peak": 15302918144,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "scan-1536-32.json",
+      "reserve": 1536,
+      "n": 32,
+      "prefill_ms": 648.22,
+      "decode16_ms": 587.41,
+      "peak": 15065939968,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "scan-512-1024.json",
+      "reserve": 512,
+      "n": 1024,
+      "prefill_ms": 434.02,
+      "decode16_ms": 442.89,
+      "peak": 16322134016,
+      "identical": true,
+      "placement": "19/24 (Spilled: 5) | Mixed VRAM/host layers: 5"
+    },
+    {
+      "file": "scan-512-32.json",
+      "reserve": 512,
+      "n": 32,
+      "prefill_ms": 416.03,
+      "decode16_ms": 436.36,
+      "peak": 16085155840,
+      "identical": true,
+      "placement": "19/24 (Spilled: 5) | Mixed VRAM/host layers: 5"
+    }
+  ],
+  "runs": [
+    {
+      "file": "pair-1-0-0-1024.json",
+      "reserve": 0,
+      "n": 1024,
+      "prefill_ms": 388.78,
+      "decode16_ms": 392.57,
+      "peak": 16554917888,
+      "identical": true,
+      "placement": "20/24 (Spilled: 4) | Mixed VRAM/host layers: 4"
+    },
+    {
+      "file": "pair-1-0-0-32.json",
+      "reserve": 0,
+      "n": 32,
+      "prefill_ms": 246.32,
+      "decode16_ms": 335.65,
+      "peak": 16559112192,
+      "identical": true,
+      "placement": "21/24 (Spilled: 3) | Mixed VRAM/host layers: 3"
+    },
+    {
+      "file": "pair-1-1-1536-1024.json",
+      "reserve": 1536,
+      "n": 1024,
+      "prefill_ms": 584.32,
+      "decode16_ms": 593.83,
+      "peak": 15302918144,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-1-1-1536-32.json",
+      "reserve": 1536,
+      "n": 32,
+      "prefill_ms": 648.88,
+      "decode16_ms": 587.35,
+      "peak": 15065939968,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-1-2-1536-1024.json",
+      "reserve": 1536,
+      "n": 1024,
+      "prefill_ms": 584.29,
+      "decode16_ms": 593.87,
+      "peak": 15302918144,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-1-2-1536-32.json",
+      "reserve": 1536,
+      "n": 32,
+      "prefill_ms": 648.09,
+      "decode16_ms": 587.19,
+      "peak": 15065939968,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-1-3-0-1024.json",
+      "reserve": 0,
+      "n": 1024,
+      "prefill_ms": 388.7,
+      "decode16_ms": 392.6,
+      "peak": 16554917888,
+      "identical": true,
+      "placement": "20/24 (Spilled: 4) | Mixed VRAM/host layers: 4"
+    },
+    {
+      "file": "pair-1-3-0-32.json",
+      "reserve": 0,
+      "n": 32,
+      "prefill_ms": 246.32,
+      "decode16_ms": 335.62,
+      "peak": 16559112192,
+      "identical": true,
+      "placement": "21/24 (Spilled: 3) | Mixed VRAM/host layers: 3"
+    },
+    {
+      "file": "pair-2-0-0-1024.json",
+      "reserve": 0,
+      "n": 1024,
+      "prefill_ms": 388.73,
+      "decode16_ms": 392.55,
+      "peak": 16554917888,
+      "identical": true,
+      "placement": "20/24 (Spilled: 4) | Mixed VRAM/host layers: 4"
+    },
+    {
+      "file": "pair-2-0-0-32.json",
+      "reserve": 0,
+      "n": 32,
+      "prefill_ms": 246.46,
+      "decode16_ms": 335.67,
+      "peak": 16559112192,
+      "identical": true,
+      "placement": "21/24 (Spilled: 3) | Mixed VRAM/host layers: 3"
+    },
+    {
+      "file": "pair-2-1-1536-1024.json",
+      "reserve": 1536,
+      "n": 1024,
+      "prefill_ms": 584.31,
+      "decode16_ms": 593.71,
+      "peak": 15302918144,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-2-1-1536-32.json",
+      "reserve": 1536,
+      "n": 32,
+      "prefill_ms": 648.54,
+      "decode16_ms": 587.37,
+      "peak": 15065939968,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-2-2-1536-1024.json",
+      "reserve": 1536,
+      "n": 1024,
+      "prefill_ms": 584.38,
+      "decode16_ms": 593.85,
+      "peak": 15302918144,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-2-2-1536-32.json",
+      "reserve": 1536,
+      "n": 32,
+      "prefill_ms": 648.4,
+      "decode16_ms": 587.2,
+      "peak": 15065939968,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-2-3-0-1024.json",
+      "reserve": 0,
+      "n": 1024,
+      "prefill_ms": 388.81,
+      "decode16_ms": 392.59,
+      "peak": 16554917888,
+      "identical": true,
+      "placement": "20/24 (Spilled: 4) | Mixed VRAM/host layers: 4"
+    },
+    {
+      "file": "pair-2-3-0-32.json",
+      "reserve": 0,
+      "n": 32,
+      "prefill_ms": 246.36,
+      "decode16_ms": 335.62,
+      "peak": 16559112192,
+      "identical": true,
+      "placement": "21/24 (Spilled: 3) | Mixed VRAM/host layers: 3"
+    },
+    {
+      "file": "pair-3-0-0-1024.json",
+      "reserve": 0,
+      "n": 1024,
+      "prefill_ms": 388.79,
+      "decode16_ms": 392.64,
+      "peak": 16554917888,
+      "identical": true,
+      "placement": "20/24 (Spilled: 4) | Mixed VRAM/host layers: 4"
+    },
+    {
+      "file": "pair-3-0-0-32.json",
+      "reserve": 0,
+      "n": 32,
+      "prefill_ms": 246.54,
+      "decode16_ms": 335.65,
+      "peak": 16559112192,
+      "identical": true,
+      "placement": "21/24 (Spilled: 3) | Mixed VRAM/host layers: 3"
+    },
+    {
+      "file": "pair-3-1-1536-1024.json",
+      "reserve": 1536,
+      "n": 1024,
+      "prefill_ms": 584.37,
+      "decode16_ms": 593.75,
+      "peak": 15302918144,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-3-1-1536-32.json",
+      "reserve": 1536,
+      "n": 32,
+      "prefill_ms": 648.13,
+      "decode16_ms": 587.32,
+      "peak": 15065939968,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-3-2-1536-1024.json",
+      "reserve": 1536,
+      "n": 1024,
+      "prefill_ms": 584.21,
+      "decode16_ms": 593.82,
+      "peak": 15302918144,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-3-2-1536-32.json",
+      "reserve": 1536,
+      "n": 32,
+      "prefill_ms": 648.16,
+      "decode16_ms": 587.51,
+      "peak": 15065939968,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-3-3-0-1024.json",
+      "reserve": 0,
+      "n": 1024,
+      "prefill_ms": 388.71,
+      "decode16_ms": 392.6,
+      "peak": 16554917888,
+      "identical": true,
+      "placement": "20/24 (Spilled: 4) | Mixed VRAM/host layers: 4"
+    },
+    {
+      "file": "pair-3-3-0-32.json",
+      "reserve": 0,
+      "n": 32,
+      "prefill_ms": 246.5,
+      "decode16_ms": 335.7,
+      "peak": 16559112192,
+      "identical": true,
+      "placement": "21/24 (Spilled: 3) | Mixed VRAM/host layers: 3"
+    },
+    {
+      "file": "pair-4-0-0-1024.json",
+      "reserve": 0,
+      "n": 1024,
+      "prefill_ms": 388.81,
+      "decode16_ms": 392.47,
+      "peak": 16554917888,
+      "identical": true,
+      "placement": "20/24 (Spilled: 4) | Mixed VRAM/host layers: 4"
+    },
+    {
+      "file": "pair-4-0-0-32.json",
+      "reserve": 0,
+      "n": 32,
+      "prefill_ms": 246.41,
+      "decode16_ms": 335.65,
+      "peak": 16559112192,
+      "identical": true,
+      "placement": "21/24 (Spilled: 3) | Mixed VRAM/host layers: 3"
+    },
+    {
+      "file": "pair-4-1-1536-1024.json",
+      "reserve": 1536,
+      "n": 1024,
+      "prefill_ms": 584.24,
+      "decode16_ms": 593.75,
+      "peak": 15302918144,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-4-1-1536-32.json",
+      "reserve": 1536,
+      "n": 32,
+      "prefill_ms": 648.35,
+      "decode16_ms": 587.24,
+      "peak": 15065939968,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-4-2-1536-1024.json",
+      "reserve": 1536,
+      "n": 1024,
+      "prefill_ms": 584.22,
+      "decode16_ms": 593.78,
+      "peak": 15302918144,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-4-2-1536-32.json",
+      "reserve": 1536,
+      "n": 32,
+      "prefill_ms": 649.62,
+      "decode16_ms": 587.3,
+      "peak": 15065939968,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-4-3-0-1024.json",
+      "reserve": 0,
+      "n": 1024,
+      "prefill_ms": 388.71,
+      "decode16_ms": 392.47,
+      "peak": 16554917888,
+      "identical": true,
+      "placement": "20/24 (Spilled: 4) | Mixed VRAM/host layers: 4"
+    },
+    {
+      "file": "pair-4-3-0-32.json",
+      "reserve": 0,
+      "n": 32,
+      "prefill_ms": 246.42,
+      "decode16_ms": 335.67,
+      "peak": 16559112192,
+      "identical": true,
+      "placement": "21/24 (Spilled: 3) | Mixed VRAM/host layers: 3"
+    },
+    {
+      "file": "pair-5-0-0-1024.json",
+      "reserve": 0,
+      "n": 1024,
+      "prefill_ms": 388.9,
+      "decode16_ms": 393.27,
+      "peak": 16554917888,
+      "identical": true,
+      "placement": "20/24 (Spilled: 4) | Mixed VRAM/host layers: 4"
+    },
+    {
+      "file": "pair-5-0-0-32.json",
+      "reserve": 0,
+      "n": 32,
+      "prefill_ms": 246.29,
+      "decode16_ms": 335.61,
+      "peak": 16559112192,
+      "identical": true,
+      "placement": "21/24 (Spilled: 3) | Mixed VRAM/host layers: 3"
+    },
+    {
+      "file": "pair-5-1-1536-1024.json",
+      "reserve": 1536,
+      "n": 1024,
+      "prefill_ms": 584.34,
+      "decode16_ms": 594.01,
+      "peak": 15302918144,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-5-1-1536-32.json",
+      "reserve": 1536,
+      "n": 32,
+      "prefill_ms": 651.13,
+      "decode16_ms": 587.6,
+      "peak": 15065939968,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-5-2-1536-1024.json",
+      "reserve": 1536,
+      "n": 1024,
+      "prefill_ms": 584.38,
+      "decode16_ms": 594.06,
+      "peak": 15302918144,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-5-2-1536-32.json",
+      "reserve": 1536,
+      "n": 32,
+      "prefill_ms": 648.21,
+      "decode16_ms": 587.35,
+      "peak": 15065939968,
+      "identical": true,
+      "placement": "16/24 (Spilled: 8) | Mixed VRAM/host layers: 8"
+    },
+    {
+      "file": "pair-5-3-0-1024.json",
+      "reserve": 0,
+      "n": 1024,
+      "prefill_ms": 388.9,
+      "decode16_ms": 392.62,
+      "peak": 16554917888,
+      "identical": true,
+      "placement": "20/24 (Spilled: 4) | Mixed VRAM/host layers: 4"
+    },
+    {
+      "file": "pair-5-3-0-32.json",
+      "reserve": 0,
+      "n": 32,
+      "prefill_ms": 246.26,
+      "decode16_ms": 335.75,
+      "peak": 16559112192,
+      "identical": true,
+      "placement": "21/24 (Spilled: 3) | Mixed VRAM/host layers: 3"
+    }
+  ],
+  "summary": {
+    "32/0": {
+      "prefill_ms": 246.388,
+      "decode16_ms": 335.659,
+      "peak": 16559112192
+    },
+    "32/1536": {
+      "prefill_ms": 648.751,
+      "decode16_ms": 587.3430000000001,
+      "peak": 15065939968
+    },
+    "1024/0": {
+      "prefill_ms": 388.784,
+      "decode16_ms": 392.63800000000003,
+      "peak": 16554917888
+    },
+    "1024/1536": {
+      "prefill_ms": 584.306,
+      "decode16_ms": 593.843,
+      "peak": 15302918144
+    }
+  },
+  "protocol": "Matched 5060 Ti reference workload from PR #84. Scan 0, 512, 1024, 1536 MiB extra planner reserve; choose the first sampled level with both process peaks below the corresponding text-only Basalt peaks and all 16 greedy IDs unchanged. Five A/B/B/A cycles against reserve 0. This changes the expert placement budget, not a hard process memory cap. Peak NVML polling period ~4 ms. Timings use 1 generation request per new process.",
+  "reproduction": "At 7a02b538, git apply docs/benchmarks/inkling-v12-expert-reserve.patch in a clean checkout, rebuild the release CLI. Use the PR #84 README 32- and 1024-ID cases and LEANSONIC_EXPERIMENT_RESERVE_MIB=0 or 1536. Keep native V12 cubin, dictionary model, FP16 KV, ctx=8192, spec 0, gen16, repeat1.",
+  "basalt_process_peak_bytes": {
+    "32": 15525216256,
+    "1024": 15527313408
+  },
+  "decision": "Keep default placement. Lower observed VRAM comes at higher prefill and decode times on both prompt lengths. These timings and 16 greedy IDs do not evaluate corpus-level quality at the lower placement budget."
+}

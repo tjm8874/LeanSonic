@@ -1,0 +1,13 @@
+--- a/crates/leansonic-core/src/inkling2_gpu.rs
++++ b/crates/leansonic-core/src/inkling2_gpu.rs
+@@ -1727,6 +1727,10 @@
+         } else {
+             0
+         };
++        let extra_reserve: usize = std::env::var("LEANSONIC_EXPERIMENT_RESERVE_MIB")
++            .unwrap_or_else(|_| "0".into()).parse().map_err(|_| "invalid experimental reserve")?;
++        let graph_reserve = extra_reserve.checked_mul(1024 * 1024)
++            .and_then(|x| x.checked_add(graph_reserve)).ok_or("reserve overflow")?;
+         let budget = free.saturating_sub(graph_reserve);
+         let mut resident = plan_expert_placement(&expert_views, budget);
+         let all_experts_resident = resident.iter().all(|pair| *pair == [true, true]);
