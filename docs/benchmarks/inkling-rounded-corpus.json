@@ -52,6 +52,24 @@
       "top1_matches": 24756,
       "top1_agreement": 0.9708235294117648,
       "gpu": "PRO 5000"
+    },
+    "budget": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.0739259602577125,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.003175306557795606,
+      "median_kld": 0.001285680201739161,
+      "p99_kld": 0.030335896864753818,
+      "max_kld": 0.6717361384673368,
+      "start_chunk": 0,
+      "max_kld_chunk": 69,
+      "max_kld_position": 353,
+      "ref_floor_targets": 14,
+      "top1_matches": 24868,
+      "top1_agreement": 0.9752156862745098,
+      "gpu": "PRO 4500"
     }
   },
   "valid": {
