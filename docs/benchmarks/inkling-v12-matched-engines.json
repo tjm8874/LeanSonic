@@ -7,6 +7,90 @@
   "method": "Five rotating, mirrored six-leg cycles. Each leg uses a fresh process per prompt. Both engines greedy, FP16 KV, context 8192, speculation disabled. Prompt lengths 32 and 1024 from the same README token file. Lean --gen 16 performs 16 decode forwards and returns the first 16 IDs; Basalt --max-new 17 performs 16 decode forwards and returns 17 IDs including the prefill prediction. Recorded Basalt phases have whole-millisecond resolution. Process peak VRAM sampled via NVML every ~4 ms. Mean elapsed phases include only complete cycles.",
   "inputs": "docs/benchmarks/inputs/inkling-readme1024.ids",
   "results": {
+    "PRO4500-32": {
+      "completed_cycles": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "mean": {
+        "raw": {
+          "prefill_ms": 38.524,
+          "decode16_ms": 115.865,
+          "peak": 17576230912
+        },
+        "dict": {
+          "prefill_ms": 38.512,
+          "decode16_ms": 115.874,
+          "peak": 17576230912
+        },
+        "basalt": {
+          "prefill_ms": 55.9,
+          "decode16_ms": 115.7,
+          "peak": 19430113280
+        }
+      },
+      "peak_max": {
+        "raw": 17576230912,
+        "dict": 17576230912,
+        "basalt": 19430113280
+      },
+      "greedy_first16_all_equal": true,
+      "dict_vs_basalt_time_saved_pct_paired_bootstrap_95": {
+        "prefill_ms": [
+          29.597806215722112,
+          33.02260869565218
+        ],
+        "decode16_ms": [
+          -0.489158716392013,
+          0.11724137931033995
+        ]
+      }
+    },
+    "PRO4500-1024": {
+      "completed_cycles": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "mean": {
+        "raw": {
+          "prefill_ms": 131.317,
+          "decode16_ms": 118.776,
+          "peak": 18018310553.6
+        },
+        "dict": {
+          "prefill_ms": 134.857,
+          "decode16_ms": 118.679,
+          "peak": 18014535680
+        },
+        "basalt": {
+          "prefill_ms": 131.1,
+          "decode16_ms": 121.1,
+          "peak": 19430113280
+        }
+      },
+      "peak_max": {
+        "raw": 18131976192,
+        "dict": 18140364800,
+        "basalt": 19430113280
+      },
+      "greedy_first16_all_equal": true,
+      "dict_vs_basalt_time_saved_pct_paired_bootstrap_95": {
+        "prefill_ms": [
+          -8.231063504208102,
+          0.43302891933029164
+        ],
+        "decode16_ms": [
+          1.8099173553718928,
+          2.212695795548225
+        ]
+      }
+    },
     "5060Ti-32": {
       "completed_cycles": [
         1,
@@ -93,6 +177,666 @@
     }
   },
   "runs": [
+    {
+      "card": "PRO4500",
+      "cycle": 1,
+      "leg": 0,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 133.73,
+      "decode16_ms": 118.82,
+      "peak": 17964204032,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 1,
+      "leg": 0,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 38.55,
+      "decode16_ms": 116.16,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 1,
+      "leg": 1,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 131.94,
+      "decode16_ms": 119.0,
+      "peak": 18077450240,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 1,
+      "leg": 1,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 38.54,
+      "decode16_ms": 115.94,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 1,
+      "leg": 2,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 131.0,
+      "decode16_ms": 121.0,
+      "peak": 19430113280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 1,
+      "leg": 2,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 63.0,
+      "decode16_ms": 116.0,
+      "peak": 19430113280,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 1,
+      "leg": 3,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 131.0,
+      "decode16_ms": 121.0,
+      "peak": 19430113280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 1,
+      "leg": 3,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 55.0,
+      "decode16_ms": 116.0,
+      "peak": 19430113280,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 1,
+      "leg": 4,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 130.81,
+      "decode16_ms": 118.68,
+      "peak": 18140364800,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 1,
+      "leg": 4,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 38.5,
+      "decode16_ms": 115.98,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 1,
+      "leg": 5,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 130.68,
+      "decode16_ms": 118.91,
+      "peak": 18073255936,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 1,
+      "leg": 5,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 38.54,
+      "decode16_ms": 115.81,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 2,
+      "leg": 0,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 130.87,
+      "decode16_ms": 118.6,
+      "peak": 17922260992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 2,
+      "leg": 0,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 38.51,
+      "decode16_ms": 115.93,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 2,
+      "leg": 1,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 131.0,
+      "decode16_ms": 121.0,
+      "peak": 19430113280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 2,
+      "leg": 1,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 54.0,
+      "decode16_ms": 116.0,
+      "peak": 19430113280,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 2,
+      "leg": 2,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 130.64,
+      "decode16_ms": 118.64,
+      "peak": 17968398336,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 2,
+      "leg": 2,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 38.53,
+      "decode16_ms": 115.85,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 2,
+      "leg": 3,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 130.69,
+      "decode16_ms": 118.62,
+      "peak": 17960009728,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 2,
+      "leg": 3,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 38.52,
+      "decode16_ms": 115.71,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 2,
+      "leg": 4,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 131.0,
+      "decode16_ms": 121.0,
+      "peak": 19430113280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 2,
+      "leg": 4,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 55.0,
+      "decode16_ms": 116.0,
+      "peak": 19430113280,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 2,
+      "leg": 5,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 130.63,
+      "decode16_ms": 118.56,
+      "peak": 17934843904,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 2,
+      "leg": 5,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 38.51,
+      "decode16_ms": 115.79,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 3,
+      "leg": 0,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 131.0,
+      "decode16_ms": 121.0,
+      "peak": 19430113280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 3,
+      "leg": 0,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 55.0,
+      "decode16_ms": 115.0,
+      "peak": 19430113280,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 3,
+      "leg": 1,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 130.99,
+      "decode16_ms": 118.48,
+      "peak": 17947426816,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 3,
+      "leg": 1,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 38.5,
+      "decode16_ms": 115.81,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 3,
+      "leg": 2,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 130.75,
+      "decode16_ms": 118.55,
+      "peak": 17943232512,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 3,
+      "leg": 2,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 38.52,
+      "decode16_ms": 115.81,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 3,
+      "leg": 3,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 130.53,
+      "decode16_ms": 118.61,
+      "peak": 17980981248,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 3,
+      "leg": 3,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 38.54,
+      "decode16_ms": 115.88,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 3,
+      "leg": 4,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 131.7,
+      "decode16_ms": 119.34,
+      "peak": 17968398336,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 3,
+      "leg": 4,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 38.51,
+      "decode16_ms": 115.87,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 3,
+      "leg": 5,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 133.0,
+      "decode16_ms": 122.0,
+      "peak": 19430113280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 3,
+      "leg": 5,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 56.0,
+      "decode16_ms": 116.0,
+      "peak": 19430113280,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 4,
+      "leg": 0,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 130.92,
+      "decode16_ms": 118.6,
+      "peak": 17951621120,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 4,
+      "leg": 0,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 38.55,
+      "decode16_ms": 115.86,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 4,
+      "leg": 1,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 130.28,
+      "decode16_ms": 118.87,
+      "peak": 17951621120,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 4,
+      "leg": 1,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 38.51,
+      "decode16_ms": 115.83,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 4,
+      "leg": 2,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 130.0,
+      "decode16_ms": 121.0,
+      "peak": 19430113280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 4,
+      "leg": 2,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 54.0,
+      "decode16_ms": 115.0,
+      "peak": 19430113280,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 4,
+      "leg": 3,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 130.0,
+      "decode16_ms": 121.0,
+      "peak": 19430113280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 4,
+      "leg": 3,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 55.0,
+      "decode16_ms": 115.0,
+      "peak": 19430113280,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 4,
+      "leg": 4,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 164.85,
+      "decode16_ms": 118.92,
+      "peak": 18014535680,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 4,
+      "leg": 4,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 38.49,
+      "decode16_ms": 115.94,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 4,
+      "leg": 5,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 130.81,
+      "decode16_ms": 118.68,
+      "peak": 18102616064,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 4,
+      "leg": 5,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 38.5,
+      "decode16_ms": 115.84,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 5,
+      "leg": 0,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 137.44,
+      "decode16_ms": 118.56,
+      "peak": 18115198976,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 5,
+      "leg": 0,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 38.48,
+      "decode16_ms": 115.88,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 5,
+      "leg": 1,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 132.0,
+      "decode16_ms": 121.0,
+      "peak": 19430113280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 5,
+      "leg": 1,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 57.0,
+      "decode16_ms": 116.0,
+      "peak": 19430113280,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 5,
+      "leg": 2,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 131.05,
+      "decode16_ms": 118.64,
+      "peak": 18131976192,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 5,
+      "leg": 2,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 38.52,
+      "decode16_ms": 115.89,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 5,
+      "leg": 3,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 131.96,
+      "decode16_ms": 119.03,
+      "peak": 18115198976,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 5,
+      "leg": 3,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 38.52,
+      "decode16_ms": 115.85,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 5,
+      "leg": 4,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 131.0,
+      "decode16_ms": 121.0,
+      "peak": 19430113280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 5,
+      "leg": 4,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 55.0,
+      "decode16_ms": 116.0,
+      "peak": 19430113280,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 5,
+      "leg": 5,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 130.47,
+      "decode16_ms": 118.44,
+      "peak": 18064867328,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO4500",
+      "cycle": 5,
+      "leg": 5,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 38.52,
+      "decode16_ms": 115.76,
+      "peak": 17576230912,
+      "output_ids_index": 1
+    },
     {
       "card": "5060Ti",
       "cycle": 1,
