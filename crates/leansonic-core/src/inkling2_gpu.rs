@@ -261,6 +261,7 @@ struct ExpertScalePlane {
 enum ExpertScaleSource<'a> {
     Raw(&'a [u8]),
     RangeV1(&'a [u8]),
+    RansV1(&'a [u8]),
 }
 
 impl ExpertScaleSource<'_> {
@@ -278,6 +279,9 @@ impl ExpertScaleSource<'_> {
                 Ok(())
             }
             Self::RangeV1(frame) => crate::inkling_scales::unpack_scales(frame, count, emit),
+            Self::RansV1(frame) => {
+                crate::inkling_mxfp8::Matrix::parse(frame, count)?.for_each_chunk(emit)
+            }
         }
     }
 
@@ -313,7 +317,7 @@ impl ExpertScaleSource<'_> {
         }
         let buffer = match self {
             Self::Raw(bytes) => DeviceBuf::from_host_bytes(ctx, bytes)?,
-            Self::RangeV1(_) => {
+            Self::RangeV1(_) | Self::RansV1(_) => {
                 let buffer = DeviceBuf::alloc_zeroed(ctx, count)?;
                 self.tiles(count, |offset, bytes| {
                     buffer.copy_from_host_at(offset, bytes)
@@ -360,6 +364,7 @@ struct KernelFns {
     depth_mix_b: CUfunction,
     ctrl_down_b: CUfunction,
     ctrl_down_r8_b: Option<CUfunction>,
+    ctrl_down_r8_t2_b: Option<CUfunction>,
     ctrl_apply_b: CUfunction,
     ctrl_apply_t8_b: Option<CUfunction>,
     q8_dp4a_gemm_b: CUfunction,
@@ -777,19 +782,9 @@ impl<'a> ExpertMatrix<'a> {
                 if on_device {
                     match DeviceBuf::alloc_zeroed(ctx, count) {
                         Ok(buf) => {
-                            // Bound temporary host memory even for a 648 MiB expert matrix.
-                            let mut staging = vec![0u8; count.min(16 << 20)];
-                            let chunk = staging.len();
-                            for offset in (0..count).step_by(chunk) {
-                                let len = chunk.min(count - offset);
-                                let dst = &mut staging[..len];
-                                // decode_at writes only initialized bytes; upload after successful decode.
-                                let target = unsafe {
-                                    std::slice::from_raw_parts_mut(dst.as_mut_ptr().cast(), len)
-                                };
-                                matrix.decode_at(offset, target)?;
-                                buf.copy_from_host_at(offset, dst)?;
-                            }
+                            matrix.for_each_chunk(|offset, bytes| {
+                                buf.copy_from_host_at(offset, bytes)
+                            })?;
                             return Ok(TierBuf::Vram(buf));
                         }
                         Err(e) if e.starts_with("CUDA error 2 in `cuMemAlloc_v2`") => {}
@@ -1314,14 +1309,21 @@ impl Inkling2GpuEngine {
 
             let load_scale = |name: &str, dtype: &str, shape: &[usize]| {
                 let count = shape.iter().product();
-                let source = match (st.get(name), st.get(&format!("{name}.range_v1"))) {
-                    (Some(t), None)
+                let source = match (
+                    st.get(name),
+                    st.get(&format!("{name}.range_v1")),
+                    st.get(&format!("{name}.rans_v1")),
+                ) {
+                    (Some(t), None, None)
                         if t.dtype == dtype && t.shape == shape && t.data.len() == count =>
                     {
                         ExpertScaleSource::Raw(t.data)
                     }
-                    (None, Some(t)) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                    (None, Some(t), None) if t.dtype == "U8" && t.shape == [t.data.len()] => {
                         ExpertScaleSource::RangeV1(t.data)
+                    }
+                    (None, None, Some(t)) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                        ExpertScaleSource::RansV1(t.data)
                     }
                     _ => {
                         return Err(format!(
@@ -1772,6 +1774,7 @@ impl Inkling2GpuEngine {
             quant_q8_64_b: get_fn("ink2_quant_q8_64_b")?,
             depth_mix_b: get_fn("ink2_depth_mix_b")?,
             ctrl_down_b: get_fn("ink2_ctrl_down_b")?,
+            ctrl_down_r8_t2_b: get_fn("ink2_ctrl_down_r8_t2_b").ok(),
             ctrl_down_r8_b: get_fn("ink2_ctrl_down_r8_b").ok(),
             ctrl_apply_b: get_fn("ink2_ctrl_apply_b")?,
             ctrl_apply_t8_b: get_fn("ink2_ctrl_apply_t8_b").ok(),
@@ -3714,17 +3717,12 @@ impl Inkling2GpuEngine {
         ];
         // A short batch has too few blocks to amortize an eight-wide tile.
         // Optional symbols also support previously built external cubins.
-        let (down, rank_blocks) = match self.fns.ctrl_down_r8_b {
-            Some(f) if b_len >= 16 => (f, 8),
-            _ => (self.fns.ctrl_down_b, 64),
+        let (down, grid) = match (self.fns.ctrl_down_r8_t2_b, self.fns.ctrl_down_r8_b) {
+            (Some(f), _) if b_len >= 64 => (f, (8, n_ctrls * b_u32.div_ceil(2))),
+            (_, Some(f)) if b_len >= 16 => (f, (8, n_ctrls * b_u32)),
+            _ => (self.fns.ctrl_down_b, (64, n_ctrls * b_u32)),
         };
-        self.launch(
-            stream,
-            down,
-            (rank_blocks, n_ctrls * b_u32),
-            256,
-            &mut args1,
-        )?;
+        self.launch(stream, down, grid, 256, &mut args1)?;
 
         let mut p_gain = ctrl.gain.ptr;
         let mut p_forget = ctrl.forget.ptr;

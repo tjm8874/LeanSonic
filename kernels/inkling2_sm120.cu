@@ -1945,6 +1945,99 @@ extern "C" __global__ void ink2_ctrl_down_r8_b(
     ctrl_down_rows<8>(cur_base, msg_base, down_bf16_u128, g_out_base, B);
 }
 
+extern "C" __global__ void ink2_ctrl_down_r8_t2_b(
+    const float* __restrict__ cur_base,       // [n_ctrls, B, D]
+    const float* __restrict__ msg_base,       // [n_ctrls, B, D]
+    const uint4* __restrict__ down_bf16_u128, // [n_ctrls, 64, 576]
+    float* __restrict__ g_out_base,           // [n_ctrls, B, 64]
+    int32_t B) {
+    constexpr int Rows = 8, Tokens = 2;
+    __shared__ float norm_sums[Tokens][2][8];
+    __shared__ float inv[Tokens][2];
+    __shared__ float cur_tile[Tokens][kD];
+    __shared__ float msg_tile[Tokens][kD];
+    __shared__ float partial[Tokens][Rows][8];
+    const int tiles = (B + Tokens - 1) / Tokens;
+    const int ctrl = blockIdx.y / tiles;
+    const int first_token = (blockIdx.y % tiles) * Tokens;
+    const int cb = ctrl * B + first_token;
+    const int first_row = blockIdx.x * Rows;
+    const int tid = threadIdx.x;
+    const int warp = tid >> 5;
+    const int lane = tid & 31;
+
+    #pragma unroll
+    for (int t = 0; t < Tokens; ++t) {
+        // A partial tile reuses its first valid input for the unwritten lane.
+        const size_t row = cb + (first_token + t < B ? t : 0);
+        const float* cur = cur_base + row * kD;
+        const float* msg = msg_base + row * kD;
+        float sq_cur = 0.0f, sq_msg = 0.0f;
+        for (int i = tid; i < kD; i += 256) {
+            const float c = cur[i], m = msg[i];
+            cur_tile[t][i] = c;
+            msg_tile[t][i] = m;
+            sq_cur += c * c;
+            sq_msg += m * m;
+        }
+        sq_cur = warp_sum(sq_cur);
+        sq_msg = warp_sum(sq_msg);
+        if (lane == 0) {
+            norm_sums[t][0][warp] = sq_cur;
+            norm_sums[t][1][warp] = sq_msg;
+        }
+    }
+    __syncthreads();
+    if (warp < Tokens * 2) {
+        const int t = warp / 2, source = warp % 2;
+        float sum = warp_sum(lane < 8 ? norm_sums[t][source][lane] : 0.0f);
+        if (lane == 0) inv[t][source] = ptx_rsqrt(sum * (1.0f / static_cast<float>(kD)) + 1e-6f);
+    }
+    __syncthreads();
+
+    // Rank rows share the input. Tokens share the converted weights. The inner
+    // product order and the two warp reductions match the single-token path.
+    float dot[Tokens][Rows] = {};
+    for (int c8 = tid; c8 < 576; c8 += 256) {
+        const int source = c8 * 8 >= kD;
+        const int offset = c8 * 8 - source * kD;
+        #pragma unroll
+        for (int row = 0; row < Rows; ++row) {
+            const size_t rank = static_cast<size_t>(ctrl) * 64 + first_row + row;
+            const uint4 pack = down_bf16_u128[rank * 576 + c8];
+            const uint32_t words[4] = {pack.x, pack.y, pack.z, pack.w};
+            #pragma unroll
+            for (int p = 0; p < 4; ++p) {
+                float w0 = bf16_to_f32(static_cast<uint16_t>(words[p]));
+                float w1 = bf16_to_f32(static_cast<uint16_t>(words[p] >> 16));
+                #pragma unroll
+                for (int t = 0; t < Tokens; ++t) {
+                    const float* src = (source ? msg_tile[t] : cur_tile[t]) + offset;
+                    dot[t][row] += (w0 * src[2 * p] + w1 * src[2 * p + 1]) * inv[t][source];
+                }
+            }
+        }
+    }
+    #pragma unroll
+    for (int t = 0; t < Tokens; ++t) {
+        #pragma unroll
+        for (int row = 0; row < Rows; ++row) {
+            float sum = warp_sum(dot[t][row]);
+            if (lane == 0) partial[t][row][warp] = sum;
+        }
+    }
+    __syncthreads();
+    if (warp < Rows) {
+        #pragma unroll
+        for (int t = 0; t < Tokens; ++t) {
+            float sum = warp_sum(lane < 8 ? partial[t][warp][lane] : 0.0f);
+            if (lane == 0 && first_token + t < B) {
+                g_out_base[(cb + t) * 64 + first_row + warp] = sum;
+            }
+        }
+    }
+}
+
 // Grid: `(9, n_ctrls * B)`, Block: `256`
 extern "C" __global__ void ink2_ctrl_apply_b(
     float* __restrict__ cur_inout_base,       // [n_ctrls, B, D]
@@ -3790,6 +3883,14 @@ __device__ __forceinline__ void gqa_attn_split_body(
     }
     const float scale = 0.08838834764831845f; // 1 / sqrt(128)
 
+    // Ring row of key `j` without a per-key `%`: a SWA window spans at most kv_cap rows, so after
+    // removing the kv_cap multiple below `first` each key needs at most one wrap. Global slots
+    // have kv_cap >= n, so their row is `j`. Same rows as `is_global ? j : j % kv_cap`.
+    const int ring_off = is_global ? 0 : first - first % kv_cap;
+    auto ring_row = [&](int j) {
+        const int r = j - ring_off;
+        return r < kv_cap ? r : r - kv_cap;
+    };
     const int total = n - first;
     const int n_chunks = (total + kChunk - 1) / kChunk;
     for (int c = g; c < n_chunks; c += G) {
@@ -3822,8 +3923,8 @@ __device__ __forceinline__ void gqa_attn_split_body(
             uint32_t wk = 0u, wv = 0u;
             float sk = 0.0f, sv = 0.0f;
             if (jj < kChunk && j < n) {
-                kv_raw_i8(k_cache_fp16, k_scale, is_global ? j : (j % kv_cap), kvh, lane, wk, sk);
-                kv_raw_i8(v_cache_fp16, v_scale, is_global ? j : (j % kv_cap), kvh, lane, wv, sv);
+                kv_raw_i8(k_cache_fp16, k_scale, ring_row(j), kvh, lane, wk, sk);
+                kv_raw_i8(v_cache_fp16, v_scale, ring_row(j), kvh, lane, wv, sv);
             }
             while (jj < kChunk && j < n) {
                 const int jn = jj + 8;
@@ -3831,8 +3932,8 @@ __device__ __forceinline__ void gqa_attn_split_body(
                 uint32_t nwk = 0u, nwv = 0u;
                 float nsk = 0.0f, nsv = 0.0f;
                 if (jn < kChunk && jnx < n) {
-                    kv_raw_i8(k_cache_fp16, k_scale, is_global ? jnx : (jnx % kv_cap), kvh, lane, nwk, nsk);
-                    kv_raw_i8(v_cache_fp16, v_scale, is_global ? jnx : (jnx % kv_cap), kvh, lane, nwv, nsv);
+                    kv_raw_i8(k_cache_fp16, k_scale, ring_row(jnx), kvh, lane, nwk, nsk);
+                    kv_raw_i8(v_cache_fp16, v_scale, ring_row(jnx), kvh, lane, nwv, nsv);
                 }
                 float k0, k1, k2, k3, v0, v1, v2, v3;
                 kv_dequant_i8(wk, sk, k0, k1, k2, k3);
@@ -3872,7 +3973,7 @@ __device__ __forceinline__ void gqa_attn_split_body(
             for (int jj = warp_id; jj < kChunk; jj += 8) {
                 const int j = j0 + jj;
                 if (j >= n) break;
-                const int slot_row = is_global ? j : (j % kv_cap);
+                const int slot_row = ring_row(j);
                 float k0, k1, k2, k3, v0, v1, v2, v3;
                 kv_load4_t<kInt8>(k_cache_fp16, k_scale, slot_row, kvh, lane, k0, k1, k2, k3);
                 kv_load4_t<kInt8>(v_cache_fp16, v_scale, slot_row, kvh, lane, v0, v1, v2, v3);
@@ -4629,6 +4730,12 @@ __device__ __forceinline__ void gqa_rel_sink_attn_q8(
     int j = first + warp_id;
     if constexpr (kInt8) {
         // INT8 KV: same staging as the FP16 path, on raw INT8 words + per-row/head scales.
+        // Ring rows without a per-key `%` (see `gqa_attn_split_body`).
+        const int ring_off = is_global ? 0 : first - first % kv_cap;
+        auto ring_row = [&](int key) {
+            const int r = key - ring_off;
+            return r < kv_cap ? r : r - kv_cap;
+        };
         auto score_i8 = [&](int j, uint32_t kw, float ks) {
             float k0, k1, k2, k3;
             kv_dequant_i8(kw, ks, k0, k1, k2, k3);
@@ -4655,7 +4762,7 @@ __device__ __forceinline__ void gqa_rel_sink_attn_q8(
                 #pragma unroll
                 for (int i = 0; i < steps; ++i) {
                     const int position = j + i * 8;
-                    const int row = is_global ? position : position % kv_cap;
+                    const int row = ring_row(position);
                     kv_raw_i8(k_cache_fp16, k_scale, row, kvh, lane, keys[i], kscales[i]);
                     kv_raw_i8(v_cache_fp16, v_scale, row, kvh, lane, values[i], vscales[i]);
                 }
@@ -4672,7 +4779,7 @@ __device__ __forceinline__ void gqa_rel_sink_attn_q8(
             }
         }
         for (; j < n; j += 8) {
-            const int slot_row = is_global ? j : (j % kv_cap);
+            const int slot_row = ring_row(j);
             uint32_t kw, vw;
             float ks, vs;
             kv_raw_i8(k_cache_fp16, k_scale, slot_row, kvh, lane, kw, ks);

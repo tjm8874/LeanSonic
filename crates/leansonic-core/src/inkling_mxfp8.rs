@@ -176,6 +176,24 @@ impl<'a> Matrix<'a> {
         Ok(())
     }
 
+    /// Deliver decoded bytes in order while bounding temporary host memory.
+    pub(crate) fn for_each_chunk(
+        &self,
+        mut emit: impl FnMut(usize, &[u8]) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let chunk = self.count.min(16 << 20);
+        let mut staging = vec![0u8; chunk];
+        for offset in (0..self.count).step_by(chunk) {
+            let len = chunk.min(self.count - offset);
+            let bytes = &mut staging[..len];
+            // decode_at writes initialized bytes and emit runs only after a successful decode.
+            let dst = unsafe { std::slice::from_raw_parts_mut(bytes.as_mut_ptr().cast(), len) };
+            self.decode_at(offset, dst)?;
+            emit(offset, bytes)?;
+        }
+        Ok(())
+    }
+
     /// The output covers complete tiles except for the last tile of the matrix.
     pub(crate) fn decode_at(
         &self,
