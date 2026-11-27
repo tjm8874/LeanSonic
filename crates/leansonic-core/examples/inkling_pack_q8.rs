@@ -1,6 +1,6 @@
 // The packer seeks to the validated BF16 tensor and connects its file descriptors
 // to this CPU-only helper. All codes precede all scales in the output shard.
-use leansonic_core::inkling2_gpu::pack_q8_rows;
+use leansonic_core::inkling2_gpu::{pack_q8_rows, pack_q8_rows_refined};
 use std::io::{self, Read, Write};
 
 fn main() -> io::Result<()> {
@@ -74,7 +74,16 @@ fn main() -> io::Result<()> {
             return dst.flush();
         }
     }
-    let (mode, dimensions) = match args.as_slice() {
+    let (refine, args) = match args.as_slice() {
+        [flag, args @ ..] if flag == "refine-output" => (true, args),
+        args => (false, args),
+    };
+    let pack_rows = if refine {
+        pack_q8_rows_refined
+    } else {
+        pack_q8_rows
+    };
+    let (mode, dimensions) = match args {
         [mode, dims @ ..] if matches!(mode.as_str(), "matrix-dict-size" | "matrix-dict-pack") => {
             (mode.as_str(), dims)
         }
@@ -107,7 +116,7 @@ fn main() -> io::Result<()> {
         let codes_tile = &mut codes[..elements];
         let offset = first * (cols / 64) * 4;
         src.read_exact(src_tile)?;
-        pack_q8_rows(
+        pack_rows(
             src_tile,
             cols,
             codes_tile,

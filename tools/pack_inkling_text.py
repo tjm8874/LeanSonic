@@ -68,8 +68,10 @@ EMBED_SHAPE = [201_024, 2304]
 
 def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack_attention: bool = False,
          prepack_scales: bool = False, prepack_embedding: bool = False, prepack_mxfp8: bool = False,
-         entropy_scales: bool = False, compact_q8_scales: bool = False) -> tuple[int, int]:
+         entropy_scales: bool = False, compact_q8_scales: bool = False, refine_output: bool = False) -> tuple[int, int]:
     """Publish a complete shard atomically without replacing an existing file."""
+    if refine_output and not prepack_attention:
+        raise ValueError("--refine-attention-output requires --prepack-attention and the original BF16 attention weights")
     if destination.exists():
         raise FileExistsError(f"destination exists: {destination}")
 
@@ -177,12 +179,13 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
                 input_rows, rows, cols, prefix = matrices[name]
                 if info["dtype"] != "BF16" or shape != [input_rows, cols]:
                     raise ValueError(f"unexpected dimensions or dtype for {name}")
+                refine = ["refine-output"] if refine_output and name.endswith(".attn.wo_ud.weight") else []
                 arguments = [str(rows), str(cols)]
                 raw_bytes = rows * (cols // 64) * 4
                 scale_plane = ("scales", "F32", [rows, cols // 64], raw_bytes)
                 if compact_q8_scales:
                     src.seek(8 + header_len + start)
-                    result = subprocess.run([packer, "matrix-dict-size", *arguments], stdin=src,
+                    result = subprocess.run([packer, *refine, "matrix-dict-size", *arguments], stdin=src,
                                             stdout=subprocess.PIPE, text=True, check=True)
                     size = int(result.stdout)
                     if size <= 0 or size % 8:
@@ -198,7 +201,7 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
                         "dtype": dtype, "shape": dims, "data_offsets": [new_end, new_end + size]
                     }
                     new_end += size
-                spans.append((start, end, (arguments, rows * cols + scale_plane[3])))
+                spans.append((start, end, (refine + arguments, rows * cols + scale_plane[3])))
                 continue
             if name in lossless:
                 expected_dtype, expected_shape, mode, suffix = lossless[name]
@@ -264,6 +267,8 @@ def main() -> None:
     parser.add_argument("--prepack-head", action="store_true", help="store LeanSonic native output-head weights (requires Cargo)")
     parser.add_argument("--prepack-attention", action="store_true", help="store native Q8_64 attention projections (requires Cargo)")
     parser.add_argument("--compact-q8-scales", action="store_true", help="losslessly dictionary-code native Q8_64 scales where smaller")
+    parser.add_argument("--refine-attention-output", action="store_true",
+                        help="search nearby Q8 scales for the BF16 attention output projections")
     scale_group = parser.add_mutually_exclusive_group()
     scale_group.add_argument("--entropy-scales", action="store_true", help="store MoE expert scales with lossless byte rANS")
     scale_group.add_argument("--prepack-scales", action="store_true", help="store lossless packed MoE expert scales (requires Cargo)")
@@ -273,7 +278,7 @@ def main() -> None:
     try:
         removed, saved = pack(args.source, args.destination, prepack_head=args.prepack_head, prepack_attention=args.prepack_attention,
                               prepack_scales=args.prepack_scales, prepack_embedding=args.prepack_embedding, prepack_mxfp8=args.prepack_mxfp8,
-                              entropy_scales=args.entropy_scales, compact_q8_scales=args.compact_q8_scales)
+                              entropy_scales=args.entropy_scales, compact_q8_scales=args.compact_q8_scales, refine_output=args.refine_attention_output)
     except (OSError, ValueError, TypeError, KeyError, subprocess.CalledProcessError) as exc:
         parser.exit(1, f"pack failed: {exc}\n")
     print(f"Omitted {removed} vision tensors. Saved {saved:,} bytes.")

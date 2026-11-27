@@ -785,6 +785,54 @@ fn upload_bf16_rows(
 
 /// Pack complete BF16 rows into signed Q8 codes and little-endian FP32 scales.
 pub fn pack_q8_rows(bf16_bytes: &[u8], cols: usize, codes: &mut [u8], scales_bytes: &mut [u8]) {
+    pack_q8_rows_inner::<false>(bf16_bytes, cols, codes, scales_bytes);
+}
+
+/// Offline alternative for attention output projections. The GPU layout is identical.
+pub fn pack_q8_rows_refined(
+    bf16_bytes: &[u8],
+    cols: usize,
+    codes: &mut [u8],
+    scales_bytes: &mut [u8],
+) {
+    pack_q8_rows_inner::<true>(bf16_bytes, cols, codes, scales_bytes);
+}
+
+fn refine_q8_maximum(block: &[f32; 64], amax: f32) -> f32 {
+    if amax == 0.0 || !amax.is_finite() || !(127.0 / amax).is_finite() {
+        return amax;
+    }
+    let center = (amax.to_bits() >> 16) as i32;
+    let mut best = amax;
+    let mut best_error = f64::INFINITY;
+    for delta in [0, -1, 1, -2, 2] {
+        let word = center + delta;
+        if !(1..0x7f80).contains(&word) {
+            continue;
+        }
+        let high = f32::from_bits((word as u32) << 16);
+        let scale = high * (1.0 / 127.0);
+        let inv = 127.0 / high;
+        let mut error = 0.0;
+        for &x in block {
+            let q = (x * inv).round().clamp(-127.0, 127.0);
+            let diff = f64::from(x) - f64::from(q) * f64::from(scale);
+            error += diff * diff;
+        }
+        if error < best_error {
+            best = high;
+            best_error = error;
+        }
+    }
+    best
+}
+
+fn pack_q8_rows_inner<const REFINE: bool>(
+    bf16_bytes: &[u8],
+    cols: usize,
+    codes: &mut [u8],
+    scales_bytes: &mut [u8],
+) {
     assert!(cols > 0 && cols.is_multiple_of(64));
     assert!(codes.len().is_multiple_of(cols));
     assert_eq!(bf16_bytes.len(), codes.len() * 2);
@@ -826,6 +874,11 @@ pub fn pack_q8_rows(bf16_bytes: &[u8], cols: usize, codes: &mut [u8], scales_byt
                                 amax = av;
                             }
                         }
+                        let amax = if REFINE {
+                            refine_q8_maximum(&fvals, amax)
+                        } else {
+                            amax
+                        };
                         let sc = amax * (1.0 / 127.0);
                         let inv = if amax > 0.0 { 127.0 / amax } else { 0.0 };
                         dst_s[b * 4..(b + 1) * 4].copy_from_slice(&sc.to_le_bytes());

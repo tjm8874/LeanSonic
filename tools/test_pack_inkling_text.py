@@ -236,6 +236,44 @@ class PackInklingTextTest(unittest.TestCase):
                 self.assertEqual(prefix + "scales.dict_v1" in tensors, use_dict)
                 self.assertEqual(prefix + "scales" in tensors, not use_dict)
 
+    def test_refinement_changes_only_attention_output_and_combines_with_dictionary(self):
+        names = ["model.llm.layers.0.attn.wo_ud.weight", "model.llm.layers.0.attn.wq_du.weight"]
+        catalog = {name: (1, 1, 2304, name + ".q8_64.") for name in names}
+        block = [(0x3d80 + 7 * i % 350) | (0x8000 if i % 2 else 0) for i in range(64)]
+        matrix = struct.pack("<64H", *block) * 36
+        header = {
+            "model.llm.embed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [0, 2]},
+            "model.llm.unembed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [2, 4]},
+        }
+        for k, name in enumerate(names):
+            pos = 4 + k * len(matrix)
+            header[name] = {"dtype": "BF16", "shape": [1, 2304], "data_offsets": [pos, pos + len(matrix)]}
+        with tempfile.TemporaryDirectory() as tmp, patch("pack_inkling_text.attention_matrices", return_value=catalog):
+            src, stock, refined, compact, staged = (Path(tmp) / n for n in ("src", "stock", "refined", "compact", "staged"))
+            encoded = json.dumps(header).encode()
+            src.write_bytes(struct.pack("<Q", len(encoded)) + encoded + b"EEHH" + matrix * 2)
+            with self.assertRaisesRegex(ValueError, "requires --prepack-attention"):
+                pack(src, refined, refine_output=True)
+            pack(src, stock, prepack_attention=True)
+            pack(src, refined, prepack_attention=True, refine_output=True)
+            pack(src, compact, prepack_attention=True, refine_output=True, compact_q8_scales=True)
+            pack(refined, staged, compact_q8_scales=True)
+            self.assertEqual(compact.read_bytes(), staged.read_bytes())
+            def planes(path):
+                with path.open("rb") as f:
+                    tensors = json.loads(f.read(struct.unpack("<Q", f.read(8))[0]))
+                    payload = f.read()
+                return {name: payload[slice(*info["data_offsets"])] for name, info in tensors.items()}
+            a, b = planes(stock), planes(refined)
+            for name, data in a.items():
+                if name.startswith(names[0] + "."):
+                    self.assertNotEqual(data, b[name])
+                else:
+                    self.assertEqual(data, b[name])
+            scale = names[0] + ".q8_64.scales"
+            self.assertEqual(a[scale], bytes.fromhex("63b1583b") * 36)
+            self.assertEqual(b[scale], bytes.fromhex("67b3593b") * 36)
+
     def test_attention_projection_catalog(self):
         matrices = attention_matrices()
         self.assertEqual(len(matrices), 176)
