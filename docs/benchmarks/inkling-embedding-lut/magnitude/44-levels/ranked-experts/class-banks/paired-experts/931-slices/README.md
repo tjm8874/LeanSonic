@@ -23,3 +23,19 @@ The first refit kept all 144 entropy tables per projection. Each table takes 512
 This second lossless pass reduces the same 931-slice package from 11,662,708,470 to **11,661,987,870 bytes**, saving 720,600 bytes. The resulting model is 1,321,634 bytes below native IQ3_XXS. There are 1,274,019,840 decoded scale codes and 999 final tensor payloads in the checks. The model loader uses the existing mean-scale format. [Package hashes](grid-package.json) · [All candidate bins and real sizes](grid-planes.json).
 
 From a fresh directory, run `python3 grid.py PARENT_931_MODEL ORIGINAL_REFIT_WORKDIR PROBE`, using the 931 model above, its original per-plane feature files and fit receipt, and the compiled scale_refit probe. Then run the unchanged scale-bin `assemble.py PARENT_931_MODEL . materialized` and compare both final file hashes.
+
+## Package and attention rounding interaction on RTX PRO 5000
+
+We scored a fixed seven-chunk diagnostic set under the packed GPU runtime a1592f3, toggling only the G1 hunk from cce6f21. Five test chunks contain the largest measured KL excesses above one nat in the 571 vs vLLM comparison. The sixth contains vLLM's test maximum; the seventh contains the current 571 validation maximum. All 1,785 positions use the same BF16 references, scorer and inputs. The candidate packages here include the first scale refit. They differ by layer 11 expert 53 and layer 15 expert 76.
+
+| Position | 927 current KL | 931 current KL | 927 earlier G1 KL | 931 earlier G1 KL |
+| --- | ---: | ---: | ---: | ---: |
+| test 2, 478 | 1.525412 | 3.573213 | 3.640435 | 3.969963 |
+| test 36, 375 | 2.259930 | 2.077238 | 2.746056 | 3.079025 |
+| test 81, 291 | 1.535650 | 1.548244 | 1.347333 | 1.529870 |
+| test 98, 465 | 2.514592 | 2.645702 | 0.241216 | 0.179064 |
+| test 5, 342 | 0.997490 | 0.889339 | 1.070802 | 0.963962 |
+| test 23, 330 | 1.383126 | 1.380741 | 1.823065 | 1.566801 |
+| valid 85, 317 | 2.475259 | 2.417674 | 2.279424 | 2.118983 |
+
+At test 2,478 the extra expert pairs increase KL under current G1, while at test 36,375 they reduce it. At test 98,465 the 927 earlier-G1 result is 0.241216, but the same package with current G1 produces 2.514592. These interactions require both package and cubin digests when reporting a fix. The targeted chunks were selected for known errors; full holdouts govern adoption. [All selected predictions, full-subset scores and exact executable and package hashes](seven-chunks.json).
