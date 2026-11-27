@@ -1,5 +1,10 @@
 {
   "tiles": {
+    "PRO5000": {
+      "outputs": "tile=128 active=1376 exact=3170304 guards=4608\ntile=160 active=1376 exact=3170304 guards=4608\n",
+      "memcheck": "========= COMPUTE-SANITIZER\ntile=128 active=1376 exact=3170304 guards=4608\ntile=160 active=1376 exact=3170304 guards=4608\n========= ERROR SUMMARY: 0 errors\n",
+      "digests": "a184779514276d7def28d94a66e59a235e674534653623f8bc5b1e1c13b880a2  tiles\nac92d0790fdf234b52f6fb3e16561e5ca730caa127f72b86dfec38fcc7c72c66  engine.cubin\n"
+    },
     "5070Ti": {
       "outputs": "tile=128 active=1376 exact=3170304 guards=4608\ntile=160 active=1376 exact=3170304 guards=4608\n",
       "memcheck": "========= COMPUTE-SANITIZER\ntile=128 active=1376 exact=3170304 guards=4608\ntile=160 active=1376 exact=3170304 guards=4608\n========= ERROR SUMMARY: 0 errors\n",
