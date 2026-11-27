@@ -23,6 +23,26 @@
         "top1_agreement": 0.9401176470588235
       },
       "json_sha256": "9cc5314efac192a22a624a8e43923298dd0f3e6dc56aa55bfcd016da48ad030b"
+    },
+    "valid": {
+      "result": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 6.581089893788327,
+        "ref_ppl": 6.498588819010602,
+        "mean_kld": 0.01813931483459893,
+        "median_kld": 0.008016451098661385,
+        "p99_kld": 0.17046843344487203,
+        "max_kld": 1.9770639665259402,
+        "start_chunk": 0,
+        "max_kld_chunk": 85,
+        "max_kld_position": 317,
+        "ref_floor_targets": 10,
+        "top1_matches": 24079,
+        "top1_agreement": 0.9442745098039216
+      },
+      "json_sha256": "dbb213d79cacf15bf6aac004281f52f386c853356de277c6c0362f6926611fa5"
     }
   }
 }
