@@ -1,0 +1,26 @@
+{
+  "oracle_sha256": {
+    "test": "895fac2136c06dce1854568c83eb76a0225a05fab3c37897a12fec1d56949b97",
+    "valid": "b3d804824373950c9b6d7cd37e5607d132d2f3caca6f80ffd26739b2776a2ca0"
+  },
+  "eval_kld_sha256": "a49460cb9bd81ab20c5903cb1e47526f851c70283232e12871b14cca7334634a",
+  "sglang": {
+    "test": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.084607053452009,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.010372759211913671,
+      "median_kld": 0.004913532406665432,
+      "p99_kld": 0.0879797833676044,
+      "max_kld": 3.7027736400382745,
+      "start_chunk": 0,
+      "max_kld_chunk": 23,
+      "max_kld_position": 330,
+      "ref_floor_targets": 14,
+      "top1_matches": 24375,
+      "top1_agreement": 0.9558823529411765
+    }
+  }
+}
