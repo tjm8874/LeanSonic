@@ -1,0 +1,7 @@
+# One attention dispatch flag reproduces the six-chunk difference
+
+All arms use the same 5470f09 CLI, its matched sm_120a module, the same 61-expert IQ1-size shard, and the same RTX 5060 Ti. On the [pinned six-chunk WikiText replay](../../row-replay/README.md), setting only LEANSONIC_G1_ATTN=0 reproduced the historical pair's complete 1,530-row CSV byte for byte. The default and LEANSONIC_SPLIT_FUSED_ATTN=0 reproduced the matched-source CSV. Disabling both attention flags reproduced the historical CSV again.
+
+On the first chunk, disabling the router/argmax pair, down/conv fusion, or the R1 controller individually left all 255 row fingerprints unchanged. Turning off only the two attention flags matched the historical row file on that chunk and changed four predicted tokens. Across all six chunks, the two attention paths differ at 49 top tokens. These experiments identify the dispatch that produced the discrepancy. Deciding which path gives better overall BF16 fidelity requires corpus results beyond these selected worst cases.
+
+To repeat, use the [matched-source fixture and commands](../README.md) with both ternary switches set to zero. In separate fresh processes set LEANSONIC_G1_ATTN=0, LEANSONIC_SPLIT_FUSED_ATTN=0, or both; leave the other runtime flags at the documented values. Compare the complete row files with the archived old.csv.gz and old_matched.csv.gz after decompression. [First-chunk controls](first-chunk.json) · [Six-chunk SHA-256 and aggregate scores](six-chunks.json).

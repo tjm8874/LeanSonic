@@ -428,6 +428,25 @@ pub(crate) struct Matrix<'a> {
     count: usize,
 }
 
+// A nonzero frequency makes this byte reachable; zero-frequency entries never decode.
+pub(crate) fn ternary_scale_tables(frame: &[u8], four_banks: bool) -> Result<bool, String> {
+    let (offset, banks) = if four_banks { (384, 4) } else { (128, 2) };
+    let tables = frame
+        .get(offset..offset + banks * NVFP4_CONTEXTS * 512)
+        .ok_or("missing scale-conditioned NVFP4 frequency tables")?;
+    Ok(tables.as_chunks::<512>().0.iter().all(|table| {
+        table
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .enumerate()
+            .all(|(byte, freq)| {
+                *freq == [0, 0]
+                    || (matches!(byte & 15, 0 | 7 | 15) && matches!(byte >> 4, 0 | 7 | 15))
+            })
+    }))
+}
+
 impl<'a> Matrix<'a> {
     pub(crate) fn parse(data: &'a [u8], count: usize) -> Result<Self, String> {
         Self::parse_tables(data, count, 1)
@@ -801,9 +820,11 @@ mod tests {
                 let mut frame = Vec::new();
                 let matrix = if four_banks {
                     pack_four_scale_banks(&raw, scales.clone(), &cuts, &mut frame).unwrap();
+                    assert_eq!(ternary_scale_tables(&frame, true).unwrap(), !mixed);
                     Matrix::parse_four_scale_banks(&frame, count, scales.clone()).unwrap()
                 } else {
                     pack_scale_direct(&raw, scales.clone(), &cuts, &mut frame).unwrap();
+                    assert_eq!(ternary_scale_tables(&frame, false).unwrap(), !mixed);
                     Matrix::parse_scale_direct(&frame, count, scales.clone()).unwrap()
                 };
                 let result = matrix.pack_ternary_weights();

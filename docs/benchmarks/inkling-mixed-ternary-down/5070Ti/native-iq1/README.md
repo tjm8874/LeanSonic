@@ -1,0 +1,16 @@
+# Matched resident IQ1-size packages on RTX 5070 Ti
+
+The same 1,024 input IDs and 32 forced decode steps ran on RTX 5070 Ti (16 GB, driver 595.99.02, 300 W). The 61-expert Inkling package used strict two-bit gate/up and automatic down selection, with 19/20 down planes qualifying. Both engines used 8,192 context, FP16 KV, one sequence and no speculation. All 24 LeanSonic expert layers were resident; native llama.cpp offloaded 25/25 layers with batch and microbatch 1,024.
+
+| Runtime and package | Model + tokenizer bytes | Prefill ms (tok/s) | Decode 32 ms (tok/s) | Peak process GPU bytes | Matches to forced IDs |
+|---|---:|---:|---:|---:|---:|
+| LeanSonic, 61 restored experts | 7,763,991,646 | 119.855 (8,543.6) | 163.634 (195.56) | 11,620,319,232 | 28/32 |
+| Original llama.cpp, IQ1_S | 7,764,291,776 | 535.509 (1,912.2) | 374.080 (85.54) | 11,165,237,248 | 30/32 |
+
+LeanSonic was 300,130 bytes smaller on disk and used 455,081,984 more peak GPU bytes. Five mirrored cycles, four fresh processes per cycle, five requests per process, first excluded, yielded 40 warm requests per arm. Resampling complete cycles gives prefill speedup 4.468× (95% interval 4.467–4.470), decode 2.286× (2.284–2.288). Both configurations reproduced their own predicted 32-token trace. Forced inputs kept the decode history identical.
+
+On the separate WikiText evaluators, native IQ1_S won all four BF16 quality measures on both splits. For validation, LeanSonic on RTX 5060 Ti measured mean/worst KL 0.2077958/6.5760688, top-1 20,786/25,500 and PPL 7.841980; native on RTX PRO 5000 scored 0.1076170/5.5685180, 22,138 and 7.121110. On the timed RTX 5070 Ti itself, the native engine also wins all four BF16 metrics on both splits. On validation it scores mean/worst KL 0.107278/5.734114, 22,181 top matches and PPL 7.117940; the LeanSonic scores reproduce those of the 5060 Ti. [Same-card results and replay commands](same-card-quality.md). The speed and size gains do not meet the equivalent-quality objective. [Corpus and worst prefixes](../../5060Ti/).
+
+## Reproduce
+
+Use the [61-expert model and matching runtime](../../README.md), the pinned [original IQ1_S GGUF and native build](https://github.com/tjm8874/LeanSonic/tree/d65d1a6/docs/benchmarks/inkling-native-lowbits), and the [1,024-token fixture and 32 continuation IDs](../../../inputs/). Build trace.rs as a leansonic-core release example at the measured 3364f6d source and place it at ./forced-lean. Build iq_fixed.cpp using the Unsloth 8832860 llama.cpp headers, linking llama, ggml, dl, and place it at ./forced-native. Use the digests in requests.json. Set LD_LIBRARY_PATH to the pinned native library directory, LEANSONIC_CUBIN_PATH to the measured sm_120a cubin, CUDA_VISIBLE_DEVICES to the GPU UUID, LEANSONIC_KV=fp16, LEANSONIC_SEQS=1, LEANSONIC_PDL=1, LEANSONIC_PDL_ALL=1, LEANSONIC_MXFP8_DEVICE_U4=1, LEANSONIC_MXFP8_DIRECT_ALL=1, LEANSONIC_TERNARY_UP=1 and LEANSONIC_TERNARY_DOWN=auto. Place the GGUF path in iq and the LeanSonic directory in model-path, copy inkling-readme1024.ids and inkling-continuation32.ids into the working directory, and run forced.py with cycle numbers 1 to 5 in order. [Individual requests, full traces, GPU peaks, loader checks and hashes](requests.json).

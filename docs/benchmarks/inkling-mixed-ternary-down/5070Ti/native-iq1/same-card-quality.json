@@ -1,0 +1,68 @@
+{
+  "gpu": "RTX 5070 Ti",
+  "digests": [
+    "5b62e463691d6eaed51aaa281445d7f720217ad2276b0870bf74c3395eeaf79c  cli",
+    "f3362a140944c6413fdcede7626b3ec6c6e92a217d68d7f803212f9d792985c7  llama-perplexity",
+    "7d3d1416baeaefcb71c4cbefab686def0a46ca1b44a4b7a8630d56e56518e8e6  engine.cubin",
+    "173c87a53759e0201f33e0ccf978e510c2042d7f2cb78229d9a50d79b9e7dd08  wiki.test.raw",
+    "4cd0f6876d07a413aa911261ff6d363c72d757d47f0fdd6015702014c89cb9c7  wiki.valid.raw"
+  ],
+  "splits": {
+    "test": {
+      "lean": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 8.482171330776882,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.22471215679595052,
+        "median_kld": 0.1302002653261048,
+        "p99_kld": 1.6257110902571181,
+        "max_kld": 6.654780790237908,
+        "start_chunk": 0,
+        "max_kld_chunk": 77,
+        "max_kld_position": 324,
+        "ref_floor_targets": 14,
+        "top1_matches": 20453,
+        "top1_agreement": 0.802078431372549
+      },
+      "reference_sha256": "895fac2136c06dce1854568c83eb76a0225a05fab3c37897a12fec1d56949b97",
+      "native": {
+        "mean_kl": 0.113543,
+        "worst_kl": 5.392048,
+        "ppl": 7.716134,
+        "top1_pct": 85.941,
+        "matches": 21915
+      },
+      "native_stdout_sha256": "9789dd47b4259a254e038911ed5b0e07bff79f98594cb869c18e40b6df9a999c"
+    },
+    "valid": {
+      "lean": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.841979926849936,
+        "ref_ppl": 6.498588819010602,
+        "mean_kld": 0.2077958362175656,
+        "median_kld": 0.11816695589566192,
+        "p99_kld": 1.5139610989631245,
+        "max_kld": 6.576068773711534,
+        "start_chunk": 0,
+        "max_kld_chunk": 10,
+        "max_kld_position": 471,
+        "ref_floor_targets": 10,
+        "top1_matches": 20786,
+        "top1_agreement": 0.8151372549019608
+      },
+      "reference_sha256": "b3d804824373950c9b6d7cd37e5607d132d2f3caca6f80ffd26739b2776a2ca0",
+      "native": {
+        "mean_kl": 0.107278,
+        "worst_kl": 5.734114,
+        "ppl": 7.11794,
+        "top1_pct": 86.984,
+        "matches": 22181
+      },
+      "native_stdout_sha256": "2bbf59ad64f6c37d76bb76c1cc577eabec601b84a2a6eaa31cc2d84928b4249d"
+    }
+  }
+}
