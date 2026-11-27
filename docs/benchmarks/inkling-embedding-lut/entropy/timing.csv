@@ -1,0 +1,21 @@
+raw=502097692 coded=454453936 encode_ms=1231.508
+decode,0,0,false,380.864
+decode,0,1,true,332.102
+decode,0,2,true,336.011
+decode,0,3,false,231.447
+decode,1,0,true,331.566
+decode,1,1,false,233.092
+decode,1,2,false,229.737
+decode,1,3,true,341.835
+decode,2,0,false,229.865
+decode,2,1,true,335.393
+decode,2,2,true,318.005
+decode,2,3,false,231.995
+decode,3,0,true,330.230
+decode,3,1,false,230.451
+decode,3,2,false,230.223
+decode,3,3,true,341.847
+decode,4,0,false,231.023
+decode,4,1,true,332.376
+decode,4,2,true,318.630
+decode,4,3,false,231.624
