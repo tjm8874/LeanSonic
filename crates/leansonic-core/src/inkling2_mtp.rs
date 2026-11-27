@@ -1659,11 +1659,6 @@ mod tests {
             [1, 2, 1, 2, 1]
         );
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 
     #[test]
     fn projection_table_matches_the_drafter_kernel_shapes() {
