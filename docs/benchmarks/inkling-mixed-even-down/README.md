@@ -53,3 +53,14 @@ This measurement used LeanSonic bd048b8 and the Unsloth llama.cpp build 12588 (8
 ## Independent gate/up and down switches
 
 On the 5060 Ti, host revision 0ad1bb4 with the original mixed-reader CUDA binary produced identical full-vocabulary fingerprint files within each prefill mode for all four configurations (neither, down only, gate/up only, both). Each configuration scored 255 positions using Tensor Core prefill and another 255 with generic prefill. The down-only configuration now allocates 169,869,312 bytes of mapped fallback scratch; gate/up or both use 339,738,624 bytes. These are mapped host allocations. [Per-mode hashes, scores and process RSS](scratch.json).
+
+## Paired native comparison on RTX 5070 Ti
+
+Five mirrored cycles used the same 1,024 IDs, 32 teacher-forced decode steps, one sequence, 8,192 context and FP16 KV. Each engine contributed 40 warm requests across ten fresh processes. The GPU peak is the maximum observed NVML process reading including loading. [Inputs, package and executable hashes, request times, predictions and paired confidence intervals](5070ti-native.json.gz).
+
+| Engine | Prefill tok/s | Decode tok/s | Package bytes | Peak process GPU bytes |
+| --- | ---: | ---: | ---: | ---: |
+| LeanSonic | 8,261.42 | 172.40 | 11,487,467,790 | 14,784,921,600 |
+| llama.cpp IQ3_XXS | 1,932.75 | 79.90 | 11,663,309,504 | 15,049,162,752 |
+
+The LeanSonic package counts the weights and tokenizer. The GGUF includes its tokenizer. Timings cover the individual engines at this input shape and do not include process startup.
