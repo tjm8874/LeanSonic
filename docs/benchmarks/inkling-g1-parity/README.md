@@ -2,6 +2,8 @@
 
 At fb541e3 on RTX 5060 Ti, compiled with CUDA 13.0.88, the 8-CTA G1 path reproduces the 24-CTA fallback on 704 bitwise code/scale cases (up to 131,072 context), 66 independent CPU FP64 fixtures and all 1,530 real WikiText row fingerprints from the six selected chunks. Main 2d7db2a fails the first fixture at base 6, batch 5, local capacity 1024. See [the parity command, source and fixtures](https://github.com/tjm8874/LeanSonic/pull/217) and the [matched hashes and scores](5060ti.json).
 
+An independent replay on RTX PRO 4500 (driver 595.99.02, 200 W) reproduced both operator CSV hashes, all three real-input row files, all scores and the same parent failure and 704-case candidate pass. The sm_120a candidate also passed the repository SASS audit. [Second-card evidence](pro4500.json).
+
 ## Full WikiText effect of the two existing attention paths
 
 On RTX PRO 5000 the 13,448,974,014-byte high-quality package and both executables from 6aa971d are identical between arms. Each split uses 25,500 BF16 positions, FP16 KV, one sequence, 512-token context and 24/24 resident expert layers. The second arm sets LEANSONIC_G1_ATTN=0. This is a full-corpus test of the existing fallback. Direct patched-kernel parity above covers the six selected chunks.
