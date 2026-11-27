@@ -46,7 +46,7 @@ pub const GLOBAL_LAYERS: [usize; 4] = [5, 11, 17, 23];
 /// global KV when `max_ctx > AUTO_INT8_KV_MIN_CTX` and `LEANSONIC_KV` is unset.
 const AUTO_INT8_KV_MAX_VRAM: usize = 16_896 << 20; // 16.5 GiB
 const AUTO_INT8_KV_MIN_CTX: usize = 8_192;
-pub const MAX_BATCH_TOKENS: usize = 2048;
+pub const MAX_BATCH_TOKENS: usize = 8192;
 /// Rows of one multi-sequence decode round (#107) when `LEANSONIC_SEQS` > 1.
 pub const MAX_MS_ROWS: usize = 64;
 const NVFP4_LAYERS: usize = 20;
@@ -602,6 +602,7 @@ struct KernelFns {
     quant_nvfp4_2term_1p_b: Option<CUfunction>,
     flash_attn_tc_split_b: Option<CUfunction>,
     flash_attn_tc_split_b_i8: Option<CUfunction>,
+    flash_attn_tc_split80_b: Option<CUfunction>,
     flash_attn_split_combine_q8_b: Option<CUfunction>,
     depth_mix_multi_ctrl_norm_bf16_b: Option<CUfunction>,
     // v0.8.0 Solo & Spec Decode PDL + Hoisted Kernels (`Issue #11` / `#104` / `#106`)
@@ -894,6 +895,8 @@ pub struct Inkling2GpuEngine {
     ctrl_r1: bool,
     sc_save_fuse: bool,
     down_conv_fuse: bool,
+    flash_split96: bool,
+    nvfp4_t160_min: usize,
     max_prefill_chunk: usize,
     // Persistent device scratch buffers
     d_sync_counters: DeviceBuf,
@@ -2513,6 +2516,11 @@ impl Inkling2GpuEngine {
             down_conv_fuse: std::env::var("LEANSONIC_DOWN_CONV_FUSE")
                 .map(|v| v != "0")
                 .unwrap_or(true),
+            flash_split96: std::env::var("LEANSONIC_FLASH_SPLIT96").map_or(true, |v| v != "0"),
+            nvfp4_t160_min: std::env::var("LEANSONIC_NVFP4_T160_MIN")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(usize::MAX),
             max_prefill_chunk: EXPERT_PAGE,
             host_pos: 0,
             decode_graph: None,
@@ -2542,7 +2550,7 @@ impl Inkling2GpuEngine {
                 s.parse::<usize>()
                     .ok()
                     .filter(|n| (EXPERT_PAGE..=MAX_BATCH_TOKENS).contains(n) && n.is_power_of_two())
-                    .ok_or("LEANSONIC_PREFILL_CHUNK must be 64, 128, 256, 512, 1024 or 2048")?,
+                    .ok_or("LEANSONIC_PREFILL_CHUNK must be 64, 128, 256, 512, 1024, 2048, 4096 or 8192")?,
             ),
             Err(std::env::VarError::NotPresent) => None,
             Err(e) => return Err(e.to_string()),
@@ -2559,8 +2567,13 @@ impl Inkling2GpuEngine {
                     .map(|(view, _)| view.len())
                     .sum();
                 let headroom = budget - expert_bytes;
-                for width in [2048, 1024, 512, 256, 128] {
-                    if width > limit || width > max_ctx {
+                let auto_cap = if explicit_chunk.is_some() {
+                    MAX_BATCH_TOKENS
+                } else {
+                    4096 // `4096 * 8 * 2592 B = 84.9 MB <= 96 MiB` L2 cache!
+                };
+                for width in [8192, 4096, 2048, 1024, 512, 256, 128] {
+                    if width > auto_cap || width > limit || width > max_ctx {
                         continue;
                     }
                     let extra = (width - EXPERT_PAGE) * eng.prefill.bytes_per_row;
@@ -3011,6 +3024,8 @@ impl Inkling2GpuEngine {
             set_dyn_smem(get_fn("ink2_flash_attn_tc_split_b").ok(), 64_512)?;
         let flash_attn_tc_split_b_i8 =
             set_dyn_smem(get_fn("ink2_flash_attn_tc_split_b_i8").ok(), 64_512)?;
+        let flash_attn_tc_split80_b =
+            set_dyn_smem(get_fn("ink2_flash_attn_tc_split80_b").ok(), 100_352)?;
         Ok(KernelFns {
             _module: module,
             experts: expert_kernels("")?,
@@ -3146,6 +3161,7 @@ impl Inkling2GpuEngine {
             quant_nvfp4_2term_1p_b: get_fn("ink2_quant_nvfp4_2term_1p_b").ok(),
             flash_attn_tc_split_b,
             flash_attn_tc_split_b_i8,
+            flash_attn_tc_split80_b,
             flash_attn_split_combine_q8_b: get_fn("ink2_flash_attn_split_combine_q8_b").ok(),
             depth_mix_multi_ctrl_norm_bf16_b: get_fn("ink2_depth_mix_multi_ctrl_norm_bf16_b").ok(),
             depth_mix_inv: get_fn("ink2_depth_mix_inv").ok(),
@@ -7764,7 +7780,9 @@ impl Inkling2GpuEngine {
                 let long_splits: u32 = std::env::var("LEANSONIC_LONG_SPLITS")
                     .ok()
                     .and_then(|v| v.parse().ok())
-                    .unwrap_or(if self.ctx.device_name.contains("4500") {
+                    .unwrap_or(if b_len >= 4096 && self.host_pos < 24_576 {
+                        3
+                    } else if b_len >= 4096 || self.ctx.device_name.contains("4500") {
                         5
                     } else {
                         6
@@ -7782,8 +7800,8 @@ impl Inkling2GpuEngine {
                 let mut ig = i32::from(l.global);
                 let mut bi = b_i32;
                 if st.k_scale.is_some() {
-                    let f_sp_i8 = self.fns.flash_attn_tc_split_b_i8.unwrap();
                     let (mut pks, mut pvs) = st.kv_scale_ptrs_at(self.cur_seq);
+                    let f_sp_i8 = self.fns.flash_attn_tc_split_b_i8.unwrap();
                     let mut s_args: [*mut c_void; 13] = [
                         (&mut pqrgs as *mut _) as *mut c_void,
                         (&mut qstride as *mut _) as *mut c_void,
@@ -7806,6 +7824,28 @@ impl Inkling2GpuEngine {
                         384,
                         63_872,
                         &mut s_args,
+                    )?;
+                } else if let (true, Some(f_sp80)) =
+                    (self.flash_split96, self.fns.flash_attn_tc_split80_b)
+                {
+                    let mut s80_args: [*mut c_void; 9] = [
+                        (&mut pqrgs as *mut _) as *mut c_void,
+                        (&mut qstride as *mut _) as *mut c_void,
+                        (&mut prp as *mut _) as *mut c_void,
+                        (&mut pkc as *mut _) as *mut c_void,
+                        (&mut pvc as *mut _) as *mut c_void,
+                        (&mut ppos as *mut _) as *mut c_void,
+                        (&mut bi as *mut _) as *mut c_void,
+                        (&mut part_o_ptr as *mut _) as *mut c_void,
+                        (&mut part_ml_ptr as *mut _) as *mut c_void,
+                    ];
+                    self.launch_smem_3d(
+                        stream,
+                        f_sp80,
+                        (b_u32.div_ceil(80), 8, long_splits),
+                        480,
+                        99_920,
+                        &mut s80_args,
                     )?;
                 } else {
                     let f_sp = self.fns.flash_attn_tc_split_b.unwrap();
@@ -8626,7 +8666,7 @@ impl Inkling2GpuEngine {
         match &l.expert_scales {
             ExpertScales::Nvfp4 { s13, a13, s2, a2 } => {
                 let (opt_up, opt_dn, nvfp4_grid_x, nvfp4_block, nvfp4_tile_toks, nvfp4_smem) =
-                    if b_len > 2048
+                    if b_len >= self.nvfp4_t160_min
                         && s13.kernels.nvfp4_tc_up_situ_t160.is_some()
                         && s2.kernels.nvfp4_tc_down_t160.is_some()
                     {
@@ -9221,7 +9261,7 @@ impl Inkling2GpuEngine {
                             (&mut psc as *mut _) as *mut c_void,
                             (&mut cols as *mut _) as *mut c_void,
                         ];
-                        self.launch(stream, f_qm, ((D / 128) as u32, b_u32), 32, &mut q_args)?;
+                        self.launch(stream, f_qm, (b_u32, (D / 128) as u32), 32, &mut q_args)?;
                     }
                     let mut pw13 = if self.direct_device_tc {
                         w13.ptr()
@@ -9270,7 +9310,7 @@ impl Inkling2GpuEngine {
                         self.launch(
                             stream,
                             f_qm,
-                            ((FF / 128) as u32, (b_len * TOP_K) as u32),
+                            ((b_len * TOP_K) as u32, (FF / 128) as u32),
                             32,
                             &mut q_args,
                         )?;
@@ -10228,7 +10268,9 @@ mod tests {
             (513, 1024),
             (1024, 1024),
             (1025, 2048),
-            (usize::MAX, 2048),
+            (2049, 4096),
+            (4097, 8192),
+            (usize::MAX, 8192),
         ] {
             assert_eq!(known_prompt_limit(tokens), width);
         }
