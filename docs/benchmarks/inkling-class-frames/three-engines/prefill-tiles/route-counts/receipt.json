@@ -1,0 +1,11 @@
+{
+  "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell, 595.99.02",
+  "source": "a1592f3",
+  "routing_rows": 192,
+  "routing_sha256": "9b4d3475d91f6ba3c13914ae28251209667e03a2892c66d795bf837c513b79b7",
+  "digests": {
+    "capture": "357235d46f3bfaec41956c07bd16cc86208b2b4a789a55ffce0466373a5aa771",
+    "fixtures.ids": "6469a66835ff5b252fc9d3c1d2f91263a2234346bce642902aabf9b83e994150",
+    "rows.f32": "a71f51347b117e25e19e3eeaa93af223e0f80807054ba878ede5cc16fd719162"
+  }
+}
