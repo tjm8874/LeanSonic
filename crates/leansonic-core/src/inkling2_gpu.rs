@@ -1331,7 +1331,21 @@ impl Inkling2GpuEngine {
         let kv_auto = kv_env.is_none()
             && total_vram_at_load <= AUTO_INT8_KV_MAX_VRAM
             && max_ctx > AUTO_INT8_KV_MIN_CTX;
-        let kv_mode = if kv_auto {
+        // #107: C sequences keep C copies of every KV cache and ring. When their FP16 bytes
+        // would not fit next to the resident model (~17.5 GiB with workspaces), store all
+        // layers as INT8 instead (e.g. PRO 4500: C = 64 x ctx 4096 needs ~19.8 GiB in FP16).
+        let ms_fp16_kv_bytes = n_seqs
+            * (8 * max_ctx + (N_SLOT - 8) * max_ctx.min(EXTENT + EXPERT_PAGE))
+            * N_KV
+            * HD
+            * 2
+            * 2;
+        let kv_auto_ms = kv_env.is_none()
+            && n_seqs > 1
+            && ms_fp16_kv_bytes + (17_920usize << 20) > total_vram_at_load;
+        let kv_mode = if kv_auto_ms {
+            "int8-all".to_string()
+        } else if kv_auto {
             "int8".to_string()
         } else {
             kv_env.unwrap_or_default().to_ascii_lowercase()
