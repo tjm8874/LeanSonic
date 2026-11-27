@@ -1,0 +1,99 @@
+{
+  "parent": "2d7db2a5ce68514e8297fb0e993b3484fd466b0f",
+  "candidate": "fb541e3",
+  "gpu": "NVIDIA RTX PRO 4500 Blackwell, 595.99.02, 200.00 W",
+  "digests": [
+    "2aef60a62f2f83bbb5d7e4f5375168057716f12c0350e428262e4480956bd660  candidate.cubin",
+    "7d3d1416baeaefcb71c4cbefab686def0a46ca1b44a4b7a8630d56e56518e8e6  parent.cubin",
+    "52a110134f671ad3c97d813bf730c9fda2ef5b4659c52a3ab93db22da20b4ad8  cli",
+    "89a0bffdbf93a76683eb6e35a6bc5a47bffc9980128ce69ddbe66bc1734ef854  parity",
+    "e964b346c08d8e56e48fb4628a959be7cdef36ad5a7c36c11990b07f32bb7baa  attention"
+  ],
+  "kernel_tests": {
+    "parent": {
+      "status": 1,
+      "stdout": "Different attention output at base=6 cap=1024 batch=5",
+      "csv_sha256": "dd9445b4ee9e0b6b65ddc89d55b5b2ecc951d4f25e9d9c605dc5311814234813"
+    },
+    "candidate": {
+      "status": 0,
+      "stdout": "704 cases matched (all Q8 codes and FP32 scales)",
+      "csv_sha256": "9cf002f2dabc366b2e35854b0069cedd98f878033f1130b8842345ac93e23634"
+    }
+  },
+  "real_rows": {
+    "parent": {
+      "sha256": "b070d5610e034fc4ed3fcbbd39d5920cf3727fc7666d7df3a44b73f9d52bf6dd",
+      "score": {
+        "chunks": 6,
+        "context": 512,
+        "rows": 1530,
+        "ppl": 8.077770228022484,
+        "ref_ppl": 6.532327441454407,
+        "mean_kld": 0.2368158959492099,
+        "median_kld": 0.112475018689912,
+        "p99_kld": 2.0400271358179225,
+        "max_kld": 6.654780790237908,
+        "start_chunk": 0,
+        "max_kld_chunk": 3,
+        "max_kld_position": 324,
+        "ref_floor_targets": 1,
+        "top1_matches": 1233,
+        "top1_agreement": 0.8058823529411765
+      }
+    },
+    "candidate": {
+      "sha256": "ae39f0a175b2cc110888cf1c4905d504022cc033e5924ea8c65a3fb65a81d713",
+      "score": {
+        "chunks": 6,
+        "context": 512,
+        "rows": 1530,
+        "ppl": 8.056666684295104,
+        "ref_ppl": 6.532327441454407,
+        "mean_kld": 0.23637334549316738,
+        "median_kld": 0.11428030398569929,
+        "p99_kld": 1.9022115148055927,
+        "max_kld": 6.20640486703496,
+        "start_chunk": 0,
+        "max_kld_chunk": 1,
+        "max_kld_position": 260,
+        "ref_floor_targets": 1,
+        "top1_matches": 1222,
+        "top1_agreement": 0.7986928104575164
+      }
+    },
+    "fallback": {
+      "sha256": "ae39f0a175b2cc110888cf1c4905d504022cc033e5924ea8c65a3fb65a81d713",
+      "score": {
+        "chunks": 6,
+        "context": 512,
+        "rows": 1530,
+        "ppl": 8.056666684295104,
+        "ref_ppl": 6.532327441454407,
+        "mean_kld": 0.23637334549316738,
+        "median_kld": 0.11428030398569929,
+        "p99_kld": 1.9022115148055927,
+        "max_kld": 6.20640486703496,
+        "start_chunk": 0,
+        "max_kld_chunk": 1,
+        "max_kld_position": 260,
+        "ref_floor_targets": 1,
+        "top1_matches": 1222,
+        "top1_agreement": 0.7986928104575164
+      }
+    }
+  },
+  "operator": {
+    "parent": {
+      "q8_code_diff": 2,
+      "fp32_scale_bit_diff": 1105,
+      "g1_q8_diff_from_fp64": 2
+    },
+    "candidate": {
+      "q8_code_diff": 0,
+      "fp32_scale_bit_diff": 0,
+      "g1_q8_diff_from_fp64": 0
+    }
+  },
+  "sass_audit": "[PASS] Gate 2: CUDA/PTX kernel templates & SASS static audit passed."
+}

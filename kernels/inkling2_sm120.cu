@@ -2483,19 +2483,27 @@ INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_up_situ, (
     }
 }
 
-__device__ __forceinline__ unsigned ternary_four_s8(unsigned codes) {
-    // Convert four two-bit selectors to PRMT selectors; E2M1 integers are doubled.
-    unsigned x = codes & 255u;
-    x = (x | (x << 4)) & 0x0f0fu;
-    x = (x | (x << 2)) & 0x3333u;
-    return __byte_perm(0xf4000c00u, 0u, x);
+// Four pair selectors produce eight E2M1 nibbles. Selector 15 replicates
+// the high bit of byte 7 (0xf7), producing the ninth possible pair, 0xff.
+__device__ __forceinline__ unsigned ternary_nibbles(unsigned selectors) {
+    unsigned weights;
+    asm("prmt.b32 %0, %1, %2, %3;" : "=r"(weights)
+        : "r"(0x700f0700u), "r"(0xf7f07f77u), "r"(selectors));
+    return weights;
+}
+
+__device__ __forceinline__ unsigned ternary_four_s8(unsigned nibbles) {
+    // Low three bits after shifting each E2M1 nibble: 0 -> 0, 7 -> 3, 15 -> 7.
+    return __byte_perm(0x0c000000u, 0xf4000000u, (nibbles >> 1) & 0x7777u);
 }
 
 __device__ __forceinline__ int ternary_block_dp4a(unsigned codes, uint4 activation) {
-    int dot = __dp4a(static_cast<int>(ternary_four_s8(codes)), static_cast<int>(activation.x), 0);
-    dot = __dp4a(static_cast<int>(ternary_four_s8(codes >> 8)), static_cast<int>(activation.y), dot);
-    dot = __dp4a(static_cast<int>(ternary_four_s8(codes >> 16)), static_cast<int>(activation.z), dot);
-    return __dp4a(static_cast<int>(ternary_four_s8(codes >> 24)), static_cast<int>(activation.w), dot);
+    const unsigned lo = ternary_nibbles(codes);
+    const unsigned hi = ternary_nibbles(codes >> 16);
+    int dot = __dp4a(static_cast<int>(ternary_four_s8(lo)), static_cast<int>(activation.x), 0);
+    dot = __dp4a(static_cast<int>(ternary_four_s8(lo >> 16)), static_cast<int>(activation.y), dot);
+    dot = __dp4a(static_cast<int>(ternary_four_s8(hi)), static_cast<int>(activation.z), dot);
+    return __dp4a(static_cast<int>(ternary_four_s8(hi >> 16)), static_cast<int>(activation.w), dot);
 }
 
 template<class Weight>
@@ -10423,14 +10431,6 @@ struct Nvfp4TcSmem256x128_3Stage {
     int32_t sm_row_off[129];   //    516 B
 }; // Total = 62,472 B (`+ 32 + 1,024 = 63,528 B <= 64 KiB` -> `16` warps/SM + `64 KiB` full L1!)
 
-// Expand eight two-bit codes to their original E2M1 nibbles (0, +6, -6).
-__device__ __forceinline__ unsigned ternary_nibbles(unsigned half) {
-    unsigned x = (half | (half << 8)) & 0x00ff00ffu;
-    x = (x | (x << 4)) & 0x0f0f0f0fu;
-    x = (x | (x << 2)) & 0x33333333u;
-    return ((x & 0x11111111u) * 7u) | ((x & 0x22222222u) << 2);
-}
-
 template <bool Ternary>
 __device__ __forceinline__ void stage_nvfp4_weight(
     uint4* shared, const uint4* weights, size_t group, bool is_last_tile, uint64_t evict_pol) {
@@ -14001,7 +14001,7 @@ extern "C" __global__ void ink2_depth_mix_multi_ctrl_norm_bf16_b(
 
 // Experimental lossless device representation of low-alphabet E4M3 expert weights.
 // Each block expands part of one expert and preserves the original byte-addressed layout.
-extern "C" __global__ void ink2_expand_ternary_nibbles(
+extern "C" __global__ void ink2_expand_ternary_pair_selectors(
     const unsigned* __restrict__ packed, uint2* __restrict__ raw, unsigned words) {
     pdl_wait();
     for (unsigned i = blockIdx.x * blockDim.x + threadIdx.x; i < words; i += gridDim.x * blockDim.x) {
@@ -14309,12 +14309,13 @@ __device__ __forceinline__ void gqa_attn_g1_q8_decode_body(
                 const float m_new = (dot > m_w[hh]) ? dot : m_w[hh];
                 const float alpha = ptx_exp(m_w[hh] - m_new);
                 const float p = ptx_exp(dot - m_new);
-                l_w[hh] = l_w[hh] * alpha + p;
+                l_w[hh] = __fmaf_rn(l_w[hh], alpha, p);
                 m_w[hh] = m_new;
-                o[hh][0] = o[hh][0] * alpha + p * v0;
-                o[hh][1] = o[hh][1] * alpha + p * v1;
-                o[hh][2] = o[hh][2] * alpha + p * v2;
-                o[hh][3] = o[hh][3] * alpha + p * v3;
+                // Match the FP16 per-head fallback: round p*v before fusing the rescaled state.
+                o[hh][0] = __fmaf_rn(o[hh][0], alpha, __fmul_rn(p, v0));
+                o[hh][1] = __fmaf_rn(o[hh][1], alpha, __fmul_rn(p, v1));
+                o[hh][2] = __fmaf_rn(o[hh][2], alpha, __fmul_rn(p, v2));
+                o[hh][3] = __fmaf_rn(o[hh][3], alpha, __fmul_rn(p, v3));
             }
             wk = nwk; wv = nwv;
             j = jn;

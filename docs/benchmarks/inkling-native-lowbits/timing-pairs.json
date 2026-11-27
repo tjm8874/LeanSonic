@@ -1,0 +1,38 @@
+{
+  "iq3": {
+    "prefill_ms": {
+      "lean_speedup": 4.9338125509376995,
+      "paired_bootstrap_95": [
+        4.923489941185228,
+        4.950929144496821
+      ]
+    },
+    "decode32_ms": {
+      "lean_speedup": 2.444909600778378,
+      "paired_bootstrap_95": [
+        2.4396441602316603,
+        2.4541312999440743
+      ]
+    },
+    "lean_predictions_matching_forced_inputs": 32,
+    "llama_predictions_matching_forced_inputs": 30
+  },
+  "iq1": {
+    "prefill_ms": {
+      "lean_speedup": 4.973302756323552,
+      "paired_bootstrap_95": [
+        4.970662012734186,
+        4.977781422572779
+      ]
+    },
+    "decode32_ms": {
+      "lean_speedup": 2.323299316801184,
+      "paired_bootstrap_95": [
+        2.3207793672865518,
+        2.326077726211772
+      ]
+    },
+    "lean_predictions_matching_forced_inputs": 32,
+    "llama_predictions_matching_forced_inputs": 30
+  }
+}

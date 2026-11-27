@@ -1,0 +1,275 @@
+{
+  "fixture": {
+    "original_chunks": [
+      0,
+      1,
+      76,
+      77,
+      89,
+      90
+    ],
+    "bytes": 612202028,
+    "subset_sha256": "49516f7f433a8fab26b158c152ae263184c5a00f928c13148feac6cd1e2f4faf"
+  },
+  "binaries": "9d21dc5972e28041233307631ffd4f851c477168b7db229ff82ed1e9f9b5c3ec  new.cli\n24bf26680327cef8539ec28d8a60694fc868007e5faa744b522a0301a680667d  old.cli\n7d3d1416baeaefcb71c4cbefab686def0a46ca1b44a4b7a8630d56e56518e8e6  new.cubin\n65fb004d7d44c3d5450b7146dc9e3cb302d728ac35f1bcda2cf162a51c6dfb6d  old.cubin\n",
+  "row_file_sha256": {
+    "old": "ae39f0a175b2cc110888cf1c4905d504022cc033e5924ea8c65a3fb65a81d713",
+    "new_raw": "b070d5610e034fc4ed3fcbbd39d5920cf3727fc7666d7df3a44b73f9d52bf6dd",
+    "new_up": "b070d5610e034fc4ed3fcbbd39d5920cf3727fc7666d7df3a44b73f9d52bf6dd",
+    "new_mixed": "b070d5610e034fc4ed3fcbbd39d5920cf3727fc7666d7df3a44b73f9d52bf6dd",
+    "old_repeat": "ae39f0a175b2cc110888cf1c4905d504022cc033e5924ea8c65a3fb65a81d713"
+  },
+  "scores": {
+    "old": {
+      "chunks": 6,
+      "context": 512,
+      "rows": 1530,
+      "ppl": 8.056666684295104,
+      "ref_ppl": 6.532327441454407,
+      "mean_kld": 0.23637334549316738,
+      "median_kld": 0.11428030398569929,
+      "p99_kld": 1.9022115148055927,
+      "max_kld": 6.20640486703496,
+      "start_chunk": 0,
+      "max_kld_chunk": 1,
+      "max_kld_position": 260,
+      "ref_floor_targets": 1,
+      "top1_matches": 1222,
+      "top1_agreement": 0.7986928104575164
+    },
+    "new_raw": {
+      "chunks": 6,
+      "context": 512,
+      "rows": 1530,
+      "ppl": 8.077770228022484,
+      "ref_ppl": 6.532327441454407,
+      "mean_kld": 0.2368158959492099,
+      "median_kld": 0.112475018689912,
+      "p99_kld": 2.0400271358179225,
+      "max_kld": 6.654780790237908,
+      "start_chunk": 0,
+      "max_kld_chunk": 3,
+      "max_kld_position": 324,
+      "ref_floor_targets": 1,
+      "top1_matches": 1233,
+      "top1_agreement": 0.8058823529411765
+    },
+    "new_up": {
+      "chunks": 6,
+      "context": 512,
+      "rows": 1530,
+      "ppl": 8.077770228022484,
+      "ref_ppl": 6.532327441454407,
+      "mean_kld": 0.2368158959492099,
+      "median_kld": 0.112475018689912,
+      "p99_kld": 2.0400271358179225,
+      "max_kld": 6.654780790237908,
+      "start_chunk": 0,
+      "max_kld_chunk": 3,
+      "max_kld_position": 324,
+      "ref_floor_targets": 1,
+      "top1_matches": 1233,
+      "top1_agreement": 0.8058823529411765
+    },
+    "new_mixed": {
+      "chunks": 6,
+      "context": 512,
+      "rows": 1530,
+      "ppl": 8.077770228022484,
+      "ref_ppl": 6.532327441454407,
+      "mean_kld": 0.2368158959492099,
+      "median_kld": 0.112475018689912,
+      "p99_kld": 2.0400271358179225,
+      "max_kld": 6.654780790237908,
+      "start_chunk": 0,
+      "max_kld_chunk": 3,
+      "max_kld_position": 324,
+      "ref_floor_targets": 1,
+      "top1_matches": 1233,
+      "top1_agreement": 0.8058823529411765
+    },
+    "old_repeat": {
+      "chunks": 6,
+      "context": 512,
+      "rows": 1530,
+      "ppl": 8.056666684295104,
+      "ref_ppl": 6.532327441454407,
+      "mean_kld": 0.23637334549316738,
+      "median_kld": 0.11428030398569929,
+      "p99_kld": 1.9022115148055927,
+      "max_kld": 6.20640486703496,
+      "start_chunk": 0,
+      "max_kld_chunk": 1,
+      "max_kld_position": 260,
+      "ref_floor_targets": 1,
+      "top1_matches": 1222,
+      "top1_agreement": 0.7986928104575164
+    }
+  },
+  "pairs": {
+    "old/old_repeat": {
+      "different_rows": 0,
+      "different_top": 0,
+      "first": null,
+      "max_kl_change": null
+    },
+    "new_raw/new_up": {
+      "different_rows": 0,
+      "different_top": 0,
+      "first": null,
+      "max_kl_change": null
+    },
+    "new_up/new_mixed": {
+      "different_rows": 0,
+      "different_top": 0,
+      "first": null,
+      "max_kl_change": null
+    },
+    "old/new_mixed": {
+      "different_rows": 1530,
+      "different_top": 49,
+      "first": {
+        "chunk": 0,
+        "position": 256,
+        "target": 149894,
+        "top": [
+          149881,
+          149881
+        ],
+        "kl": [
+          0.087994636479,
+          0.088095091468
+        ],
+        "fingerprint": [
+          "561eabe2ebde3b82",
+          "674e33e7607c3d95"
+        ]
+      },
+      "max_kl_change": {
+        "chunk": 90,
+        "position": 290,
+        "target": 152468,
+        "top": [
+          149876,
+          197000
+        ],
+        "kl": [
+          1.838690479993,
+          3.417731790813
+        ],
+        "fingerprint": [
+          "66273c6ce6cc8d50",
+          "44c3ee937dcda516"
+        ]
+      }
+    }
+  },
+  "targets": {
+    "old": [
+      {
+        "chunk": 1,
+        "pos": 260,
+        "kl": 6.206404867035,
+        "top": 38520
+      },
+      {
+        "chunk": 77,
+        "pos": 324,
+        "kl": 6.115262033232,
+        "top": 220
+      },
+      {
+        "chunk": 90,
+        "pos": 424,
+        "kl": 5.930834931346,
+        "top": 149881
+      }
+    ],
+    "new_raw": [
+      {
+        "chunk": 1,
+        "pos": 260,
+        "kl": 6.171709663084,
+        "top": 38520
+      },
+      {
+        "chunk": 77,
+        "pos": 324,
+        "kl": 6.654780790238,
+        "top": 220
+      },
+      {
+        "chunk": 90,
+        "pos": 424,
+        "kl": 6.071825525325,
+        "top": 149881
+      }
+    ],
+    "new_up": [
+      {
+        "chunk": 1,
+        "pos": 260,
+        "kl": 6.171709663084,
+        "top": 38520
+      },
+      {
+        "chunk": 77,
+        "pos": 324,
+        "kl": 6.654780790238,
+        "top": 220
+      },
+      {
+        "chunk": 90,
+        "pos": 424,
+        "kl": 6.071825525325,
+        "top": 149881
+      }
+    ],
+    "new_mixed": [
+      {
+        "chunk": 1,
+        "pos": 260,
+        "kl": 6.171709663084,
+        "top": 38520
+      },
+      {
+        "chunk": 77,
+        "pos": 324,
+        "kl": 6.654780790238,
+        "top": 220
+      },
+      {
+        "chunk": 90,
+        "pos": 424,
+        "kl": 6.071825525325,
+        "top": 149881
+      }
+    ],
+    "old_repeat": [
+      {
+        "chunk": 1,
+        "pos": 260,
+        "kl": 6.206404867035,
+        "top": 38520
+      },
+      {
+        "chunk": 77,
+        "pos": 324,
+        "kl": 6.115262033232,
+        "top": 220
+      },
+      {
+        "chunk": 90,
+        "pos": 424,
+        "kl": 5.930834931346,
+        "top": 149881
+      }
+    ]
+  },
+  "crossed_build_error": "[ERROR] chunk 0, position 256: CUDA error 700 in `cuStreamSynchronize(compute)`",
+  "revisions": {
+    "old_host": "5470f092e1695d660be8aa6dd58f6b9aab02acce",
+    "old_historical_module": "bc526e3553524cc2bdd6f1707a65fd592f75b546",
+    "new_host_and_module": "3364f6ddc39937145476d371d58c47cdf8bfd407"
+  }
+}

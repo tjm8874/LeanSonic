@@ -1,0 +1,5 @@
+# Four-bank ternary loader on RTX PRO 4500
+
+Use the direct and four-bank packages from the [ranked expert experiment](../../inkling-codebooks/nvfp4-budget/recovered/ternary/ranked-experts/four-banks). At the receipt source, copy smoke.rs to crates/leansonic-core/examples/ternary_gate_up_smoke.rs and run `cargo build --release -p leansonic-core --example ternary_gate_up_smoke`. Compile kernels/inkling2_sm120.cu with nvcc -Ikernels -arch=sm_120a -std=c++17 -O3 --cubin. Pin LEANSONIC_CUBIN_PATH to that module. Use FP16 KV, one sequence, context 8192, prefill chunk 4096, PDL, PDL_ALL, MXFP8_DEVICE_U4 and MXFP8_DIRECT_ALL enabled, TERNARY_DOWN=0. Run the example with arguments MODEL prompt.ids OUTPUT_PREFIX. Use TERNARY_UP=0 on each physical package, then TERNARY_UP=1 on the four-bank package.
+
+Across prefixes of 32, 1024, 3072 and 4096 tokens, all three arms produced identical outputs for eight FP32 vocabulary vectors in total and 64 generated token IDs per prefix. Sampled process peak was 17,039,360,000 bytes for both full-width arms and 13,981,712,384 for compact gate/up. Each arm had one measured load. [Hashes and raw peaks](receipt.json)

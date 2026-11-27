@@ -428,6 +428,25 @@ pub(crate) struct Matrix<'a> {
     count: usize,
 }
 
+// A nonzero frequency makes this byte reachable; zero-frequency entries never decode.
+pub(crate) fn ternary_scale_tables(frame: &[u8], four_banks: bool) -> Result<bool, String> {
+    let (offset, banks) = if four_banks { (384, 4) } else { (128, 2) };
+    let tables = frame
+        .get(offset..offset + banks * NVFP4_CONTEXTS * 512)
+        .ok_or("missing scale-conditioned NVFP4 frequency tables")?;
+    Ok(tables.as_chunks::<512>().0.iter().all(|table| {
+        table
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .enumerate()
+            .all(|(byte, freq)| {
+                *freq == [0, 0]
+                    || (matches!(byte & 15, 0 | 7 | 15) && matches!(byte >> 4, 0 | 7 | 15))
+            })
+    }))
+}
+
 impl<'a> Matrix<'a> {
     pub(crate) fn parse(data: &'a [u8], count: usize) -> Result<Self, String> {
         Self::parse_tables(data, count, 1)
@@ -661,6 +680,37 @@ impl<'a> Matrix<'a> {
         Ok(())
     }
 
+    /// Convert four decoded NVFP4 nibbles to the resident signed two-bit layout.
+    pub(crate) fn pack_ternary_weights(&self) -> Result<Vec<u8>, String> {
+        let mut packed = Vec::with_capacity(self.count / 2);
+        // A selector indexes the eight literal bytes in the CUDA PRMT table.
+        // For two negative weights selector 15 replicates byte 7's sign.
+        let mut table = [0xff; 256];
+        for (selector, byte) in [0x00, 0x07, 0x0f, 0x70, 0x77, 0x7f, 0xf0, 0xf7]
+            .into_iter()
+            .enumerate()
+        {
+            table[byte] = selector as u8;
+        }
+        table[0xff] = 15;
+        self.for_each_chunk(|_, tile| {
+            let (pairs, tail) = tile.as_chunks::<2>();
+            if !tail.is_empty() {
+                return Err("unaligned ternary weight tile".into());
+            }
+            for &[a, b] in pairs {
+                let x = table[usize::from(a)];
+                let y = table[usize::from(b)];
+                if x == 255 || y == 255 {
+                    return Err("requested ternary plane contains a non-ternary weight".into());
+                }
+                packed.push(x | (y << 4));
+            }
+            Ok(())
+        })?;
+        Ok(packed)
+    }
+
     /// Deliver decoded bytes in order while bounding temporary host memory.
     pub(crate) fn for_each_chunk(
         &self,
@@ -735,6 +785,51 @@ mod tests {
         assert!(unpack_scale_direct(&frame[..frame.len() - 8], scales.clone()).is_err());
         frame[17] = 255;
         assert!(unpack_scale_direct(&frame, scales).is_err());
+    }
+
+    #[test]
+    fn ternary_placement_agrees_across_direct_and_four_bank_frames() {
+        let count = TILE + 1024;
+        let scales: Vec<_> = (0..count / 8).map(|i| (i % 128) as u8).collect();
+        let cuts = [64; 128];
+        let mut raw = Vec::with_capacity(count);
+        let mut expected = Vec::with_capacity(count / 2);
+        for i in 0..count / 2 {
+            let mut n = i % 81;
+            let mut nibbles = 0u16;
+            let selector = |index| if index == 8 { 15 } else { index as u8 };
+            let packed = selector(n % 9) | (selector(n / 9) << 4);
+            for j in 0..4 {
+                let digit = n % 3;
+                n /= 3;
+                nibbles |= [0u16, 7, 15][digit] << (4 * j);
+            }
+            raw.extend(nibbles.to_le_bytes());
+            expected.push(packed);
+        }
+        for mixed in [false, true] {
+            if mixed {
+                *raw.last_mut().unwrap() = 0x24;
+            }
+            for four_banks in [false, true] {
+                let mut frame = Vec::new();
+                let matrix = if four_banks {
+                    pack_four_scale_banks(&raw, scales.clone(), &cuts, &mut frame).unwrap();
+                    assert_eq!(ternary_scale_tables(&frame, true).unwrap(), !mixed);
+                    Matrix::parse_four_scale_banks(&frame, count, scales.clone()).unwrap()
+                } else {
+                    pack_scale_direct(&raw, scales.clone(), &cuts, &mut frame).unwrap();
+                    assert_eq!(ternary_scale_tables(&frame, false).unwrap(), !mixed);
+                    Matrix::parse_scale_direct(&frame, count, scales.clone()).unwrap()
+                };
+                let result = matrix.pack_ternary_weights();
+                if mixed {
+                    assert!(result.unwrap_err().contains("non-ternary weight"));
+                } else {
+                    assert_eq!(result.unwrap(), expected);
+                }
+            }
+        }
     }
 
     #[test]

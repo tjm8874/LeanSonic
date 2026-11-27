@@ -1,0 +1,43 @@
+{
+  "source": "62edc7fd3af8b9346405827fd911d92d65b6dc70",
+  "gpu": "NVIDIA RTX PRO 4500 Blackwell",
+  "binary_sha256": {
+    "engine.cubin": "7d3d1416baeaefcb71c4cbefab686def0a46ca1b44a4b7a8630d56e56518e8e6",
+    "bench": "a583b7a4dec5deb48f31b5afb2e24efac7ea99462223bcc0dcfb0d7a4839191e"
+  },
+  "output_sha256": {
+    "direct.ids": "25bf1f227d536790d267bdd87401028b8a9bff62e3b9c4191b2a2074431ba0bd",
+    "four.ids": "25bf1f227d536790d267bdd87401028b8a9bff62e3b9c4191b2a2074431ba0bd",
+    "four_compact.ids": "25bf1f227d536790d267bdd87401028b8a9bff62e3b9c4191b2a2074431ba0bd",
+    "prompt.ids": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843",
+    "direct.f32": "70bf65f97696fd6ccb2c82c01dd08cab51912228af4fabe602313c7370d3b250",
+    "four.f32": "70bf65f97696fd6ccb2c82c01dd08cab51912228af4fabe602313c7370d3b250",
+    "four_compact.f32": "70bf65f97696fd6ccb2c82c01dd08cab51912228af4fabe602313c7370d3b250"
+  },
+  "arms": {
+    "direct": {
+      "peak": {
+        "peak_bytes": 17039360000,
+        "polls": 3353,
+        "positive_polls": 3349
+      },
+      "load": "load_ms=12351.364"
+    },
+    "four": {
+      "peak": {
+        "peak_bytes": 17039360000,
+        "polls": 2594,
+        "positive_polls": 2592
+      },
+      "load": "load_ms=8895.789"
+    },
+    "four_compact": {
+      "peak": {
+        "peak_bytes": 13981712384,
+        "polls": 3280,
+        "positive_polls": 3278
+      },
+      "load": "load_ms=12030.018"
+    }
+  }
+}

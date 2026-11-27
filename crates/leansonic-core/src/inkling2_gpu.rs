@@ -20,6 +20,9 @@ use crate::cuda_ffi::{
     CUlaunchConfig, CUmodule, CUstream, CapturedGraphExec, CudaContextHandle, DeviceBuf,
     PinnedHostBuf, CU_EVENT_DISABLE_TIMING,
 };
+use crate::inkling2_dflash2::{
+    find_dflash2, load_dflash2_kernels, Dflash2DrafterGpu, Dflash2KernelFns,
+};
 use crate::inkling2_mtp::{
     spec_copy_match, ContextCopyIndex, DsparkDrafterGpu, MtpKernelFns, SuffixDrafter,
 };
@@ -570,6 +573,7 @@ struct KernelFns {
     mtp_markov_step_q8: CUfunction,
     mtp_fold_mv_q8: CUfunction,
     mtp_fold_fin: CUfunction,
+    /// DFlash 2 drafter kernels (#103); `None` with an older cubin.
     // v0.6.0 0-ULP fused glue & coalesced controller kernels (`Issue #11`)
     depth_mix_rmsnorm_quant_q8_64_b: Option<CUfunction>,
     depth_mix_rmsnorm_d_quant_q8_16_b: Option<CUfunction>,
@@ -840,6 +844,7 @@ pub struct Inkling2GpuEngine {
     mixed_expert_scratch: Option<PinnedHostBuf>,
     ternary_up_scratch: Option<DeviceBuf>,
     ternary_down_scratch: Option<DeviceBuf>,
+    ternary_down_layers: [bool; NVFP4_LAYERS],
     device_codebook_scratch: Option<DeviceBuf>,
     direct_device_up: bool,
     direct_device_tc: bool,
@@ -973,6 +978,8 @@ pub struct Inkling2GpuEngine {
     d_conv_seq: DeviceBuf,
     d_conv_hist_ptrs: DeviceBuf,
     pub drafter: Option<DsparkDrafterGpu>,
+    /// DFlash 2 block drafter (#103), preferred over DSpark for solo speculative rounds.
+    pub dflash2: Option<Dflash2DrafterGpu>,
     pub spec_k: usize,
     pub spec_drafted_total: usize,
     pub spec_accepted_total: usize,
@@ -1482,40 +1489,7 @@ impl<'a> ExpertMatrix<'a> {
                     ScaleFormat::FourBanks => Matrix::parse_four_scale_banks(bytes, count, scales)?,
                 };
                 if ternary {
-                    let mut packed = Vec::with_capacity(count / 2);
-                    let table = std::array::from_fn::<_, 256, _>(|b| {
-                        let code = |n| match n {
-                            0 => 0,
-                            7 => 1,
-                            15 => 3,
-                            _ => 0xff,
-                        };
-                        let lo = code(b & 15);
-                        let hi = code(b >> 4);
-                        if lo == 0xff || hi == 0xff {
-                            0xff
-                        } else {
-                            lo | (hi << 2)
-                        }
-                    });
-                    matrix.for_each_chunk(|_, tile| {
-                        let (pairs, tail) = tile.as_chunks::<2>();
-                        if !tail.is_empty() {
-                            return Err("unaligned ternary weight tile".into());
-                        }
-                        for &[a, b] in pairs {
-                            let x = table[usize::from(a)];
-                            let y = table[usize::from(b)];
-                            if x == 255 || y == 255 {
-                                return Err(
-                                    "requested ternary down plane contains a non-ternary weight"
-                                        .into(),
-                                );
-                            }
-                            packed.push(x | (y << 4));
-                        }
-                        Ok(())
-                    })?;
+                    let packed = matrix.pack_ternary_weights()?;
                     return ExpertMatrix::Raw(&packed).place(ctx, on_device);
                 }
                 matrix
@@ -1978,6 +1952,28 @@ impl Inkling2GpuEngine {
         } else {
             None
         };
+        // DFlash 2 (#103): `LEANSONIC_DRAFTER=auto` (default) prefers it when its checkpoint is found.
+        let drafter_choice = std::env::var("LEANSONIC_DRAFTER").unwrap_or_else(|_| "auto".into());
+        let dflash2 = match (spec_k > 0, drafter_choice.as_str(), find_dflash2(model_dir)) {
+            (true, "auto" | "dflash2", Some(path)) => {
+                let m = load_dflash2_kernels(&ctx)?;
+                Some(Dflash2DrafterGpu::load_from_file(
+                    &ctx,
+                    Dflash2KernelFns {
+                        pdl_all: pdl_all_enabled(&ctx, fns.pdl_all_marker),
+                        q8_gemm_ktiled: fns.q8_dp4a_gemm_ktiled,
+                        q8_gemm_b8_fast: fns.q8_dp4a_gemm_b8_fast,
+                        m,
+                    },
+                    &path,
+                    &unembed_q8,
+                )?)
+            }
+            (true, "dflash2", None) => {
+                return Err("LEANSONIC_DRAFTER=dflash2 but no DFlash 2 checkpoint was found".into())
+            }
+            _ => None,
+        };
 
         let cross_q = st
             .require("model.llm.middle_cycle_cross_pass_queries", "F32", &[24, D])
@@ -2399,31 +2395,55 @@ impl Inkling2GpuEngine {
         let d_ms_tokens = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 4)?;
         // Older modules and grouped/verify paths can still read full-width nibbles.
         let mut ternary_scratch = |slot: usize, setting: &str, bytes: usize| -> Result<_, String> {
-            if std::env::var(setting).as_deref() != Ok("1") {
+            let mode = std::env::var(setting).unwrap_or_default();
+            let auto = slot == 1 && mode == "auto";
+            if mode != "1" && !auto {
+                return Ok(None);
+            }
+            let mut packed_planes = 0usize;
+            for pair in &mut expert_views[..NVFP4_LAYERS] {
+                match &mut pair[slot] {
+                    ExpertMatrix::ScaleSplit {
+                        format: format @ (ScaleFormat::Direct | ScaleFormat::FourBanks),
+                        bytes: frame,
+                        ternary,
+                        ..
+                    } => {
+                        *ternary = !auto
+                            || crate::inkling_mxfp8::ternary_scale_tables(
+                                frame,
+                                matches!(format, ScaleFormat::FourBanks),
+                            )?;
+                        packed_planes += usize::from(*ternary);
+                    }
+                    _ if auto => {}
+                    _ => {
+                        return Err(format!(
+                            "{setting} requires direct or four-bank scale-coded NVFP4 weights"
+                        ))
+                    }
+                }
+            }
+            if auto {
+                eprintln!("[LeanSonic GPU] Selected {packed_planes}/{NVFP4_LAYERS} NVFP4 down planes for two-bit weights");
+            }
+            if packed_planes == 0 {
                 return Ok(None);
             }
             if fns.expand_ternary_nibbles.is_none() {
                 return Err("missing ternary expansion kernel in the selected CUDA module".into());
-            }
-            for pair in &mut expert_views[..NVFP4_LAYERS] {
-                match &mut pair[slot] {
-                    ExpertMatrix::ScaleSplit {
-                        format: ScaleFormat::Direct,
-                        ternary,
-                        ..
-                    } => *ternary = true,
-                    _ => {
-                        return Err(format!(
-                            "{setting} requires a direct scale-coded NVFP4 model"
-                        ))
-                    }
-                }
             }
             Ok(Some(DeviceBuf::alloc_zeroed(&ctx, bytes)?))
         };
         let ternary_up_scratch = ternary_scratch(0, "LEANSONIC_TERNARY_UP", N_EXP * D * FF)?;
         let ternary_down_scratch =
             ternary_scratch(1, "LEANSONIC_TERNARY_DOWN", N_EXP * D * FF / 2)?;
+        let ternary_down_layers = std::array::from_fn(|i| {
+            matches!(
+                expert_views[i][1],
+                ExpertMatrix::ScaleSplit { ternary: true, .. }
+            )
+        });
         let mut device_codebooks = Vec::new();
         let device_codebook_scratch = if device_u4 {
             if !direct_all && fns.expand_mxfp8_indices.is_none() {
@@ -2507,7 +2527,7 @@ impl Inkling2GpuEngine {
                 EXPERT_PAGE,
                 attn_split_g,
                 has_flash_tc,
-                drafter.is_some(),
+                drafter.is_some() || dflash2.is_some(),
             )?,
             d_b_exp_counts: DeviceBuf::alloc_zeroed(&ctx, N_EXP * 4)?,
             d_b_active_exps: DeviceBuf::alloc_zeroed(&ctx, N_EXP * 4)?,
@@ -2516,6 +2536,7 @@ impl Inkling2GpuEngine {
             d_conv_seq,
             d_conv_hist_ptrs,
             drafter,
+            dflash2,
             spec_k,
             spec_drafted_total: 0,
             spec_accepted_total: 0,
@@ -2559,6 +2580,7 @@ impl Inkling2GpuEngine {
             mixed_expert_scratch: None,
             ternary_up_scratch,
             ternary_down_scratch,
+            ternary_down_layers,
             device_codebook_scratch,
             resident_expert_layers: 0,
             spilled_expert_layers: 0,
@@ -2763,8 +2785,7 @@ impl Inkling2GpuEngine {
         if (mixed_up || mixed_down)
             && (eng.n_seqs != 1
                 || eng.fns.expand_mixed_expert.is_none()
-                || (mixed_up && eng.ternary_up_scratch.is_some())
-                || (mixed_down && eng.ternary_down_scratch.is_some()))
+                || (mixed_up && eng.ternary_up_scratch.is_some()))
         {
             return Err("mixed-even experts require one sequence, matching kernels, and exclusive packing of each weight plane".into());
         }
@@ -2859,7 +2880,13 @@ impl Inkling2GpuEngine {
         }
 
         let (free_after, total_vram) = eng.ctx.mem_info()?;
-        let drafter_tag = if eng.drafter.is_some() {
+        let drafter_tag = if eng.dflash2.is_some() {
+            if eng.drafter.is_some() {
+                format!("DFlash2+DSpark(K={spec_k})")
+            } else {
+                format!("DFlash2(K={spec_k})")
+            }
+        } else if eng.drafter.is_some() {
             format!("DSpark(K={spec_k})")
         } else if spec_k > 0 {
             format!("Suffix(K={spec_k})")
@@ -3025,7 +3052,7 @@ impl Inkling2GpuEngine {
             capacity,
             self.attn_split_g,
             has_flash_tc,
-            self.drafter.is_some(),
+            self.has_neural_drafter(),
         )?;
         let mut replacements = Vec::new();
         let cap = self.max_ctx.min(EXTENT + capacity);
@@ -3304,7 +3331,7 @@ impl Inkling2GpuEngine {
             quant_nvfp4_2term_b: get_fn("ink2_quant_nvfp4_2term_b").ok(),
             gather_nvfp4_sorted_b: get_fn("ink2_gather_nvfp4_sorted_b").ok(),
             expand_mixed_expert: get_fn("ink2_expand_mixed_expert").ok(),
-            expand_ternary_nibbles: get_fn("ink2_expand_ternary_nibbles").ok(),
+            expand_ternary_nibbles: get_fn("ink2_expand_ternary_pair_selectors").ok(),
             expand_mxfp8_indices: get_fn("ink2_expand_mxfp8_indices").ok(),
             quant_mxfp8_b: get_fn("ink2_quant_mxfp8_b").ok(),
             flash_attn_tc_q8_b,
@@ -3358,6 +3385,9 @@ impl Inkling2GpuEngine {
         self.spec_copy_rounds = 0;
         self.spec_verify_steps = 0;
         if let Some(ref mut d) = self.drafter {
+            d.reset();
+        }
+        if let Some(ref mut d) = self.dflash2 {
             d.reset();
         }
         unsafe {
@@ -3521,14 +3551,21 @@ impl Inkling2GpuEngine {
         Ok(dst)
     }
 
-    fn raw_nvfp4_down(&self, stream: CUstream, weight: &TierBuf) -> Result<CUdeviceptr, String> {
+    fn raw_nvfp4_down(
+        &self,
+        il: usize,
+        stream: CUstream,
+        weight: &TierBuf,
+    ) -> Result<CUdeviceptr, String> {
         if self.mixed_weight_ptrs.contains(&weight.ptr()) {
             return self.expand_mixed_weight(stream, weight, (D * FF / 32) as u32);
         }
         self.expand_nvfp4(
             stream,
             weight,
-            self.ternary_down_scratch.as_ref(),
+            self.ternary_down_scratch
+                .as_ref()
+                .filter(|_| self.ternary_down_layers[il]),
             N_EXP * D * FF / 16,
         )
     }
@@ -3933,6 +3970,12 @@ impl Inkling2GpuEngine {
         } else {
             self.fns.gqa_attn_g1_q8_decode
         }
+    }
+
+    /// A GPU drafter (DSpark or DFlash 2) consumes the target taps, so the paths that capture
+    /// them (tap buffers, unfused final norm) must stay on.
+    fn has_neural_drafter(&self) -> bool {
+        self.drafter.is_some() || self.dflash2.is_some()
     }
 
     fn has_short_decode_regime(&self) -> bool {
@@ -5201,7 +5244,7 @@ impl Inkling2GpuEngine {
                     let mut pwts = self.d_sel_wts.ptr;
                     let allow_xw = self.moe_down_xw == 2
                         || (self.moe_down_xw == 1 && matches!(w2, TierBuf::Vram(_)));
-                    let ternary = self.ternary_down_scratch.is_some();
+                    let ternary = self.ternary_down_layers[il];
                     let xw = if self.mixed_weight_ptrs.contains(&w2.ptr()) {
                         s2.kernels.mixed_even_down
                     } else if ternary {
@@ -5220,7 +5263,7 @@ impl Inkling2GpuEngine {
                     let mut pw2 = if allow_xw && (xw.is_some() || (fuse && conv.is_some())) {
                         w2.ptr()
                     } else {
-                        self.raw_nvfp4_down(stream, w2)?
+                        self.raw_nvfp4_down(il, stream, w2)?
                     };
                     if let (true, true, Some(f_conv)) = (allow_xw, fuse, conv) {
                         let mut pwc = l.mlp_conv4.ptr;
@@ -5293,7 +5336,7 @@ impl Inkling2GpuEngine {
                         &mut up_args,
                     )?;
 
-                    let mut pw2 = self.raw_nvfp4_down(stream, w2)?;
+                    let mut pw2 = self.raw_nvfp4_down(il, stream, w2)?;
                     let mut ps2 = s2.buffer.ptr;
                     let mut pa2 = a2.ptr;
                     let mut pwts = self.d_sel_wts.ptr;
@@ -5643,7 +5686,7 @@ impl Inkling2GpuEngine {
 
         // Output Depth Mix + Fused `final_norm + Q8_64` + Planar `Q8_64` `unembed` (`softcap = 30.0`) + ArgMax
         if let (true, Some(f_fused)) = (
-            self.drafter.is_none(),
+            !self.has_neural_drafter(),
             self.fns.depth_mix_rmsnorm_quant_q8_64_b,
         ) {
             let mut pb = self.d_blocks.ptr;
@@ -5745,6 +5788,19 @@ impl Inkling2GpuEngine {
     }
 
     fn enqueue_drafter_context(&mut self, rows: usize) -> Result<(), String> {
+        if let Some(df2) = &mut self.dflash2 {
+            let taps = self
+                .prefill
+                .d_taps
+                .as_ref()
+                .ok_or("missing drafter tap storage")?;
+            df2.enqueue_add_ctx(
+                self.ctx.compute_stream,
+                taps.ptr,
+                self.prefill.capacity,
+                rows,
+            )?;
+        }
         if let Some(drafter) = &mut self.drafter {
             let taps = self
                 .prefill
@@ -6681,13 +6737,13 @@ impl Inkling2GpuEngine {
         // `spec_copy_match()` tokens already occurred in the prompt or output proposes the
         // tokens that followed them instead of running the drafter. Verification keeps the
         // output greedy-exact.
-        let copy_match = if self.drafter.is_some() {
+        let copy_match = if self.has_neural_drafter() {
             spec_copy_match()
         } else {
             0
         };
         let mut copy_index = ContextCopyIndex::new(copy_match);
-        let track_hist = self.drafter.is_none() || copy_match > 0;
+        let track_hist = !self.has_neural_drafter() || copy_match > 0;
         let mut full_hist: Vec<u32> = if track_hist {
             let mut h = Vec::with_capacity(prompt_tokens.len() + n_gen + 8);
             h.extend_from_slice(prompt_tokens);
@@ -6799,6 +6855,15 @@ impl Inkling2GpuEngine {
             } else if !copied.is_empty() {
                 self.spec_copy_rounds += 1;
                 copied
+            } else if let Some(ref mut d) = self.dflash2.as_mut().filter(|_| self.n_seqs == 1) {
+                d.draft_tokens(
+                    self.ctx.compute_stream,
+                    self.embed.ptr(),
+                    self.embed_norm.ptr,
+                    &self.unembed_q8,
+                    cur_tok,
+                    max_draft,
+                )?
             } else if let Some(ref mut d) = self.drafter {
                 d.draft_tokens(
                     self.ctx.compute_stream,
@@ -9270,10 +9335,9 @@ impl Inkling2GpuEngine {
                     let w2_stage_ptr = (ppy + (pair_rows * D * 2) as u64 + 4095) & !4095;
                     let w2_stage_exps =
                         (pair_end.saturating_sub(w2_stage_ptr) as usize / EXP_W2_BYTES).min(N_EXP);
-                    if let (TierBuf::HostPinned(hp2), true) = (
-                        w2,
-                        self.ternary_down_scratch.is_none() && w2_stage_exps >= 4,
-                    ) {
+                    if let (TierBuf::HostPinned(hp2), true) =
+                        (w2, !self.ternary_down_layers[il] && w2_stage_exps >= 4)
+                    {
                         let mut exp_begin = 0usize;
                         while exp_begin < N_EXP {
                             let exp_end = (exp_begin + w2_stage_exps).min(N_EXP);
@@ -9321,7 +9385,7 @@ impl Inkling2GpuEngine {
                             } else {
                                 s2.kernels.mixed_even_tc_down
                             }
-                        } else if self.ternary_down_scratch.is_none() {
+                        } else if !self.ternary_down_layers[il] {
                             None
                         } else if nvfp4_tile_toks == 160 {
                             s2.kernels.ternary_tc_down_t160
@@ -9331,7 +9395,7 @@ impl Inkling2GpuEngine {
                         let (f_dn, mut pw2) = if let Some(kernel) = direct {
                             (kernel, w2.ptr())
                         } else {
-                            (f_dn, self.raw_nvfp4_down(stream, w2)?)
+                            (f_dn, self.raw_nvfp4_down(il, stream, w2)?)
                         };
                         let mut eb = 0i32;
                         let mut ee = N_EXP as i32;
@@ -9399,7 +9463,7 @@ impl Inkling2GpuEngine {
                     ];
                     self.launch(stream, f_vup, (72, max_active), 512, &mut up_args)?;
 
-                    let mut pw2 = self.raw_nvfp4_down(stream, w2)?;
+                    let mut pw2 = self.raw_nvfp4_down(il, stream, w2)?;
                     let mut ps2 = s2.buffer.ptr;
                     let mut pa2 = a2.ptr;
                     let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
@@ -9458,7 +9522,7 @@ impl Inkling2GpuEngine {
                         b_len * TOP_K,
                         FF,
                     )?;
-                    let mut pw2 = self.raw_nvfp4_down(stream, w2)?;
+                    let mut pw2 = self.raw_nvfp4_down(il, stream, w2)?;
                     let mut ps2 = s2.buffer.ptr;
                     let mut pa2 = a2.ptr;
                     let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
@@ -10512,6 +10576,22 @@ mod tests {
         assert!(counts.macro_entries >= 4, "{counts:?}");
         assert!(counts.indexed >= 7, "{counts:?}");
         assert!(CUDA_KERNEL_SRC.contains("void ink2_pdl_all_marker()"));
+    }
+
+    /// The DFlash 2 module (#103) honours the same PDL contract, and exports exactly the entry
+    /// points the host loads.
+    #[test]
+    fn dflash2_kernels_honour_pdl_contract() {
+        use crate::inkling2_dflash2::{DF2_KERNEL_NAMES, DF2_KERNEL_SRC};
+        let counts = pdl_audit(DF2_KERNEL_SRC).unwrap();
+        assert_eq!(counts.kernels, DF2_KERNEL_NAMES.len(), "{counts:?}");
+        for name in DF2_KERNEL_NAMES {
+            assert!(DF2_KERNEL_SRC.contains(&format!(" {name}(")), "{name}");
+            assert!(
+                !CUDA_KERNEL_SRC.contains(&format!("void {name}(")),
+                "{name}"
+            );
+        }
     }
 
     /// Planted-fault controls for `pdl_audit` (#179): each minimal violation of the PDL
