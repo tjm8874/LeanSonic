@@ -78,7 +78,39 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
     }
     let ms = t0.elapsed().as_secs_f64() * 1e3;
+    // 3) All sequences in batched rounds (`decode_round`, up to 8 rows per pass).
+    let mut cur3: Vec<u32> = Vec::new();
+    let mut round: Vec<Vec<u32>> = Vec::new();
+    for (s, p) in prompts.iter().enumerate() {
+        eng.select_seq(s)?;
+        eng.reset()?;
+        let (tok, _) = eng.prefill_tokens(p)?;
+        cur3.push(tok);
+        round.push(vec![tok]);
+    }
+    let t1 = Instant::now();
+    for _ in 1..gen {
+        for chunk in (0..seqs).collect::<Vec<_>>().chunks(8) {
+            let toks: Vec<u32> = chunk.iter().map(|&s| cur3[s]).collect();
+            let next = eng.decode_round(chunk, &toks)?;
+            for (k, &s) in chunk.iter().enumerate() {
+                cur3[s] = next[k];
+                round[s].push(next[k]);
+            }
+        }
+    }
+    let ms3 = t1.elapsed().as_secs_f64() * 1e3;
+    println!(
+        "batched rounds: {ms3:.1} ms for {} tokens ({:.1} tok/s total)",
+        seqs * (gen - 1),
+        (seqs * (gen - 1)) as f64 / (ms3 / 1e3)
+    );
     let mut ok = true;
+    for s in 0..seqs {
+        let first = alone[s].iter().zip(&round[s]).position(|(a, b)| a != b);
+        println!("seq {s}: alone vs batched rounds first diff {first:?}");
+        ok &= first.is_none();
+    }
     for s in 0..seqs {
         let first = alone[s].iter().zip(&inter[s]).position(|(a, b)| a != b);
         let h = alone[s].iter().fold(0xcbf29ce484222325u64, |h, &t| {
