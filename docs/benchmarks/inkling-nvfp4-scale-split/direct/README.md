@@ -9,5 +9,6 @@ The same integrated executable (a2008463cf028ee56bdefe39e79f6c2f95d57e73) loaded
 | Split | Positions | Mean KL | Worst KL | BF16 top-1 matches | PPL |
 |---|---:|---:|---:|---:|---:|
 | test | 25,500 | 0.0077481 | 1.4620404 | 24,537 | 7.083731 |
+| valid | 25,500 | 0.0069527 | 0.7446714 | 24,645 | 6.530797 |
 
 [Actual file sizes, SHA-256, tensor checks, traces and oracle results](verified.json). The [parity and BF16 procedure](https://github.com/tjm8874/LeanSonic/tree/cc62564/docs/benchmarks/inkling-nvfp4-trim-context) uses the same prompts and references.
