@@ -1,0 +1,31 @@
+{
+  "gpu": "NVIDIA RTX PRO 4500 Blackwell, 595.99.02",
+  "source": "9bc4d482573d34ab2837fe30e4f23646cf718c7b",
+  "digests": {
+    "bench": "63e16f20fb6a19c78900d541fa70b036a51aa1ecabf8a59bd1014a51c284f434",
+    "cli": "4e8c01c5c114b88f1bd470c5da2751ed53c44e7377b180cdfcf98bae339324e8",
+    "main.cubin": "96f7b35bdbceee2b8359c6e87adcd9babd0ab3368c23785c3a0ad0afabf7167b",
+    "prompt.ids": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843",
+    "anchor.ids": "424005ba620148c43483b62cced3f11cbc90f3c01cef01cb3abbb03264020e27"
+  },
+  "frame_sha256": "13ac5ff82d2151900f5803d2528b2906180ea2e4e9836d8674568c62d9105736",
+  "score": {
+    "chunks": 6,
+    "context": 512,
+    "rows": 1530,
+    "ppl": 6.564087027816951,
+    "ref_ppl": 6.532327441454407,
+    "mean_kld": 0.008597032476653206,
+    "median_kld": 0.0031051328603721624,
+    "p99_kld": 0.09089610978843714,
+    "max_kld": 0.639765969751533,
+    "start_chunk": 0,
+    "max_kld_chunk": 5,
+    "max_kld_position": 268,
+    "ref_floor_targets": 1,
+    "top1_matches": 1469,
+    "top1_agreement": 0.9601307189542484
+  },
+  "rows_sha256": "2f0536ed33e23063e251d05b2b9670644f5a9eb2dfd763bb9560921b84a10111",
+  "comparison": "cmp complete score JSON and all 1,530 fingerprint rows with five-bit rank"
+}

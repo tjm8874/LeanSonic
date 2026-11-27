@@ -35,3 +35,5 @@ Use [fixture.py](fixture.py) with the full BF16 test oracle to create the identi
 ## Matched public-engine replay
 
 [Four-bank rank versus native vLLM on RTX PRO 4500](vllm/README.md) records package bytes, phase speeds, peak GPU allocation and full-corpus BF16 scores. [Column-group coding](column-groups/README.md) measures a further 200,622-byte experimental reduction and records the reason to retain the single-stream decoder.
+
+The [64-token greedy replay](speculative/README.md) compares solo, DSpark and DFlash 2 on the five-bit target, including all drafter bytes, GPU peaks, per-input rates and output identity.
