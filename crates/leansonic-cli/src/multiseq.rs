@@ -131,6 +131,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
             .map(|_| ContextCopyIndex::new(if dspark { spec_copy_match() } else { 0 }))
             .collect();
         let mut copy_rounds = 0usize;
+        // `LEANSONIC_MS_DRAFT_MAX=n`: above `n` sequences DSpark does not draft and only context
+        // copies are verified, as in the batch server's busy rounds (`LEANSONIC_SERVE_SPEC_MAX`).
+        let draft_max = std::env::var("LEANSONIC_MS_DRAFT_MAX")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(usize::MAX);
         loop {
             let mut runs: Vec<(usize, Vec<u32>)> = Vec::new();
             let mut rows = 0usize;
@@ -143,12 +149,17 @@ pub fn run(args: &[String]) -> Result<(), String> {
                         let i = copy_hist[s].len() - prompts[s].len();
                         copy_hist[s].push(round[s][i]);
                     }
-                    let k = spec.min(gen - round[s].len() - 1);
+                    let busy = seqs > draft_max && spec < crate::serve_batch::BUSY_COPY_MIN_ROWS;
+                    let k = if busy {
+                        0
+                    } else {
+                        spec.min(gen - round[s].len() - 1)
+                    };
                     dsp[s] = copy_idx[s].run(&copy_hist[s], cur3[s], k);
                     copy_rounds += usize::from(!dsp[s].is_empty());
                 }
                 let reqs: Vec<(usize, u32, usize)> = (0..seqs)
-                    .filter(|&s| round[s].len() < gen && dsp[s].is_empty())
+                    .filter(|&s| seqs <= draft_max && round[s].len() < gen && dsp[s].is_empty())
                     .map(|s| (s, cur3[s], spec.min(gen - round[s].len() - 1)))
                     .collect();
                 let td = Instant::now();
