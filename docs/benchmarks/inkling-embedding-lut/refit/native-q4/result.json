@@ -1,0 +1,37 @@
+{
+  "values": 463159296,
+  "native_tensor": {
+    "name": "token_embd.weight",
+    "shape": [
+      2304,
+      201024
+    ],
+    "format": "q4_K",
+    "offset": 318882816,
+    "bytes": 260527104
+  },
+  "native_payload_sha256": "f40a82ad0ea308b5936d78841ce3bcb0378cdf01ea624ed0dcdbc336c528fcf5",
+  "native_decoded_bf16_sha256": "feb905d5a4866120551a18766d271e34d5bc648870e6a19d0eeadf135ee5ac72",
+  "scores": {
+    "native": {
+      "exact": 10558370,
+      "max_error": 0.42431640625,
+      "relative_rmse": 0.07174278410476724,
+      "nonzero_row_relative_rmse_p50_p95_p99": [
+        0.07172379658411052,
+        0.07372568140513423,
+        0.07459407668021246
+      ]
+    },
+    "refit": {
+      "exact": 173733613,
+      "max_error": 0.0078125,
+      "relative_rmse": 0.0045187836377201885,
+      "nonzero_row_relative_rmse_p50_p95_p99": [
+        0.00532280236298244,
+        0.005439464781626396,
+        0.005477476037067777
+      ]
+    }
+  }
+}
