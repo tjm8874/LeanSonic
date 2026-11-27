@@ -13,14 +13,23 @@ Each engine used one sequence, 2,048 context capacity, no speculation or cross-r
 
 ## BF16 reference
 
-Earlier quality runs used these same weight distributions and the same WikiText-2 oracle, with a separate LeanSonic scorer build on RTX PRO 4500. Each split covers 25,500 positions. The capped model has lower mean KL on both splits and higher worst KL on validation. [Capped package quality and worst positions](../quality.md) · [SGLang corpus setup and scores](https://github.com/tjm8874/LeanSonic/blob/828b19f/docs/benchmarks/inkling-sglang/quality/wiki.md).
+The exact timed LeanSonic build, capped shard, CUDA module and GPU configuration also ran the two WikiText-2 oracles (100 chunks and 25,500 positions per split). Native SGLang logits from the same official distribution and GPU were previously scored against these oracles. LeanSonic evaluation uses the release eval-kld command and its native teacher-forced row path; both engines use the same BF16 reference scoring definition. [Matched LeanSonic scores, reference fingerprints and worst input IDs](matched.json) · [SGLang corpus setup and native scores](https://github.com/tjm8874/LeanSonic/blob/828b19f/docs/benchmarks/inkling-sglang/quality/wiki.md).
 
 | Split / engine | Mean KL | Worst KL | BF16 top-1 matches / 25,500 | PPL |
 |---|---:|---:|---:|---:|
-| test / LeanSonic | 0.0081320 | 0.6864531 | 24,476 | 7.085819 |
+| test / LeanSonic | 0.0081645 | 1.2202775 | 24,500 | 7.081285 |
 | test / SGLang | 0.0103728 | 3.7027736 | 24,375 | 7.084607 |
-| valid / LeanSonic | 0.0076511 | 1.9394759 | 24,588 | 6.530274 |
+| valid / LeanSonic | 0.0075089 | 1.4429343 | 24,566 | 6.529914 |
 | valid / SGLang | 0.0090103 | 1.0163396 | 24,484 | 6.518670 |
+
+The [previous capped-package results](../quality.md) used a different LeanSonic build on PRO 4500. For example, the worst test KL in that run was 0.6864531; it is 1.2202775 in the timed configuration. Preserve that distinction when comparing file formats or choosing runtime flags.
+
+To reproduce the LeanSonic quality measurement, use the setup below, build leansonic-cli at the same revision and execute the following once per split using the published [BF16 reference procedure](https://github.com/tjm8874/LeanSonic/blob/828b19f/docs/inkling-reference.md).
+
+```sh
+(cd "$ENGINE" && cargo build --release -p leansonic-cli)
+"$ENGINE/target/release/leansonic" eval-kld --weights "$LEAN_MODEL" --ref "$ORACLE" --chunks 100
+```
 
 ## Reproduce
 
