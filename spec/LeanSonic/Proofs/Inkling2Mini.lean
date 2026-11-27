@@ -543,6 +543,35 @@ def kMtpAttn : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
+/-- `DSpark` long-context attention slices (#107): `56` regs, no SMEM -> `4` CTAs/SM. -/
+def kMtpAttnSplit : KernelResourceSpec :=
+  { name := "mtp_attn_split"
+    threadsPerCta := 256
+    rawRegsPerThread := 56          -- 14,336 regs/CTA; 4 CTAs = 57,344 <= 65,536
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Merge of the `mtp_attn_split` slices (`29` regs, `128` threads). -/
+def kMtpAttnMerge : KernelResourceSpec :=
+  { name := "mtp_attn_merge"
+    threadsPerCta := 128
+    rawRegsPerThread := 29
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 8
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+theorem mtp_attn_split_valid : ValidSm120Kernel kMtpAttnSplit := by decide
+theorem mtp_attn_merge_valid : ValidSm120Kernel kMtpAttnMerge := by decide
+
 /-- `DSpark` `R = 256` Markov-RNN Projection (`36` regs, `2,048` B SMEM -> `6` CTAs = `48` warps/SM!). -/
 def kMtpMarkovRaw : KernelResourceSpec :=
   { name := "mtp_markov_raw"
