@@ -2028,7 +2028,10 @@ impl Inkling2GpuEngine {
                     }
                     // On full-VRAM cards (`all_experts_resident` with no explicit override), defer
                     // widening until a >64-token prompt actually arrives, saving 400–800 MiB VRAM on short runs!
-                    if explicit_chunk.is_none() {
+                    // #107: a multi-sequence engine cannot widen later (that reallocates every
+                    // sequence's rings), so it takes the same width now. Prompts then split into
+                    // the same chunks as on a single-sequence engine, keeping prefill bit-identical.
+                    if explicit_chunk.is_none() && eng.n_seqs == 1 {
                         eng.max_prefill_chunk = width;
                         break;
                     }
