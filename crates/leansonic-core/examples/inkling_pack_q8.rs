@@ -6,7 +6,10 @@ use std::io::{self, Read, Write};
 fn main() -> io::Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if let [mode, size, width] = args.as_slice() {
-        if matches!(mode.as_str(), "neighbor-size" | "neighbor-pack") {
+        if matches!(
+            mode.as_str(),
+            "neighbor-size" | "neighbor-pack" | "mean8-size" | "mean8-pack"
+        ) {
             let n: usize = size.parse().map_err(io::Error::other)?;
             let width = width.parse().map_err(io::Error::other)?;
             if n > 128 * 2304 * 144 {
@@ -14,16 +17,19 @@ fn main() -> io::Result<()> {
             }
             let mut raw = vec![0; n];
             io::stdin().lock().read_exact(&mut raw)?;
-            if mode == "neighbor-size" {
-                println!(
-                    "{}",
-                    leansonic_core::inkling_mxfp8::pack_scale_context(&raw, width, io::sink())?
-                );
+            let sizing = mode.ends_with("-size");
+            let mut stdout = io::BufWriter::new(io::stdout().lock());
+            let mut sink = io::sink();
+            let dst: &mut dyn Write = if sizing { &mut sink } else { &mut stdout };
+            let bytes = if mode.starts_with("mean8-") {
+                leansonic_core::inkling_mxfp8::pack_mean_scales(&raw, width, dst)?
             } else {
-                let mut out = io::BufWriter::new(io::stdout().lock());
-                leansonic_core::inkling_mxfp8::pack_scale_context(&raw, width, &mut out)?;
-                out.flush()?;
+                leansonic_core::inkling_mxfp8::pack_scale_context(&raw, width, dst)?
+            };
+            if sizing {
+                writeln!(stdout, "{bytes}")?;
             }
+            stdout.flush()?;
             return Ok(());
         }
     }
