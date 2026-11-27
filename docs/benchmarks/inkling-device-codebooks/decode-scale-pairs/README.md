@@ -8,8 +8,10 @@ CUDA 13.0.88 reports 61 registers for the prior kernel and 62 for this version. 
 |---|---|---:|---:|---:|
 | 5070Ti | prefill_ms | 121.9561 | 121.9583 | +0.0023 [-0.0047, +0.0103] |
 | 5070Ti | decode32_ms | 192.3589 | 192.5125 | +0.1536 [+0.0509, +0.2381] |
+| 5060Ti | prefill_ms | 257.4656 | 257.4800 | +0.0145 [-0.0217, +0.0400] |
+| 5060Ti | decode32_ms | 339.6868 | 340.1322 | +0.4454 [+0.3764, +0.4986] |
 
-The completed RTX 5070 Ti comparison shows a small decode regression. Keep the existing implementation. This experiment isolates the source edit; the extra register alone does not establish the cause.
+The RTX 5070 Ti and RTX 5060 Ti comparisons both show a decode regression. Keep the existing implementation. This experiment isolates the source edit; the extra register alone does not establish the cause.
 
 ## Reproduce
 

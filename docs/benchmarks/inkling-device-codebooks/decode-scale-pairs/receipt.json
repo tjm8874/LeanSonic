@@ -971,6 +971,668 @@
             "145026 220 39446 220 19 154978 152792 189134 149860 185136 198 84375 149859 23033 220 137294 196997 13 1157 63 150406 903 25 196997 30841 57335 12 1339 903 63 197005 196997 2512 14 4618 82 14 63 149863 220 185136 198 130998 76836 76836 76836 76836 76836 76836 76836 76836 76836 71157 69201 68735 246 198 149861 149861 149861 149861 149862 185136 198"
           ]
         ]
+      },
+      "runs": [
+        {
+          "cycle": 1,
+          "leg": 0,
+          "arm": "prior",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 264.0344,
+              "decode32_ms": 339.7768
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.2966,
+              "decode32_ms": 339.6158
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.2865,
+              "decode32_ms": 339.5927
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.3532,
+              "decode32_ms": 339.6189
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.3669,
+              "decode32_ms": 339.6237
+            }
+          ]
+        },
+        {
+          "cycle": 1,
+          "leg": 1,
+          "arm": "pair",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 264.0683,
+              "decode32_ms": 340.2493
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.4889,
+              "decode32_ms": 340.1422
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.4549,
+              "decode32_ms": 340.2261
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.495,
+              "decode32_ms": 340.2091
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.352,
+              "decode32_ms": 340.2201
+            }
+          ]
+        },
+        {
+          "cycle": 1,
+          "leg": 2,
+          "arm": "pair",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 264.0452,
+              "decode32_ms": 340.2838
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.3975,
+              "decode32_ms": 340.1728
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.7687,
+              "decode32_ms": 340.1283
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.6615,
+              "decode32_ms": 340.1554
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.6747,
+              "decode32_ms": 340.1295
+            }
+          ]
+        },
+        {
+          "cycle": 1,
+          "leg": 3,
+          "arm": "prior",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 264.1112,
+              "decode32_ms": 339.7444
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.9032,
+              "decode32_ms": 339.7028
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.8035,
+              "decode32_ms": 339.7259
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.7742,
+              "decode32_ms": 339.8198
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.9342,
+              "decode32_ms": 339.8389
+            }
+          ]
+        },
+        {
+          "cycle": 2,
+          "leg": 0,
+          "arm": "pair",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 264.1343,
+              "decode32_ms": 340.2459
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.8777,
+              "decode32_ms": 340.16
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.8053,
+              "decode32_ms": 340.14
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.7993,
+              "decode32_ms": 340.198
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.8671,
+              "decode32_ms": 340.2322
+            }
+          ]
+        },
+        {
+          "cycle": 2,
+          "leg": 1,
+          "arm": "prior",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 264.0886,
+              "decode32_ms": 339.7435
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.3581,
+              "decode32_ms": 339.669
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.6323,
+              "decode32_ms": 339.6744
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.7835,
+              "decode32_ms": 339.6955
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.667,
+              "decode32_ms": 339.7433
+            }
+          ]
+        },
+        {
+          "cycle": 2,
+          "leg": 2,
+          "arm": "prior",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 264.0881,
+              "decode32_ms": 339.7097
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.4002,
+              "decode32_ms": 339.6642
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.3897,
+              "decode32_ms": 339.666
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.8071,
+              "decode32_ms": 339.6992
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.547,
+              "decode32_ms": 339.7073
+            }
+          ]
+        },
+        {
+          "cycle": 2,
+          "leg": 3,
+          "arm": "pair",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 264.1408,
+              "decode32_ms": 340.174
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.4058,
+              "decode32_ms": 340.0693
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.404,
+              "decode32_ms": 340.1159
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.4868,
+              "decode32_ms": 340.1248
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.3534,
+              "decode32_ms": 340.1248
+            }
+          ]
+        },
+        {
+          "cycle": 3,
+          "leg": 0,
+          "arm": "prior",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 264.0662,
+              "decode32_ms": 339.7302
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.3461,
+              "decode32_ms": 339.6476
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.4625,
+              "decode32_ms": 339.6011
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.269,
+              "decode32_ms": 339.5931
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.3391,
+              "decode32_ms": 339.69
+            }
+          ]
+        },
+        {
+          "cycle": 3,
+          "leg": 1,
+          "arm": "pair",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 263.9641,
+              "decode32_ms": 340.2189
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.3373,
+              "decode32_ms": 340.1674
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.3847,
+              "decode32_ms": 340.1413
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.5131,
+              "decode32_ms": 340.2011
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.2771,
+              "decode32_ms": 340.1462
+            }
+          ]
+        },
+        {
+          "cycle": 3,
+          "leg": 2,
+          "arm": "pair",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 263.9551,
+              "decode32_ms": 340.2293
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.4836,
+              "decode32_ms": 340.1415
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.4104,
+              "decode32_ms": 340.1333
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.3435,
+              "decode32_ms": 340.1722
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.459,
+              "decode32_ms": 340.1717
+            }
+          ]
+        },
+        {
+          "cycle": 3,
+          "leg": 3,
+          "arm": "prior",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 264.3025,
+              "decode32_ms": 339.7151
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.3821,
+              "decode32_ms": 339.6458
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.3316,
+              "decode32_ms": 339.5941
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.4593,
+              "decode32_ms": 339.6602
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.438,
+              "decode32_ms": 339.6254
+            }
+          ]
+        },
+        {
+          "cycle": 4,
+          "leg": 0,
+          "arm": "pair",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 264.0466,
+              "decode32_ms": 340.2547
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.4508,
+              "decode32_ms": 340.2118
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.3524,
+              "decode32_ms": 340.2041
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.3737,
+              "decode32_ms": 340.1832
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.4408,
+              "decode32_ms": 340.2255
+            }
+          ]
+        },
+        {
+          "cycle": 4,
+          "leg": 1,
+          "arm": "prior",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 264.1396,
+              "decode32_ms": 339.6923
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.3317,
+              "decode32_ms": 339.5886
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.3519,
+              "decode32_ms": 339.6563
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.4477,
+              "decode32_ms": 339.6102
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.24,
+              "decode32_ms": 339.6837
+            }
+          ]
+        },
+        {
+          "cycle": 4,
+          "leg": 2,
+          "arm": "prior",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 264.1556,
+              "decode32_ms": 339.7797
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.4358,
+              "decode32_ms": 339.6801
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.443,
+              "decode32_ms": 339.6518
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.4682,
+              "decode32_ms": 339.7197
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.4129,
+              "decode32_ms": 339.6943
+            }
+          ]
+        },
+        {
+          "cycle": 4,
+          "leg": 3,
+          "arm": "pair",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 264.0124,
+              "decode32_ms": 340.0944
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.4325,
+              "decode32_ms": 340.0361
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.4205,
+              "decode32_ms": 339.9899
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.4715,
+              "decode32_ms": 339.9642
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.3395,
+              "decode32_ms": 340.0276
+            }
+          ]
+        },
+        {
+          "cycle": 5,
+          "leg": 0,
+          "arm": "prior",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 264.7334,
+              "decode32_ms": 339.9424
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.41,
+              "decode32_ms": 339.7411
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.4051,
+              "decode32_ms": 339.6713
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.4224,
+              "decode32_ms": 339.6789
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.4313,
+              "decode32_ms": 339.6681
+            }
+          ]
+        },
+        {
+          "cycle": 5,
+          "leg": 1,
+          "arm": "pair",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 263.9408,
+              "decode32_ms": 340.2444
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.5353,
+              "decode32_ms": 340.1698
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.2647,
+              "decode32_ms": 340.154
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.3558,
+              "decode32_ms": 340.1728
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.5029,
+              "decode32_ms": 340.2443
+            }
+          ]
+        },
+        {
+          "cycle": 5,
+          "leg": 2,
+          "arm": "pair",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 264.0014,
+              "decode32_ms": 340.0139
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.5252,
+              "decode32_ms": 339.9538
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.5192,
+              "decode32_ms": 339.953
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.3848,
+              "decode32_ms": 340.0044
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.3295,
+              "decode32_ms": 339.9703
+            }
+          ]
+        },
+        {
+          "cycle": 5,
+          "leg": 3,
+          "arm": "prior",
+          "requests": [
+            {
+              "request": 0,
+              "prefill_ms": 264.0866,
+              "decode32_ms": 339.904
+            },
+            {
+              "request": 1,
+              "prefill_ms": 257.3633,
+              "decode32_ms": 339.8339
+            },
+            {
+              "request": 2,
+              "prefill_ms": 257.3646,
+              "decode32_ms": 339.8368
+            },
+            {
+              "request": 3,
+              "prefill_ms": 257.407,
+              "decode32_ms": 339.8008
+            },
+            {
+              "request": 4,
+              "prefill_ms": 257.3564,
+              "decode32_ms": 339.8407
+            }
+          ]
+        }
+      ],
+      "summary": {
+        "prefill_ms": {
+          "prior": 257.465555,
+          "pair": 257.48001,
+          "delta": 0.014455000000020845,
+          "ci95": [
+            -0.021687499999995908,
+            0.04002249999999776
+          ]
+        },
+        "decode32_ms": {
+          "prior": 339.686775,
+          "pair": 340.1322,
+          "delta": 0.4454249999999888,
+          "ci95": [
+            0.3763774999999896,
+            0.4986099999999965
+          ]
+        }
       }
     }
   },
