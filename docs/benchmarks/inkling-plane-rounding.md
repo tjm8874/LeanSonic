@@ -29,5 +29,20 @@ Each split uses the same 25,500 predicted positions, BF16 reference, and 100 chu
 | test | Canonical | 0.00315843 | 0.68097733 | 24865 | 7.07296 |
 | test | Earlier budget | 0.00317531 | 0.67173614 | 24868 | 7.07393 |
 | test | Per-plane budget | 0.00316872 | 0.66990856 | 24859 | 7.07363 |
+| valid | Canonical | 0.00276074 | 0.35243610 | 24963 | 6.50462 |
+| valid | Earlier budget | 0.00276864 | 0.35100907 | 24944 | 6.50413 |
+| valid | Per-plane budget | 0.00276719 | 0.35047861 | 24948 | 6.50418 |
 
 The per-plane candidate improves the test worst KL relative to the canonical package, while its test mean KL and PPL increase and six fewer predictions match BF16. Keep the canonical package as the default.
+
+## Fixed chat response prefixes
+
+The comparison uses the [613-position bilingual BF16 fixture](https://github.com/tjm8874/LeanSonic/pull/134). Every candidate saw the same inputs and forced targets on PRO 5000.
+
+| Package | Mean KL | Worst KL | BF16 top-1 / 613 | PPL |
+|---|---:|---:|---:|---:|
+| Canonical | 0.00264874 | 0.09567916 | 609 | 3.73697 |
+| Earlier budget | 0.00265428 | 0.09538664 | 608 | 3.74013 |
+| Per-plane budget | 0.00268161 | 0.09608839 | 606 | 3.73782 |
+
+The largest per-plane chat divergence was in the English JSON schema case (offset 25, KL 0.09608839); its top prediction still matched BF16. Across all 613 positions, this package lost three top-1 matches relative to canonical. Test and validation worst KL improved, but that advantage did not transfer to chat.
