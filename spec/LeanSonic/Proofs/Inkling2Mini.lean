@@ -259,6 +259,13 @@ def kInk2Q8Dp4aGemv : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
+/-- `wo` (`cols = 3072`) twin of the Q8 GEMV with all weight loads hoisted (`48` regs -> `5` CTAs). -/
+def kInk2Q8Dp4aGemvC3072 : KernelResourceSpec :=
+  { kInk2Q8Dp4aGemv with
+    name := "ink2_q8_dp4a_gemv_c3072"
+    rawRegsPerThread := 48          -- 12,288 regs/CTA; 5 CTAs = 61,440 <= 65,536
+    ctasPerSm := 5 }
+
 /-- Wide `uint4` (`16B` `LDG.E.128`) `__dp4a` NVFP4 MoE Up+SITU (`40` regs -> `6` CTAs = `48` warps/SM!). -/
 def kInk2MoeNvfp4Dp4aUpSitu : KernelResourceSpec :=
   { name := "ink2_moe_nvfp4_dp4a_up_situ"
@@ -326,6 +333,7 @@ def kInk2RmsnormQuantQ8 : KernelResourceSpec :=
 
 def wave1Inkling2KernelSuite : List KernelResourceSpec :=
   [ kInk2Q8Dp4aGemv
+  , kInk2Q8Dp4aGemvC3072
   , kInk2MoeNvfp4Dp4aUpSitu
   , kInk2MoeNvfp4Dp4aDown
   , kInk2MoeMxfp8Down
@@ -333,6 +341,7 @@ def wave1Inkling2KernelSuite : List KernelResourceSpec :=
   , kInk2RmsnormQuantQ8 ]
 
 theorem ink2_q8_dp4a_gemv_valid : ValidSm120Kernel kInk2Q8Dp4aGemv := by decide
+theorem ink2_q8_dp4a_gemv_c3072_valid : ValidSm120Kernel kInk2Q8Dp4aGemvC3072 := by decide
 theorem ink2_moe_nvfp4_dp4a_up_situ_valid : ValidSm120Kernel kInk2MoeNvfp4Dp4aUpSitu := by decide
 theorem ink2_moe_nvfp4_dp4a_down_valid : ValidSm120Kernel kInk2MoeNvfp4Dp4aDown := by decide
 theorem ink2_moe_mxfp8_down_valid : ValidSm120Kernel kInk2MoeMxfp8Down := by decide
@@ -920,5 +929,431 @@ def kInk2BuildExpertGroupsWideB : KernelResourceSpec :=
 
 theorem ink2_build_expert_groups_wide_b_valid :
     ValidSm120Kernel kInk2BuildExpertGroupsWideB := by decide
+
+/-! ## Cycle 6 (`v0.7.0`) SM120a Wide Tensor Core Prefill Suite (`Issue #10` -> `14K+ tok/s`) -/
+
+def kInk2ShortConv4SaveParB : KernelResourceSpec :=
+  { name := "ink2_short_conv4_save_par_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 56
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2ShortConv4CommitHistB : KernelResourceSpec :=
+  { name := "ink2_short_conv4_commit_hist_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 18
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2Q8TcGemmB : KernelResourceSpec :=
+  { name := "ink2_q8_tc_gemm_b"
+    threadsPerCta := 512
+    rawRegsPerThread := 105
+    userSmemPerCtaBytes := 64512
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2Q8TcQkv3GemmB : KernelResourceSpec :=
+  { name := "ink2_q8_tc_qkv3_gemm_b"
+    threadsPerCta := 512
+    rawRegsPerThread := 101
+    userSmemPerCtaBytes := 64512
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2QuantNvfp4TwoTermB : KernelResourceSpec :=
+  { name := "ink2_quant_nvfp4_2term_b"
+    threadsPerCta := 128
+    rawRegsPerThread := 40
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 12
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2GatherNvfp4SortedB : KernelResourceSpec :=
+  { name := "ink2_gather_nvfp4_sorted_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 38
+    userSmemPerCtaBytes := 1584
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeNvfp4TcUpSitu : KernelResourceSpec :=
+  { name := "ink2_moe_nvfp4_tc_up_situ"
+    threadsPerCta := 512
+    rawRegsPerThread := 127
+    userSmemPerCtaBytes := 57392
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeNvfp4TcDown : KernelResourceSpec :=
+  { name := "ink2_moe_nvfp4_tc_down"
+    threadsPerCta := 512
+    rawRegsPerThread := 124
+    userSmemPerCtaBytes := 57392
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeNvfp4TcUpSituPackedScales : KernelResourceSpec :=
+  { name := "ink2_moe_nvfp4_tc_up_situ_packed_scales"
+    threadsPerCta := 512
+    rawRegsPerThread := 127
+    userSmemPerCtaBytes := 57392
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeNvfp4TcDownPackedScales : KernelResourceSpec :=
+  { name := "ink2_moe_nvfp4_tc_down_packed_scales"
+    threadsPerCta := 512
+    rawRegsPerThread := 124
+    userSmemPerCtaBytes := 57392
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2QuantMxfp8B : KernelResourceSpec :=
+  { name := "ink2_quant_mxfp8_b"
+    threadsPerCta := 32
+    rawRegsPerThread := 17
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 32
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeMxfp8TcUpSitu : KernelResourceSpec :=
+  { name := "ink2_moe_mxfp8_tc_up_situ"
+    threadsPerCta := 512
+    rawRegsPerThread := 116
+    userSmemPerCtaBytes := 77872
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 28
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeMxfp8TcDown : KernelResourceSpec :=
+  { name := "ink2_moe_mxfp8_tc_down"
+    threadsPerCta := 512
+    rawRegsPerThread := 114
+    userSmemPerCtaBytes := 77872
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 28
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeMxfp8TcUpSituPackedScales : KernelResourceSpec :=
+  { name := "ink2_moe_mxfp8_tc_up_situ_packed_scales"
+    threadsPerCta := 512
+    rawRegsPerThread := 116
+    userSmemPerCtaBytes := 77872
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 28
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeMxfp8TcDownPackedScales : KernelResourceSpec :=
+  { name := "ink2_moe_mxfp8_tc_down_packed_scales"
+    threadsPerCta := 512
+    rawRegsPerThread := 114
+    userSmemPerCtaBytes := 77872
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 28
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2FlashAttnTcQ8B : KernelResourceSpec :=
+  { name := "ink2_flash_attn_tc_q8_b"
+    threadsPerCta := 384
+    rawRegsPerThread := 168
+    userSmemPerCtaBytes := 64384
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2FlashAttnTcQ8BI8 : KernelResourceSpec :=
+  { name := "ink2_flash_attn_tc_q8_b_i8"
+    threadsPerCta := 384
+    rawRegsPerThread := 168
+    userSmemPerCtaBytes := 63872
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2BuildExpertGroupsParB : KernelResourceSpec :=
+  { name := "ink2_build_expert_groups_par_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 32
+    userSmemPerCtaBytes := 64
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2F32ToBf16B : KernelResourceSpec :=
+  { name := "ink2_f32_to_bf16_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 18
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2CtrlNormBf16B : KernelResourceSpec :=
+  { name := "ink2_ctrl_norm_bf16_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 28
+    userSmemPerCtaBytes := 72
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2Bf16TcGemmB : KernelResourceSpec :=
+  { name := "ink2_bf16_tc_gemm_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 48
+    userSmemPerCtaBytes := 20480
+    smemAlignPadBytes := 0
+    ctasPerSm := 2
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2CtrlApplyTcB : KernelResourceSpec :=
+  { name := "ink2_ctrl_apply_tc_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 55
+    userSmemPerCtaBytes := 27648
+    smemAlignPadBytes := 0
+    ctasPerSm := 2
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeCombineTop8Vec4B : KernelResourceSpec :=
+  { name := "ink2_moe_combine_top8_vec4_b"
+    threadsPerCta := 192
+    rawRegsPerThread := 40
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 8
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeCombineTop8F16B : KernelResourceSpec :=
+  { name := "ink2_moe_combine_top8_f16_b"
+    threadsPerCta := 288
+    rawRegsPerThread := 40
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 5
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2DepthMixMultiB : KernelResourceSpec :=
+  { name := "ink2_depth_mix_multi_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 56
+    userSmemPerCtaBytes := 1104
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def cycle6WideTcPrefillSuite : List KernelResourceSpec :=
+  [ kInk2ShortConv4SaveParB
+  , kInk2ShortConv4CommitHistB
+  , kInk2Q8TcGemmB
+  , kInk2Q8TcQkv3GemmB
+  , kInk2QuantNvfp4TwoTermB
+  , kInk2GatherNvfp4SortedB
+  , kInk2MoeNvfp4TcUpSitu
+  , kInk2MoeNvfp4TcDown
+  , kInk2MoeNvfp4TcUpSituPackedScales
+  , kInk2MoeNvfp4TcDownPackedScales
+  , kInk2QuantMxfp8B
+  , kInk2MoeMxfp8TcUpSitu
+  , kInk2MoeMxfp8TcDown
+  , kInk2MoeMxfp8TcUpSituPackedScales
+  , kInk2MoeMxfp8TcDownPackedScales
+  , kInk2FlashAttnTcQ8B
+  , kInk2FlashAttnTcQ8BI8
+  , kInk2BuildExpertGroupsParB
+  , kInk2F32ToBf16B
+  , kInk2CtrlNormBf16B
+  , kInk2Bf16TcGemmB
+  , kInk2CtrlApplyTcB
+  , kInk2MoeCombineTop8Vec4B
+  , kInk2MoeCombineTop8F16B
+  , kInk2DepthMixMultiB ]
+
+theorem ink2_short_conv4_save_par_b_valid :
+    ValidSm120Kernel kInk2ShortConv4SaveParB := by decide
+theorem ink2_short_conv4_commit_hist_b_valid :
+    ValidSm120Kernel kInk2ShortConv4CommitHistB := by decide
+theorem ink2_q8_tc_gemm_b_valid :
+    ValidSm120Kernel kInk2Q8TcGemmB := by decide
+theorem ink2_q8_tc_qkv3_gemm_b_valid :
+    ValidSm120Kernel kInk2Q8TcQkv3GemmB := by decide
+theorem ink2_quant_nvfp4_2term_b_valid :
+    ValidSm120Kernel kInk2QuantNvfp4TwoTermB := by decide
+theorem ink2_gather_nvfp4_sorted_b_valid :
+    ValidSm120Kernel kInk2GatherNvfp4SortedB := by decide
+theorem ink2_moe_nvfp4_tc_up_situ_valid :
+    ValidSm120Kernel kInk2MoeNvfp4TcUpSitu := by decide
+theorem ink2_moe_nvfp4_tc_down_valid :
+    ValidSm120Kernel kInk2MoeNvfp4TcDown := by decide
+theorem ink2_moe_nvfp4_tc_up_situ_packed_scales_valid :
+    ValidSm120Kernel kInk2MoeNvfp4TcUpSituPackedScales := by decide
+theorem ink2_moe_nvfp4_tc_down_packed_scales_valid :
+    ValidSm120Kernel kInk2MoeNvfp4TcDownPackedScales := by decide
+theorem ink2_quant_mxfp8_b_valid :
+    ValidSm120Kernel kInk2QuantMxfp8B := by decide
+theorem ink2_moe_mxfp8_tc_up_situ_valid :
+    ValidSm120Kernel kInk2MoeMxfp8TcUpSitu := by decide
+theorem ink2_moe_mxfp8_tc_down_valid :
+    ValidSm120Kernel kInk2MoeMxfp8TcDown := by decide
+theorem ink2_moe_mxfp8_tc_up_situ_packed_scales_valid :
+    ValidSm120Kernel kInk2MoeMxfp8TcUpSituPackedScales := by decide
+theorem ink2_moe_mxfp8_tc_down_packed_scales_valid :
+    ValidSm120Kernel kInk2MoeMxfp8TcDownPackedScales := by decide
+theorem ink2_flash_attn_tc_q8_b_valid :
+    ValidSm120Kernel kInk2FlashAttnTcQ8B := by decide
+theorem ink2_flash_attn_tc_q8_b_i8_valid :
+    ValidSm120Kernel kInk2FlashAttnTcQ8BI8 := by decide
+theorem ink2_build_expert_groups_par_b_valid :
+    ValidSm120Kernel kInk2BuildExpertGroupsParB := by decide
+theorem ink2_f32_to_bf16_b_valid :
+    ValidSm120Kernel kInk2F32ToBf16B := by decide
+theorem ink2_ctrl_norm_bf16_b_valid :
+    ValidSm120Kernel kInk2CtrlNormBf16B := by decide
+theorem ink2_bf16_tc_gemm_b_valid :
+    ValidSm120Kernel kInk2Bf16TcGemmB := by decide
+theorem ink2_ctrl_apply_tc_b_valid :
+    ValidSm120Kernel kInk2CtrlApplyTcB := by decide
+theorem ink2_moe_combine_top8_vec4_b_valid :
+    ValidSm120Kernel kInk2MoeCombineTop8Vec4B := by decide
+theorem ink2_moe_combine_top8_f16_b_valid :
+    ValidSm120Kernel kInk2MoeCombineTop8F16B := by decide
+theorem ink2_depth_mix_multi_b_valid :
+    ValidSm120Kernel kInk2DepthMixMultiB := by decide
+
+theorem cycle6_wide_tc_prefill_all_kernels_valid :
+    (cycle6WideTcPrefillSuite.all checkSm120Kernel) = true := by
+  decide
+
+def flashAttnTcSmemSlices : List SmemSlice :=
+  [ { name := "sm_kv_pingpong", offsetBytes := 0, sizeBytes := 34816, alignBytes := 16, liveStartStage := 0, liveEndStage := 2 }
+  , { name := "sm_band", offsetBytes := 34816, sizeBytes := 4608, alignBytes := 16, liveStartStage := 0, liveEndStage := 2 }
+  , { name := "sm_rf", offsetBytes := 39424, sizeBytes := 6144, alignBytes := 16, liveStartStage := 0, liveEndStage := 2 }
+  , { name := "sm_gx", offsetBytes := 45568, sizeBytes := 18816, alignBytes := 16, liveStartStage := 1, liveEndStage := 2 } ]
+
+theorem flash_attn_tc_smem_union_safe :
+    SafeSmemLayout 64384 flashAttnTcSmemSlices := by decide
+
+/-- Bitwise `spread4_nibbles` interleave bijection for `mxf4nvf4` sub-blocks (`(v[j+8] << 4) | v[j]`). -/
+def spread4Nibbles (x16 : UInt32) : UInt32 :=
+  let u := (x16 ||| (x16 <<< 8)) &&& 0x00FF00FF
+  (u ||| (u <<< 4)) &&& 0x0F0F0F0F
+
+theorem spread4_interleave_all_nibble_pairs_exact :
+    ((List.range 16).all (fun n0 =>
+      (List.range 16).all (fun n1 =>
+        let packed := UInt32.ofNat (n0 ||| (n1 <<< 4))
+        let spread := spread4Nibbles packed
+        spread == UInt32.ofNat (n0 ||| (n1 <<< 8))))) = true := by
+  decide
+
+/-- 5-op `PRMT + LOP3` sub-block interleave (`__byte_perm` + mask/shifts) equals `spread4Nibbles` across all 16-bit pairs! -/
+def prmt5140 (a16 b16 : UInt32) : UInt32 :=
+  let a0 := a16 &&& (0xFF : UInt32)
+  let a1 := (a16 >>> 8) &&& (0xFF : UInt32)
+  let b0 := b16 &&& (0xFF : UInt32)
+  let b1 := (b16 >>> 8) &&& (0xFF : UInt32)
+  a0 ||| (b0 <<< 8) ||| (a1 <<< 16) ||| (b1 <<< 24)
+
+def interleaveNvfp4Prmt (a16 b16 : UInt32) : UInt32 :=
+  let p := prmt5140 a16 b16
+  (p &&& (0xF00FF00F : UInt32)) ||| ((p <<< 4) &&& (0x0F000F00 : UInt32)) ||| ((p >>> 4) &&& (0x00F000F0 : UInt32))
+
+theorem prmt_lop3_interleave_matches_spread4_byte0 :
+    ((List.range 16).all (fun n0 =>
+      (List.range 16).all (fun m0 =>
+        let a := UInt32.ofNat (n0 ||| ((n0 ^^^ 5) <<< 4) ||| ((n0 ^^^ 10) <<< 8) ||| ((n0 ^^^ 15) <<< 12))
+        let b := UInt32.ofNat (m0 ||| ((m0 ^^^ 3) <<< 4) ||| ((m0 ^^^ 12) <<< 8) ||| ((m0 ^^^ 9) <<< 12))
+        interleaveNvfp4Prmt a b == (spread4Nibbles a ||| (spread4Nibbles b <<< 4))))) = true := by
+  decide
 
 end LeanSonic.Proofs
