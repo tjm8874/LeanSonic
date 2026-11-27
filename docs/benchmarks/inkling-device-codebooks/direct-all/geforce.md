@@ -5,6 +5,7 @@ Both arms use the same four-bit device weights, cubin, single-token gate/up look
 | GPU | Matched traces | Resident expert layers, control / direct |
 |---|---:|---:|
 | 5060Ti | 8/8 | 24 / 24 |
+| 5070Ti | 8/8 | 24 / 24 |
 
 ## Fixed-token measurements at context 8,192
 
@@ -14,10 +15,13 @@ A 1,024-token prompt and 32 forced decode steps, FP16 KV, spec 0. Phase means us
 |---|---|---:|---:|---:|
 | 5060Ti | prefill_ms | 368.475 | 258.015 | -110.460 [-110.509, -110.400] |
 | 5060Ti | decode32_ms | 345.638 | 339.613 | -6.025 [-6.059, -5.984] |
+| 5070Ti | prefill_ms | 470.825 | 122.521 | -348.304 [-353.097, -345.674] |
+| 5070Ti | decode32_ms | 195.412 | 192.311 | -3.101 [-3.209, -3.020] |
 
 | GPU | Control peak bytes | Scratch-free peak bytes | Saved bytes |
 |---|---:|---:|---:|
 | 5060Ti | 16,605,249,536 | 16,013,852,672 | 591,396,864 |
+| 5070Ti | 16,594,763,776 | 16,112,418,816 | 482,344,960 |
 
 ## WikiText-2 test, RTX PRO 4500
 
