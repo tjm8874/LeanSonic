@@ -1,0 +1,335 @@
+{
+  "gpu": "RTX 5060 Ti",
+  "method": "Five 6-leg cycles, fresh processes, 1024-token README prefix, 16 timed decode iterations. Matched greedy token IDs; 8192 context, FP16 KV, spec 0. Packed expert scales explicit for both Lean arms. Basalt reports phase metrics to whole milliseconds.",
+  "means": {
+    "current": {
+      "prefill_ms": 1314.551,
+      "decode16_ms": 396.194
+    },
+    "tiled": {
+      "prefill_ms": 1286.009,
+      "decode16_ms": 395.928
+    },
+    "basalt": {
+      "prefill_ms": 1282.8,
+      "decode16_ms": 392.8
+    }
+  },
+  "paired_time_saved_pct_95": {
+    "current_prefill_ms": [
+      2.1557047531429396,
+      2.1939299648767285
+    ],
+    "current_decode16_ms": [
+      0.06410984489960692,
+      0.06991189082641291
+    ],
+    "basalt_prefill_ms": [
+      -0.3346333853354144,
+      -0.168939452972805
+    ],
+    "basalt_decode16_ms": [
+      -1.4651460789338877,
+      -0.06520090978014981
+    ]
+  },
+  "runs": [
+    {
+      "cycle": 1,
+      "leg": "current1",
+      "arm": "current",
+      "prefill_ms": 1311.96,
+      "decode16_ms": 396.1
+    },
+    {
+      "cycle": 1,
+      "leg": "tiled1",
+      "arm": "tiled",
+      "prefill_ms": 1284.28,
+      "decode16_ms": 395.84
+    },
+    {
+      "cycle": 1,
+      "leg": "basalt1",
+      "arm": "basalt",
+      "prefill_ms": 1282.0,
+      "decode16_ms": 390.0
+    },
+    {
+      "cycle": 1,
+      "leg": "basalt2",
+      "arm": "basalt",
+      "prefill_ms": 1282.0,
+      "decode16_ms": 394.0
+    },
+    {
+      "cycle": 1,
+      "leg": "tiled2",
+      "arm": "tiled",
+      "prefill_ms": 1284.82,
+      "decode16_ms": 395.89
+    },
+    {
+      "cycle": 1,
+      "leg": "current2",
+      "arm": "current",
+      "prefill_ms": 1313.79,
+      "decode16_ms": 396.15
+    },
+    {
+      "cycle": 2,
+      "leg": "current1",
+      "arm": "current",
+      "prefill_ms": 1314.69,
+      "decode16_ms": 396.22
+    },
+    {
+      "cycle": 2,
+      "leg": "tiled1",
+      "arm": "tiled",
+      "prefill_ms": 1286.66,
+      "decode16_ms": 395.94
+    },
+    {
+      "cycle": 2,
+      "leg": "basalt1",
+      "arm": "basalt",
+      "prefill_ms": 1283.0,
+      "decode16_ms": 395.0
+    },
+    {
+      "cycle": 2,
+      "leg": "basalt2",
+      "arm": "basalt",
+      "prefill_ms": 1284.0,
+      "decode16_ms": 395.0
+    },
+    {
+      "cycle": 2,
+      "leg": "tiled2",
+      "arm": "tiled",
+      "prefill_ms": 1285.92,
+      "decode16_ms": 395.96
+    },
+    {
+      "cycle": 2,
+      "leg": "current2",
+      "arm": "current",
+      "prefill_ms": 1314.64,
+      "decode16_ms": 396.25
+    },
+    {
+      "cycle": 3,
+      "leg": "current1",
+      "arm": "current",
+      "prefill_ms": 1314.86,
+      "decode16_ms": 396.17
+    },
+    {
+      "cycle": 3,
+      "leg": "tiled1",
+      "arm": "tiled",
+      "prefill_ms": 1286.22,
+      "decode16_ms": 395.89
+    },
+    {
+      "cycle": 3,
+      "leg": "basalt1",
+      "arm": "basalt",
+      "prefill_ms": 1282.0,
+      "decode16_ms": 391.0
+    },
+    {
+      "cycle": 3,
+      "leg": "basalt2",
+      "arm": "basalt",
+      "prefill_ms": 1282.0,
+      "decode16_ms": 386.0
+    },
+    {
+      "cycle": 3,
+      "leg": "tiled2",
+      "arm": "tiled",
+      "prefill_ms": 1286.57,
+      "decode16_ms": 395.94
+    },
+    {
+      "cycle": 3,
+      "leg": "current2",
+      "arm": "current",
+      "prefill_ms": 1315.08,
+      "decode16_ms": 396.19
+    },
+    {
+      "cycle": 4,
+      "leg": "current1",
+      "arm": "current",
+      "prefill_ms": 1314.98,
+      "decode16_ms": 396.23
+    },
+    {
+      "cycle": 4,
+      "leg": "tiled1",
+      "arm": "tiled",
+      "prefill_ms": 1286.8,
+      "decode16_ms": 395.97
+    },
+    {
+      "cycle": 4,
+      "leg": "basalt1",
+      "arm": "basalt",
+      "prefill_ms": 1282.0,
+      "decode16_ms": 389.0
+    },
+    {
+      "cycle": 4,
+      "leg": "basalt2",
+      "arm": "basalt",
+      "prefill_ms": 1282.0,
+      "decode16_ms": 393.0
+    },
+    {
+      "cycle": 4,
+      "leg": "tiled2",
+      "arm": "tiled",
+      "prefill_ms": 1286.87,
+      "decode16_ms": 395.92
+    },
+    {
+      "cycle": 4,
+      "leg": "current2",
+      "arm": "current",
+      "prefill_ms": 1315.31,
+      "decode16_ms": 396.21
+    },
+    {
+      "cycle": 5,
+      "leg": "current1",
+      "arm": "current",
+      "prefill_ms": 1315.29,
+      "decode16_ms": 396.18
+    },
+    {
+      "cycle": 5,
+      "leg": "tiled1",
+      "arm": "tiled",
+      "prefill_ms": 1285.9,
+      "decode16_ms": 395.95
+    },
+    {
+      "cycle": 5,
+      "leg": "basalt1",
+      "arm": "basalt",
+      "prefill_ms": 1283.0,
+      "decode16_ms": 399.0
+    },
+    {
+      "cycle": 5,
+      "leg": "basalt2",
+      "arm": "basalt",
+      "prefill_ms": 1286.0,
+      "decode16_ms": 396.0
+    },
+    {
+      "cycle": 5,
+      "leg": "tiled2",
+      "arm": "tiled",
+      "prefill_ms": 1286.05,
+      "decode16_ms": 395.98
+    },
+    {
+      "cycle": 5,
+      "leg": "current2",
+      "arm": "current",
+      "prefill_ms": 1314.91,
+      "decode16_ms": 396.24
+    }
+  ],
+  "lean_base": "9092c530b85b0b14fe6e6f1f37a0c6e09a9cc060",
+  "lean_tiled": "b40f36cbda0cfac1a550eba924ba9b899a2d6c62",
+  "basalt": "5fe1928dcc82ad62286d2a622bcbb5d85ebfba2b",
+  "input_sha256": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843",
+  "sampled_memory_method": "Separate fresh-process ABBA, child PID-filtered NVML polls every ~4 ms between process start and exit. PRO5000 used raw scales, 5060Ti packed. The workload and continuation ID checks were identical to the pinned 1024-token benchmark. Observed peaks can miss very brief allocations.",
+  "sampled_memory_runs": [
+    {
+      "gpu": "current5060Ti",
+      "arm": "current",
+      "run": 0,
+      "peak_bytes": 16332619776,
+      "polls": 1653,
+      "pid_observed": 1623,
+      "max_gap_ms": 41.525191,
+      "median_gap_ms": 4.190881
+    },
+    {
+      "gpu": "current5060Ti",
+      "arm": "tiled",
+      "run": 1,
+      "peak_bytes": 16334716928,
+      "polls": 1660,
+      "pid_observed": 1626,
+      "max_gap_ms": 22.527796,
+      "median_gap_ms": 4.192737999999999
+    },
+    {
+      "gpu": "current5060Ti",
+      "arm": "tiled",
+      "run": 2,
+      "peak_bytes": 16334716928,
+      "polls": 1623,
+      "pid_observed": 1594,
+      "max_gap_ms": 30.747165,
+      "median_gap_ms": 4.171991
+    },
+    {
+      "gpu": "current5060Ti",
+      "arm": "current",
+      "run": 3,
+      "peak_bytes": 16332619776,
+      "polls": 1672,
+      "pid_observed": 1640,
+      "max_gap_ms": 22.032487,
+      "median_gap_ms": 4.186211999999999
+    },
+    {
+      "gpu": "currentPRO5000",
+      "arm": "current",
+      "run": 0,
+      "peak_bytes": 18335399936,
+      "polls": 915,
+      "pid_observed": 894,
+      "max_gap_ms": 77.363944,
+      "median_gap_ms": 4.115974
+    },
+    {
+      "gpu": "currentPRO5000",
+      "arm": "tiled",
+      "run": 1,
+      "peak_bytes": 18335399936,
+      "polls": 819,
+      "pid_observed": 798,
+      "max_gap_ms": 24.559911,
+      "median_gap_ms": 4.119600999999999
+    },
+    {
+      "gpu": "currentPRO5000",
+      "arm": "tiled",
+      "run": 2,
+      "peak_bytes": 18335399936,
+      "polls": 878,
+      "pid_observed": 859,
+      "max_gap_ms": 33.006893,
+      "median_gap_ms": 4.18253
+    },
+    {
+      "gpu": "currentPRO5000",
+      "arm": "current",
+      "run": 3,
+      "peak_bytes": 18335399936,
+      "polls": 821,
+      "pid_observed": 800,
+      "max_gap_ms": 34.465652999999996,
+      "median_gap_ms": 4.092481
+    }
+  ]
+}
