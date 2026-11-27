@@ -1139,6 +1139,12 @@ enum ExpertCoding {
 #[derive(Clone, Copy)]
 enum ExpertMatrix<'a> {
     Raw(&'a [u8]),
+    ScaleSplit {
+        bytes: &'a [u8],
+        scale_frame: &'a [u8],
+        count: usize,
+        scale_width: usize,
+    },
     Packed {
         bytes: &'a [u8],
         count: usize,
@@ -1159,20 +1165,21 @@ impl<'a> ExpertMatrix<'a> {
             st.get(&format!("{name}.rans_v1")),
             st.get(&format!("{name}.nvctx_v1")),
             st.get(&format!("{name}.nvctx_trim_v1")),
+            st.get(&format!("{name}.nvscale_split_v1")),
         ) {
-            (Some(t), None, None, None)
+            (Some(t), None, None, None, None)
                 if t.dtype == dtype && t.shape == shape && t.data.len() == count =>
             {
                 Ok(Self::Raw(t.data))
             }
-            (None, Some(t), None, None) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+            (None, Some(t), None, None, None) if t.dtype == "U8" && t.shape == [t.data.len()] => {
                 Ok(Self::Packed {
                     bytes: t.data,
                     count,
                     coding: ExpertCoding::Byte,
                 })
             }
-            (None, None, Some(t), None)
+            (None, None, Some(t), None, None)
                 if dtype == "U8" && t.dtype == "U8" && t.shape == [t.data.len()] =>
             {
                 Ok(Self::Packed {
@@ -1181,13 +1188,34 @@ impl<'a> ExpertMatrix<'a> {
                     coding: ExpertCoding::Nvfp4,
                 })
             }
-            (None, None, None, Some(t))
+            (None, None, None, Some(t), None)
                 if dtype == "U8" && t.dtype == "U8" && t.shape == [t.data.len()] =>
             {
                 Ok(Self::Packed {
                     bytes: t.data,
                     count,
                     coding: ExpertCoding::Nvfp4Trim,
+                })
+            }
+            (None, None, None, None, Some(t))
+                if dtype == "U8"
+                    && t.dtype == "U8"
+                    && t.shape == [t.data.len()]
+                    && shape.len() == 3
+                    && shape[0] == N_EXP
+                    && shape[2].is_multiple_of(8) =>
+            {
+                let scale = st
+                    .get(&format!("{name}_scale.mean8_v1"))
+                    .ok_or_else(|| format!("missing companion mean scale frame for {name}"))?;
+                if scale.dtype != "U8" || scale.shape != [scale.data.len()] {
+                    return Err(format!("invalid companion mean scale frame for {name}"));
+                }
+                Ok(Self::ScaleSplit {
+                    bytes: t.data,
+                    scale_frame: scale.data,
+                    count,
+                    scale_width: shape[2] / 8,
                 })
             }
             _ => Err(format!(
@@ -1198,7 +1226,7 @@ impl<'a> ExpertMatrix<'a> {
     fn len(&self) -> usize {
         match self {
             Self::Raw(bytes) => bytes.len(),
-            Self::Packed { count, .. } => *count,
+            Self::Packed { count, .. } | Self::ScaleSplit { count, .. } => *count,
         }
     }
     // A standard byte-rANS frame lists exactly the symbols its decoder may emit.
@@ -1249,6 +1277,21 @@ impl<'a> ExpertMatrix<'a> {
                     }
                 }
                 Ok(TierBuf::HostPinned(PinnedHostBuf::from_bytes(ctx, bytes)?))
+            }
+            Self::ScaleSplit {
+                bytes,
+                scale_frame,
+                count,
+                scale_width,
+            } => {
+                let scales = crate::inkling_mxfp8::unpack_mean8_scale_codes(
+                    scale_frame,
+                    count / 8,
+                    scale_width,
+                )?;
+                let raw = crate::inkling_mxfp8::unpack_scale_split(bytes, &scales)
+                    .map_err(|e| e.to_string())?;
+                ExpertMatrix::Raw(&raw).place(ctx, on_device)
             }
             Self::Packed {
                 bytes,
