@@ -164,6 +164,8 @@ Use `--entropy-scales` in place of `--prepack-scales` when converting the offici
 
 Add `--compact-q8-scales` to that command to store the attention and output-head Q8 scales in per-matrix dictionaries. You can also pass this flag alone when repacking the native Q8 shard. The loader restores every F32 bit before GPU upload. On Inkling-2-Mini this reduces the shard to **16,035,182,496 bytes**. The tokenizer is distributed separately. This format requires a reader with Q8 scale dictionary support.
 
+This research branch reproduces the rejected output-projection ablation from Inkling #35. Its worst KL improved from 0.674716 to 0.380358 on the 100 WikiText test chunks and worsened from 0.510178 to 0.625806 on the separate validation split.
+
 When converting the official BF16 attention weights, `--refine-attention-output` with `--prepack-attention` searches the two neighbouring BF16 block maxima in each direction for the 24 attention output projections. It selects the signed Q8 codes and scale with the lowest squared weight error, keeping the original maximum on ties. This offline option changes the quantized weights. It uses the existing native Q8 file format, works with `--compact-q8-scales`, and requires the original BF16 input. The vocabulary head uses its usual packing rule.
 
 ### 2. Query the OpenAI-Compatible Server (`GET /v1/models`, `POST /v1/chat/completions`, SSE)

@@ -121,6 +121,8 @@ Attentionの176個の重みも事前変換するには、上のコマンドに `
 
 配布容量をさらに減らすには、公式ファイルの変換時に `--prepack-head --prepack-attention --prepack-embedding --prepack-mxfp8 --entropy-scales --compact-q8-scales` を指定します。最後のオプションは Attention と出力層の Q8 スケールを辞書圧縮し、読み込み時に元の FP32 値をビット単位で復元します。Inkling-2-Mini のテキスト重みは 16,035,182,496 バイトで、別途 tokenizer が必要です。すでに他のオプションで変換したファイルには `--compact-q8-scales` だけを指定できます。読み込みには辞書形式に対応した LeanSonic を使ってください。
 
+この研究ブランチには Issue #35 の追試用オプションがあります。WikiText の test では最悪 KL が 0.674716 から 0.380358 に下がりましたが、別の validation データでは 0.510178 から 0.625806 に上がったため、採用を見送りました。
+
 公式 BF16 重みから変換する場合は、`--prepack-attention` と `--refine-attention-output` を組み合わせると、24層の Attention の出力射影だけに別の Q8 量子化を使えます。64個の重みごとに元の最大絶対値とその前後2個ずつの BF16 値を試し、復元した重みの二乗誤差が最も小さいものを選びます。既存の Q8 形式を使うので、辞書圧縮も併用できます。
 
 ### 2. OpenAI API 互換エンドポイントの呼び出し（`/v1/models`, `/v1/chat/completions`, SSE）
