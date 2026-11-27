@@ -1,0 +1,178 @@
+{
+  "span_ms": 271.865116,
+  "depth_ms": {
+    "0": 14.264994,
+    "1": 124.929829,
+    "2": 132.670293
+  },
+  "sole_active_kernel_ms": {
+    "ink2_moe_nvfp4_dp4a_up_half_q8_packed_scales": 35.121261,
+    "ink2_q8_dp4a_gemv_c2304": 18.590738,
+    "ink2_moe_nvfp4_dp4a_down_xw_conv_packed_scales": 18.395884,
+    "ink2_q8_dp4a_qkv3_gemv_r1": 16.195855,
+    "ink2_q8_dp4a_gemv_c2304_r1": 11.622179,
+    "ink2_moe_mixed_even_dp4a_up_half_q8_packed_scales": 6.617222,
+    "ink2_moe_mxfp8_up_situ_u4_packed_scales": 5.207523,
+    "ink2_moe_mixed_even_dp4a_down_xw_conv_packed_scales": 3.611462,
+    "ink2_moe_mxfp8_down_xw_conv_u4_packed_scales": 2.611549,
+    "ink2_q8_dp4a_gemv_c3072_r1": 2.051259,
+    "ink2_short_conv4_kv2": 0.671981,
+    "ink2_short_conv4_save": 0.662988,
+    "ink2_ctrl_apply_coalesced_b": 0.581028,
+    "ink2_ctrl_down_r4_fast": 0.403752,
+    "ink2_depth_mix_inv": 0.376388,
+    "ink2_bf16_gemv": 0.305284,
+    "ink2_prep_qkv_and_cache": 0.303075,
+    "ink2_gqa_attn_g1_q8_decode": 0.294148,
+    "ink2_router_topk8_par": 0.294019,
+    "ink2_depth_mix_rmsnorm_quant_q8_64_b": 0.240355,
+    "ink2_depth_mix_rmsnorm_d_quant_q8_16_b": 0.189859,
+    "ink2_rmsnorm_quant_q8_64": 0.179648,
+    "ink2_rmsnorm_d_quant_q8_16_b": 0.16013,
+    "ink2_argmax_par_and_inc_pos": 0.144929,
+    "ink2_embed_rmsnorm": 0.077728,
+    "ink2_loop_pass_setup_b": 0.019585
+  },
+  "overlap_ms_top_pairs": [
+    {
+      "kernels": [
+        "ink2_gqa_attn_g1_q8_decode",
+        "ink2_q8_dp4a_gemv_c3072_r1"
+      ],
+      "ms": 92.625587
+    },
+    {
+      "kernels": [
+        "ink2_q8_dp4a_qkv3_gemv_r1",
+        "ink2_rmsnorm_quant_q8_64"
+      ],
+      "ms": 7.149689
+    },
+    {
+      "kernels": [
+        "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+        "ink2_q8_dp4a_gemv_c2304_r1"
+      ],
+      "ms": 5.349378
+    },
+    {
+      "kernels": [
+        "ink2_ctrl_apply_coalesced_b",
+        "ink2_ctrl_down_r4_fast"
+      ],
+      "ms": 4.78415
+    },
+    {
+      "kernels": [
+        "ink2_ctrl_down_r4_fast",
+        "ink2_depth_mix_inv"
+      ],
+      "ms": 3.54391
+    },
+    {
+      "kernels": [
+        "ink2_bf16_gemv",
+        "ink2_depth_mix_rmsnorm_d_quant_q8_16_b"
+      ],
+      "ms": 2.442651
+    },
+    {
+      "kernels": [
+        "ink2_bf16_gemv",
+        "ink2_router_topk8_par"
+      ],
+      "ms": 1.948433
+    },
+    {
+      "kernels": [
+        "ink2_bf16_gemv",
+        "ink2_rmsnorm_d_quant_q8_16_b"
+      ],
+      "ms": 1.870162
+    },
+    {
+      "kernels": [
+        "ink2_gqa_attn_g1_q8_decode",
+        "ink2_prep_qkv_and_cache"
+      ],
+      "ms": 1.53243
+    },
+    {
+      "kernels": [
+        "ink2_depth_mix_inv",
+        "ink2_moe_nvfp4_dp4a_down_xw_conv_packed_scales"
+      ],
+      "ms": 1.44565
+    },
+    {
+      "kernels": [
+        "ink2_moe_nvfp4_dp4a_up_half_q8_packed_scales",
+        "ink2_router_topk8_par"
+      ],
+      "ms": 1.286063
+    },
+    {
+      "kernels": [
+        "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+        "ink2_q8_dp4a_qkv3_gemv_r1"
+      ],
+      "ms": 1.170798
+    },
+    {
+      "kernels": [
+        "ink2_prep_qkv_and_cache",
+        "ink2_short_conv4_kv2"
+      ],
+      "ms": 0.971179
+    },
+    {
+      "kernels": [
+        "ink2_ctrl_apply_coalesced_b",
+        "ink2_rmsnorm_quant_q8_64"
+      ],
+      "ms": 0.875368
+    },
+    {
+      "kernels": [
+        "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+        "ink2_moe_nvfp4_dp4a_down_xw_conv_packed_scales"
+      ],
+      "ms": 0.76644
+    },
+    {
+      "kernels": [
+        "ink2_ctrl_apply_coalesced_b",
+        "ink2_rmsnorm_d_quant_q8_16_b"
+      ],
+      "ms": 0.51242
+    },
+    {
+      "kernels": [
+        "ink2_depth_mix_rmsnorm_d_quant_q8_16_b",
+        "ink2_short_conv4_save"
+      ],
+      "ms": 0.505961
+    },
+    {
+      "kernels": [
+        "ink2_depth_mix_inv",
+        "ink2_short_conv4_save"
+      ],
+      "ms": 0.498982
+    },
+    {
+      "kernels": [
+        "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+        "ink2_q8_dp4a_gemv_c2304"
+      ],
+      "ms": 0.472004
+    },
+    {
+      "kernels": [
+        "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+        "ink2_moe_mixed_even_dp4a_down_xw_conv_packed_scales"
+      ],
+      "ms": 0.388579
+    }
+  ]
+}

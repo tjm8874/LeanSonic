@@ -322,6 +322,60 @@ pub fn unpack_four_scale_banks(frame: &[u8], scales: Vec<u8>) -> Result<Vec<u8>,
     unpack_codes(Matrix::parse_four_scale_banks(frame, count, scales)?, count)
 }
 
+/// Decode two independent four-bank streams, scattered back into expert order.
+pub(crate) fn unpack_class_scale_banks(frame: &[u8], scales: &[u8]) -> Result<Vec<u8>, String> {
+    const EXPERTS: usize = 128;
+    if frame.len() < 40
+        || frame.get(..8) != Some(b"INKCL2V1")
+        || scales.is_empty()
+        || !scales.len().is_multiple_of(EXPERTS)
+    {
+        return Err("invalid class-separated NVFP4 header or scale extent".into());
+    }
+    let experts = &frame[8..24];
+    let u64_at = |offset: usize| u64::from_le_bytes(frame[offset..offset + 8].try_into().unwrap());
+    let first_len = usize::try_from(u64_at(24)).map_err(|_| "class frame too large")?;
+    let second_len = usize::try_from(u64_at(32)).map_err(|_| "class frame too large")?;
+    let (first, second) = frame[40..]
+        .split_at_checked(first_len)
+        .ok_or("truncated first class frame")?;
+    if second.len() != second_len
+        || experts.iter().all(|&b| b == 0)
+        || experts.iter().all(|&b| b == 255)
+    {
+        return Err("invalid second class frame or empty class".into());
+    }
+    let stride = scales.len() / EXPERTS;
+    let bytes = scales
+        .len()
+        .checked_mul(8)
+        .ok_or("class weight extent overflow")?;
+    let mut raw = vec![0u8; bytes];
+    for (class, encoded) in [first, second].into_iter().enumerate() {
+        let ids: Vec<usize> = (0..EXPERTS)
+            .filter(|&e| usize::from((experts[e / 8] >> (e % 8)) & 1) == class)
+            .collect();
+        let mut class_scales = Vec::with_capacity(ids.len() * stride);
+        for &e in &ids {
+            class_scales.extend_from_slice(&scales[e * stride..(e + 1) * stride]);
+        }
+        let expert_bytes = stride * 8;
+        let matrix = Matrix::parse_four_scale_banks(encoded, ids.len() * expert_bytes, class_scales)?;
+        matrix.for_each_chunk(|mut offset, mut chunk| {
+            while !chunk.is_empty() {
+                let within_expert = offset % expert_bytes;
+                let count = chunk.len().min(expert_bytes - within_expert);
+                let output = ids[offset / expert_bytes] * expert_bytes + within_expert;
+                raw[output..output + count].copy_from_slice(&chunk[..count]);
+                offset += count;
+                chunk = &chunk[count..];
+            }
+            Ok(())
+        })?;
+    }
+    Ok(raw)
+}
+
 fn pack_nvfp4_tables<const SPLIT: bool>(
     raw: &[u8],
     banks: &[u8],
@@ -723,6 +777,47 @@ impl<'a> Matrix<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn class_frames_scatter_interleaved_experts_and_reject_invalid_extents() {
+        let scales: Vec<u8> = (0..128 * 128).map(|i| 64 + ((i / 37) % 61) as u8).collect();
+        let bytes: Vec<u8> = (0..scales.len() * 8)
+            .map(|i| (i / 97 + i / 1024) as u8)
+            .collect();
+        let mut mask = [0u8; 16];
+        let mut parts = Vec::new();
+        for e in (0..128).step_by(3) {
+            mask[e / 8] |= 1 << (e % 8);
+        }
+        for class in 0..2 {
+            let mut sc = vec![];
+            let mut raw = vec![];
+            for e in 0..128 {
+                if ((mask[e / 8] >> (e % 8)) & 1) == class {
+                    sc.extend_from_slice(&scales[e * 128..(e + 1) * 128]);
+                    raw.extend_from_slice(&bytes[e * 1024..(e + 1) * 1024]);
+                }
+            }
+            let mut part = Vec::new();
+            pack_four_scale_banks(&raw, sc, &[96; 128], &mut part).unwrap();
+            parts.push(part);
+        }
+        let mut frame = b"INKCL2V1".to_vec();
+        frame.extend_from_slice(&mask);
+        for p in &parts {
+            frame.extend_from_slice(&(p.len() as u64).to_le_bytes());
+        }
+        for p in parts {
+            frame.extend_from_slice(&p);
+        }
+        assert_eq!(unpack_class_scale_banks(&frame, &scales).unwrap(), bytes);
+        assert!(unpack_class_scale_banks(&frame[..frame.len() - 1], &scales).is_err());
+        let mut bad = frame.clone();
+        bad[24..32].fill(255);
+        assert!(unpack_class_scale_banks(&bad, &scales).is_err());
+        frame[8..24].fill(0);
+        assert!(unpack_class_scale_banks(&frame, &scales).is_err());
+    }
+
     #[test]
     fn scale_direct_roundtrip_crosses_tile_and_expert_boundaries() {
         let raw: Vec<_> = (0..TILE + 1024).map(|i| (i * 13 + i / 7) as u8).collect();

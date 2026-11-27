@@ -1,0 +1,14 @@
+{
+  "gpu": "NVIDIA GeForce RTX 5060 Ti, 595.99.02",
+  "digests": {
+    "fixtures.ids": "6469a66835ff5b252fc9d3c1d2f91263a2234346bce642902aabf9b83e994150",
+    "check": "967818cca611ab60d3370767a4f8da8a59b7b5c20aa6c0f4d32d7b6e1fe44bd4",
+    "128.f32": "a71f51347b117e25e19e3eeaa93af223e0f80807054ba878ede5cc16fd719162",
+    "160.f32": "a71f51347b117e25e19e3eeaa93af223e0f80807054ba878ede5cc16fd719162"
+  },
+  "bytes_per_arm": 105630624,
+  "distributions": 132,
+  "vocab": 200058,
+  "host": "a1592f3d3faeb3e75f9e73cb3c89165692414d4a",
+  "cubin": "eccdd6d460d19d404cbf9fb19c4273dc021d00c2e63ebdd7ee24772044dfb04e"
+}

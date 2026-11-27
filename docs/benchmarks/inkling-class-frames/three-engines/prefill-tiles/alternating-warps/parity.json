@@ -1,0 +1,21 @@
+{
+  "host": "a1592f3d3faeb3e75f9e73cb3c89165692414d4a",
+  "gpu": "NVIDIA GeForce RTX 5060 Ti, 595.99.02",
+  "changed": {
+    "ink2_moe_nvfp4_tc_up_situ_packed_scales": {
+      "prior": [
+        1600,
+        "04abd9cf14077c45b65a8b1ca8c534fb8b65a9fe8c317708571804c8380f68a0"
+      ],
+      "trial": [
+        1600,
+        "3a0dbebb0c0d607d99cfef27fab25bc8033ae11c4b1bfbdf50815322e6867e40"
+      ]
+    }
+  },
+  "compared": 243,
+  "trial_cubin": "72af3f0761b5464cebeb177d119943f4f6aeee816ceabb4c43556dd6e2b6155a",
+  "matched_floats": 26407656,
+  "rows_digest": "a71f51347b117e25e19e3eeaa93af223e0f80807054ba878ede5cc16fd719162",
+  "fixture_sha256": "6469a66835ff5b252fc9d3c1d2f91263a2234346bce642902aabf9b83e994150"
+}

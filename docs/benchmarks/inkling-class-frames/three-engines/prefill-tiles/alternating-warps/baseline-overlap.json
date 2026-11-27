@@ -1,0 +1,184 @@
+{
+  "span_ms": 120.652492,
+  "depth_ms": {
+    "0": 0.00426,
+    "1": 119.431007,
+    "2": 1.217225
+  },
+  "sole_active_kernel_ms": {
+    "ink2_moe_nvfp4_tc_up_situ_packed_scales": 35.402724,
+    "ink2_moe_nvfp4_tc_down_packed_scales": 14.64909,
+    "ink2_q8_tc_gemm_b": 10.191775,
+    "ink2_moe_mixed_even_tc_up_situ_packed_scales": 8.777457,
+    "ink2_q8_tc_qkv3_gemm_b": 7.364771,
+    "ink2_flash_attn_tc_q8_b": 5.695348,
+    "ink2_depth_mix_multi_ctrl_norm_bf16_b": 4.96168,
+    "ink2_moe_mixed_even_tc_down_packed_scales": 4.773933,
+    "ink2_moe_mxfp8_tc_up_situ_u4_packed_scales": 4.351175,
+    "ink2_bf16_tc_gemm_b": 4.328446,
+    "ink2_ctrl_apply_tc_b": 3.181568,
+    "ink2_short_conv4_save_par_b": 3.051386,
+    "ink2_moe_mxfp8_tc_down_u4_packed_scales": 2.201524,
+    "ink2_quant_nvfp4_2term_1p_b": 1.761376,
+    "ink2_depth_mix_multi_b": 1.167271,
+    "ink2_prep_qkv_and_cache_b": 0.988585,
+    "ink2_moe_combine_top8_f16_b": 0.910893,
+    "ink2_gather_nvfp4_sorted_b": 0.831741,
+    "ink2_depth_mix_rmsnorm_quant_q8_64_b": 0.82311,
+    "ink2_depth_mix_rmsnorm_d_quant_q8_16_b": 0.716967,
+    "ink2_rmsnorm_quant_q8_64_b": 0.654119,
+    "ink2_q8_dp4a_gemv_c2304": 0.598566,
+    "ink2_router_topk8_par_b": 0.589186,
+    "ink2_build_expert_groups_par_b": 0.307933,
+    "ink2_short_conv4_commit_hist_b": 0.250276,
+    "ink2_quant_mxfp8_b": 0.22685,
+    "ink2_embed_rmsnorm_b": 0.204962,
+    "ink2_rmsnorm_d_b": 0.173795,
+    "ink2_f32_to_bf16_b": 0.166243,
+    "ink2_loop_pass_setup_b": 0.127169,
+    "ink2_inc_pos_by": 0.000704,
+    "ink2_argmax_b": 0.000384
+  },
+  "overlap_ms_top_pairs": [
+    {
+      "kernels": [
+        "ink2_depth_mix_multi_b",
+        "ink2_depth_mix_multi_ctrl_norm_bf16_b"
+      ],
+      "ms": 0.27882
+    },
+    {
+      "kernels": [
+        "ink2_embed_rmsnorm_b",
+        "ink2_rmsnorm_quant_q8_64_b"
+      ],
+      "ms": 0.216066
+    },
+    {
+      "kernels": [
+        "ink2_depth_mix_rmsnorm_d_quant_q8_16_b",
+        "ink2_f32_to_bf16_b"
+      ],
+      "ms": 0.120257
+    },
+    {
+      "kernels": [
+        "ink2_flash_attn_tc_q8_b",
+        "ink2_prep_qkv_and_cache_b"
+      ],
+      "ms": 0.094912
+    },
+    {
+      "kernels": [
+        "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+        "ink2_q8_tc_gemm_b"
+      ],
+      "ms": 0.073057
+    },
+    {
+      "kernels": [
+        "ink2_f32_to_bf16_b",
+        "ink2_rmsnorm_d_b"
+      ],
+      "ms": 0.07056
+    },
+    {
+      "kernels": [
+        "ink2_build_expert_groups_par_b",
+        "ink2_router_topk8_par_b"
+      ],
+      "ms": 0.066849
+    },
+    {
+      "kernels": [
+        "ink2_q8_tc_qkv3_gemm_b",
+        "ink2_rmsnorm_quant_q8_64_b"
+      ],
+      "ms": 0.05712
+    },
+    {
+      "kernels": [
+        "ink2_short_conv4_commit_hist_b",
+        "ink2_short_conv4_save_par_b"
+      ],
+      "ms": 0.051616
+    },
+    {
+      "kernels": [
+        "ink2_moe_combine_top8_f16_b",
+        "ink2_short_conv4_save_par_b"
+      ],
+      "ms": 0.020896
+    },
+    {
+      "kernels": [
+        "ink2_bf16_tc_gemm_b",
+        "ink2_depth_mix_multi_ctrl_norm_bf16_b"
+      ],
+      "ms": 0.018688
+    },
+    {
+      "kernels": [
+        "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+        "ink2_q8_dp4a_gemv_c2304"
+      ],
+      "ms": 0.01552
+    },
+    {
+      "kernels": [
+        "ink2_argmax_b",
+        "ink2_inc_pos_by"
+      ],
+      "ms": 0.014176
+    },
+    {
+      "kernels": [
+        "ink2_bf16_tc_gemm_b",
+        "ink2_f32_to_bf16_b"
+      ],
+      "ms": 0.013056
+    },
+    {
+      "kernels": [
+        "ink2_q8_tc_gemm_b",
+        "ink2_short_conv4_save_par_b"
+      ],
+      "ms": 0.01264
+    },
+    {
+      "kernels": [
+        "ink2_moe_nvfp4_tc_down_packed_scales",
+        "ink2_quant_nvfp4_2term_1p_b"
+      ],
+      "ms": 0.010464
+    },
+    {
+      "kernels": [
+        "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+        "ink2_q8_tc_qkv3_gemm_b"
+      ],
+      "ms": 0.009312
+    },
+    {
+      "kernels": [
+        "ink2_depth_mix_multi_b",
+        "ink2_short_conv4_commit_hist_b"
+      ],
+      "ms": 0.00768
+    },
+    {
+      "kernels": [
+        "ink2_depth_mix_multi_b",
+        "ink2_loop_pass_setup_b"
+      ],
+      "ms": 0.00704
+    },
+    {
+      "kernels": [
+        "ink2_prep_qkv_and_cache_b",
+        "ink2_short_conv4_commit_hist_b"
+      ],
+      "ms": 0.007008
+    }
+  ]
+}

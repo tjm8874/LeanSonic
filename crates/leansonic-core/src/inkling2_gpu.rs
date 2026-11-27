@@ -1213,6 +1213,7 @@ enum ScaleFormat {
     Split,
     Direct,
     FourBanks,
+    ClassBanks,
 }
 
 #[derive(Clone, Copy)]
@@ -1243,10 +1244,18 @@ impl<'a> ExpertMatrix<'a> {
         let count = shape.iter().product();
         let direct = st.get(&format!("{name}.nvscale_direct_v1"));
         let four_banks = st.get(&format!("{name}.nvscale_four_v1"));
-        if direct.is_some() && four_banks.is_some() {
+        let classes = st.get(&format!("{name}.nvscale_class_v1"));
+        if [direct.is_some(), four_banks.is_some(), classes.is_some()]
+            .into_iter()
+            .filter(|v| *v)
+            .count()
+            > 1
+        {
             return Err(format!("ambiguous scale-conditioned expert matrix {name}"));
         }
-        let format = if four_banks.is_some() {
+        let format = if classes.is_some() {
+            ScaleFormat::ClassBanks
+        } else if four_banks.is_some() {
             ScaleFormat::FourBanks
         } else if direct.is_some() {
             ScaleFormat::Direct
@@ -1259,7 +1268,7 @@ impl<'a> ExpertMatrix<'a> {
             st.get(&format!("{name}.nvctx_v1")),
             st.get(&format!("{name}.nvctx_trim_v1")),
             st.get(&format!("{name}.nvscale_split_v1")),
-            direct.or(four_banks),
+            direct.or(four_banks).or(classes),
         ) {
             (Some(t), None, None, None, None, None)
                 if t.dtype == dtype && t.shape == shape && t.data.len() == count =>
@@ -1404,6 +1413,10 @@ impl<'a> ExpertMatrix<'a> {
                     }
                     ScaleFormat::Direct => Matrix::parse_scale_direct(bytes, count, scales)?,
                     ScaleFormat::FourBanks => Matrix::parse_four_scale_banks(bytes, count, scales)?,
+                    ScaleFormat::ClassBanks => {
+                        let raw = crate::inkling_mxfp8::unpack_class_scale_banks(bytes, &scales)?;
+                        return ExpertMatrix::Raw(&raw).place(ctx, on_device);
+                    }
                 };
                 if ternary {
                     let mut packed = Vec::with_capacity(count / 2);
