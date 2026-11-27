@@ -5043,6 +5043,71 @@ extern "C" __global__ void ink2_short_conv4_save_b(
     h[2] = h2;
 }
 
+// One CTA owns 32 channels and their history. Its eight warps handle disjoint
+// token ranges, seeding each range from the three preceding raw input rows.
+__device__ __forceinline__ void short_conv4_tiled(
+    const float* cur, int in_stride, const float4* weights, const float4* dyn, int dyn_stride,
+    float* hist3, float* out, int out_stride, const float* residual, int res_stride,
+    float* save_prev, float* seq, int channels, int B, int has_dyn, int do_res_add) {
+    __shared__ float initial[3][32];
+    const int lane = threadIdx.x & 31;
+    const int warp = threadIdx.x >> 5;
+    const int c = blockIdx.x * 32 + lane;
+    if (warp == 0 && c < channels) {
+        #pragma unroll
+        for (int j = 0; j < 3; ++j) {
+            initial[j][lane] = hist3[3 * c + j];
+            if (seq) seq[j * channels + c] = initial[j][lane];
+        }
+    }
+    __syncthreads(); // capture incoming history before the last warp updates it
+
+    const int span = (B + 7) / 8;
+    const int first = warp * span;
+    const int end = first + span < B ? first + span : B;
+    if (c >= channels || first >= end) return;
+    auto preceding = [&](int t) {
+        return t < 0 ? initial[t + 3][lane] : cur[static_cast<size_t>(t) * in_stride + c];
+    };
+    float h0 = preceding(first - 3);
+    float h1 = preceding(first - 2);
+    float h2 = preceding(first - 1);
+    const float4 w = weights[c];
+    for (int b = first; b < end; ++b) {
+        const size_t dst = static_cast<size_t>(b) * out_stride + c;
+        const float x = cur[static_cast<size_t>(b) * in_stride + c];
+        if (save_prev) save_prev[dst] = out[dst];
+        if (seq) seq[static_cast<size_t>(3 + b) * channels + c] = x;
+        const float4 d = has_dyn ? dyn[static_cast<size_t>(b) * dyn_stride + (c >> 7)] : make_float4(0.f, 0.f, 0.f, 0.f);
+        const float res = do_res_add ? residual[static_cast<size_t>(b) * res_stride + c] : 0.f;
+        out[dst] = eval_conv4_step(w, h0, h1, h2, x, has_dyn, d, do_res_add, res);
+        h0 = h1;
+        h1 = h2;
+        h2 = x;
+    }
+    if (end == B) {
+        hist3[3 * c] = h0;
+        hist3[3 * c + 1] = h1;
+        hist3[3 * c + 2] = h2;
+    }
+}
+
+extern "C" __global__ void ink2_short_conv4_tiled_b(
+    const float* cur, int in_stride, const float4* weights, const float4* dyn, int dyn_stride,
+    float* hist3, float* out, int out_stride, const float* residual, int res_stride,
+    float* seq, int channels, int B, int has_dyn, int do_res_add) {
+    short_conv4_tiled(cur, in_stride, weights, dyn, dyn_stride, hist3, out, out_stride, residual, res_stride,
+                      nullptr, seq, channels, B, has_dyn, do_res_add);
+}
+
+extern "C" __global__ void ink2_short_conv4_tiled_save_b(
+    const float* cur, int in_stride, const float4* weights, const float4* dyn, int dyn_stride,
+    float* hist3, float* out, int out_stride, const float* residual, int res_stride,
+    float* save_prev, float* seq, int channels, int B, int has_dyn, int do_res_add) {
+    short_conv4_tiled(cur, in_stride, weights, dyn, dyn_stride, hist3, out, out_stride, residual, res_stride,
+                      save_prev, seq, channels, B, has_dyn, do_res_add);
+}
+
 // Fused Prelude Save (`mode == 0`) & Loop Pass Transition (`mode == 1`) (`Grid: (9, B)`, `Block: 256`):
 extern "C" __global__ void ink2_loop_pass_setup_b(
     float* __restrict__ cur_buf,            // [B, D]

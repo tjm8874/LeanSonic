@@ -406,6 +406,7 @@ struct KernelFns {
     gqa_attn_combine_q8: Option<CUfunction>,
     short_conv4_save: Option<CUfunction>,
     short_conv4_save_b: Option<CUfunction>,
+    short_conv4_tiled: Option<(CUfunction, CUfunction)>,
     loop_pass_setup_b: Option<CUfunction>,
     q8_dp4a_qkv3_gemv: Option<CUfunction>,
     short_conv4_kv2: Option<CUfunction>,
@@ -1847,6 +1848,9 @@ impl Inkling2GpuEngine {
             gqa_attn_combine_q8: get_fn("ink2_gqa_attn_combine_q8").ok(),
             short_conv4_save: get_fn("ink2_short_conv4_save").ok(),
             short_conv4_save_b: get_fn("ink2_short_conv4_save_b").ok(),
+            short_conv4_tiled: get_fn("ink2_short_conv4_tiled_b")
+                .ok()
+                .zip(get_fn("ink2_short_conv4_tiled_save_b").ok()),
             loop_pass_setup_b: get_fn("ink2_loop_pass_setup_b").ok(),
             q8_dp4a_qkv3_gemv: get_fn("ink2_q8_dp4a_qkv3_gemv").ok(),
             short_conv4_kv2: get_fn("ink2_short_conv4_kv2").ok(),
@@ -3925,6 +3929,13 @@ impl Inkling2GpuEngine {
         let l = &self.layers[il];
         let st = &self.slots[slot_idx];
         let b_u32 = b_len as u32;
+        let (conv, conv_save, channels_per_block) =
+            match self.fns.short_conv4_tiled.filter(|_| b_len >= 64) {
+                Some((plain, save)) => (plain, Some(save), 32),
+                None => (self.fns.short_conv4_b, self.fns.short_conv4_save_b, 256),
+            };
+        let kv_conv_grid = (1024 / channels_per_block, 1);
+        let hidden_conv_grid = (D as u32 / channels_per_block, 1);
         let b_i32 = b_len as i32;
         let bd_floats = b_len * D;
         let bd_bytes = (bd_floats * 4) as u64;
@@ -4207,7 +4218,7 @@ impl Inkling2GpuEngine {
                 (&mut hd as *mut _) as *mut c_void,
                 (&mut dr as *mut _) as *mut c_void,
             ];
-            self.launch(stream, self.fns.short_conv4_b, (4, 1), 256, &mut args)?;
+            self.launch(stream, conv, kv_conv_grid, 256, &mut args)?;
         }
 
         // 5. Batched Q/R/K Clip + V RMSNorm + KV Cache Write (Ring-Hazard-Free via `1088 >= 1024 + 64`!)
@@ -4356,7 +4367,7 @@ impl Inkling2GpuEngine {
         } else {
             0
         };
-        if let Some(f_sc_save_b) = self.fns.short_conv4_save_b {
+        if let Some(f_sc_save_b) = conv_save {
             let mut p_cur = self.prefill.layer_workspace.wo_out;
             let mut ins = D as i32;
             let mut p_w = l.attn_conv4.ptr;
@@ -4399,7 +4410,7 @@ impl Inkling2GpuEngine {
                 (&mut hd as *mut _) as *mut c_void,
                 (&mut dr as *mut _) as *mut c_void,
             ];
-            self.launch(stream, f_sc_save_b, (9, 1), 256, &mut args)?;
+            self.launch(stream, f_sc_save_b, hidden_conv_grid, 256, &mut args)?;
         } else {
             if save_blk_ptr != 0 {
                 self.enqueue_copy_n(stream, self.prefill.d_b_cur.ptr, save_blk_ptr, bd_floats)?;
@@ -4444,7 +4455,7 @@ impl Inkling2GpuEngine {
                 (&mut hd as *mut _) as *mut c_void,
                 (&mut dr as *mut _) as *mut c_void,
             ];
-            self.launch(stream, self.fns.short_conv4_b, (9, 1), 256, &mut args)?;
+            self.launch(stream, conv, hidden_conv_grid, 256, &mut args)?;
         }
 
         // 8. Fused Batched MLP Prologue (`depth_mix + rmsnorm_d + quant_q8_16` when `!has_msgs`)
@@ -4781,7 +4792,7 @@ impl Inkling2GpuEngine {
                 (&mut hd as *mut _) as *mut c_void,
                 (&mut dr as *mut _) as *mut c_void,
             ];
-            self.launch(stream, self.fns.short_conv4_b, (9, 1), 256, &mut args)?;
+            self.launch(stream, conv, hidden_conv_grid, 256, &mut args)?;
         }
 
         if let Some(taps) = &self.prefill.d_taps {
