@@ -293,6 +293,7 @@ struct ExpertKernels {
     nvfp4_up_situ: CUfunction,
     nvfp4_down: CUfunction,
     nvfp4_dp4a_up_situ: CUfunction,
+    nvfp4_dp4a_up_half: Option<CUfunction>,
     nvfp4_dp4a_down: CUfunction,
     /// Expert-parallel decode MoE down (bit-identical to `nvfp4_dp4a_down`).
     nvfp4_dp4a_down_xw: Option<CUfunction>,
@@ -2141,6 +2142,7 @@ impl Inkling2GpuEngine {
                 nvfp4_up_situ: load("nvfp4_up_situ")?,
                 nvfp4_down: load("nvfp4_down")?,
                 nvfp4_dp4a_up_situ: load("nvfp4_dp4a_up_situ")?,
+                nvfp4_dp4a_up_half: load("nvfp4_dp4a_up_half").ok(),
                 nvfp4_dp4a_down: load("nvfp4_dp4a_down")?,
                 nvfp4_dp4a_down_xw: load("nvfp4_dp4a_down_xw").ok(),
                 mxfp8_up_situ: load("mxfp8_up_situ")?,
@@ -3376,13 +3378,12 @@ impl Inkling2GpuEngine {
                         (&mut pids as *mut _) as *mut c_void,
                         (&mut pact as *mut _) as *mut c_void,
                     ];
-                    self.launch(
-                        stream,
-                        s13.kernels.nvfp4_dp4a_up_situ,
-                        (288, 8),
-                        256,
-                        &mut up_args,
-                    )?;
+                    // Reading mapped host weights with half warps regresses PCIe decode.
+                    let (up_kernel, threads) = match (w13, s13.kernels.nvfp4_dp4a_up_half) {
+                        (TierBuf::Vram(_), Some(f)) => (f, 128),
+                        _ => (s13.kernels.nvfp4_dp4a_up_situ, 256),
+                    };
+                    self.launch(stream, up_kernel, (288, 8), threads, &mut up_args)?;
 
                     self.enqueue_quant_q8_16(stream, self.d_moe_act.ptr, TOP_K, FF)?;
                     let mut pw2 = w2.ptr();

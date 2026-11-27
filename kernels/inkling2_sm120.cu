@@ -1459,11 +1459,11 @@ extern "C" __global__ void ink2_q8_dp4a_gemv_c3072(
 }
 
 template<bool PackedScales>
-__device__ __forceinline__ float warp_dot_nvfp4_dp4a_u128_row(
+__device__ __forceinline__ float lane_dot_nvfp4_dp4a_u128_row(
     const uint4* __restrict__ row_u128,         // [n_u128] (`16B` = `32` nibbles = `2` blocks of 16!)
     const uint32_t* __restrict__ row_scale_u32, unsigned scale_start, // [n_u128 / 2]
-    const uint4* __restrict__ smem_xq16,        // [n_u128 * 2]
-    const float* __restrict__ smem_xsc16,       // [n_u128 * 2]
+    const uint4* __restrict__ xq16,        // [n_u128 * 2]
+    const float* __restrict__ xsc16,       // [n_u128 * 2]
     int n_u128,
     int lane) {
     float acc = 0.0f;
@@ -1471,11 +1471,11 @@ __device__ __forceinline__ float warp_dot_nvfp4_dp4a_u128_row(
         uint4 pk16 = row_u128[u16];
         uint32_t sc4 = expert_scale_word<PackedScales, 6, 64>(row_scale_u32, scale_start + (u16 >> 1));
         int sh = (u16 & 1) * 16;
-        float s0 = __fmul_rn(e4m3_byte_to_f32((sc4 >> sh) & 0xFFu) * 0.5f, smem_xsc16[u16 * 2]);
-        float s1 = __fmul_rn(e4m3_byte_to_f32((sc4 >> (sh + 8)) & 0xFFu) * 0.5f, smem_xsc16[u16 * 2 + 1]);
+        float s0 = __fmul_rn(e4m3_byte_to_f32((sc4 >> sh) & 0xFFu) * 0.5f, xsc16[u16 * 2]);
+        float s1 = __fmul_rn(e4m3_byte_to_f32((sc4 >> (sh + 8)) & 0xFFu) * 0.5f, xsc16[u16 * 2 + 1]);
 
-        uint4 xq0 = smem_xq16[u16 * 2];
-        uint4 xq1 = smem_xq16[u16 * 2 + 1];
+        uint4 xq0 = xq16[u16 * 2];
+        uint4 xq1 = xq16[u16 * 2 + 1];
         int d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x & 0xFFFFu)), static_cast<int>(xq0.x), 0);
         d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x >> 16)), static_cast<int>(xq0.y), d0);
         d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.y & 0xFFFFu)), static_cast<int>(xq0.z), d0);
@@ -1486,7 +1486,19 @@ __device__ __forceinline__ float warp_dot_nvfp4_dp4a_u128_row(
         d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w >> 16)), static_cast<int>(xq1.w), d1);
         acc = __fmaf_rn(static_cast<float>(d1), s1, __fmaf_rn(static_cast<float>(d0), s0, acc));
     }
-    return warp_sum(acc);
+    return acc;
+}
+
+template<bool PackedScales>
+__device__ __forceinline__ float warp_dot_nvfp4_dp4a_u128_row(
+    const uint4* __restrict__ row_u128,         // [n_u128] (`16B` = `32` nibbles = `2` blocks of 16!)
+    const uint32_t* __restrict__ row_scale_u32, unsigned scale_start, // [n_u128 / 2]
+    const uint4* __restrict__ smem_xq16,        // [n_u128 * 2]
+    const float* __restrict__ smem_xsc16,       // [n_u128 * 2]
+    int n_u128,
+    int lane) {
+    return warp_sum(lane_dot_nvfp4_dp4a_u128_row<PackedScales>(
+        row_u128, row_scale_u32, scale_start, smem_xq16, smem_xsc16, n_u128, lane));
 }
 
 INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_up_situ, (
@@ -1534,6 +1546,42 @@ INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_up_situ, (
         float u = smem_gu[warp_id + 1];
         float situ = 4.0f * ptx_tanh(g * 0.25f) * ptx_sigmoid(g) * 25.0f * ptx_tanh(u * 0.04f);
         act_out[k * kFf + m] = situ;
+    }
+}
+
+INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_up_half, (
+    const uint4* __restrict__ w13_u128,    // [128, 2304, 72]
+    const uint32_t* __restrict__ s13_u32,  // [128, 2304, 36]
+    const float* __restrict__ a13,         // [128]
+    const uint4* __restrict__ x_q8_u128,   // [144]
+    const float* __restrict__ x_sc16,      // [144]
+    const int32_t* __restrict__ sel_ids,   // [8]
+    float* __restrict__ act_out),
+    (w13_u128, s13_u32, a13, x_q8_u128, x_sc16, sel_ids, act_out)) {         // [8, 1152]
+    // Four warps produce four channels. Each half warp handles one of the
+    // two interleaved rows (gate/up), so their SiTU needs no CTA barrier.
+    const int lane = threadIdx.x & 31;
+    const int channel = blockIdx.x * 4 + threadIdx.x / 32;
+    const int k = blockIdx.y;
+    const int ex = sel_ids[k];
+    const size_t row = (static_cast<size_t>(ex) * kFf + channel) * 2 + (lane >> 4);
+    const int index = lane & 15;
+    // Reproduce the original XOR-16 addition before reducing within each half.
+    const float lo = lane_dot_nvfp4_dp4a_u128_row<PackedScales>(
+        w13_u128 + row * 72u, s13_u32, row * 36u, x_q8_u128, x_sc16, 72, index);
+    const float hi = lane_dot_nvfp4_dp4a_u128_row<PackedScales>(
+        w13_u128 + row * 72u, s13_u32, row * 36u, x_q8_u128, x_sc16, 72, index + 16);
+    float dot = lo + hi;
+    #pragma unroll
+    for (int mask = 8; mask; mask >>= 1) {
+        dot += __shfl_xor_sync(0xffffffffu, dot, mask);
+    }
+    dot *= a13[ex] * (1.0f / 2688.0f);
+    const float u = __shfl_sync(0xffffffffu, dot, 16);
+    if (lane == 0) {
+        const float g = dot;
+        act_out[k * kFf + channel] =
+            4.0f * ptx_tanh(g * 0.25f) * ptx_sigmoid(g) * 25.0f * ptx_tanh(u * 0.04f);
     }
 }
 

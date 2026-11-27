@@ -279,6 +279,21 @@ def kInk2MoeNvfp4Dp4aUpSitu : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
+/-- Device-resident gate/up, four channels per CTA. Resource counts from the sm_120a cubin. -/
+def kInk2MoeNvfp4Dp4aUpHalf : KernelResourceSpec :=
+  { kInk2MoeNvfp4Dp4aUpSitu with
+    name := "ink2_moe_nvfp4_dp4a_up_half"
+    threadsPerCta := 128
+    rawRegsPerThread := 42
+    userSmemPerCtaBytes := 0
+    ctasPerSm := 10 }
+
+def kInk2MoeNvfp4Dp4aUpHalfPacked : KernelResourceSpec :=
+  { kInk2MoeNvfp4Dp4aUpHalf with
+    name := "ink2_moe_nvfp4_dp4a_up_half_packed_scales"
+    rawRegsPerThread := 40
+    ctasPerSm := 12 }
+
 /-- Wide `uint4` (`16B` `LDG.E.128`) `__dp4a` NVFP4 MoE Down (`39` regs, `4` CTAs/SM -> `64` KiB L1!). -/
 def kInk2MoeNvfp4Dp4aDown : KernelResourceSpec :=
   { name := "ink2_moe_nvfp4_dp4a_down"
@@ -350,6 +365,8 @@ def wave1Inkling2KernelSuite : List KernelResourceSpec :=
   [ kInk2Q8Dp4aGemv
   , kInk2Q8Dp4aGemvC3072
   , kInk2MoeNvfp4Dp4aUpSitu
+  , kInk2MoeNvfp4Dp4aUpHalf
+  , kInk2MoeNvfp4Dp4aUpHalfPacked
   , kInk2MoeNvfp4Dp4aDown
   , kInk2MoeNvfp4Dp4aDownXw
   , kInk2MoeMxfp8Down
@@ -359,6 +376,8 @@ def wave1Inkling2KernelSuite : List KernelResourceSpec :=
 theorem ink2_q8_dp4a_gemv_valid : ValidSm120Kernel kInk2Q8Dp4aGemv := by decide
 theorem ink2_q8_dp4a_gemv_c3072_valid : ValidSm120Kernel kInk2Q8Dp4aGemvC3072 := by decide
 theorem ink2_moe_nvfp4_dp4a_up_situ_valid : ValidSm120Kernel kInk2MoeNvfp4Dp4aUpSitu := by decide
+theorem ink2_moe_nvfp4_dp4a_up_half_valid : ValidSm120Kernel kInk2MoeNvfp4Dp4aUpHalf := by decide
+theorem ink2_moe_nvfp4_dp4a_up_half_packed_valid : ValidSm120Kernel kInk2MoeNvfp4Dp4aUpHalfPacked := by decide
 theorem ink2_moe_nvfp4_dp4a_down_valid : ValidSm120Kernel kInk2MoeNvfp4Dp4aDown := by decide
 theorem ink2_moe_nvfp4_dp4a_down_xw_valid : ValidSm120Kernel kInk2MoeNvfp4Dp4aDownXw := by decide
 theorem ink2_moe_mxfp8_down_valid : ValidSm120Kernel kInk2MoeMxfp8Down := by decide

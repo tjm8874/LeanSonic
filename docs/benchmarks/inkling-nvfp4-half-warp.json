@@ -1,0 +1,1121 @@
+{
+  "base": "144430561eda9ff87bf557dbf984a169dd353810",
+  "input_sha256": "c5f1c3ed9799636a9aea30b1caf7e8657cb834d6bba5195f512cf04895442e30",
+  "forced16_sha256": "0235cc384066c64f4687daf59f691fbbde21c84964c3b1f5b6003f86418b2ed5",
+  "cubin_sha256": "ccef3925ec71f0e60c3002dd0be98ccb67cf1bc7223e5f1341c2d3ec3c031c13",
+  "v13_cubin_sha256": "4a3edd7b9111a33ce209030d81ab574be2e525906d9f9da39a0bd6e8db091c64",
+  "conditional_host_sha256": "98847afadaa556f18881bfb95f980f0950bccb391239a5bde7e5beb38a92809f",
+  "v13_host_sha256": "80a2c02f09da066b46a9da7d5700d2be431aa89795b96c2684888ab014da0f4f",
+  "all_layers_host_sha256": "6497cbc30b142f3028a1bfeed283edc8a23c2d9e8724e1773e359896770fc346",
+  "all_layers_vs_v13": {
+    "5070Ti": {
+      "cycles": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "decode64_means_ms": {
+        "stock": 672.287,
+        "half": 718.584
+      },
+      "time_reduction_pct": -6.886493417245898,
+      "bootstrap95": [
+        -7.117714734769387,
+        -6.622568729607781
+      ],
+      "all_ids_match": true,
+      "fp32_17x200058_sha256": "68538b83e50b2df69e032bc05740bd5f019a9dd279f7077905553fe792df3489"
+    },
+    "5060Ti": {
+      "cycles": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "decode64_means_ms": {
+        "stock": 1331.519,
+        "half": 1329.109
+      },
+      "time_reduction_pct": 0.18099629070258416,
+      "bootstrap95": [
+        0.17197834424658165,
+        0.19001483317374612
+      ],
+      "all_ids_match": true,
+      "fp32_17x200058_sha256": "68538b83e50b2df69e032bc05740bd5f019a9dd279f7077905553fe792df3489"
+    },
+    "PRO4500": {
+      "cycles": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "decode64_means_ms": {
+        "stock": 457.66200000000003,
+        "half": 455.822
+      },
+      "time_reduction_pct": 0.40204342943046534,
+      "bootstrap95": [
+        0.38420710051417784,
+        0.4184667291635136
+      ],
+      "all_ids_match": true
+    }
+  },
+  "same_cubin_placement": {
+    "5060Ti": {
+      "cycles": [
+        1,
+        2,
+        3
+      ],
+      "arms": {
+        "stock": {
+          "ms": 1331.3166666666666,
+          "reduction_pct": 0.0,
+          "paired_95": [
+            0.0,
+            0.0
+          ]
+        },
+        "all": {
+          "ms": 1329.0533333333333,
+          "reduction_pct": 0.1700071357928823,
+          "paired_95": [
+            0.16603869978925045,
+            0.17361871727437084
+          ]
+        },
+        "resident": {
+          "ms": 1329.0883333333334,
+          "reduction_pct": 0.1673781594661805,
+          "paired_95": [
+            0.15814998328341767,
+            0.17274248726648622
+          ]
+        }
+      }
+    },
+    "5070Ti": {
+      "cycles": [
+        1,
+        2,
+        3
+      ],
+      "arms": {
+        "stock": {
+          "ms": 665.0883333333334,
+          "reduction_pct": 0.0,
+          "paired_95": [
+            0.0,
+            0.0
+          ]
+        },
+        "all": {
+          "ms": 711.0433333333333,
+          "reduction_pct": -6.909608498119302,
+          "paired_95": [
+            -7.015497166253937,
+            -6.8250907725053045
+          ]
+        },
+        "resident": {
+          "ms": 662.87,
+          "reduction_pct": 0.333539655133519,
+          "paired_95": [
+            0.20923808735315852,
+            0.41467384499811466
+          ]
+        }
+      }
+    }
+  },
+  "same_cubin_runs": [
+    {
+      "cycle": 1,
+      "card": "5060Ti",
+      "leg": 0,
+      "arm": "stock",
+      "timings": {
+        "prefill": [
+          242.69,
+          242.63,
+          242.65,
+          242.8
+        ],
+        "decode": [
+          1330.87,
+          1330.96,
+          1330.71,
+          1330.75
+        ]
+      },
+      "decode_warm_ms": 1330.75,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.43 GiB / 15.48 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 5.62s"
+    },
+    {
+      "cycle": 1,
+      "card": "5060Ti",
+      "leg": 1,
+      "arm": "all",
+      "timings": {
+        "prefill": [
+          242.62,
+          242.48,
+          242.52,
+          242.7
+        ],
+        "decode": [
+          1328.91,
+          1328.63,
+          1328.99,
+          1328.65
+        ]
+      },
+      "decode_warm_ms": 1328.65,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.43 GiB / 15.48 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 5.56s"
+    },
+    {
+      "cycle": 1,
+      "card": "5060Ti",
+      "leg": 2,
+      "arm": "resident",
+      "timings": {
+        "prefill": [
+          242.51,
+          242.44,
+          242.4,
+          242.57
+        ],
+        "decode": [
+          1329.06,
+          1328.87,
+          1328.89,
+          1329.1
+        ]
+      },
+      "decode_warm_ms": 1328.89,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.43 GiB / 15.48 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 5.39s"
+    },
+    {
+      "cycle": 1,
+      "card": "5060Ti",
+      "leg": 3,
+      "arm": "resident",
+      "timings": {
+        "prefill": [
+          242.74,
+          243.01,
+          242.63,
+          242.79
+        ],
+        "decode": [
+          1329.12,
+          1329.01,
+          1328.9,
+          1328.93
+        ]
+      },
+      "decode_warm_ms": 1328.93,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.43 GiB / 15.48 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 5.51s"
+    },
+    {
+      "cycle": 1,
+      "card": "5060Ti",
+      "leg": 4,
+      "arm": "all",
+      "timings": {
+        "prefill": [
+          242.65,
+          242.59,
+          242.65,
+          242.54
+        ],
+        "decode": [
+          1329.14,
+          1328.98,
+          1328.96,
+          1328.96
+        ]
+      },
+      "decode_warm_ms": 1328.96,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.43 GiB / 15.48 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 5.58s"
+    },
+    {
+      "cycle": 1,
+      "card": "5060Ti",
+      "leg": 5,
+      "arm": "stock",
+      "timings": {
+        "prefill": [
+          242.68,
+          242.67,
+          242.66,
+          242.69
+        ],
+        "decode": [
+          1331.45,
+          1331.28,
+          1331.35,
+          1331.28
+        ]
+      },
+      "decode_warm_ms": 1331.28,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.43 GiB / 15.48 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 5.48s"
+    },
+    {
+      "cycle": 2,
+      "card": "5060Ti",
+      "leg": 0,
+      "arm": "all",
+      "timings": {
+        "prefill": [
+          242.73,
+          242.57,
+          242.58,
+          242.57
+        ],
+        "decode": [
+          1329.54,
+          1329.27,
+          1329.3,
+          1329.42
+        ]
+      },
+      "decode_warm_ms": 1329.3,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.43 GiB / 15.48 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 5.38s"
+    },
+    {
+      "cycle": 2,
+      "card": "5060Ti",
+      "leg": 1,
+      "arm": "resident",
+      "timings": {
+        "prefill": [
+          242.72,
+          242.59,
+          242.6,
+          242.54
+        ],
+        "decode": [
+          1329.29,
+          1329.18,
+          1329.22,
+          1329.19
+        ]
+      },
+      "decode_warm_ms": 1329.19,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.43 GiB / 15.48 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 5.34s"
+    },
+    {
+      "cycle": 2,
+      "card": "5060Ti",
+      "leg": 2,
+      "arm": "stock",
+      "timings": {
+        "prefill": [
+          242.7,
+          242.79,
+          242.55,
+          242.56
+        ],
+        "decode": [
+          1331.65,
+          1331.48,
+          1331.51,
+          1331.4
+        ]
+      },
+      "decode_warm_ms": 1331.48,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.43 GiB / 15.48 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 5.51s"
+    },
+    {
+      "cycle": 2,
+      "card": "5060Ti",
+      "leg": 3,
+      "arm": "stock",
+      "timings": {
+        "prefill": [
+          242.9,
+          242.61,
+          242.54,
+          242.55
+        ],
+        "decode": [
+          1331.78,
+          1331.47,
+          1331.49,
+          1331.49
+        ]
+      },
+      "decode_warm_ms": 1331.49,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.43 GiB / 15.48 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 5.70s"
+    },
+    {
+      "cycle": 2,
+      "card": "5060Ti",
+      "leg": 4,
+      "arm": "resident",
+      "timings": {
+        "prefill": [
+          242.64,
+          242.53,
+          242.48,
+          242.49
+        ],
+        "decode": [
+          1329.31,
+          1329.18,
+          1329.26,
+          1329.39
+        ]
+      },
+      "decode_warm_ms": 1329.26,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.43 GiB / 15.48 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 5.63s"
+    },
+    {
+      "cycle": 2,
+      "card": "5060Ti",
+      "leg": 5,
+      "arm": "all",
+      "timings": {
+        "prefill": [
+          242.65,
+          242.95,
+          242.87,
+          242.62
+        ],
+        "decode": [
+          1329.28,
+          1329.05,
+          1329.22,
+          1329.41
+        ]
+      },
+      "decode_warm_ms": 1329.22,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.43 GiB / 15.48 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 5.66s"
+    },
+    {
+      "cycle": 3,
+      "card": "5060Ti",
+      "leg": 0,
+      "arm": "resident",
+      "timings": {
+        "prefill": [
+          242.73,
+          242.67,
+          242.76,
+          242.61
+        ],
+        "decode": [
+          1329.29,
+          1329.06,
+          1329.23,
+          1329.19
+        ]
+      },
+      "decode_warm_ms": 1329.19,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.43 GiB / 15.48 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 5.52s"
+    },
+    {
+      "cycle": 3,
+      "card": "5060Ti",
+      "leg": 1,
+      "arm": "stock",
+      "timings": {
+        "prefill": [
+          242.64,
+          242.83,
+          242.54,
+          242.48
+        ],
+        "decode": [
+          1331.78,
+          1331.57,
+          1331.53,
+          1331.46
+        ]
+      },
+      "decode_warm_ms": 1331.53,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.43 GiB / 15.48 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 5.64s"
+    },
+    {
+      "cycle": 3,
+      "card": "5060Ti",
+      "leg": 2,
+      "arm": "all",
+      "timings": {
+        "prefill": [
+          242.81,
+          242.65,
+          242.66,
+          242.93
+        ],
+        "decode": [
+          1329.21,
+          1328.92,
+          1328.96,
+          1329.0
+        ]
+      },
+      "decode_warm_ms": 1328.96,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.43 GiB / 15.48 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 5.58s"
+    },
+    {
+      "cycle": 3,
+      "card": "5060Ti",
+      "leg": 3,
+      "arm": "all",
+      "timings": {
+        "prefill": [
+          242.67,
+          242.66,
+          242.62,
+          242.83
+        ],
+        "decode": [
+          1329.48,
+          1329.23,
+          1329.22,
+          1329.24
+        ]
+      },
+      "decode_warm_ms": 1329.23,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.43 GiB / 15.48 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 5.53s"
+    },
+    {
+      "cycle": 3,
+      "card": "5060Ti",
+      "leg": 4,
+      "arm": "stock",
+      "timings": {
+        "prefill": [
+          242.75,
+          242.54,
+          242.54,
+          242.58
+        ],
+        "decode": [
+          1331.48,
+          1331.26,
+          1331.37,
+          1331.46
+        ]
+      },
+      "decode_warm_ms": 1331.37,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.43 GiB / 15.48 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 5.73s"
+    },
+    {
+      "cycle": 3,
+      "card": "5060Ti",
+      "leg": 5,
+      "arm": "resident",
+      "timings": {
+        "prefill": [
+          242.61,
+          242.45,
+          242.46,
+          242.42
+        ],
+        "decode": [
+          1329.32,
+          1329.07,
+          1329.25,
+          1329.02
+        ]
+      },
+      "decode_warm_ms": 1329.07,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.43 GiB / 15.48 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 5.55s"
+    },
+    {
+      "cycle": 1,
+      "card": "5070Ti",
+      "leg": 0,
+      "arm": "stock",
+      "timings": {
+        "prefill": [
+          105.59,
+          105.33,
+          105.34,
+          105.74
+        ],
+        "decode": [
+          665.1,
+          664.68,
+          664.82,
+          664.68
+        ]
+      },
+      "decode_warm_ms": 664.68,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 15.42 GiB / 15.47 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 4.50s"
+    },
+    {
+      "cycle": 1,
+      "card": "5070Ti",
+      "leg": 1,
+      "arm": "all",
+      "timings": {
+        "prefill": [
+          105.65,
+          105.4,
+          105.41,
+          105.87
+        ],
+        "decode": [
+          712.36,
+          711.64,
+          711.5,
+          711.72
+        ]
+      },
+      "decode_warm_ms": 711.64,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 15.42 GiB / 15.47 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 4.40s"
+    },
+    {
+      "cycle": 1,
+      "card": "5070Ti",
+      "leg": 2,
+      "arm": "resident",
+      "timings": {
+        "prefill": [
+          105.49,
+          105.27,
+          105.22,
+          105.26
+        ],
+        "decode": [
+          662.7,
+          662.16,
+          662.33,
+          662.96
+        ]
+      },
+      "decode_warm_ms": 662.33,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 15.42 GiB / 15.47 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 4.48s"
+    },
+    {
+      "cycle": 1,
+      "card": "5070Ti",
+      "leg": 3,
+      "arm": "resident",
+      "timings": {
+        "prefill": [
+          105.84,
+          106.41,
+          105.64,
+          105.71
+        ],
+        "decode": [
+          663.21,
+          663.02,
+          663.51,
+          663.47
+        ]
+      },
+      "decode_warm_ms": 663.47,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 15.42 GiB / 15.47 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 4.39s"
+    },
+    {
+      "cycle": 1,
+      "card": "5070Ti",
+      "leg": 4,
+      "arm": "all",
+      "timings": {
+        "prefill": [
+          105.48,
+          105.21,
+          105.21,
+          105.17
+        ],
+        "decode": [
+          711.29,
+          711.46,
+          710.97,
+          711.14
+        ]
+      },
+      "decode_warm_ms": 711.14,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 15.42 GiB / 15.47 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 4.16s"
+    },
+    {
+      "cycle": 1,
+      "card": "5070Ti",
+      "leg": 5,
+      "arm": "stock",
+      "timings": {
+        "prefill": [
+          104.8,
+          104.64,
+          104.62,
+          104.55
+        ],
+        "decode": [
+          665.65,
+          665.78,
+          665.62,
+          665.56
+        ]
+      },
+      "decode_warm_ms": 665.62,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 15.42 GiB / 15.47 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 4.38s"
+    },
+    {
+      "cycle": 2,
+      "card": "5070Ti",
+      "leg": 0,
+      "arm": "all",
+      "timings": {
+        "prefill": [
+          105.14,
+          104.97,
+          104.96,
+          104.91
+        ],
+        "decode": [
+          711.14,
+          711.37,
+          711.13,
+          711.06
+        ]
+      },
+      "decode_warm_ms": 711.13,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 15.42 GiB / 15.47 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 4.41s"
+    },
+    {
+      "cycle": 2,
+      "card": "5070Ti",
+      "leg": 1,
+      "arm": "resident",
+      "timings": {
+        "prefill": [
+          104.94,
+          104.79,
+          104.71,
+          104.74
+        ],
+        "decode": [
+          663.2,
+          663.67,
+          663.01,
+          663.09
+        ]
+      },
+      "decode_warm_ms": 663.09,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 15.42 GiB / 15.47 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 4.49s"
+    },
+    {
+      "cycle": 2,
+      "card": "5070Ti",
+      "leg": 2,
+      "arm": "stock",
+      "timings": {
+        "prefill": [
+          105.03,
+          104.83,
+          105.46,
+          104.89
+        ],
+        "decode": [
+          665.55,
+          665.5,
+          665.79,
+          665.34
+        ]
+      },
+      "decode_warm_ms": 665.5,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 15.42 GiB / 15.47 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 4.30s"
+    },
+    {
+      "cycle": 2,
+      "card": "5070Ti",
+      "leg": 3,
+      "arm": "stock",
+      "timings": {
+        "prefill": [
+          105.28,
+          104.96,
+          104.92,
+          105.0
+        ],
+        "decode": [
+          666.27,
+          666.1,
+          666.31,
+          666.07
+        ]
+      },
+      "decode_warm_ms": 666.1,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 15.42 GiB / 15.47 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 4.38s"
+    },
+    {
+      "cycle": 2,
+      "card": "5070Ti",
+      "leg": 4,
+      "arm": "resident",
+      "timings": {
+        "prefill": [
+          105.2,
+          104.98,
+          104.93,
+          105.87
+        ],
+        "decode": [
+          663.29,
+          662.5,
+          662.43,
+          662.48
+        ]
+      },
+      "decode_warm_ms": 662.48,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 15.42 GiB / 15.47 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 4.24s"
+    },
+    {
+      "cycle": 2,
+      "card": "5070Ti",
+      "leg": 5,
+      "arm": "all",
+      "timings": {
+        "prefill": [
+          105.19,
+          105.58,
+          104.99,
+          105.0
+        ],
+        "decode": [
+          710.19,
+          710.97,
+          710.26,
+          710.51
+        ]
+      },
+      "decode_warm_ms": 710.51,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 15.42 GiB / 15.47 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 4.12s"
+    },
+    {
+      "cycle": 3,
+      "card": "5070Ti",
+      "leg": 0,
+      "arm": "resident",
+      "timings": {
+        "prefill": [
+          105.43,
+          105.27,
+          105.3,
+          105.25
+        ],
+        "decode": [
+          663.23,
+          663.54,
+          663.23,
+          663.41
+        ]
+      },
+      "decode_warm_ms": 663.41,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 15.42 GiB / 15.47 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 4.20s"
+    },
+    {
+      "cycle": 3,
+      "card": "5070Ti",
+      "leg": 1,
+      "arm": "stock",
+      "timings": {
+        "prefill": [
+          104.96,
+          104.78,
+          104.81,
+          104.8
+        ],
+        "decode": [
+          664.39,
+          664.78,
+          664.35,
+          664.32
+        ]
+      },
+      "decode_warm_ms": 664.35,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 15.42 GiB / 15.47 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 4.31s"
+    },
+    {
+      "cycle": 3,
+      "card": "5070Ti",
+      "leg": 2,
+      "arm": "all",
+      "timings": {
+        "prefill": [
+          104.8,
+          104.7,
+          105.08,
+          104.63
+        ],
+        "decode": [
+          712.43,
+          712.43,
+          712.23,
+          712.41
+        ]
+      },
+      "decode_warm_ms": 712.41,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 15.42 GiB / 15.47 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 4.24s"
+    },
+    {
+      "cycle": 3,
+      "card": "5070Ti",
+      "leg": 3,
+      "arm": "all",
+      "timings": {
+        "prefill": [
+          104.5,
+          104.28,
+          104.36,
+          104.33
+        ],
+        "decode": [
+          709.87,
+          709.2,
+          709.83,
+          709.43
+        ]
+      },
+      "decode_warm_ms": 709.43,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 15.42 GiB / 15.47 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 4.31s"
+    },
+    {
+      "cycle": 3,
+      "card": "5070Ti",
+      "leg": 4,
+      "arm": "stock",
+      "timings": {
+        "prefill": [
+          104.86,
+          104.54,
+          104.59,
+          104.55
+        ],
+        "decode": [
+          664.19,
+          664.16,
+          664.28,
+          664.82
+        ]
+      },
+      "decode_warm_ms": 664.28,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 15.42 GiB / 15.47 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 4.39s"
+    },
+    {
+      "cycle": 3,
+      "card": "5070Ti",
+      "leg": 5,
+      "arm": "resident",
+      "timings": {
+        "prefill": [
+          105.76,
+          105.51,
+          105.57,
+          105.65
+        ],
+        "decode": [
+          662.99,
+          662.42,
+          662.57,
+          662.44
+        ]
+      },
+      "decode_warm_ms": 662.44,
+      "generated_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "loader": "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 15.42 GiB / 15.47 GiB | Resident expert layers: 21/24 (Spilled: 3) | Mixed VRAM/host layers: 3 | Spec: off | KV: fp16 | Prefill chunk: 64 | Loaded in 4.27s"
+    }
+  ],
+  "isolated_vram_kernel_microseconds": {
+    "PRO5000": {
+      "situ-256": {
+        "us": 18.7695999,
+        "reduction_pct": 0.0,
+        "paired_95": [
+          0.0,
+          0.0
+        ]
+      },
+      "direct-256": {
+        "us": 18.5671997,
+        "reduction_pct": 1.078340513800724,
+        "paired_95": [
+          0.994068123576819,
+          1.1416421786030084
+        ]
+      },
+      "pair-128": {
+        "us": 18.4432006,
+        "reduction_pct": 1.7389784637870775,
+        "paired_95": [
+          1.6784522237369148,
+          1.7903518030430998
+        ]
+      },
+      "pair-256": {
+        "us": 18.7112004,
+        "reduction_pct": 0.31113875794442913,
+        "paired_95": [
+          0.24723453685152608,
+          0.39629852770005636
+        ]
+      },
+      "half-128": {
+        "us": 16.9951998,
+        "reduction_pct": 9.453585102791672,
+        "paired_95": [
+          9.392194064749349,
+          9.527055815935237
+        ]
+      },
+      "half-256": {
+        "us": 17.1808005,
+        "reduction_pct": 8.464748361524743,
+        "paired_95": [
+          8.402640844557919,
+          8.53429590967194
+        ]
+      }
+    },
+    "5070Ti": {
+      "situ-256": {
+        "us": 28.1456004,
+        "reduction_pct": 0.0,
+        "paired_95": [
+          0.0,
+          0.0
+        ]
+      },
+      "direct-256": {
+        "us": 27.9432003,
+        "reduction_pct": 0.7191180757330717,
+        "paired_95": [
+          0.6851832347070763,
+          0.7673742170967057
+        ]
+      },
+      "pair-128": {
+        "us": 27.5863995,
+        "reduction_pct": 1.9868146070886494,
+        "paired_95": [
+          1.9440147948269204,
+          2.0148949711382924
+        ]
+      },
+      "pair-256": {
+        "us": 27.8527995,
+        "reduction_pct": 1.0403078841409341,
+        "paired_95": [
+          1.0063980063738431,
+          1.074204270086454
+        ]
+      },
+      "half-128": {
+        "us": 26.5312002,
+        "reduction_pct": 5.735888298904435,
+        "paired_95": [
+          5.668477251938486,
+          5.79294476763379
+        ]
+      },
+      "half-256": {
+        "us": 26.6360001,
+        "reduction_pct": 5.363539162589692,
+        "paired_95": [
+          5.329009891198133,
+          5.40955469554304
+        ]
+      }
+    },
+    "5060Ti": {
+      "situ-256": {
+        "us": 55.8927994,
+        "reduction_pct": 0.0,
+        "paired_95": [
+          0.0,
+          0.0
+        ]
+      },
+      "direct-256": {
+        "us": 55.3488487,
+        "reduction_pct": 0.9732035357670865,
+        "paired_95": [
+          0.925695732921239,
+          1.0274911921843044
+        ]
+      },
+      "pair-128": {
+        "us": 54.731226400000004,
+        "reduction_pct": 2.078215821124174,
+        "paired_95": [
+          2.0237099545400095,
+          2.1327279288649525
+        ]
+      },
+      "pair-256": {
+        "us": 55.2199752,
+        "reduction_pct": 1.2037761701375826,
+        "paired_95": [
+          1.1668688532814997,
+          1.2363145008350118
+        ]
+      },
+      "half-128": {
+        "us": 53.3848003,
+        "reduction_pct": 4.487159574977396,
+        "paired_95": [
+          4.467141851122625,
+          4.5138226315291075
+        ]
+      },
+      "half-256": {
+        "us": 53.5648007,
+        "reduction_pct": 4.16511379818274,
+        "paired_95": [
+          4.1527445048995855,
+          4.174759243566606
+        ]
+      }
+    }
+  }
+}
