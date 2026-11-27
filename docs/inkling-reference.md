@@ -91,10 +91,16 @@ These runs use LeanSonic `7a02b538` (default Tensor Core prefill), a text-only B
 | RTX 5060 Ti / Basalt | 32 | 293.60 | 16 | 377.30 | 14.459 |
 | RTX 5060 Ti / LeanSonic | 1,024 | 388.83 | 16 | 392.60 | 15.418 |
 | RTX 5060 Ti / Basalt | 1,024 | 1,284.50 | 16 | 393.60 | 14.461 |
+| RTX PRO 4500 / LeanSonic | 32 | 38.51 | 16 | 115.87 | 16.369 |
+| RTX PRO 4500 / Basalt | 32 | 55.90 | 16 | 115.70 | 18.096 |
+| RTX PRO 4500 / LeanSonic | 1,024 | 134.86 | 16 | 118.68 | 16.895 |
+| RTX PRO 4500 / Basalt | 1,024 | 131.10 | 16 | 121.10 | 18.096 |
 | RTX PRO 5000 / LeanSonic | 1,024 | 94.65 | 32 | 196.62 | 17.004 |
 | RTX PRO 5000 / llama.cpp BF16 | 1,024 | 598.69 | 32 | 566.38 | 51.762 |
 
 The RTX 5060 Ti comparison uses the README prompt and its first 32 IDs, FP16 KV, context 8,192, greedy selection and speculation disabled. Each prompt ran once per fresh process. Five balanced cycles compared native Q8 scales, dictionary Q8 scales and Basalt in mirrored, rotating order. All three produced the same first 16 IDs at both lengths. For the 1,024-token prompt the dictionary package saved 69.73% of Basalt's prefill time. Its 16-step decode difference was within run-to-run variation (paired 95% interval for time saved −0.18% to +0.58%). LeanSonic used about 0.96 GiB more peak VRAM. Basalt's CLI reports its phase times to whole milliseconds.
+
+On PRO 4500 the same balanced comparison returned identical first-16 token IDs in every run. At 1,024 input tokens the paired 95% interval for prefill time saved against Basalt ranged from −8.23% to +0.43%. LeanSonic's 16-step decode time was lower (paired interval for time saved 1.81% to 2.21%). At 32 input tokens the prefill time reduction was 31.1% and the decode interval included zero.
 
 On PRO 5000, use the two fixed-continuation harnesses described above with the V12 revision and dictionary package. Each process ran five requests. All 100 requests predicted the 32 supplied IDs, and the timing excludes each process's first request. The two workloads in the table have different decode lengths and warm-up protocols.
 
