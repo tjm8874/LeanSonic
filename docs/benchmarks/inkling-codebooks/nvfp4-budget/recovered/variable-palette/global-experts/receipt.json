@@ -1,0 +1,182 @@
+{
+  "prefix": 68,
+  "cap": 11663309504,
+  "parent_bytes": 11577239270,
+  "package_bytes": 11663036518,
+  "files": {
+    "model-00001-of-00001.safetensors": {
+      "bytes": 11659650024,
+      "sha256": "1e59199c3f94fe324fcf1e60eefaee16ea236f284d4f3370f3c5c3761ba30c67"
+    },
+    "tiktoken/tokenizer.model": {
+      "bytes": 3386494,
+      "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+    }
+  },
+  "rank_sha256": "1189b631779e5ce3b87c197750b7dea338e5f9b7284749b8acb50982c9259af2",
+  "training_gain": 26075.251462777473,
+  "training_objective": 334273.44672463776,
+  "whole_plane_gain": 16638.058256809192,
+  "selected": {
+    "model.llm.layers.17.mlp.experts.w13_weight": [
+      124,
+      104,
+      3,
+      96,
+      110
+    ],
+    "model.llm.layers.15.mlp.experts.w2_weight": [
+      67,
+      33,
+      86
+    ],
+    "model.llm.layers.15.mlp.experts.w13_weight": [
+      67,
+      33
+    ],
+    "model.llm.layers.13.mlp.experts.w2_weight": [
+      50,
+      122,
+      92
+    ],
+    "model.llm.layers.13.mlp.experts.w13_weight": [
+      50,
+      122,
+      92
+    ],
+    "model.llm.layers.9.mlp.experts.w2_weight": [
+      16,
+      78,
+      7
+    ],
+    "model.llm.layers.11.mlp.experts.w2_weight": [
+      44
+    ],
+    "model.llm.layers.11.mlp.experts.w13_weight": [
+      44
+    ],
+    "model.llm.layers.8.mlp.experts.w13_weight": [
+      50,
+      82,
+      84
+    ],
+    "model.llm.layers.9.mlp.experts.w13_weight": [
+      16,
+      78
+    ],
+    "model.llm.layers.8.mlp.experts.w2_weight": [
+      50,
+      82,
+      84
+    ],
+    "model.llm.layers.10.mlp.experts.w2_weight": [
+      83,
+      85,
+      11
+    ],
+    "model.llm.layers.10.mlp.experts.w13_weight": [
+      83,
+      85,
+      11
+    ],
+    "model.llm.layers.7.mlp.experts.w13_weight": [
+      6,
+      78,
+      71,
+      49
+    ],
+    "model.llm.layers.7.mlp.experts.w2_weight": [
+      6,
+      78,
+      71,
+      49
+    ],
+    "model.llm.layers.16.mlp.experts.w13_weight": [
+      49,
+      64,
+      92
+    ],
+    "model.llm.layers.12.mlp.experts.w13_weight": [
+      78,
+      31
+    ],
+    "model.llm.layers.14.mlp.experts.w2_weight": [
+      66,
+      125,
+      77,
+      102,
+      117
+    ],
+    "model.llm.layers.12.mlp.experts.w2_weight": [
+      78,
+      31
+    ],
+    "model.llm.layers.14.mlp.experts.w13_weight": [
+      66,
+      77,
+      125,
+      102
+    ],
+    "model.llm.layers.6.mlp.experts.w2_weight": [
+      104,
+      55,
+      33
+    ],
+    "model.llm.layers.6.mlp.experts.w13_weight": [
+      104,
+      55
+    ],
+    "model.llm.layers.1.mlp.experts.w2_weight": [
+      79
+    ],
+    "model.llm.layers.18.mlp.experts.w2_weight": [
+      82
+    ],
+    "model.llm.layers.1.mlp.experts.w13_weight": [
+      79
+    ],
+    "model.llm.layers.18.mlp.experts.w13_weight": [
+      82
+    ]
+  },
+  "trials": [
+    {
+      "prefix": 224,
+      "estimated_archive_bytes_before_header": 11784478086
+    },
+    {
+      "prefix": 112,
+      "estimated_archive_bytes_before_header": 11699027022
+    },
+    {
+      "prefix": 56,
+      "estimated_archive_bytes_before_header": 11649634838
+    },
+    {
+      "prefix": 84,
+      "estimated_archive_bytes_before_header": 11674255806
+    },
+    {
+      "prefix": 70,
+      "estimated_archive_bytes_before_header": 11664971838
+    },
+    {
+      "prefix": 63,
+      "estimated_archive_bytes_before_header": 11660873798
+    },
+    {
+      "prefix": 66,
+      "estimated_archive_bytes_before_header": 11662135542
+    },
+    {
+      "prefix": 68,
+      "estimated_archive_bytes_before_header": 11663036518
+    },
+    {
+      "prefix": 69,
+      "estimated_archive_bytes_before_header": 11663992910
+    }
+  ],
+  "changed_tensors": 52,
+  "verified_tensors": 999
+}
