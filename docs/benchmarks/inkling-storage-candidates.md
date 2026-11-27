@@ -65,3 +65,18 @@ Run `LEANSONIC_PDL=1 LEANSONIC_KV=fp16 LEANSONIC_CUBIN_PATH="$CUBIN" leansonic e
 
 
 The budget variant lowered worst KL on both splits relative to the canonical parent (test 0.680977 to 0.671736, validation 0.352436 to 0.351009). Mean KL rose by 0.00001688 and 0.00000790, respectively. Top-1 corresponded to 3 additional matches on test and 19 fewer on validation. Its test PPL rose by 0.00097042 and its validation PPL fell by 0.00049441. At the same byte budget it had lower mean and worst KL than rounding all magnitudes in layer 23 on both splits. We are retaining the candidate for broader testing; default encoding remains the canonical package. The public cutoff-selection and repacking procedure reproduced the candidate hash independently.
+
+## Matched latency and sampled VRAM
+
+We compared the canonical parent and the budget package at context 8192 with the same 1,024-token README prefix and a fixed 32-token continuation recorded from Basalt on the PRO 4500. Each leg loaded a fresh LeanSonic process and then timed prefill and forced decode, excluding model load. Ten legs per package per GPU, interleaved in five mirrored four-leg cycles. NVML process memory was sampled every 4 ms across load and inference. The peak is the highest sample across all legs. The 95% intervals below use the five paired per-cycle differences (all 3,125 bootstrap resamples).
+
+| GPU | Package | Prefill ms | Decode 32 ms | Peak bytes | Changed predictions vs parent / 33 |
+|---|---|---:|---:|---:|---:|
+| PRO4500 | parent | 126.122 | 201.309 | 18,102,616,064 | 0 |
+| PRO4500 | budget | 125.225 | 201.375 | 18,144,559,104 | 0 |
+
+| GPU | Budget minus parent prefill ms (95% interval) | Budget minus parent decode ms (95% interval) |
+|---|---:|---:|
+| PRO4500 | -0.898 [-2.867, +0.253] | +0.066 [-0.038, +0.233] |
+
+[Per-leg measurements and predictions](inkling-budget-latency.json). Reproduce with the [fixed-token replay example](../../crates/leansonic-core/examples/inkling_basalt_replay.rs), engine source `a9872cc`, cubin source `48b7ec2` (SHA-256 `3714fd830d6cfedbf6954f21cad460489173be36566b0cb4b78173d42da87f0b`), FP16 KV and PDL enabled. Use the [README prefix](inputs/inkling-readme1024.ids) and [fixed continuation](fixtures/inkling-budget-continuation.ids). The order was parent/budget/budget/parent in odd cycles and its reverse in even cycles.
