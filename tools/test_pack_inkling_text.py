@@ -134,6 +134,28 @@ class PackInklingTextTest(unittest.TestCase):
             self.assertEqual(h["model.llm.embed.weight.prefix_v1"]["shape"], [328])
             self.assertEqual(payload, struct.pack("<I", 320) + bytes([42])*256 + bytes(68) + b"HEAD")
 
+    def test_rare_embedding_values_keep_raw_tensor_and_conflicts_do_not_publish(self):
+        raw = bytes(range(64))
+        header = {"model.llm.embed.weight": {"dtype": "BF16", "shape": [4, 8], "data_offsets": [0, 64]},
+                   "model.llm.unembed.weight": {"dtype": "BF16", "shape": [2], "data_offsets": [64, 68]}}
+        with tempfile.TemporaryDirectory() as tmp, patch("pack_inkling_text.EMBED_SHAPE", [4, 8]):
+            src, dst = Path(tmp) / "source", Path(tmp) / "raw"
+            def write_source(extra=b""):
+                encoded = json.dumps(header).encode()
+                src.write_bytes(struct.pack("<Q", len(encoded)) + encoded + raw + b"HEAD" + extra)
+            write_source()
+            pack(src, dst, prepack_embedding=True)
+            with dst.open("rb") as f:
+                info = json.loads(f.read(struct.unpack("<Q", f.read(8))[0]))
+                self.assertEqual(info["model.llm.embed.weight"], header["model.llm.embed.weight"])
+                self.assertEqual(f.read(), raw + b"HEAD")
+            header["model.llm.embed.weight.prefix_v1"] = {"dtype": "U8", "shape": [8], "data_offsets": [68, 76]}
+            write_source(bytes(8))
+            other = Path(tmp) / "conflict"
+            with self.assertRaisesRegex(ValueError, "ambiguous Inkling input embedding"):
+                pack(src, other, prepack_embedding=True)
+            self.assertFalse(other.exists())
+
     def test_attention_projection_catalog(self):
         matrices = attention_matrices()
         self.assertEqual(len(matrices), 176)
