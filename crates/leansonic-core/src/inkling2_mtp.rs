@@ -1483,6 +1483,206 @@ impl SuffixDrafter {
         }
         Vec::new()
     }
+
+    /// Context copy for a neural drafter's round (#177): when the last `min_match` tokens of
+    /// `history + next_tok` occurred earlier, returns the `max_k` tokens that followed their
+    /// most recent earlier occurrence (see `periodic_copy`). Verification keeps the output
+    /// greedy-exact, so a copied run only replaces the drafter pass for that round.
+    pub fn copy_run(history: &[u32], next_tok: u32, min_match: usize, max_k: usize) -> Vec<u32> {
+        let n = history.len() + 1;
+        if min_match == 0 || max_k == 0 || n <= min_match {
+            return Vec::new();
+        }
+        let at = |i: usize| if i + 1 == n { next_tok } else { history[i] };
+        // An occurrence ending at `end` (exclusive) must leave at least one continuation token.
+        for end in (min_match..n).rev() {
+            if (1..=min_match).all(|j| at(end - j) == at(n - j)) {
+                return periodic_copy(end, n, max_k, at);
+            }
+        }
+        Vec::new()
+    }
+}
+
+/// Default match length for the context copy that stands in for a DSpark round (#177).
+/// Verbatim repeats (structured output, quoted text) keep matching past 32 tokens, while
+/// code reuses 12–31-token spans with different continuations, where DSpark drafts better
+/// (PRO 5000, 32K code: 12 costs 2–4%, 32 never fires).
+pub const SPEC_COPY_MATCH: usize = 32;
+
+/// Context-copy match length: `LEANSONIC_SPEC_COPY=n`, `0` disables the copy.
+pub fn spec_copy_match() -> usize {
+    std::env::var("LEANSONIC_SPEC_COPY")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(SPEC_COPY_MATCH)
+}
+
+/// The `max_k` tokens that follow position `end` when the sequence `at(0..n)` keeps
+/// repeating from there: once the copy reaches `n` it continues with its own output (an
+/// overlapping LZ77 copy), so a run of period `n - end` still fills the whole draft.
+fn periodic_copy(end: usize, n: usize, max_k: usize, at: impl Fn(usize) -> u32) -> Vec<u32> {
+    let mut out = Vec::with_capacity(max_k);
+    for i in 0..max_k {
+        let t = if end + i < n {
+            at(end + i)
+        } else {
+            out[i - (n - end)]
+        };
+        out.push(t);
+    }
+    out
+}
+
+/// Incremental index behind `SuffixDrafter::copy_run` for long contexts: maps a rolling
+/// hash of each `min_match`-token window of the history to the latest position it ended at,
+/// so indexing costs O(1) per token and a round one lookup instead of a context scan.
+/// Returns exactly what `copy_run` returns for the same arguments (hash collisions are
+/// caught by comparing the tokens).
+pub struct ContextCopyIndex {
+    min_match: usize,
+    /// `prefix[i]` = polynomial hash of `history[..i]`.
+    prefix: Vec<u64>,
+    /// `BASE^min_match`.
+    base_pow: u64,
+    last_end: std::collections::HashMap<u64, usize, std::hash::BuildHasherDefault<MixHasher>>,
+}
+
+/// The keys are already hashes; one multiply spreads them over the table's bits.
+#[derive(Default)]
+pub struct MixHasher(u64);
+
+impl std::hash::Hasher for MixHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, _: &[u8]) {
+        unreachable!("MixHasher only hashes u64 keys")
+    }
+    fn write_u64(&mut self, h: u64) {
+        self.0 = (h ^ (h >> 29)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    }
+}
+
+impl ContextCopyIndex {
+    const BASE: u64 = 0x0000_0100_0000_01b3;
+
+    pub fn new(min_match: usize) -> Self {
+        Self {
+            min_match,
+            prefix: vec![0],
+            base_pow: (0..min_match).fold(1u64, |p, _| p.wrapping_mul(Self::BASE)),
+            last_end: Default::default(),
+        }
+    }
+
+    fn push(h: u64, t: u32) -> u64 {
+        h.wrapping_mul(Self::BASE).wrapping_add(u64::from(t) + 1)
+    }
+
+    /// Hash of the window ending at `end`, given the prefix hash at `end`.
+    fn window(&self, at_end: u64, end: usize) -> u64 {
+        at_end.wrapping_sub(self.prefix[end - self.min_match].wrapping_mul(self.base_pow))
+    }
+
+    /// `history` must only grow between calls (prompt, then accepted tokens).
+    pub fn run(&mut self, history: &[u32], next_tok: u32, max_k: usize) -> Vec<u32> {
+        let m = self.min_match;
+        if m == 0 || max_k == 0 || history.len() < m {
+            return Vec::new();
+        }
+        // Windows entirely inside `history` end at `m..=history.len()`; the query window
+        // (ending at `next_tok`) is never indexed, so it cannot match itself.
+        for end in self.prefix.len()..=history.len() {
+            let h = Self::push(self.prefix[end - 1], history[end - 1]);
+            self.prefix.push(h);
+            if end >= m {
+                self.last_end.insert(self.window(h, end), end);
+            }
+        }
+        let n = history.len() + 1;
+        let query = Self::push(self.prefix[n - 1], next_tok)
+            .wrapping_sub(self.prefix[n - m].wrapping_mul(self.base_pow));
+        let Some(&end) = self.last_end.get(&query) else {
+            return Vec::new();
+        };
+        let tail = history[n - m..].iter().copied().chain([next_tok]);
+        if !history[end - m..end].iter().copied().eq(tail) {
+            return Vec::new();
+        }
+        periodic_copy(end, n, max_k, |i| {
+            if i + 1 == n {
+                next_tok
+            } else {
+                history[i]
+            }
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn copy_index_matches_the_scan_on_growing_histories() {
+        // Small alphabets make long repeats, short ones and misses all common.
+        let mut x = 0x2545_f491_4f6c_dd1du64;
+        for alphabet in [2u64, 3, 5, 50] {
+            for min_match in [1usize, 2, 4, 8, 32] {
+                let mut hist = Vec::new();
+                let mut idx = ContextCopyIndex::new(min_match);
+                for _ in 0..600 {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    let next = (x % alphabet) as u32;
+                    assert_eq!(
+                        idx.run(&hist, next, 7),
+                        SuffixDrafter::copy_run(&hist, next, min_match, 7),
+                        "alphabet {alphabet} min_match {min_match} len {}",
+                        hist.len()
+                    );
+                    hist.push(next);
+                    // Several accepted tokens can arrive between rounds.
+                    if x.is_multiple_of(3) {
+                        hist.push(((x >> 8) % alphabet) as u32);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn copy_run_continues_the_latest_earlier_occurrence() {
+        let h = [1, 2, 3, 4, 9, 1, 2, 3, 4, 7, 8, 1, 2, 3];
+        assert_eq!(SuffixDrafter::copy_run(&h, 4, 4, 7), [7, 8, 1, 2, 3, 4, 7]);
+        assert_eq!(SuffixDrafter::copy_run(&h, 4, 4, 2), [7, 8]);
+        assert!(SuffixDrafter::copy_run(&h, 5, 4, 7).is_empty());
+        assert!(SuffixDrafter::copy_run(&h, 4, 0, 7).is_empty());
+        assert!(SuffixDrafter::copy_run(&[1, 2], 3, 4, 7).is_empty());
+        // The run being matched never counts as its own earlier occurrence.
+        assert!(SuffixDrafter::copy_run(&[5, 5, 5], 5, 4, 7).is_empty());
+        assert_eq!(SuffixDrafter::copy_run(&[5, 5, 5, 5], 5, 4, 7), [5; 7]);
+        // Period 2: the copy keeps alternating past the current position.
+        assert_eq!(
+            SuffixDrafter::copy_run(&[1, 2, 1], 2, 2, 5),
+            [1, 2, 1, 2, 1]
+        );
+    }
+
+    #[test]
+    fn projection_table_matches_the_drafter_kernel_shapes() {
+        let shape = |(_, parts, cols): Projection| (parts.iter().map(|p| p.1).sum::<usize>(), cols);
+        let shapes = LAYER_PROJECTIONS.map(shape);
+        assert_eq!(
+            shapes,
+            [(5120, D), (2048, D), (D, 3072), (2 * DFF, D), (D, DFF)]
+        );
+        assert!(LAYER_PROJECTIONS.iter().all(|&(_, _, cols)| cols % 64 == 0));
+        assert_eq!(RNN_J01_COLS + RNN_JCTX_COLS, 5120);
+        assert_eq!(RNN_JCTX_COLS % 64, 0);
+    }
 }
 
 #[cfg(test)]
