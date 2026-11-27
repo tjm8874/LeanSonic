@@ -1451,6 +1451,15 @@ extern "C" __global__ void ink2_router_gemv_topk8(
     extern "C" __global__ __launch_bounds__(lb_threads, lb_blocks) void name##_packed_scales params { pdl_wait(); name##_impl<true> args; } \
     template<bool PackedScales> __device__ __forceinline__ void name##_impl params
 
+template<int Bits, unsigned Base>
+__device__ __forceinline__ unsigned expand_expert_scale_fields(unsigned fields) {
+    constexpr unsigned mask = (1u << Bits) - 1;
+    return Base * 0x01010101u | (fields & mask)
+        | (((fields >> Bits) & mask) << 8)
+        | (((fields >> (2 * Bits)) & mask) << 16)
+        | (((fields >> (3 * Bits)) & mask) << 24);
+}
+
 template<bool PackedScales, int Bits, unsigned Base>
 __device__ __forceinline__ unsigned expert_scale_word(const unsigned* scales, unsigned index) {
     if constexpr (!PackedScales) return scales[index];
@@ -1458,11 +1467,18 @@ __device__ __forceinline__ unsigned expert_scale_word(const unsigned* scales, un
     const unsigned bit = index * (4u * Bits);
     const unsigned word = bit >> 5;
     const unsigned fields = __funnelshift_r(scales[word], scales[word + 1], bit & 31);
-    constexpr unsigned mask = (1u << Bits) - 1;
-    return Base * 0x01010101u | (fields & mask)
-        | (((fields >> Bits) & mask) << 8)
-        | (((fields >> (2 * Bits)) & mask) << 16)
-        | (((fields >> (3 * Bits)) & mask) << 24);
+    return expand_expert_scale_fields<Bits, Base>(fields);
+}
+
+// An even pair of four-scale words occupies 48 bits starting at bit 0 or 16
+// of an aligned 32-bit word. Two 32-bit reads cover both cases exactly.
+__device__ __forceinline__ uint2 nvfp4_scale_pair(const unsigned* scales, unsigned index) {
+    const unsigned first = (index * 3u) >> 2;
+    const unsigned long long bits = scales[first] |
+        (static_cast<unsigned long long>(scales[first + 1]) << 32);
+    const unsigned long long pair = bits >> ((index & 2u) * 8u);
+    return make_uint2(expand_expert_scale_fields<6, 64>(static_cast<unsigned>(pair)),
+                      expand_expert_scale_fields<6, 64>(static_cast<unsigned>(pair >> 24)));
 }
 
 template<bool PackedScales>
@@ -10333,12 +10349,10 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
     issue_stage(1, 1);
     if constexpr (PackedScales) {
         const int k_init = wq2 * 2;
-        s->sm_wsc[k_init][wr_r] = expert_scale_word<true, 6, 64>(
-            weight_scales_u32,
+        const uint2 pair = nvfp4_scale_pair(weight_scales_u32,
             static_cast<unsigned>(grow_sc_wr * kWScRowU32 + k_init));
-        s->sm_wsc[k_init + 1][wr_r] = expert_scale_word<true, 6, 64>(
-            weight_scales_u32,
-            static_cast<unsigned>(grow_sc_wr * kWScRowU32 + k_init + 1));
+        s->sm_wsc[k_init][wr_r] = pair.x;
+        s->sm_wsc[k_init + 1][wr_r] = pair.y;
     }
 
     int st = 0;
@@ -10360,15 +10374,12 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
         if constexpr (PackedScales) {
             if (((ks64 & 3) == 3) && (ks64 + 1 < kStages64)) {
                 const int k_next = ks64 + 1 + wq2 * 2;
+                // Both projection widths and k_next are even.
                 if (k_next < kStages64) {
-                    next_wsc0 = expert_scale_word<true, 6, 64>(
-                        weight_scales_u32,
+                    const uint2 pair = nvfp4_scale_pair(weight_scales_u32,
                         static_cast<unsigned>(grow_sc_wr * kWScRowU32 + k_next));
-                }
-                if (k_next + 1 < kStages64) {
-                    next_wsc1 = expert_scale_word<true, 6, 64>(
-                        weight_scales_u32,
-                        static_cast<unsigned>(grow_sc_wr * kWScRowU32 + k_next + 1));
+                    next_wsc0 = pair.x;
+                    next_wsc1 = pair.y;
                 }
             }
         }
