@@ -1,0 +1,13 @@
+{
+  "plane": "model.llm.layers.0.mlp.experts.w2_weight",
+  "weight_counts": [
+    203182563,
+    68280561,
+    68275500
+  ],
+  "bytes": {
+    "nibbles.bin": 169869312,
+    "ternary.bin": 84934656,
+    "scales.bin": 21233664
+  }
+}
