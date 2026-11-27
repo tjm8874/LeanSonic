@@ -1033,7 +1033,7 @@ def kInk2MoeNvfp4TcUpSitu : KernelResourceSpec :=
   { name := "ink2_moe_nvfp4_tc_up_situ"
     threadsPerCta := 512
     rawRegsPerThread := 127
-    userSmemPerCtaBytes := 57392
+    userSmemPerCtaBytes := 62504
     smemAlignPadBytes := 0
     ctasPerSm := 1
     clusterCtas := 1
@@ -1045,7 +1045,7 @@ def kInk2MoeNvfp4TcDown : KernelResourceSpec :=
   { name := "ink2_moe_nvfp4_tc_down"
     threadsPerCta := 512
     rawRegsPerThread := 124
-    userSmemPerCtaBytes := 57392
+    userSmemPerCtaBytes := 62504
     smemAlignPadBytes := 0
     ctasPerSm := 1
     clusterCtas := 1
@@ -1057,7 +1057,7 @@ def kInk2MoeNvfp4TcUpSituPackedScales : KernelResourceSpec :=
   { name := "ink2_moe_nvfp4_tc_up_situ_packed_scales"
     threadsPerCta := 512
     rawRegsPerThread := 127
-    userSmemPerCtaBytes := 57392
+    userSmemPerCtaBytes := 62504
     smemAlignPadBytes := 0
     ctasPerSm := 1
     clusterCtas := 1
@@ -1068,8 +1068,8 @@ def kInk2MoeNvfp4TcUpSituPackedScales : KernelResourceSpec :=
 def kInk2MoeNvfp4TcDownPackedScales : KernelResourceSpec :=
   { name := "ink2_moe_nvfp4_tc_down_packed_scales"
     threadsPerCta := 512
-    rawRegsPerThread := 124
-    userSmemPerCtaBytes := 57392
+    rawRegsPerThread := 126
+    userSmemPerCtaBytes := 62504
     smemAlignPadBytes := 0
     ctasPerSm := 1
     clusterCtas := 1
@@ -1188,10 +1188,10 @@ def kInk2F32ToBf16B : KernelResourceSpec :=
 def kInk2CtrlNormBf16B : KernelResourceSpec :=
   { name := "ink2_ctrl_norm_bf16_b"
     threadsPerCta := 256
-    rawRegsPerThread := 28
-    userSmemPerCtaBytes := 72
+    rawRegsPerThread := 40
+    userSmemPerCtaBytes := 9296
     smemAlignPadBytes := 0
-    ctasPerSm := 6
+    ctasPerSm := 5
     clusterCtas := 1
     minRequiredL1KiB := 64
     hasStackSpill := false
@@ -1380,5 +1380,192 @@ theorem prmt_lop3_interleave_matches_spread4_byte0 :
         let b := UInt32.ofNat (m0 ||| ((m0 ^^^ 3) <<< 4) ||| ((m0 ^^^ 12) <<< 8) ||| ((m0 ^^^ 9) <<< 12))
         interleaveNvfp4Prmt a b == (spread4Nibbles a ||| (spread4Nibbles b <<< 4))))) = true := by
   decide
+
+/-! ## 15. Cycle 7 (`v0.8.0` V13): `TileTokens = 160` NVFP4 & MXFP8 Grouped MoE TC, 1-Pass NVFP4 Quant,
+    Fused `depth_mix + ctrl_norm_bf16`, & Wave-Balanced Split-KV TC FlashAttention -/
+
+def kInk2QuantNvfp4TwoTerm1pB : KernelResourceSpec :=
+  { name := "ink2_quant_nvfp4_2term_1p_b"
+    threadsPerCta := 160
+    rawRegsPerThread := 39
+    userSmemPerCtaBytes := 32
+    smemAlignPadBytes := 0
+    ctasPerSm := 9
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeNvfp4TcUpSituT160 : KernelResourceSpec :=
+  { name := "ink2_moe_nvfp4_tc_up_situ_t160"
+    threadsPerCta := 384
+    rawRegsPerThread := 155
+    userSmemPerCtaBytes := 57640    -- 57,608 B 3-stage 192x160 SMEM + 32 B static <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeNvfp4TcUpSituT160PackedScales : KernelResourceSpec :=
+  { kInk2MoeNvfp4TcUpSituT160 with
+    name := "ink2_moe_nvfp4_tc_up_situ_t160_packed_scales"
+    rawRegsPerThread := 156 }
+
+def kInk2MoeNvfp4TcDownT160 : KernelResourceSpec :=
+  { kInk2MoeNvfp4TcUpSituT160 with
+    name := "ink2_moe_nvfp4_tc_down_t160"
+    rawRegsPerThread := 151 }
+
+def kInk2MoeNvfp4TcDownT160PackedScales : KernelResourceSpec :=
+  { kInk2MoeNvfp4TcUpSituT160 with
+    name := "ink2_moe_nvfp4_tc_down_t160_packed_scales"
+    rawRegsPerThread := 152 }
+
+def kInk2MoeMxfp8TcUpSituT160 : KernelResourceSpec :=
+  { name := "ink2_moe_mxfp8_tc_up_situ_t160"
+    threadsPerCta := 256
+    rawRegsPerThread := 205
+    userSmemPerCtaBytes := 87592    -- 87,560 B 2-stage 160x128 SMEM + 32 B static <= 99 KiB -> 28 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 28
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeMxfp8TcUpSituT160PackedScales : KernelResourceSpec :=
+  { kInk2MoeMxfp8TcUpSituT160 with
+    name := "ink2_moe_mxfp8_tc_up_situ_t160_packed_scales"
+    rawRegsPerThread := 207 }
+
+def kInk2MoeMxfp8TcDownT160 : KernelResourceSpec :=
+  { kInk2MoeMxfp8TcUpSituT160 with
+    name := "ink2_moe_mxfp8_tc_down_t160"
+    rawRegsPerThread := 202 }
+
+def kInk2MoeMxfp8TcDownT160PackedScales : KernelResourceSpec :=
+  { kInk2MoeMxfp8TcUpSituT160 with
+    name := "ink2_moe_mxfp8_tc_down_t160_packed_scales"
+    rawRegsPerThread := 200 }
+
+def kInk2DepthMixMultiCtrlNormBf16B : KernelResourceSpec :=
+  { name := "ink2_depth_mix_multi_ctrl_norm_bf16_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 74          -- aligns to 80 -> 20,480 regs/CTA; 3 CTAs = 61,440 <= 65,536
+    userSmemPerCtaBytes := 10320    -- 3 * (10,320 + 1,024) = 34,032 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2FlashAttnTcSplitB : KernelResourceSpec :=
+  { name := "ink2_flash_attn_tc_split_b"
+    threadsPerCta := 384
+    rawRegsPerThread := 168
+    userSmemPerCtaBytes := 64384
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2FlashAttnTcSplitBI8 : KernelResourceSpec :=
+  { name := "ink2_flash_attn_tc_split_b_i8"
+    threadsPerCta := 384
+    rawRegsPerThread := 168
+    userSmemPerCtaBytes := 63872
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2FlashAttnSplitCombineQ8B : KernelResourceSpec :=
+  { name := "ink2_flash_attn_split_combine_q8_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 40
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def cycle7V13PrefillSuite : List KernelResourceSpec :=
+  [ kInk2QuantNvfp4TwoTerm1pB
+  , kInk2MoeNvfp4TcUpSituT160
+  , kInk2MoeNvfp4TcUpSituT160PackedScales
+  , kInk2MoeNvfp4TcDownT160
+  , kInk2MoeNvfp4TcDownT160PackedScales
+  , kInk2MoeMxfp8TcUpSituT160
+  , kInk2MoeMxfp8TcUpSituT160PackedScales
+  , kInk2MoeMxfp8TcDownT160
+  , kInk2MoeMxfp8TcDownT160PackedScales
+  , kInk2DepthMixMultiCtrlNormBf16B
+  , kInk2FlashAttnTcSplitB
+  , kInk2FlashAttnTcSplitBI8
+  , kInk2FlashAttnSplitCombineQ8B ]
+
+theorem ink2_quant_nvfp4_2term_1p_b_valid :
+    ValidSm120Kernel kInk2QuantNvfp4TwoTerm1pB := by decide
+theorem ink2_moe_nvfp4_tc_up_situ_t160_valid :
+    ValidSm120Kernel kInk2MoeNvfp4TcUpSituT160 := by decide
+theorem ink2_moe_nvfp4_tc_up_situ_t160_packed_scales_valid :
+    ValidSm120Kernel kInk2MoeNvfp4TcUpSituT160PackedScales := by decide
+theorem ink2_moe_nvfp4_tc_down_t160_valid :
+    ValidSm120Kernel kInk2MoeNvfp4TcDownT160 := by decide
+theorem ink2_moe_nvfp4_tc_down_t160_packed_scales_valid :
+    ValidSm120Kernel kInk2MoeNvfp4TcDownT160PackedScales := by decide
+theorem ink2_moe_mxfp8_tc_up_situ_t160_valid :
+    ValidSm120Kernel kInk2MoeMxfp8TcUpSituT160 := by decide
+theorem ink2_moe_mxfp8_tc_up_situ_t160_packed_scales_valid :
+    ValidSm120Kernel kInk2MoeMxfp8TcUpSituT160PackedScales := by decide
+theorem ink2_moe_mxfp8_tc_down_t160_valid :
+    ValidSm120Kernel kInk2MoeMxfp8TcDownT160 := by decide
+theorem ink2_moe_mxfp8_tc_down_t160_packed_scales_valid :
+    ValidSm120Kernel kInk2MoeMxfp8TcDownT160PackedScales := by decide
+theorem ink2_depth_mix_multi_ctrl_norm_bf16_b_valid :
+    ValidSm120Kernel kInk2DepthMixMultiCtrlNormBf16B := by decide
+theorem ink2_flash_attn_tc_split_b_valid :
+    ValidSm120Kernel kInk2FlashAttnTcSplitB := by decide
+theorem ink2_flash_attn_tc_split_b_i8_valid :
+    ValidSm120Kernel kInk2FlashAttnTcSplitBI8 := by decide
+theorem ink2_flash_attn_split_combine_q8_b_valid :
+    ValidSm120Kernel kInk2FlashAttnSplitCombineQ8B := by decide
+
+theorem cycle7_v13_prefill_all_kernels_valid :
+    (cycle7V13PrefillSuite.all checkSm120Kernel) = true := by
+  decide
+
+/-- 3-Stage `TileTokens = 192 × 160` NVFP4 Grouped MoE TC SMEM map (`49,152` B core):
+    `sm_w` (`3 × 6,144 = 18,432` B) + `sm_x` (`3 × 10,240 = 30,720` B), disjoint & 128-B aligned. -/
+def nvfp4TcT160SmemSlices : List SmemSlice :=
+  [ { name := "sm_w_stage0", offsetBytes := 0,     sizeBytes := 6144,  alignBytes := 128, liveStartStage := 0, liveEndStage := 2 }
+  , { name := "sm_w_stage1", offsetBytes := 6144,  sizeBytes := 6144,  alignBytes := 128, liveStartStage := 0, liveEndStage := 2 }
+  , { name := "sm_w_stage2", offsetBytes := 12288, sizeBytes := 6144,  alignBytes := 128, liveStartStage := 0, liveEndStage := 2 }
+  , { name := "sm_x_stage0", offsetBytes := 18432, sizeBytes := 10240, alignBytes := 128, liveStartStage := 0, liveEndStage := 2 }
+  , { name := "sm_x_stage1", offsetBytes := 28672, sizeBytes := 10240, alignBytes := 128, liveStartStage := 0, liveEndStage := 2 }
+  , { name := "sm_x_stage2", offsetBytes := 38912, sizeBytes := 10240, alignBytes := 128, liveStartStage := 0, liveEndStage := 2 } ]
+
+theorem nvfp4_tc_t160_smem_safe :
+    SafeSmemLayout 49152 nvfp4TcT160SmemSlices := by decide
+
+/-- Zero-extra-VRAM `LayerWorkspace` Split-KV scratch non-aliasing during Step 6 (Attention):
+    `qrgs` uses `[0, 8600)` dwords/row, `part_o` (`6 × 1536 = 9216` dwords/row) +
+    `part_ml` (`6 × 48 = 288` dwords/row) fit inside `[8600, 18432)` (`TOP_K * D = 18432`). -/
+def attnSplitWorkspaceSlices : List SmemSlice :=
+  [ { name := "qrgs_live",   offsetBytes := 0,     sizeBytes := 34400, alignBytes := 16, liveStartStage := 0, liveEndStage := 1 }
+  , { name := "part_o_f16",  offsetBytes := 34400, sizeBytes := 36864, alignBytes := 16, liveStartStage := 0, liveEndStage := 1 }
+  , { name := "part_ml_f32", offsetBytes := 71264, sizeBytes := 1152,  alignBytes := 16, liveStartStage := 0, liveEndStage := 1 } ]
+
+theorem attn_split_workspace_non_aliasing :
+    SafeSmemLayout 73728 attnSplitWorkspaceSlices := by decide
 
 end LeanSonic.Proofs
