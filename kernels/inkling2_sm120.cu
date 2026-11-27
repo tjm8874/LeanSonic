@@ -1914,6 +1914,99 @@ extern "C" __global__ void ink2_ctrl_down_r8_b(
     ctrl_down_rows<8>(cur_base, msg_base, down_bf16_u128, g_out_base, B);
 }
 
+extern "C" __global__ void ink2_ctrl_down_r8_t2_b(
+    const float* __restrict__ cur_base,       // [n_ctrls, B, D]
+    const float* __restrict__ msg_base,       // [n_ctrls, B, D]
+    const uint4* __restrict__ down_bf16_u128, // [n_ctrls, 64, 576]
+    float* __restrict__ g_out_base,           // [n_ctrls, B, 64]
+    int32_t B) {
+    constexpr int Rows = 8, Tokens = 2;
+    __shared__ float norm_sums[Tokens][2][8];
+    __shared__ float inv[Tokens][2];
+    __shared__ float cur_tile[Tokens][kD];
+    __shared__ float msg_tile[Tokens][kD];
+    __shared__ float partial[Tokens][Rows][8];
+    const int tiles = (B + Tokens - 1) / Tokens;
+    const int ctrl = blockIdx.y / tiles;
+    const int first_token = (blockIdx.y % tiles) * Tokens;
+    const int cb = ctrl * B + first_token;
+    const int first_row = blockIdx.x * Rows;
+    const int tid = threadIdx.x;
+    const int warp = tid >> 5;
+    const int lane = tid & 31;
+
+    #pragma unroll
+    for (int t = 0; t < Tokens; ++t) {
+        // A partial tile reuses its first valid input for the unwritten lane.
+        const size_t row = cb + (first_token + t < B ? t : 0);
+        const float* cur = cur_base + row * kD;
+        const float* msg = msg_base + row * kD;
+        float sq_cur = 0.0f, sq_msg = 0.0f;
+        for (int i = tid; i < kD; i += 256) {
+            const float c = cur[i], m = msg[i];
+            cur_tile[t][i] = c;
+            msg_tile[t][i] = m;
+            sq_cur += c * c;
+            sq_msg += m * m;
+        }
+        sq_cur = warp_sum(sq_cur);
+        sq_msg = warp_sum(sq_msg);
+        if (lane == 0) {
+            norm_sums[t][0][warp] = sq_cur;
+            norm_sums[t][1][warp] = sq_msg;
+        }
+    }
+    __syncthreads();
+    if (warp < Tokens * 2) {
+        const int t = warp / 2, source = warp % 2;
+        float sum = warp_sum(lane < 8 ? norm_sums[t][source][lane] : 0.0f);
+        if (lane == 0) inv[t][source] = ptx_rsqrt(sum * (1.0f / static_cast<float>(kD)) + 1e-6f);
+    }
+    __syncthreads();
+
+    // Rank rows share the input. Tokens share the converted weights. The inner
+    // product order and the two warp reductions match the single-token path.
+    float dot[Tokens][Rows] = {};
+    for (int c8 = tid; c8 < 576; c8 += 256) {
+        const int source = c8 * 8 >= kD;
+        const int offset = c8 * 8 - source * kD;
+        #pragma unroll
+        for (int row = 0; row < Rows; ++row) {
+            const size_t rank = static_cast<size_t>(ctrl) * 64 + first_row + row;
+            const uint4 pack = down_bf16_u128[rank * 576 + c8];
+            const uint32_t words[4] = {pack.x, pack.y, pack.z, pack.w};
+            #pragma unroll
+            for (int p = 0; p < 4; ++p) {
+                float w0 = bf16_to_f32(static_cast<uint16_t>(words[p]));
+                float w1 = bf16_to_f32(static_cast<uint16_t>(words[p] >> 16));
+                #pragma unroll
+                for (int t = 0; t < Tokens; ++t) {
+                    const float* src = (source ? msg_tile[t] : cur_tile[t]) + offset;
+                    dot[t][row] += (w0 * src[2 * p] + w1 * src[2 * p + 1]) * inv[t][source];
+                }
+            }
+        }
+    }
+    #pragma unroll
+    for (int t = 0; t < Tokens; ++t) {
+        #pragma unroll
+        for (int row = 0; row < Rows; ++row) {
+            float sum = warp_sum(dot[t][row]);
+            if (lane == 0) partial[t][row][warp] = sum;
+        }
+    }
+    __syncthreads();
+    if (warp < Rows) {
+        #pragma unroll
+        for (int t = 0; t < Tokens; ++t) {
+            float sum = warp_sum(lane < 8 ? partial[t][warp][lane] : 0.0f);
+            if (lane == 0 && first_token + t < B) {
+                g_out_base[(cb + t) * 64 + first_row + warp] = sum;
+            }
+        }
+    }
+}
+
 // Grid: `(9, n_ctrls * B)`, Block: `256`
 extern "C" __global__ void ink2_ctrl_apply_b(
     float* __restrict__ cur_inout_base,       // [n_ctrls, B, D]
