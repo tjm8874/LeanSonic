@@ -167,12 +167,12 @@ const TRIM_PREFIX: [[u8; 256]; 16] = {
 /// Four independent eight-byte NVFP4 blocks are interleaved. The column and
 /// previous largest E2M1 magnitude select a table; both sign bits are retained.
 pub fn pack_nvfp4_context(raw: &[u8], output: impl Write) -> io::Result<usize> {
-    pack_nvfp4_tables::<false>(raw, &[], output)
+    pack_nvfp4_tables::<false>(raw, &[], NVFP4_CONTEXTS, output)
 }
 
 /// Lossless NVFP4 coding for planes containing both trimmed and untrimmed blocks.
 pub fn pack_nvfp4_trim_context(raw: &[u8], output: impl Write) -> io::Result<usize> {
-    pack_nvfp4_tables::<true>(raw, &[], output)
+    pack_nvfp4_tables::<true>(raw, &[], 2 * NVFP4_CONTEXTS, output)
 }
 
 // Each byte selects one of two banks of 64 contextual tables for an eight-byte
@@ -204,7 +204,7 @@ pub fn pack_scale_direct(
     }
     scale_banks(&mut scales, cuts).map_err(io::Error::other)?;
     output.write_all(cuts)?;
-    Ok(128 + pack_nvfp4_tables::<false>(raw, &scales, output)?)
+    Ok(128 + pack_nvfp4_tables::<false>(raw, &scales, 2 * NVFP4_CONTEXTS, output)?)
 }
 
 pub fn unpack_scale_direct(frame: &[u8], scales: Vec<u8>) -> Result<Vec<u8>, String> {
@@ -215,17 +215,91 @@ pub fn unpack_scale_direct(frame: &[u8], scales: Vec<u8>) -> Result<Vec<u8>, Str
     unpack_codes(Matrix::parse_scale_direct(frame, count, scales)?, count)
 }
 
+// A trained cutoff separates trimmed blocks. Divide each side again at its
+// expert-specific median scale and store the three boundaries in the frame.
+fn four_scale_banks(scales: &mut [u8], cuts: &[u8; 384]) -> Result<(), String> {
+    if scales.is_empty() || !scales.len().is_multiple_of(128) {
+        return Err("invalid four-bank scale dimensions".into());
+    }
+    let per_expert = scales.len() / 128;
+    for (expert, row) in scales.chunks_exact_mut(per_expert).enumerate() {
+        let cut = cuts[expert];
+        let lo = cuts[128 + expert];
+        let hi = cuts[256 + expert];
+        if lo > cut || hi < cut || hi > 127 {
+            return Err("invalid four-bank scale boundaries".into());
+        }
+        for v in row {
+            let bank = if *v < cut {
+                u8::from(*v >= lo)
+            } else {
+                2 + u8::from(*v >= hi)
+            };
+            *v = bank * NVFP4_CONTEXTS as u8;
+        }
+    }
+    Ok(())
+}
+
+pub fn pack_four_scale_banks(
+    raw: &[u8],
+    mut scales: Vec<u8>,
+    base: &[u8; 128],
+    mut output: impl Write,
+) -> io::Result<usize> {
+    if scales.is_empty()
+        || !scales.len().is_multiple_of(128)
+        || scales.len().checked_mul(8) != Some(raw.len())
+    {
+        return Err(io::Error::other("invalid four-bank weight dimensions"));
+    }
+    let mut cuts = [0u8; 384];
+    cuts[..128].copy_from_slice(base);
+    for (expert, row) in scales.chunks_exact(scales.len() / 128).enumerate() {
+        let cut = usize::from(base[expert]);
+        let mut counts = [0usize; 128];
+        for &v in row {
+            *counts
+                .get_mut(usize::from(v))
+                .ok_or_else(|| io::Error::other("invalid scale code"))? += 1;
+        }
+        if cut > 127 {
+            return Err(io::Error::other("invalid scale cutoff"));
+        }
+        for (side, (lo, hi)) in [(0, cut), (cut, 128)].into_iter().enumerate() {
+            let bins = &counts[lo..hi];
+            let total = bins.iter().sum::<usize>();
+            let mut prefix = 0;
+            let mut best = (total, lo);
+            for (i, &n) in bins.iter().enumerate() {
+                if lo + i < 127 {
+                    prefix += n;
+                    best = best.min(((2 * prefix).abs_diff(total), lo + i + 1));
+                }
+            }
+            cuts[(side + 1) * 128 + expert] = best.1 as u8;
+        }
+    }
+    four_scale_banks(&mut scales, &cuts).map_err(io::Error::other)?;
+    output.write_all(&cuts)?;
+    Ok(cuts.len() + pack_nvfp4_tables::<false>(raw, &scales, 4 * NVFP4_CONTEXTS, output)?)
+}
+
+pub fn unpack_four_scale_banks(frame: &[u8], scales: Vec<u8>) -> Result<Vec<u8>, String> {
+    let count = scales
+        .len()
+        .checked_mul(8)
+        .ok_or("weight extent overflow")?;
+    unpack_codes(Matrix::parse_four_scale_banks(frame, count, scales)?, count)
+}
+
 fn pack_nvfp4_tables<const SPLIT: bool>(
     raw: &[u8],
     banks: &[u8],
+    table_count: usize,
     mut output: impl Write,
 ) -> io::Result<usize> {
     let states_per_column = if SPLIT { 16 } else { 8 };
-    let table_count = if banks.is_empty() {
-        8 * states_per_column
-    } else {
-        2 * NVFP4_CONTEXTS
-    };
     if raw.is_empty() || !raw.len().is_multiple_of(32) || raw.len() > u32::MAX as usize {
         return Err(io::Error::other("invalid contextual NVFP4 matrix size"));
     }
@@ -351,6 +425,23 @@ impl<'a> Matrix<'a> {
             .ok_or("missing NVFP4 cutoffs")?;
         scale_banks(&mut scales, cuts)?;
         let mut matrix = Self::parse_nvfp4_tables(payload, count, 2 * NVFP4_CONTEXTS)?;
+        matrix.scale_banks = Some(scales);
+        Ok(matrix)
+    }
+
+    pub(crate) fn parse_four_scale_banks(
+        data: &'a [u8],
+        count: usize,
+        mut scales: Vec<u8>,
+    ) -> Result<Self, String> {
+        if scales.len().checked_mul(8) != Some(count) {
+            return Err("scale/weight shape mismatch".into());
+        }
+        let (cuts, payload) = data
+            .split_first_chunk::<384>()
+            .ok_or("missing four-bank boundaries")?;
+        four_scale_banks(&mut scales, cuts)?;
+        let mut matrix = Self::parse_nvfp4_tables(payload, count, 4 * NVFP4_CONTEXTS)?;
         matrix.scale_banks = Some(scales);
         Ok(matrix)
     }
@@ -615,6 +706,23 @@ mod tests {
         assert!(unpack_scale_direct(&frame[..frame.len() - 8], scales.clone()).is_err());
         frame[17] = 255;
         assert!(unpack_scale_direct(&frame, scales).is_err());
+    }
+
+    #[test]
+    fn four_scale_banks_roundtrip_and_reject_corrupt_boundaries() {
+        let raw: Vec<_> = (0..TILE + 1024).map(|i| (i * 17 + i / 11) as u8).collect();
+        let scales: Vec<_> = (0..raw.len() / 8).map(|i| (i % 128) as u8).collect();
+        let cuts = std::array::from_fn(|e| e as u8);
+        let mut frame = Vec::new();
+        let len = pack_four_scale_banks(&raw, scales.clone(), &cuts, &mut frame).unwrap();
+        assert_eq!(frame.len(), len);
+        assert_eq!(
+            unpack_four_scale_banks(&frame, scales.clone()).unwrap(),
+            raw
+        );
+        assert!(unpack_four_scale_banks(&frame[..len - 8], scales.clone()).is_err());
+        frame[128] = 1;
+        assert!(unpack_four_scale_banks(&frame, scales).is_err());
     }
 
     #[test]

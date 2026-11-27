@@ -1196,10 +1196,17 @@ enum ExpertCoding {
 }
 
 #[derive(Clone, Copy)]
+enum ScaleFormat {
+    Split,
+    Direct,
+    FourBanks,
+}
+
+#[derive(Clone, Copy)]
 enum ExpertMatrix<'a> {
     Raw(&'a [u8]),
     ScaleSplit {
-        direct: bool,
+        format: ScaleFormat,
         bytes: &'a [u8],
         scale_frame: &'a [u8],
         count: usize,
@@ -1220,13 +1227,25 @@ impl<'a> ExpertMatrix<'a> {
         shape: &[usize],
     ) -> Result<Self, String> {
         let count = shape.iter().product();
+        let direct = st.get(&format!("{name}.nvscale_direct_v1"));
+        let four_banks = st.get(&format!("{name}.nvscale_four_v1"));
+        if direct.is_some() && four_banks.is_some() {
+            return Err(format!("ambiguous scale-conditioned expert matrix {name}"));
+        }
+        let format = if four_banks.is_some() {
+            ScaleFormat::FourBanks
+        } else if direct.is_some() {
+            ScaleFormat::Direct
+        } else {
+            ScaleFormat::Split
+        };
         match (
             st.get(name),
             st.get(&format!("{name}.rans_v1")),
             st.get(&format!("{name}.nvctx_v1")),
             st.get(&format!("{name}.nvctx_trim_v1")),
             st.get(&format!("{name}.nvscale_split_v1")),
-            st.get(&format!("{name}.nvscale_direct_v1")),
+            direct.or(four_banks),
         ) {
             (Some(t), None, None, None, None, None)
                 if t.dtype == dtype && t.shape == shape && t.data.len() == count =>
@@ -1275,7 +1294,7 @@ impl<'a> ExpertMatrix<'a> {
                     return Err(format!("invalid companion mean scale frame for {name}"));
                 }
                 Ok(Self::ScaleSplit {
-                    direct: st.get(&format!("{name}.nvscale_direct_v1")).is_some(),
+                    format,
                     bytes: t.data,
                     scale_frame: scale.data,
                     count,
@@ -1344,7 +1363,7 @@ impl<'a> ExpertMatrix<'a> {
                 return Ok(TierBuf::HostPinned(PinnedHostBuf::from_bytes(ctx, bytes)?));
             }
             Self::ScaleSplit {
-                direct,
+                format,
                 bytes,
                 scale_frame,
                 count,
@@ -1355,12 +1374,16 @@ impl<'a> ExpertMatrix<'a> {
                     count / 8,
                     scale_width,
                 )?;
-                if !direct {
-                    let raw = crate::inkling_mxfp8::unpack_scale_split(bytes, &scales)
-                        .map_err(|e| e.to_string())?;
-                    return ExpertMatrix::Raw(&raw).place(ctx, on_device);
+                use crate::inkling_mxfp8::Matrix;
+                match format {
+                    ScaleFormat::Split => {
+                        let raw = crate::inkling_mxfp8::unpack_scale_split(bytes, &scales)
+                            .map_err(|e| e.to_string())?;
+                        return ExpertMatrix::Raw(&raw).place(ctx, on_device);
+                    }
+                    ScaleFormat::Direct => Matrix::parse_scale_direct(bytes, count, scales)?,
+                    ScaleFormat::FourBanks => Matrix::parse_four_scale_banks(bytes, count, scales)?,
                 }
-                crate::inkling_mxfp8::Matrix::parse_scale_direct(bytes, count, scales)?
             }
             Self::Packed {
                 bytes,
