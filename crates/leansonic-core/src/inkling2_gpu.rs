@@ -11091,7 +11091,8 @@ mod tests {
     /// `compute-sanitizer --tool memcheck <leansonic_core test binary> --ignored exact_size`
     ///
     /// `exact_size_red_control_overread` is the planted fault: the same GEMV told it has 16
-    /// more rows than its buffers hold, which memcheck must report.
+    /// more rows than its buffers hold, which memcheck must report; likewise
+    /// `exact_size_moe_red_control_overread` routes to an expert past the MoE planes.
     mod exact_size {
         use super::*;
         use crate::inkling2_dflash2::load_dflash2_kernels;
@@ -11577,6 +11578,150 @@ mod tests {
                     }
                 }
             }
+            Ok(())
+        }
+
+        /// Random bytes of exactly `n` bytes on the device.
+        fn noise(
+            ctx: &Arc<CudaContextHandle>,
+            rng: &mut Lcg,
+            n: usize,
+        ) -> Result<DeviceBuf, String> {
+            let bytes: Vec<u8> = (0..n).map(|_| rng.next() as u8).collect();
+            DeviceBuf::from_host_bytes(ctx, &bytes)
+        }
+
+        fn f32s(ctx: &Arc<CudaContextHandle>, v: &[f32]) -> Result<DeviceBuf, String> {
+            DeviceBuf::from_host_bytes(
+                ctx,
+                &v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>(),
+            )
+        }
+
+        fn i32s(ctx: &Arc<CudaContextHandle>, v: &[i32]) -> Result<DeviceBuf, String> {
+            DeviceBuf::from_host_bytes(
+                ctx,
+                &v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>(),
+            )
+        }
+
+        /// Packed expert-scale plane bytes for `count` scales (`ExpertScalePlane::upload`):
+        /// `width` bytes per 8 scales plus the final zero word the second aligned load reads.
+        fn packed_scale_bytes(count: usize, width: usize) -> usize {
+            count / 8 * width + 4
+        }
+
+        /// Decode MoE kernels (NVFP4 / MXFP8 down, MXFP8 up) on expert planes holding exactly
+        /// `E = 9` experts, routed so the last expert is selected twice: an over-read past the
+        /// last expert row or the last scale word lands outside its allocation. Only the
+        /// sanitizer verdict matters (random weights); the launches must also succeed.
+        fn moe_cases(
+            ctx: &Arc<CudaContextHandle>,
+            experts: usize,
+            sel: [i32; 8],
+        ) -> Result<(), String> {
+            let m = module(ctx)?;
+            let mut rng = Lcg(17);
+            let (e, d, ff) = (experts, D, 1152usize);
+            let ids = i32s(ctx, &sel)?;
+            let wts = f32s(ctx, &[0.125; 8])?;
+            let out = DeviceBuf::alloc_zeroed(ctx, 8 * 2 * ff * 4)?;
+            // NVFP4 down: w2 [E, 2304, 36] uint4, scales [E, 2304, 18] u32 (or packed 6 bytes / 8).
+            let w2 = noise(ctx, &mut rng, e * d * 36 * 16)?;
+            let a2 = f32s(ctx, &vec![1.0; e])?;
+            let aq = noise(ctx, &mut rng, 8 * 72 * 16)?;
+            let asc = f32s(ctx, &[0.01; 8 * 72])?;
+            for (name, packed, grid) in [
+                ("ink2_moe_nvfp4_dp4a_down", false, 288u32),
+                ("ink2_moe_nvfp4_dp4a_down_packed_scales", true, 288),
+                ("ink2_moe_nvfp4_dp4a_down_xw", false, (D / 2) as u32),
+                (
+                    "ink2_moe_nvfp4_dp4a_down_xw_packed_scales",
+                    true,
+                    (D / 2) as u32,
+                ),
+            ] {
+                let s2 = if packed {
+                    noise(ctx, &mut rng, packed_scale_bytes(e * d * 72, 6))?
+                } else {
+                    noise(ctx, &mut rng, e * d * 18 * 4)?
+                };
+                let (mut pw, mut ps, mut pa, mut pq, mut pqs, mut pi, mut pt, mut po) = (
+                    w2.ptr, s2.ptr, a2.ptr, aq.ptr, asc.ptr, ids.ptr, wts.ptr, out.ptr,
+                );
+                run(
+                    ctx,
+                    func(ctx, m, name)?,
+                    (grid, 1),
+                    256,
+                    &mut args![pw, ps, pa, pq, pqs, pi, pt, po],
+                )
+                .map_err(|e| format!("{name}: {e}"))?;
+            }
+            // MXFP8 down: w2 [E, 2304, 72] uint4, scales [E, 2304, 9] u32 (or packed 3 bytes / 8).
+            let w2 = noise(ctx, &mut rng, e * d * 72 * 16)?;
+            let act4 = f32s(ctx, &vec![0.01; 8 * ff])?;
+            for (name, packed, grid) in [
+                ("ink2_moe_mxfp8_down", false, 288u32),
+                ("ink2_moe_mxfp8_down_packed_scales", true, 288),
+                ("ink2_moe_mxfp8_down_xw", false, (D / 2) as u32),
+                ("ink2_moe_mxfp8_down_xw_packed_scales", true, (D / 2) as u32),
+            ] {
+                let s2 = if packed {
+                    noise(ctx, &mut rng, packed_scale_bytes(e * d * 36, 3))?
+                } else {
+                    noise(ctx, &mut rng, e * d * 9 * 4)?
+                };
+                let (mut pw, mut ps, mut px, mut pi, mut pt, mut po) =
+                    (w2.ptr, s2.ptr, act4.ptr, ids.ptr, wts.ptr, out.ptr);
+                run(
+                    ctx,
+                    func(ctx, m, name)?,
+                    (grid, 1),
+                    256,
+                    &mut args![pw, ps, px, pi, pt, po],
+                )
+                .map_err(|e| format!("{name}: {e}"))?;
+            }
+            // MXFP8 gate/up: w13 [E, 2304, 144] uint4, scales [E, 2304, 18] u32 (or packed).
+            let w13 = noise(ctx, &mut rng, e * 2 * ff * 144 * 16)?;
+            let x4 = f32s(ctx, &vec![0.01; d])?;
+            for (name, packed) in [
+                ("ink2_moe_mxfp8_up_situ", false),
+                ("ink2_moe_mxfp8_up_situ_packed_scales", true),
+            ] {
+                let s13 = if packed {
+                    noise(ctx, &mut rng, packed_scale_bytes(e * 2 * ff * 72, 3))?
+                } else {
+                    noise(ctx, &mut rng, e * 2 * ff * 18 * 4)?
+                };
+                let (mut pw, mut ps, mut px, mut pi, mut po) =
+                    (w13.ptr, s13.ptr, x4.ptr, ids.ptr, out.ptr);
+                run(
+                    ctx,
+                    func(ctx, m, name)?,
+                    (288, 8),
+                    256,
+                    &mut args![pw, ps, px, pi, po],
+                )
+                .map_err(|e| format!("{name}: {e}"))?;
+            }
+            Ok(())
+        }
+
+        #[test]
+        #[ignore = "requires a CUDA device; run under compute-sanitizer --tool memcheck"]
+        fn exact_size_moe_decode_kernels() -> Result<(), String> {
+            let ctx = CudaContextHandle::init(0)?;
+            moe_cases(&ctx, 9, [8, 0, 3, 8, 1, 7, 2, 5])
+        }
+
+        #[test]
+        #[ignore = "planted fault: memcheck must report an out-of-bounds read"]
+        fn exact_size_moe_red_control_overread() -> Result<(), String> {
+            let ctx = CudaContextHandle::init(0)?;
+            // Expert planes for 8 experts, routed to a ninth.
+            let _ = moe_cases(&ctx, 8, [8, 0, 3, 8, 1, 7, 2, 5]);
             Ok(())
         }
 
