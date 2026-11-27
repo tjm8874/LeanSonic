@@ -52,5 +52,11 @@
     "main.cubin": "8060ba2f4fd4748a627fbdf9d98e14e618a89cfbd78a99e023e36ceea8585aed",
     "once.cubin": "52bd8f25bbe785726f2f03a8a8fe5c52a426c7c223972f1a6a888f5cbcffc3b6"
   },
-  "sass_audit": "[PASS] Gate 2: CUDA/PTX kernel templates & SASS static audit passed."
+  "sass_audit": "[PASS] Gate 2: CUDA/PTX kernel templates & SASS static audit passed.",
+  "parity": {
+    "per-head": "704 cases matched (all Q8 codes and FP32 scales)",
+    "g1": "704 cases matched (all Q8 codes and FP32 scales)"
+  },
+  "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell, 595.99.02",
+  "operator_csv_sha256": "f2d31a4c7529128f418029c4175157baada89d011c04341ee8db3daf323b61d9"
 }
