@@ -10273,7 +10273,26 @@ struct Nvfp4TcSmem256x128_3Stage {
     int32_t sm_row_off[129];   //    516 B
 }; // Total = 62,472 B (`+ 32 + 1,024 = 63,528 B <= 64 KiB` -> `16` warps/SM + `64 KiB` full L1!)
 
-template <bool GateUp, bool PackedScales>
+// Expand eight two-bit codes to their original E2M1 nibbles (0, +6, -6).
+__device__ __forceinline__ unsigned ternary_nibbles(unsigned half) {
+    unsigned x = (half | (half << 8)) & 0x00ff00ffu;
+    x = (x | (x << 4)) & 0x0f0f0f0fu;
+    x = (x | (x << 2)) & 0x33333333u;
+    return ((x & 0x11111111u) * 7u) | ((x & 0x22222222u) << 2);
+}
+
+template <bool Ternary>
+__device__ __forceinline__ void stage_nvfp4_weight(uint4* shared, const uint4* weights, size_t group) {
+    if constexpr (Ternary) {
+        const uint2 codes = reinterpret_cast<const uint2*>(weights)[group];
+        *shared = make_uint4(ternary_nibbles(codes.x & 0xffffu), ternary_nibbles(codes.x >> 16),
+                             ternary_nibbles(codes.y & 0xffffu), ternary_nibbles(codes.y >> 16));
+    } else {
+        cp_async16_cg(shared, weights + group);
+    }
+}
+
+template <bool GateUp, bool PackedScales, bool Ternary = false>
 __device__ __forceinline__ void grouped_nvfp4_tc_impl(
     const uint4* __restrict__ weight_data,
     const uint32_t* __restrict__ weight_scales_u32,
@@ -10356,9 +10375,8 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
     const size_t seq_tok_xid = sorted_base + static_cast<size_t>(min(max(0, xid), live - 1));
 
     auto issue_stage = [&](int st, int ks64) {
-        cp_async16_cg(
-            &s->sm_w[st][wr_r][wq2 ^ ((wr_r >> 2) & 1)],
-            weight_data + grow_wr * kWRowU128 + ks64 * 2 + wq2);
+        stage_nvfp4_weight<Ternary>(&s->sm_w[st][wr_r][wq2 ^ ((wr_r >> 2) & 1)],
+                                    weight_data, grow_wr * kWRowU128 + ks64 * 2 + wq2);
         cp_async16_cg_pred(
             &s->sm_x[st][xr][xq4 ^ ((xr >> 1) & 3)],
             x_codes_u128 + src_tok_xr * kXRowU128 + ks64 * 4 + xq4,
@@ -10617,6 +10635,24 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_nvfp4_tc_down_pack
         exp_counts, exp_pairs, exp_begin, exp_end, pair_y_f16);
 }
 
+extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_ternary_tc_down_packed_scales(
+    const uint4* __restrict__ w2_u128,
+    const uint32_t* __restrict__ s2_u32,
+    const float* __restrict__ a2,
+    const uint4* __restrict__ act_codes_u128,
+    const uint2* __restrict__ act_sc_u64,
+    const float* __restrict__ act_gs,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_pairs,
+    int32_t exp_begin,
+    int32_t exp_end,
+    void* __restrict__ pair_y_f16) {
+    pdl_wait();
+    grouped_nvfp4_tc_impl<false, true, true>(
+        w2_u128, s2_u32, a2, act_codes_u128, act_sc_u64, act_gs,
+        exp_counts, exp_pairs, exp_begin, exp_end, pair_y_f16);
+}
+
 // V13 (`#79`): `TileTokens = 160` (`192 weight rows x 160 tokens`, 3-Stage `57,608` B `<= 64 KiB` SMEM, `Block = 384`!)
 // Eliminates `TileTokens = 128` boundary splitting at `B = 2048` (`mean = 128, std = 11` -> `99.6%` of experts fit in `1` tile!)
 // while preserving full 3-Stage `cp.async`, `64 KiB` L1 cache, and active `wt = 0, 1` warps!
@@ -10631,7 +10667,7 @@ struct Nvfp4TcSmem192x160_3Stage {
     int32_t sm_row_off[129];   //    516 B
 }; // Total = 57,608 B (`+ 32 B + 1,024 B sys <= 64 KiB` carveout -> `64 KiB` full L1 preserved!)
 
-template <bool GateUp, bool PackedScales>
+template <bool GateUp, bool PackedScales, bool Ternary = false>
 __device__ __forceinline__ void grouped_nvfp4_tc_t160_impl(
     const uint4* __restrict__ weight_data,
     const uint32_t* __restrict__ weight_scales_u32,
@@ -10710,9 +10746,8 @@ __device__ __forceinline__ void grouped_nvfp4_tc_t160_impl(
     const size_t seq_tok_xid = sorted_base + static_cast<size_t>(min(max(0, xid), live - 1));
 
     auto issue_stage = [&](int st, int ks64) {
-        cp_async16_cg(
-            &s->sm_w[st][wr_r][wq2 ^ ((wr_r >> 2) & 1)],
-            weight_data + grow_wr * kWRowU128 + ks64 * 2 + wq2);
+        stage_nvfp4_weight<Ternary>(&s->sm_w[st][wr_r][wq2 ^ ((wr_r >> 2) & 1)],
+                                    weight_data, grow_wr * kWRowU128 + ks64 * 2 + wq2);
         #pragma unroll
         for (int p = 0; p < 2; ++p) {
             const int lin = p * 384 + tid; // 0..639 (`160` tokens x `4` uint4s)
@@ -10960,6 +10995,24 @@ extern "C" __global__ __launch_bounds__(384, 1) void ink2_moe_nvfp4_tc_down_t160
     void* __restrict__ pair_y_f16) {
     pdl_wait();
     grouped_nvfp4_tc_t160_impl<false, true>(
+        w2_u128, s2_u32, a2, act_codes_u128, act_sc_u64, act_gs,
+        exp_counts, exp_pairs, exp_begin, exp_end, pair_y_f16);
+}
+
+extern "C" __global__ __launch_bounds__(384, 1) void ink2_moe_ternary_tc_down_t160_packed_scales(
+    const uint4* __restrict__ w2_u128,
+    const uint32_t* __restrict__ s2_u32,
+    const float* __restrict__ a2,
+    const uint4* __restrict__ act_codes_u128,
+    const uint2* __restrict__ act_sc_u64,
+    const float* __restrict__ act_gs,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_pairs,
+    int32_t exp_begin,
+    int32_t exp_end,
+    void* __restrict__ pair_y_f16) {
+    pdl_wait();
+    grouped_nvfp4_tc_t160_impl<false, true, true>(
         w2_u128, s2_u32, a2, act_codes_u128, act_sc_u64, act_gs,
         exp_counts, exp_pairs, exp_begin, exp_end, pair_y_f16);
 }
@@ -13216,13 +13269,7 @@ extern "C" __global__ void ink2_expand_ternary_nibbles(
     pdl_wait();
     for (unsigned i = blockIdx.x * blockDim.x + threadIdx.x; i < words; i += gridDim.x * blockDim.x) {
         const unsigned code = packed[i];
-        auto expand = [](unsigned half) {
-            unsigned x = (half | (half << 8)) & 0x00ff00ffu;
-            x = (x | (x << 4)) & 0x0f0f0f0fu;
-            x = (x | (x << 2)) & 0x33333333u;
-            return ((x & 0x11111111u) * 7u) | ((x & 0x22222222u) << 2);
-        };
-        raw[i] = make_uint2(expand(code & 65535u), expand(code >> 16));
+        raw[i] = make_uint2(ternary_nibbles(code & 65535u), ternary_nibbles(code >> 16));
     }
 }
 

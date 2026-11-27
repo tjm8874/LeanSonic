@@ -335,6 +335,8 @@ struct ExpertKernels {
     nvfp4_dp4a_down_xw_conv: Option<CUfunction>,
     ternary_down: Option<CUfunction>,
     ternary_down_conv: Option<CUfunction>,
+    ternary_tc_down: Option<CUfunction>,
+    ternary_tc_down_t160: Option<CUfunction>,
     mxfp8_up_situ: CUfunction,
     mxfp8_up_situ_u4: Option<CUfunction>,
     mxfp8_down: CUfunction,
@@ -2919,6 +2921,8 @@ impl Inkling2GpuEngine {
                 nvfp4_dp4a_down_xw: load("nvfp4_dp4a_down_xw").ok(),
                 ternary_down: load("ternary_dp4a_down_xw").ok(),
                 ternary_down_conv: load("ternary_dp4a_down_xw_conv").ok(),
+                ternary_tc_down: set_dyn_smem(load("ternary_tc_down").ok(), 62_976)?,
+                ternary_tc_down_t160: set_dyn_smem(load("ternary_tc_down_t160").ok(), 58_112)?,
                 nvfp4_dp4a_down_xw_conv: load("nvfp4_dp4a_down_xw_conv").ok(),
                 mxfp8_up_situ: load("mxfp8_up_situ")?,
                 mxfp8_up_situ_u4: load("mxfp8_up_situ_u4").ok(),
@@ -8928,7 +8932,18 @@ impl Inkling2GpuEngine {
                             exp_begin = exp_end;
                         }
                     } else {
-                        let mut pw2 = self.raw_nvfp4_down(stream, w2)?;
+                        let direct = if self.ternary_down_scratch.is_none() {
+                            None
+                        } else if nvfp4_tile_toks == 160 {
+                            s2.kernels.ternary_tc_down_t160
+                        } else {
+                            s2.kernels.ternary_tc_down
+                        };
+                        let (f_dn, mut pw2) = if let Some(kernel) = direct {
+                            (kernel, w2.ptr())
+                        } else {
+                            (f_dn, self.raw_nvfp4_down(stream, w2)?)
+                        };
                         let mut eb = 0i32;
                         let mut ee = N_EXP as i32;
                         let mut dn_args: [*mut c_void; 11] = [
