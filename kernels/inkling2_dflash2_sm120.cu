@@ -872,4 +872,163 @@ extern "C" __global__ void df2_select(
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Q4 copy of the target's output head for drafting (`LEANSONIC_DF2_HEAD=q4`, default): half the
+// bytes of the Q8_64 head that dominates the draft. Each 64-column group of row `r` is requantized
+// from Q8_64 to signed 4-bit codes `[-7, 7]` with one FP32 scale. A 32-column `uint4` packs byte
+// `b` of word `k` as column `8k + b` (low nibble) and column `8k + 4 + b` (high nibble), so the
+// two nibble planes of word `k` line up with Q8 activation words `2k` and `2k + 1`.
+// ---------------------------------------------------------------------------------------------
+
+// Grid `(rows, D / 64)`, Block `32` (one warp per group, lane = two columns of the group).
+extern "C" __global__ void df2_q8_to_q4(
+    const uint32_t* __restrict__ w_q8_u32,   // [rows, D / 4]
+    const float* __restrict__ w_sc64,        // [rows, D / 64]
+    uint32_t* __restrict__ w_q4_u32,         // [rows, D / 8]
+    float* __restrict__ w_q4_sc64) {         // [rows, D / 64]
+    pdl_wait();
+    pdl_trigger();
+    const size_t r = blockIdx.x;
+    const int g = blockIdx.y;
+    const int lane = threadIdx.x;
+    // Lane `l` holds columns `2l, 2l + 1` of the group.
+    const uint32_t word = w_q8_u32[r * (kD / 4) + g * 16 + (lane >> 1)];
+    const int sh = (lane & 1) * 16;
+    const int q0 = static_cast<int8_t>((word >> sh) & 0xFFu);
+    const int q1 = static_cast<int8_t>((word >> (sh + 8)) & 0xFFu);
+    int amax = max(abs(q0), abs(q1));
+    #pragma unroll
+    for (int mask = 16; mask > 0; mask >>= 1) amax = max(amax, __shfl_xor_sync(0xFFFFFFFFu, amax, mask));
+    const float inv = (amax > 0) ? 7.0f * ptx_rcp(static_cast<float>(amax)) : 0.0f;
+    const int n0 = min(7, max(-7, __float2int_rn(static_cast<float>(q0) * inv))) & 0xF;
+    const int n1 = min(7, max(-7, __float2int_rn(static_cast<float>(q1) * inv))) & 0xF;
+    // Column `c = 2 * lane + j` of the group: 32-column half `h = c / 32`, word `k = (c % 32) / 8`,
+    // nibble plane `p = (c % 8) / 4`, byte `b = c % 4`.
+    uint32_t* out = w_q4_u32 + r * (kD / 8) + g * 8;
+    auto put = [&](int c, int n) { return static_cast<uint32_t>(n) << ((((c & 3) * 8) + ((c >> 2) & 1) * 4)); };
+    const int c0 = 2 * lane, c1 = 2 * lane + 1;
+    // Both columns of a lane share a word (c0 even, c1 = c0 + 1 within the same 4-column byte run).
+    uint32_t v = put(c0, n0) | put(c1, n1);
+    // OR-reduce the lanes that share word `(c / 8)`: lanes `4m .. 4m + 3`.
+    v |= __shfl_xor_sync(0xFFFFFFFFu, v, 1);
+    v |= __shfl_xor_sync(0xFFFFFFFFu, v, 2);
+    if ((lane & 3) == 0) out[lane >> 2] = v;
+    if (lane == 0) w_q4_sc64[r * (kD / 64) + g] = w_sc64[r * (kD / 64) + g] * static_cast<float>(amax) * (1.0f / 7.0f);
+}
+
+// Sign-extends the two nibble planes of a packed word into int8 words (`lo`: columns `8k..8k+3`,
+// `hi`: `8k+4..8k+7`).
+__device__ __forceinline__ void df2_unpack_q4(uint32_t w, int& lo, int& hi) {
+    const uint32_t m = 0x0F0F0F0Fu, b8 = 0x08080808u;
+    lo = static_cast<int>(__vsub4((w & m) ^ b8, b8));
+    hi = static_cast<int>(__vsub4(((w >> 4) & m) ^ b8, b8));
+}
+
+// `y[t][r] = w_q4[r] . x_q8[t]` for `B <= 8` rows of `D` columns (the draft head). Grid-stride
+// over 16-row tiles (8 warps x 2 rows) so each block stages `x` in shared memory once; the next
+// tile's weights are loaded while the current one is computed. Grid `<= ceil(rows / 16)`,
+// Block `256`.
+extern "C" __global__ void __launch_bounds__(256) df2_q4_head(
+    const uint4* __restrict__ w_q4,          // [rows_padded, D / 32]
+    const float* __restrict__ w_sc64,        // [rows_padded, D / 64]
+    const uint4* __restrict__ x_q8,          // [B, D / 16]
+    const float* __restrict__ x_sc64,        // [B, D / 64]
+    float* __restrict__ y,                   // [B, y_stride]
+    int32_t rows,
+    int32_t B,
+    int32_t y_stride) {
+    __shared__ uint4 sx[8][kD / 16];         // 18,432 B
+    __shared__ float sxs[8][kD / 64];
+    constexpr int kC32 = kD / 32, kC64 = kD / 64; // 72, 36
+    const int warp = threadIdx.x >> 5;
+    const int lane = threadIdx.x & 31;
+    const int tiles = (rows + 15) >> 4;
+    uint4 w0[3], w1[3];
+    float ws0[3], ws1[3];
+    auto load = [&](int tile) {
+        const int row0 = (tile * 8 + warp) * 2;
+        const uint4* w0p = w_q4 + static_cast<size_t>(row0) * kC32;
+        const float* s0p = w_sc64 + static_cast<size_t>(row0) * kC64;
+        #pragma unroll
+        for (int i = 0; i < 3; ++i) {
+            const int c32 = lane + 32 * i;
+            if (c32 < kC32) {
+                w0[i] = w0p[c32];
+                w1[i] = w0p[kC32 + c32];
+                ws0[i] = s0p[c32 >> 1];
+                ws1[i] = s0p[kC64 + (c32 >> 1)];
+            }
+        }
+    };
+    int tile = blockIdx.x;
+    if (tile < tiles) load(tile);
+    pdl_wait();
+    pdl_trigger();
+    for (int i = threadIdx.x; i < B * (kD / 16); i += 256) {
+        const int t = i / (kD / 16), j = i - t * (kD / 16);
+        sx[t][j] = x_q8[i];
+    }
+    for (int i = threadIdx.x; i < B * kC64; i += 256) {
+        const int t = i / kC64, j = i - t * kC64;
+        sxs[t][j] = x_sc64[i];
+    }
+    __syncthreads();
+    for (; tile < tiles; tile += gridDim.x) {
+        const int row0 = (tile * 8 + warp) * 2;
+        int l0[3][8], l1[3][8];
+        float s0[3], s1[3];
+        #pragma unroll
+        for (int i = 0; i < 3; ++i) {
+            const uint32_t a4[4] = {w0[i].x, w0[i].y, w0[i].z, w0[i].w};
+            const uint32_t b4[4] = {w1[i].x, w1[i].y, w1[i].z, w1[i].w};
+            #pragma unroll
+            for (int k = 0; k < 4; ++k) {
+                df2_unpack_q4(a4[k], l0[i][2 * k], l0[i][2 * k + 1]);
+                df2_unpack_q4(b4[k], l1[i][2 * k], l1[i][2 * k + 1]);
+            }
+            s0[i] = ws0[i];
+            s1[i] = ws1[i];
+        }
+        if (tile + static_cast<int>(gridDim.x) < tiles) load(tile + gridDim.x);
+        float a[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+        float b[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+        #pragma unroll
+        for (int i = 0; i < 3; ++i) {
+            const int c32 = lane + 32 * i;
+            if (c32 < kC32) {
+                #pragma unroll
+                for (int t = 0; t < 8; ++t) {
+                    if (t < B) {
+                        const uint4 xa = sx[t][2 * c32], xb = sx[t][2 * c32 + 1];
+                        const int xw[8] = {static_cast<int>(xa.x), static_cast<int>(xa.y),
+                                           static_cast<int>(xa.z), static_cast<int>(xa.w),
+                                           static_cast<int>(xb.x), static_cast<int>(xb.y),
+                                           static_cast<int>(xb.z), static_cast<int>(xb.w)};
+                        int d0 = 0, d1 = 0;
+                        #pragma unroll
+                        for (int k = 0; k < 8; ++k) {
+                            d0 = __dp4a(l0[i][k], xw[k], d0);
+                            d1 = __dp4a(l1[i][k], xw[k], d1);
+                        }
+                        const float xs = sxs[t][c32 >> 1];
+                        a[t] = __fmaf_rn(static_cast<float>(d0), s0[i] * xs, a[t]);
+                        b[t] = __fmaf_rn(static_cast<float>(d1), s1[i] * xs, b[t]);
+                    }
+                }
+            }
+        }
+        #pragma unroll
+        for (int t = 0; t < 8; ++t) {
+            if (t < B) {
+                const float v0 = warp_sum(a[t]);
+                const float v1 = warp_sum(b[t]);
+                if (lane == 0) {
+                    if (row0 < rows) y[static_cast<size_t>(t) * y_stride + row0] = v0;
+                    if (row0 + 1 < rows) y[static_cast<size_t>(t) * y_stride + row0 + 1] = v1;
+                }
+            }
+        }
+    }
+}
+
 } // namespace leansonic::inkling2_df2

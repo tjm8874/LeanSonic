@@ -1907,6 +1907,7 @@ impl Inkling2GpuEngine {
                         m,
                     },
                     &path,
+                    &unembed_q8,
                 )?)
             }
             (true, "dflash2", None) => {
