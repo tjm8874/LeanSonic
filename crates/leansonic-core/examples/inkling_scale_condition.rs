@@ -75,7 +75,7 @@ fn decode(frame: &[u8], scales: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    let [path, weight_off, weight_len, scale_off, scale_len, raw_len, cutoff_file] =
+    let [path, weight_off, weight_len, scale_off, scale_len, row_width, raw_len, cutoff_file] =
         args.as_slice()
     else {
         return Err("expected shard, weight and scale slices, raw length and cutoff file".into());
@@ -85,7 +85,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("invalid original NVFP4 plane length".into());
     }
     let mut file = File::open(path)?;
-    let scale = unpack_mean8_scale_codes(&section(&mut file, scale_off, scale_len)?, count / 8)?;
+    let scale = unpack_mean8_scale_codes(
+        &section(&mut file, scale_off, scale_len)?,
+        count / 8,
+        row_width.parse()?,
+    )?;
     let raw = unpack_nvfp4_trim_context(&section(&mut file, weight_off, weight_len)?, count)?;
     let cuts: [u8; 128] = fs::read(cutoff_file)?
         .try_into()
