@@ -1,5 +1,71 @@
 {
   "cards": {
+    "5060Ti": {
+      "summary": {
+        "prefill_ms": {
+          "control": 403.538725,
+          "candidate": 274.2583225,
+          "delta_ms": -129.2804025,
+          "ci95": [
+            -131.060455,
+            -128.30942000000002
+          ]
+        },
+        "decode32_ms": {
+          "control": 366.3792425,
+          "candidate": 366.4340925,
+          "delta_ms": 0.05485000000001037,
+          "ci95": [
+            0.009882499999991978,
+            0.09404000000002952
+          ]
+        },
+        "peak_bytes": {
+          "0": 16588472320,
+          "1": 16338911232
+        }
+      },
+      "instrumented": {
+        "auto": {
+          "initial_and_warm_widths": [
+            64,
+            512,
+            512,
+            512,
+            512
+          ],
+          "events": [
+            "workspace enter prompt=1024 active=64 limit=2048 free=506134528",
+            "workspace allocation failed width=1024 elapsed_us=4678",
+            "workspace resize OK width=512 elapsed_us=9622",
+            "workspace enter prompt=1024 active=512 limit=2048 free=392888320",
+            "workspace allocation failed width=1024 elapsed_us=3138",
+            "workspace enter prompt=1024 active=512 limit=2048 free=392888320",
+            "workspace allocation failed width=1024 elapsed_us=3252",
+            "workspace enter prompt=1024 active=512 limit=2048 free=392888320",
+            "workspace allocation failed width=1024 elapsed_us=3097",
+            "workspace enter prompt=1024 active=512 limit=2048 free=392888320",
+            "workspace allocation failed width=1024 elapsed_us=8376"
+          ]
+        },
+        "eager": {
+          "initial_and_warm_widths": [
+            1024,
+            1024,
+            1024,
+            1024,
+            1024
+          ],
+          "events": [
+            "workspace enter prompt=1024 active=1024 limit=1024 free=269156352",
+            "workspace enter prompt=1024 active=1024 limit=1024 free=269156352",
+            "workspace enter prompt=1024 active=1024 limit=1024 free=269156352",
+            "workspace enter prompt=1024 active=1024 limit=1024 free=269156352",
+            "workspace enter prompt=1024 active=1024 limit=1024 free=269156352"
+          ]
+        }
+      }
+    },
     "5070Ti": {
       "summary": {
         "prefill_ms": {
