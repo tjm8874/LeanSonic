@@ -221,6 +221,40 @@
       }
     }
   },
+  "holdout-native": {
+    "chunks": 100,
+    "context": 512,
+    "rows": 25500,
+    "ppl": 6.505563065610817,
+    "ref_ppl": 6.498588819010602,
+    "mean_kld": 0.0027494108255580276,
+    "median_kld": 0.0010238906104672874,
+    "p99_kld": 0.027606991099292433,
+    "max_kld": 0.5101780709426357,
+    "start_chunk": 0,
+    "max_kld_chunk": 91,
+    "max_kld_position": 507,
+    "ref_floor_targets": 10,
+    "top1_matches": 24948,
+    "top1_agreement": 0.9783529411764705
+  },
+  "holdout-wo_only": {
+    "chunks": 100,
+    "context": 512,
+    "rows": 25500,
+    "ppl": 6.50402528789999,
+    "ref_ppl": 6.498588819010602,
+    "mean_kld": 0.0027822291312600933,
+    "median_kld": 0.0010045203112759343,
+    "p99_kld": 0.027032734166935565,
+    "max_kld": 0.6258060395599567,
+    "start_chunk": 0,
+    "max_kld_chunk": 64,
+    "max_kld_position": 494,
+    "ref_floor_targets": 10,
+    "top1_matches": 24942,
+    "top1_agreement": 0.9781176470588235
+  },
   "selected_simt_rows": {
     "2/476": {
       "raw": {

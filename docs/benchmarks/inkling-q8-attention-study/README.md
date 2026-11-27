@@ -45,3 +45,20 @@ With the V12 CLI, evaluate `$NATIVE`, `$SPLIT/wo_only`, `$SPLIT/except_wo` and `
 | All 176 | 0.120252 | 0.564691 |
 
 See `split-chunks.json` for the per-chunk scores and positions. These two chunks were selected from earlier runs; the full 100-chunk result determines whether the improvement generalizes.
+
+## Independent validation of the 24 output projections
+
+On the 100 test chunks, refining only the output projections reduced V12 mean KL from 0.003175526 to 0.003090100, worst KL from 0.674716 to 0.380358, and PPL from 7.072582 to 7.070330. Top-1 agreement increased from 24,879 to 24,895 of 25,500. At 69/353 this reduced KL to 0.002929 and recovered the BF16 next token. The worst position moved to 90/302.
+
+We fixed those 24 matrices before generating a separate 100-chunk oracle from `wiki.valid.raw`. Mean KL then **increased from 0.002749411 to 0.002782229**, worst KL **increased from 0.510178 to 0.625806** (91/507 to 64/494), and top-1 matches **fell from 24,948 to 24,942**. PPL improved from 6.505563 to 6.504025 (BF16 6.498589). Keep stock packing. Both configurations scored all 25,500 positions on each split. The new dictionary shard is 16,035,182,576 bytes, 80 bytes larger than stock.
+
+Generate the separate oracle with the unmodified perplexity program at the pinned llama.cpp revision. We first reproduced all 4,080 scored rows and token IDs of the first 16 test chunks byte for byte with this executable. The validation source SHA-256 is `4cd0f6876d07a413aa911261ff6d363c72d757d47f0fdd6015702014c89cb9c7`; the resulting oracle is `b3d804824373950c9b6d7cd37e5607d132d2f3caca6f80ffd26739b2776a2ca0`.
+
+```bash
+llama-perplexity -m official-bf16.gguf -f "$WIKITEXT_DIR/wiki.valid.raw" \
+  -c 512 -b 8192 -ub 8192 -ngl 99 -t 8 --no-warmup --chunks 100 --save-all-logits valid.kld
+target/release/leansonic eval-kld --weights "$NATIVE" --ref valid.kld --chunks 100
+target/release/leansonic eval-kld --weights "$SPLIT/wo_only" --ref valid.kld --chunks 100
+```
+
+The [one-step research converter](https://github.com/tjm8874/LeanSonic/tree/00f69a6) accepts `--refine-attention-output` with `--prepack-attention` on the original BF16 source. Its raw shard matched the independent matrix-copy experiment byte for byte. Direct dictionary conversion and repacking the raw shard also produced identical bytes. This converter remains on a research branch.
