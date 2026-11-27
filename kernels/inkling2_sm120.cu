@@ -2483,9 +2483,25 @@ INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_up_situ, (
     }
 }
 
+__device__ __forceinline__ unsigned ternary_four_s8(unsigned codes) {
+    // Convert four two-bit selectors to PRMT selectors; E2M1 integers are doubled.
+    unsigned x = codes & 255u;
+    x = (x | (x << 4)) & 0x0f0fu;
+    x = (x | (x << 2)) & 0x3333u;
+    return __byte_perm(0xf4000c00u, 0u, x);
+}
+
+__device__ __forceinline__ int ternary_block_dp4a(unsigned codes, uint4 activation) {
+    int dot = __dp4a(static_cast<int>(ternary_four_s8(codes)), static_cast<int>(activation.x), 0);
+    dot = __dp4a(static_cast<int>(ternary_four_s8(codes >> 8)), static_cast<int>(activation.y), dot);
+    dot = __dp4a(static_cast<int>(ternary_four_s8(codes >> 16)), static_cast<int>(activation.z), dot);
+    return __dp4a(static_cast<int>(ternary_four_s8(codes >> 24)), static_cast<int>(activation.w), dot);
+}
+
+template<class Weight>
 __device__ __forceinline__ float accum_nvfp4_dp4a_u128_step(
     float acc,
-    uint4 pk16,
+    Weight pk16,
     uint32_t sc4,
     int u16,
     const uint4* xq16,
@@ -2495,14 +2511,20 @@ __device__ __forceinline__ float accum_nvfp4_dp4a_u128_step(
     float s1 = __fmul_rn(e4m3_byte_to_f32((sc4 >> (sh + 8)) & 0xFFu) * 0.5f, xsc16[u16 * 2 + 1]);
     uint4 xq0 = xq16[u16 * 2];
     uint4 xq1 = xq16[u16 * 2 + 1];
-    int d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x & 0xFFFFu)), static_cast<int>(xq0.x), 0);
-    d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x >> 16)), static_cast<int>(xq0.y), d0);
-    d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.y & 0xFFFFu)), static_cast<int>(xq0.z), d0);
-    d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.y >> 16)), static_cast<int>(xq0.w), d0);
-    int d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.z & 0xFFFFu)), static_cast<int>(xq1.x), 0);
-    d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.z >> 16)), static_cast<int>(xq1.y), d1);
-    d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w & 0xFFFFu)), static_cast<int>(xq1.z), d1);
-    d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w >> 16)), static_cast<int>(xq1.w), d1);
+    int d0, d1;
+    if constexpr (sizeof(Weight) == sizeof(uint2)) {
+        d0 = ternary_block_dp4a(pk16.x, xq0);
+        d1 = ternary_block_dp4a(pk16.y, xq1);
+    } else {
+        d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x & 0xFFFFu)), static_cast<int>(xq0.x), 0);
+        d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x >> 16)), static_cast<int>(xq0.y), d0);
+        d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.y & 0xFFFFu)), static_cast<int>(xq0.z), d0);
+        d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.y >> 16)), static_cast<int>(xq0.w), d0);
+        d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.z & 0xFFFFu)), static_cast<int>(xq1.x), 0);
+        d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.z >> 16)), static_cast<int>(xq1.y), d1);
+        d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w & 0xFFFFu)), static_cast<int>(xq1.z), d1);
+        d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w >> 16)), static_cast<int>(xq1.w), d1);
+    }
     return __fmaf_rn(static_cast<float>(d1), s1, __fmaf_rn(static_cast<float>(d0), s0, acc));
 }
 
@@ -2590,16 +2612,16 @@ INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_up_half, (
 // Stages `x_q8_u128`/`x_sc16` (`2,880 B` SMEM, `2 * (2,944 + 1,024) = 7,936 B <= 8 KiB` -> `120 KiB` L1!)
 // concurrently with all 5 `uint4` GDDR7 weight fetches (`pk0..pk4`) + 5 scale words BEFORE `__syncthreads()`,
 // eliminating sequential `__dp4a` load stalls while preserving exact `0-ULP` arithmetic!
-INK2_SCALE_KERNEL_LB(ink2_moe_nvfp4_dp4a_up_half_q8, 512, 2, (
-    const uint4* __restrict__ w13_u128,    // [128, 2304, 72]
+template<bool PackedScales, class Weight>
+__device__ __forceinline__ void fused_gate_up_q8(
+    const Weight* __restrict__ w13_u128,    // [128, 2304, 72]
     const uint32_t* __restrict__ s13_u32,  // [128, 2304, 36]
     const float* __restrict__ a13,         // [128]
     const uint4* __restrict__ x_q8_u128,   // [144]
     const float* __restrict__ x_sc16,      // [144]
     const int32_t* __restrict__ sel_ids,   // [8]
     uint32_t* __restrict__ out_q8_u32,     // [8, 288]
-    float* __restrict__ out_sc16),         // [8, 72]
-    (w13_u128, s13_u32, a13, x_q8_u128, x_sc16, sel_ids, out_q8_u32, out_sc16)) {
+    float* __restrict__ out_sc16) {
     __shared__ uint4 smem_xq[144];         // 2,304 B
     __shared__ float smem_xsc[144];        //   576 B
     __shared__ float smem_ch[16];          //    64 B -> 2,944 B user SMEM
@@ -2625,7 +2647,7 @@ INK2_SCALE_KERNEL_LB(ink2_moe_nvfp4_dp4a_up_half_q8, 512, 2, (
     const int ex = sel_ids[k];
     const float alpha = a13[ex];
     const size_t row = (static_cast<size_t>(ex) * kFf + channel) * 2 + (lane >> 4);
-    const uint4* weights = w13_u128 + row * 72u;
+    const Weight* weights = w13_u128 + row * 72u;
     const unsigned sc_off = static_cast<unsigned>(row * 36u);
 
     const int u0 = index;
@@ -2634,11 +2656,11 @@ INK2_SCALE_KERNEL_LB(ink2_moe_nvfp4_dp4a_up_half_q8, 512, 2, (
     const int u3 = index + 48;
     const int u4 = index + 64;
 
-    const uint4 pk0 = weights[u0];
-    const uint4 pk1 = weights[u1];
-    const uint4 pk2 = weights[u2];
-    const uint4 pk3 = weights[u3];
-    uint4 pk4 = make_uint4(0u, 0u, 0u, 0u);
+    const Weight pk0 = weights[u0];
+    const Weight pk1 = weights[u1];
+    const Weight pk2 = weights[u2];
+    const Weight pk3 = weights[u3];
+    Weight pk4{};
     if (has4) {
         pk4 = weights[u4];
     }
@@ -2700,6 +2722,32 @@ INK2_SCALE_KERNEL_LB(ink2_moe_nvfp4_dp4a_up_half_q8, 512, 2, (
             out_sc16[(k * 72) + blk16] = sc;
         }
     }
+}
+
+INK2_SCALE_KERNEL_LB(ink2_moe_nvfp4_dp4a_up_half_q8, 512, 2, (
+    const uint4* __restrict__ w13_u128,    // [128, 2304, 72]
+    const uint32_t* __restrict__ s13_u32,  // [128, 2304, 36]
+    const float* __restrict__ a13,         // [128]
+    const uint4* __restrict__ x_q8_u128,   // [144]
+    const float* __restrict__ x_sc16,      // [144]
+    const int32_t* __restrict__ sel_ids,   // [8]
+    uint32_t* __restrict__ out_q8_u32,     // [8, 288]
+    float* __restrict__ out_sc16),         // [8, 72]
+    (w13_u128, s13_u32, a13, x_q8_u128, x_sc16, sel_ids, out_q8_u32, out_sc16)) {
+    fused_gate_up_q8<PackedScales>(w13_u128, s13_u32, a13, x_q8_u128, x_sc16, sel_ids, out_q8_u32, out_sc16);
+}
+
+INK2_SCALE_KERNEL_LB(ink2_moe_ternary_dp4a_up_half_q8, 512, 2, (
+    const uint2* __restrict__ w13_u128,    // [128, 2304, 72]
+    const uint32_t* __restrict__ s13_u32,  // [128, 2304, 36]
+    const float* __restrict__ a13,         // [128]
+    const uint4* __restrict__ x_q8_u128,   // [144]
+    const float* __restrict__ x_sc16,      // [144]
+    const int32_t* __restrict__ sel_ids,   // [8]
+    uint32_t* __restrict__ out_q8_u32,     // [8, 288]
+    float* __restrict__ out_sc16),         // [8, 72]
+    (w13_u128, s13_u32, a13, x_q8_u128, x_sc16, sel_ids, out_q8_u32, out_sc16)) {
+    fused_gate_up_q8<PackedScales>(w13_u128, s13_u32, a13, x_q8_u128, x_sc16, sel_ids, out_q8_u32, out_sc16);
 }
 
 // Copy contiguous spans of the selected host-backed rows before their dot products.
@@ -2818,20 +2866,6 @@ extern "C" __global__ void ink2_moe_ternary_dp4a_down_xw_packed_scales(
     ink2_moe_nvfp4_dp4a_down_xw_impl<true>(weights, scales, a2, act_q8, act_scales, ids, gates, out);
 }
 
-__device__ __forceinline__ unsigned ternary_four_s8(unsigned codes) {
-    // Convert four two-bit selectors to PRMT selectors; E2M1 integers are doubled.
-    unsigned x = codes & 255u;
-    x = (x | (x << 4)) & 0x0f0fu;
-    x = (x | (x << 2)) & 0x3333u;
-    return __byte_perm(0xf4000c00u, 0u, x);
-}
-
-__device__ __forceinline__ int ternary_block_dp4a(unsigned codes, uint4 activation) {
-    int dot = __dp4a(static_cast<int>(ternary_four_s8(codes)), static_cast<int>(activation.x), 0);
-    dot = __dp4a(static_cast<int>(ternary_four_s8(codes >> 8)), static_cast<int>(activation.y), dot);
-    dot = __dp4a(static_cast<int>(ternary_four_s8(codes >> 16)), static_cast<int>(activation.z), dot);
-    return __dp4a(static_cast<int>(ternary_four_s8(codes >> 24)), static_cast<int>(activation.w), dot);
-}
 
 template<bool PackedScales, class Weight> __device__ __forceinline__ void ink2_moe_nvfp4_dp4a_down_xw_impl(
     const Weight* __restrict__ weights,     // [128, 2304, 36]
