@@ -4483,6 +4483,19 @@ impl Inkling2GpuEngine {
         Ok(out_tok as u32)
     }
 
+    /// Run one decode round and read all FP32 vocabulary rows in the requested slot order.
+    /// This synchronizing diagnostic deliberately lives outside the timed serving path.
+    pub fn decode_round_with_logits(
+        &mut self,
+        seqs: &[usize],
+        tokens: &[u32],
+    ) -> Result<(Vec<u32>, Vec<f32>), String> {
+        let ids = self.decode_round(seqs, tokens)?;
+        let mut logits = vec![0.0; ids.len() * VOCAB];
+        self.d_spec_logits.copy_to_host_f32(&mut logits)?;
+        Ok((ids, logits))
+    }
+
     pub fn read_last_logits(&self) -> Result<Vec<f32>, String> {
         self.ctx.sync_compute()?;
         let mut host = vec![0.0f32; VOCAB];
