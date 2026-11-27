@@ -1,0 +1,336 @@
+{
+  "package_bytes": 13479619566,
+  "files": {
+    "model-00001-of-00001.safetensors": {
+      "bytes": 13476233072,
+      "sha256": "9600e9bbdda70add65f644d78a29790f9dc633b3d720264bb4620a9455d0f2d3"
+    },
+    "tiktoken/tokenizer.model": {
+      "bytes": 3386494,
+      "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+    }
+  },
+  "planes": {
+    "model.llm.layers.0.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 18871848,
+      "new_bytes": 18850920,
+      "eligible": 33349273,
+      "changed": 1157813,
+      "squared_error_before": 634483845813501952,
+      "squared_error_after": 630375390177656832
+    },
+    "model.llm.layers.0.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9425800,
+      "new_bytes": 9412904,
+      "eligible": 16715851,
+      "changed": 568488,
+      "squared_error_before": 313386645660368896,
+      "squared_error_after": 311372119574315008
+    },
+    "model.llm.layers.1.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 18866408,
+      "new_bytes": 18844552,
+      "eligible": 32787170,
+      "changed": 1103083,
+      "squared_error_before": 640497316420648960,
+      "squared_error_after": 636274246461947904
+    },
+    "model.llm.layers.1.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9450120,
+      "new_bytes": 9441576,
+      "eligible": 16481575,
+      "changed": 553024,
+      "squared_error_before": 318682510488764416,
+      "squared_error_after": 316658478964801536
+    },
+    "model.llm.layers.10.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 18895208,
+      "new_bytes": 18903952,
+      "eligible": 10034771,
+      "changed": 115606,
+      "squared_error_before": 96716047584854016,
+      "squared_error_after": 96567216675225600
+    },
+    "model.llm.layers.10.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9537504,
+      "new_bytes": 9541600,
+      "eligible": 4982683,
+      "changed": 60961,
+      "squared_error_before": 34087163436728320,
+      "squared_error_after": 34020183799234560
+    },
+    "model.llm.layers.11.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 18922560,
+      "new_bytes": 18930488,
+      "eligible": 8982557,
+      "changed": 109410,
+      "squared_error_before": 68831555661332480,
+      "squared_error_after": 68709088090390528
+    },
+    "model.llm.layers.11.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9623928,
+      "new_bytes": 9627304,
+      "eligible": 4382018,
+      "changed": 53618,
+      "squared_error_before": 21657371294826496,
+      "squared_error_after": 21616743557103616
+    },
+    "model.llm.layers.12.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 18879008,
+      "new_bytes": 18887264,
+      "eligible": 9505081,
+      "changed": 114456,
+      "squared_error_before": 98676033645182976,
+      "squared_error_after": 98505639366754304
+    },
+    "model.llm.layers.12.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9514456,
+      "new_bytes": 9518584,
+      "eligible": 4621008,
+      "changed": 56022,
+      "squared_error_before": 49710616420548608,
+      "squared_error_after": 49628027370340352
+    },
+    "model.llm.layers.13.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 18809960,
+      "new_bytes": 18817592,
+      "eligible": 10009604,
+      "changed": 120699,
+      "squared_error_before": 105637930467590144,
+      "squared_error_after": 105467942003802112
+    },
+    "model.llm.layers.13.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9534000,
+      "new_bytes": 9538408,
+      "eligible": 4918201,
+      "changed": 67637,
+      "squared_error_before": 48521429345632256,
+      "squared_error_after": 48426718928830464
+    },
+    "model.llm.layers.14.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 18992280,
+      "new_bytes": 19000312,
+      "eligible": 9505292,
+      "changed": 111222,
+      "squared_error_before": 70863056381018112,
+      "squared_error_after": 70741460278444032
+    },
+    "model.llm.layers.14.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9596144,
+      "new_bytes": 9599704,
+      "eligible": 4875918,
+      "changed": 60541,
+      "squared_error_before": 36577468098019328,
+      "squared_error_after": 36504423831437312
+    },
+    "model.llm.layers.15.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 18948568,
+      "new_bytes": 18956056,
+      "eligible": 10207228,
+      "changed": 110421,
+      "squared_error_before": 62432699266891776,
+      "squared_error_after": 62332784604872704
+    },
+    "model.llm.layers.15.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9691584,
+      "new_bytes": 9695376,
+      "eligible": 5062787,
+      "changed": 63802,
+      "squared_error_before": 28193030245974016,
+      "squared_error_after": 28138008491589632
+    },
+    "model.llm.layers.16.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 19120752,
+      "new_bytes": 19128088,
+      "eligible": 9808897,
+      "changed": 116271,
+      "squared_error_before": 35276019598622720,
+      "squared_error_after": 35212700616491008
+    },
+    "model.llm.layers.16.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9840432,
+      "new_bytes": 9843976,
+      "eligible": 4917701,
+      "changed": 60820,
+      "squared_error_before": 22661483002855424,
+      "squared_error_after": 22621181821059072
+    },
+    "model.llm.layers.17.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 19119576,
+      "new_bytes": 19127216,
+      "eligible": 10814865,
+      "changed": 124135,
+      "squared_error_before": 35371538351194112,
+      "squared_error_after": 35310663576649728
+    },
+    "model.llm.layers.17.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9930352,
+      "new_bytes": 9934632,
+      "eligible": 5470418,
+      "changed": 67722,
+      "squared_error_before": 17261786362019840,
+      "squared_error_after": 17233969598431232
+    },
+    "model.llm.layers.18.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 18888584,
+      "new_bytes": 18865968,
+      "eligible": 33597382,
+      "changed": 1146797,
+      "squared_error_before": 515727652879335424,
+      "squared_error_after": 512398651860451328
+    },
+    "model.llm.layers.18.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9533344,
+      "new_bytes": 9521688,
+      "eligible": 16770216,
+      "changed": 576124,
+      "squared_error_before": 218835678065852416,
+      "squared_error_after": 217451025309368320
+    },
+    "model.llm.layers.19.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 18779208,
+      "new_bytes": 18749648,
+      "eligible": 33571417,
+      "changed": 1156004,
+      "squared_error_before": 747081898246012928,
+      "squared_error_after": 741998655553404928
+    },
+    "model.llm.layers.19.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9509048,
+      "new_bytes": 9497736,
+      "eligible": 16751831,
+      "changed": 563475,
+      "squared_error_before": 220351489331691520,
+      "squared_error_after": 218959652709728256
+    },
+    "model.llm.layers.2.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 18903224,
+      "new_bytes": 18885584,
+      "eligible": 33065664,
+      "changed": 1089431,
+      "squared_error_before": 525952202747936768,
+      "squared_error_after": 522967838493769728
+    },
+    "model.llm.layers.2.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9455520,
+      "new_bytes": 9449264,
+      "eligible": 16643703,
+      "changed": 522064,
+      "squared_error_before": 281239015531741184,
+      "squared_error_after": 279667098106462208
+    },
+    "model.llm.layers.3.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 19071544,
+      "new_bytes": 19055256,
+      "eligible": 32625139,
+      "changed": 1047643,
+      "squared_error_before": 534008282716438528,
+      "squared_error_after": 530934417485332480
+    },
+    "model.llm.layers.3.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9449264,
+      "new_bytes": 9444120,
+      "eligible": 16357050,
+      "changed": 522078,
+      "squared_error_before": 295492681312763904,
+      "squared_error_after": 293828416549945344
+    },
+    "model.llm.layers.4.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 18928000,
+      "new_bytes": 18909416,
+      "eligible": 32621467,
+      "changed": 1064279,
+      "squared_error_before": 669991053915586560,
+      "squared_error_after": 665752092015853568
+    },
+    "model.llm.layers.4.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9469384,
+      "new_bytes": 9461608,
+      "eligible": 16386663,
+      "changed": 519701,
+      "squared_error_before": 287455607634264064,
+      "squared_error_after": 285726162639650816
+    },
+    "model.llm.layers.5.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 18909224,
+      "new_bytes": 18891112,
+      "eligible": 32615697,
+      "changed": 1094376,
+      "squared_error_before": 322017346534768640,
+      "squared_error_after": 319946721055997952
+    },
+    "model.llm.layers.5.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9533896,
+      "new_bytes": 9524464,
+      "eligible": 16350222,
+      "changed": 563691,
+      "squared_error_before": 185711438009466880,
+      "squared_error_after": 184496702064427008
+    },
+    "model.llm.layers.6.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 18798176,
+      "new_bytes": 18808200,
+      "eligible": 9551895,
+      "changed": 123752,
+      "squared_error_before": 122056199661944832,
+      "squared_error_after": 121854274052030464
+    },
+    "model.llm.layers.6.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9450168,
+      "new_bytes": 9453688,
+      "eligible": 4748421,
+      "changed": 50195,
+      "squared_error_before": 57752150955261952,
+      "squared_error_after": 57673687577657344
+    },
+    "model.llm.layers.7.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 18698880,
+      "new_bytes": 18707592,
+      "eligible": 8835722,
+      "changed": 97607,
+      "squared_error_before": 122663947804344320,
+      "squared_error_after": 122497946471104512
+    },
+    "model.llm.layers.7.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9439680,
+      "new_bytes": 9443640,
+      "eligible": 4477714,
+      "changed": 48434,
+      "squared_error_before": 47560526601125888,
+      "squared_error_after": 47494033960075264
+    },
+    "model.llm.layers.8.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 18722456,
+      "new_bytes": 18731952,
+      "eligible": 9241782,
+      "changed": 95189,
+      "squared_error_before": 132561839660728320,
+      "squared_error_after": 132399657018982400
+    },
+    "model.llm.layers.8.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9463088,
+      "new_bytes": 9467632,
+      "eligible": 4709192,
+      "changed": 64430,
+      "squared_error_before": 48321193126658048,
+      "squared_error_after": 48225900011978752
+    },
+    "model.llm.layers.9.mlp.experts.w13_weight_scale.mean8_v1": {
+      "old_bytes": 18735760,
+      "new_bytes": 18744520,
+      "eligible": 9279526,
+      "changed": 93243,
+      "squared_error_before": 130406000325820416,
+      "squared_error_after": 130248123254571008
+    },
+    "model.llm.layers.9.mlp.experts.w2_weight_scale.mean8_v1": {
+      "old_bytes": 9472728,
+      "new_bytes": 9477344,
+      "eligible": 4719686,
+      "changed": 59012,
+      "squared_error_before": 52412934204162048,
+      "squared_error_after": 52326161205690368
+    }
+  },
+  "verified_tensors": 999
+}
