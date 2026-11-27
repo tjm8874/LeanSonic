@@ -597,5 +597,93 @@
       }
     }
   },
-  "final_reader": {}
+  "final_reader": {
+    "pro5000": {
+      "score_sha256": {
+        "actual-fp16": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce",
+        "actual-int8": "9abf361be93f2cb9447120d7265ca421a05540ba4a8e7bd55ce0b314e0ceb941",
+        "packed-fp16": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce",
+        "packed-int8": "9abf361be93f2cb9447120d7265ca421a05540ba4a8e7bd55ce0b314e0ceb941"
+      },
+      "placement": {
+        "actual-fp16": "VRAM used: 17.53 GiB / 71.12 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: DSpark(K=7) | KV: fp16 | Prefill chunk: 1024",
+        "actual-int8": "VRAM used: 17.41 GiB / 71.12 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: DSpark(K=7) | KV: int8 (global layers) | Prefill chunk: 1024",
+        "packed-fp16": "VRAM used: 17.13 GiB / 71.12 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: DSpark(K=7) | KV: fp16 | Prefill chunk: 1024",
+        "packed-int8": "VRAM used: 17.01 GiB / 71.12 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: DSpark(K=7) | KV: int8 (global layers) | Prefill chunk: 1024"
+      }
+    },
+    "ti5060": {
+      "score_sha256": {
+        "actual-fp16": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce",
+        "actual-int8": "9abf361be93f2cb9447120d7265ca421a05540ba4a8e7bd55ce0b314e0ceb941",
+        "packed-fp16": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce",
+        "packed-int8": "9abf361be93f2cb9447120d7265ca421a05540ba4a8e7bd55ce0b314e0ceb941"
+      },
+      "placement": {
+        "actual-fp16": "VRAM used: 15.44 GiB / 15.48 GiB | Resident expert layers: 18/24 (Spilled: 6) | Mixed VRAM/host layers: 6 | Spec: DSpark(K=7) | KV: fp16 | Prefill chunk: 1024",
+        "actual-int8": "VRAM used: 15.42 GiB / 15.48 GiB | Resident expert layers: 19/24 (Spilled: 5) | Mixed VRAM/host layers: 5 | Spec: DSpark(K=7) | KV: int8 (global layers) | Prefill chunk: 256",
+        "packed-fp16": "VRAM used: 15.35 GiB / 15.48 GiB | Resident expert layers: 19/24 (Spilled: 5) | Mixed VRAM/host layers: 5 | Spec: DSpark(K=7) | KV: fp16 | Prefill chunk: 1024",
+        "packed-int8": "VRAM used: 15.23 GiB / 15.48 GiB | Resident expert layers: 19/24 (Spilled: 5) | Mixed VRAM/host layers: 5 | Spec: DSpark(K=7) | KV: int8 (global layers) | Prefill chunk: 1024"
+      }
+    }
+  },
+  "kld_100_chunks": {
+    "byte_identical_report_sha256": "610fccf68a36c43da1ab9a62fe077fee0213c0dd006620e176e9996509ed3998",
+    "same_baseline": "Five-flag Inkling text shard, original WikiText BF16 oracle",
+    "metrics": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.071985759563496,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.0030389868322863254,
+      "median_kld": 0.0012228699963499484,
+      "p99_kld": 0.028630558999079292,
+      "max_kld": 0.6639923296258949,
+      "start_chunk": 0,
+      "max_kld_chunk": 69,
+      "max_kld_position": 353,
+      "ref_floor_targets": 14,
+      "top1_matches": 24880,
+      "top1_agreement": 0.9756862745098039
+    }
+  },
+  "public_integration": {
+    "commit": "67185d6",
+    "kernel_base": "1d43eaa",
+    "cards": {
+      "pro5000": {
+        "fp16": {
+          "log": [
+            "[LeanSonic GPU] Packed 48 expert scale planes, saving 398131008 device bytes",
+            "[LeanSonic GPU] NVIDIA RTX PRO 5000 72GB Blackwell | VRAM used: 17.13 GiB / 71.12 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: DSpark(K=7) | KV: fp16 | Prefill chunk: 1024 | Loaded in 3.24s"
+          ],
+          "score_sha256": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce"
+        },
+        "int8": {
+          "log": [
+            "[LeanSonic GPU] Packed 48 expert scale planes, saving 398131008 device bytes",
+            "[LeanSonic GPU] NVIDIA RTX PRO 5000 72GB Blackwell | VRAM used: 17.01 GiB / 71.12 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: DSpark(K=7) | KV: int8 (global layers) | Prefill chunk: 1024 | Loaded in 3.19s"
+          ],
+          "score_sha256": "9abf361be93f2cb9447120d7265ca421a05540ba4a8e7bd55ce0b314e0ceb941"
+        }
+      },
+      "ti5060": {
+        "fp16": {
+          "log": [
+            "[LeanSonic GPU] Packed 48 expert scale planes, saving 398131008 device bytes",
+            "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.35 GiB / 15.48 GiB | Resident expert layers: 19/24 (Spilled: 5) | Mixed VRAM/host layers: 5 | Spec: DSpark(K=7) | KV: fp16 | Prefill chunk: 1024 | Loaded in 5.26s"
+          ],
+          "score_sha256": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce"
+        },
+        "int8": {
+          "log": [
+            "[LeanSonic GPU] Packed 48 expert scale planes, saving 398131008 device bytes",
+            "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 15.23 GiB / 15.48 GiB | Resident expert layers: 19/24 (Spilled: 5) | Mixed VRAM/host layers: 5 | Spec: DSpark(K=7) | KV: int8 (global layers) | Prefill chunk: 1024 | Loaded in 5.22s"
+          ],
+          "score_sha256": "9abf361be93f2cb9447120d7265ca421a05540ba4a8e7bd55ce0b314e0ceb941"
+        }
+      }
+    }
+  }
 }
