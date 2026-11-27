@@ -1,0 +1,979 @@
+{
+  "gpu": "NVIDIA RTX PRO 4500 Blackwell",
+  "driver": "595.99.02",
+  "power_limit": "200.00 W",
+  "sha256": {
+    "bench": "695874f3ad281aeefc069a5c9ff2b946a273ed60fe596fb06711bd81dadfae0a",
+    "base.cubin": "7d3d1416baeaefcb71c4cbefab686def0a46ca1b44a4b7a8630d56e56518e8e6",
+    "permute.cubin": "7759ea0ebd67a228a1668128cdeaec45462fd1975d8722b5f9e823e0f4f9c432",
+    "prompt.ids": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843"
+  },
+  "captures": {
+    "1-raw": {
+      "launches": 1324,
+      "span_ms": 206.380082,
+      "kernel_busy_ms": 206.378304,
+      "uncovered_ms": 0.001778,
+      "kernels": [
+        {
+          "name": "ink2_moe_nvfp4_tc_up_situ_packed_scales",
+          "count": 44,
+          "total_ms": 55.816678
+        },
+        {
+          "name": "ink2_moe_ternary_tc_down_packed_scales",
+          "count": 44,
+          "total_ms": 30.962136
+        },
+        {
+          "name": "ink2_q8_tc_gemm_b",
+          "count": 68,
+          "total_ms": 20.345572
+        },
+        {
+          "name": "ink2_flash_attn_tc_q8_b",
+          "count": 48,
+          "total_ms": 15.73569
+        },
+        {
+          "name": "ink2_q8_tc_qkv3_gemm_b",
+          "count": 28,
+          "total_ms": 15.325192
+        },
+        {
+          "name": "ink2_depth_mix_multi_ctrl_norm_bf16_b",
+          "count": 48,
+          "total_ms": 11.115581
+        },
+        {
+          "name": "ink2_ctrl_apply_tc_b",
+          "count": 48,
+          "total_ms": 7.022451
+        },
+        {
+          "name": "ink2_bf16_tc_gemm_b",
+          "count": 96,
+          "total_ms": 6.747886
+        },
+        {
+          "name": "ink2_moe_mxfp8_tc_up_situ_t160_u4_packed_scales",
+          "count": 4,
+          "total_ms": 6.478152
+        },
+        {
+          "name": "ink2_short_conv4_save_par_b",
+          "count": 192,
+          "total_ms": 6.054596
+        },
+        {
+          "name": "ink2_quant_nvfp4_2term_1p_b",
+          "count": 88,
+          "total_ms": 4.267462
+        },
+        {
+          "name": "ink2_prep_qkv_and_cache_b",
+          "count": 48,
+          "total_ms": 4.009261
+        },
+        {
+          "name": "ink2_moe_combine_top8_f16_b",
+          "count": 48,
+          "total_ms": 3.896235
+        },
+        {
+          "name": "ink2_depth_mix_multi_b",
+          "count": 24,
+          "total_ms": 3.55073
+        },
+        {
+          "name": "ink2_moe_mxfp8_tc_down_t160_u4_packed_scales",
+          "count": 4,
+          "total_ms": 3.370853
+        },
+        {
+          "name": "ink2_rmsnorm_quant_q8_64_b",
+          "count": 25,
+          "total_ms": 2.476411
+        },
+        {
+          "name": "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+          "count": 24,
+          "total_ms": 1.858899
+        },
+        {
+          "name": "ink2_depth_mix_rmsnorm_d_quant_q8_16_b",
+          "count": 24,
+          "total_ms": 1.768948
+        },
+        {
+          "name": "ink2_gather_nvfp4_sorted_b",
+          "count": 44,
+          "total_ms": 1.397295
+        },
+        {
+          "name": "ink2_router_topk8_par_b",
+          "count": 48,
+          "total_ms": 1.205293
+        },
+        {
+          "name": "ink2_embed_rmsnorm_b",
+          "count": 1,
+          "total_ms": 0.688072
+        },
+        {
+          "name": "ink2_build_expert_groups_par_b",
+          "count": 48,
+          "total_ms": 0.668418
+        },
+        {
+          "name": "ink2_q8_dp4a_gemv_c2304",
+          "count": 1,
+          "total_ms": 0.616039
+        },
+        {
+          "name": "ink2_f32_to_bf16_b",
+          "count": 48,
+          "total_ms": 0.597543
+        },
+        {
+          "name": "ink2_quant_mxfp8_b",
+          "count": 8,
+          "total_ms": 0.461927
+        },
+        {
+          "name": "ink2_rmsnorm_d_b",
+          "count": 24,
+          "total_ms": 0.460706
+        },
+        {
+          "name": "ink2_loop_pass_setup_b",
+          "count": 3,
+          "total_ms": 0.424516
+        },
+        {
+          "name": "ink2_short_conv4_commit_hist_b",
+          "count": 192,
+          "total_ms": 0.37197
+        },
+        {
+          "name": "ink2_argmax_b",
+          "count": 1,
+          "total_ms": 0.017536
+        },
+        {
+          "name": "ink2_inc_pos_by",
+          "count": 1,
+          "total_ms": 0.016928
+        }
+      ],
+      "gate_up_ms": 55.816678,
+      "down_ms": 30.962136,
+      "top_id": 2
+    },
+    "2-tile": {
+      "launches": 1324,
+      "span_ms": 207.157741,
+      "kernel_busy_ms": 207.156223,
+      "uncovered_ms": 0.001518,
+      "kernels": [
+        {
+          "name": "ink2_moe_ternary_tc_up_situ_packed_scales",
+          "count": 44,
+          "total_ms": 57.215086
+        },
+        {
+          "name": "ink2_moe_ternary_tc_down_packed_scales",
+          "count": 44,
+          "total_ms": 30.634821
+        },
+        {
+          "name": "ink2_q8_tc_gemm_b",
+          "count": 68,
+          "total_ms": 20.286539
+        },
+        {
+          "name": "ink2_flash_attn_tc_q8_b",
+          "count": 48,
+          "total_ms": 15.676758
+        },
+        {
+          "name": "ink2_q8_tc_qkv3_gemm_b",
+          "count": 28,
+          "total_ms": 15.249392
+        },
+        {
+          "name": "ink2_depth_mix_multi_ctrl_norm_bf16_b",
+          "count": 48,
+          "total_ms": 11.078046
+        },
+        {
+          "name": "ink2_ctrl_apply_tc_b",
+          "count": 48,
+          "total_ms": 7.066226
+        },
+        {
+          "name": "ink2_bf16_tc_gemm_b",
+          "count": 96,
+          "total_ms": 6.632559
+        },
+        {
+          "name": "ink2_moe_mxfp8_tc_up_situ_t160_u4_packed_scales",
+          "count": 4,
+          "total_ms": 6.46529
+        },
+        {
+          "name": "ink2_short_conv4_save_par_b",
+          "count": 192,
+          "total_ms": 6.013825
+        },
+        {
+          "name": "ink2_quant_nvfp4_2term_1p_b",
+          "count": 88,
+          "total_ms": 4.267496
+        },
+        {
+          "name": "ink2_prep_qkv_and_cache_b",
+          "count": 48,
+          "total_ms": 4.015567
+        },
+        {
+          "name": "ink2_moe_combine_top8_f16_b",
+          "count": 48,
+          "total_ms": 3.885227
+        },
+        {
+          "name": "ink2_depth_mix_multi_b",
+          "count": 24,
+          "total_ms": 3.569351
+        },
+        {
+          "name": "ink2_moe_mxfp8_tc_down_t160_u4_packed_scales",
+          "count": 4,
+          "total_ms": 3.363621
+        },
+        {
+          "name": "ink2_rmsnorm_quant_q8_64_b",
+          "count": 25,
+          "total_ms": 2.469246
+        },
+        {
+          "name": "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+          "count": 24,
+          "total_ms": 1.846132
+        },
+        {
+          "name": "ink2_depth_mix_rmsnorm_d_quant_q8_16_b",
+          "count": 24,
+          "total_ms": 1.764601
+        },
+        {
+          "name": "ink2_gather_nvfp4_sorted_b",
+          "count": 44,
+          "total_ms": 1.395245
+        },
+        {
+          "name": "ink2_router_topk8_par_b",
+          "count": 48,
+          "total_ms": 1.202766
+        },
+        {
+          "name": "ink2_embed_rmsnorm_b",
+          "count": 1,
+          "total_ms": 0.717353
+        },
+        {
+          "name": "ink2_build_expert_groups_par_b",
+          "count": 48,
+          "total_ms": 0.666377
+        },
+        {
+          "name": "ink2_q8_dp4a_gemv_c2304",
+          "count": 1,
+          "total_ms": 0.614375
+        },
+        {
+          "name": "ink2_f32_to_bf16_b",
+          "count": 48,
+          "total_ms": 0.58276
+        },
+        {
+          "name": "ink2_quant_mxfp8_b",
+          "count": 8,
+          "total_ms": 0.463206
+        },
+        {
+          "name": "ink2_rmsnorm_d_b",
+          "count": 24,
+          "total_ms": 0.45626
+        },
+        {
+          "name": "ink2_loop_pass_setup_b",
+          "count": 3,
+          "total_ms": 0.440549
+        },
+        {
+          "name": "ink2_short_conv4_commit_hist_b",
+          "count": 192,
+          "total_ms": 0.389092
+        },
+        {
+          "name": "ink2_argmax_b",
+          "count": 1,
+          "total_ms": 0.016192
+        },
+        {
+          "name": "ink2_inc_pos_by",
+          "count": 1,
+          "total_ms": 0.015617
+        }
+      ],
+      "gate_up_ms": 57.215086,
+      "down_ms": 30.634821,
+      "top_id": 2
+    },
+    "3-permute": {
+      "launches": 1324,
+      "span_ms": 205.923076,
+      "kernel_busy_ms": 205.921526,
+      "uncovered_ms": 0.00155,
+      "kernels": [
+        {
+          "name": "ink2_moe_ternary_tc_up_situ_packed_scales",
+          "count": 44,
+          "total_ms": 56.659159
+        },
+        {
+          "name": "ink2_moe_ternary_tc_down_packed_scales",
+          "count": 44,
+          "total_ms": 30.120154
+        },
+        {
+          "name": "ink2_q8_tc_gemm_b",
+          "count": 68,
+          "total_ms": 20.234669
+        },
+        {
+          "name": "ink2_flash_attn_tc_q8_b",
+          "count": 48,
+          "total_ms": 15.642676
+        },
+        {
+          "name": "ink2_q8_tc_qkv3_gemm_b",
+          "count": 28,
+          "total_ms": 15.211989
+        },
+        {
+          "name": "ink2_depth_mix_multi_ctrl_norm_bf16_b",
+          "count": 48,
+          "total_ms": 11.087524
+        },
+        {
+          "name": "ink2_ctrl_apply_tc_b",
+          "count": 48,
+          "total_ms": 7.063824
+        },
+        {
+          "name": "ink2_bf16_tc_gemm_b",
+          "count": 96,
+          "total_ms": 6.58731
+        },
+        {
+          "name": "ink2_moe_mxfp8_tc_up_situ_t160_u4_packed_scales",
+          "count": 4,
+          "total_ms": 6.449387
+        },
+        {
+          "name": "ink2_short_conv4_save_par_b",
+          "count": 192,
+          "total_ms": 6.000972
+        },
+        {
+          "name": "ink2_quant_nvfp4_2term_1p_b",
+          "count": 88,
+          "total_ms": 4.263945
+        },
+        {
+          "name": "ink2_prep_qkv_and_cache_b",
+          "count": 48,
+          "total_ms": 4.007792
+        },
+        {
+          "name": "ink2_moe_combine_top8_f16_b",
+          "count": 48,
+          "total_ms": 3.888144
+        },
+        {
+          "name": "ink2_depth_mix_multi_b",
+          "count": 24,
+          "total_ms": 3.585703
+        },
+        {
+          "name": "ink2_moe_mxfp8_tc_down_t160_u4_packed_scales",
+          "count": 4,
+          "total_ms": 3.356359
+        },
+        {
+          "name": "ink2_rmsnorm_quant_q8_64_b",
+          "count": 25,
+          "total_ms": 2.465565
+        },
+        {
+          "name": "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+          "count": 24,
+          "total_ms": 1.851638
+        },
+        {
+          "name": "ink2_depth_mix_rmsnorm_d_quant_q8_16_b",
+          "count": 24,
+          "total_ms": 1.763188
+        },
+        {
+          "name": "ink2_gather_nvfp4_sorted_b",
+          "count": 44,
+          "total_ms": 1.388876
+        },
+        {
+          "name": "ink2_router_topk8_par_b",
+          "count": 48,
+          "total_ms": 1.201745
+        },
+        {
+          "name": "ink2_embed_rmsnorm_b",
+          "count": 1,
+          "total_ms": 0.752969
+        },
+        {
+          "name": "ink2_build_expert_groups_par_b",
+          "count": 48,
+          "total_ms": 0.675301
+        },
+        {
+          "name": "ink2_q8_dp4a_gemv_c2304",
+          "count": 1,
+          "total_ms": 0.615271
+        },
+        {
+          "name": "ink2_f32_to_bf16_b",
+          "count": 48,
+          "total_ms": 0.582244
+        },
+        {
+          "name": "ink2_quant_mxfp8_b",
+          "count": 8,
+          "total_ms": 0.463238
+        },
+        {
+          "name": "ink2_rmsnorm_d_b",
+          "count": 24,
+          "total_ms": 0.457094
+        },
+        {
+          "name": "ink2_loop_pass_setup_b",
+          "count": 3,
+          "total_ms": 0.436229
+        },
+        {
+          "name": "ink2_short_conv4_commit_hist_b",
+          "count": 192,
+          "total_ms": 0.390785
+        },
+        {
+          "name": "ink2_argmax_b",
+          "count": 1,
+          "total_ms": 0.017344
+        },
+        {
+          "name": "ink2_inc_pos_by",
+          "count": 1,
+          "total_ms": 0.016416
+        }
+      ],
+      "gate_up_ms": 56.659159,
+      "down_ms": 30.120154,
+      "top_id": 2
+    },
+    "4-permute": {
+      "launches": 1324,
+      "span_ms": 205.626333,
+      "kernel_busy_ms": 205.624783,
+      "uncovered_ms": 0.00155,
+      "kernels": [
+        {
+          "name": "ink2_moe_ternary_tc_up_situ_packed_scales",
+          "count": 44,
+          "total_ms": 56.577151
+        },
+        {
+          "name": "ink2_moe_ternary_tc_down_packed_scales",
+          "count": 44,
+          "total_ms": 30.100929
+        },
+        {
+          "name": "ink2_q8_tc_gemm_b",
+          "count": 68,
+          "total_ms": 20.192879
+        },
+        {
+          "name": "ink2_flash_attn_tc_q8_b",
+          "count": 48,
+          "total_ms": 15.612697
+        },
+        {
+          "name": "ink2_q8_tc_qkv3_gemm_b",
+          "count": 28,
+          "total_ms": 15.165718
+        },
+        {
+          "name": "ink2_depth_mix_multi_ctrl_norm_bf16_b",
+          "count": 48,
+          "total_ms": 11.074118
+        },
+        {
+          "name": "ink2_ctrl_apply_tc_b",
+          "count": 48,
+          "total_ms": 7.059408
+        },
+        {
+          "name": "ink2_bf16_tc_gemm_b",
+          "count": 96,
+          "total_ms": 6.606095
+        },
+        {
+          "name": "ink2_moe_mxfp8_tc_up_situ_t160_u4_packed_scales",
+          "count": 4,
+          "total_ms": 6.430828
+        },
+        {
+          "name": "ink2_short_conv4_save_par_b",
+          "count": 192,
+          "total_ms": 5.991461
+        },
+        {
+          "name": "ink2_quant_nvfp4_2term_1p_b",
+          "count": 88,
+          "total_ms": 4.26209
+        },
+        {
+          "name": "ink2_prep_qkv_and_cache_b",
+          "count": 48,
+          "total_ms": 4.01688
+        },
+        {
+          "name": "ink2_moe_combine_top8_f16_b",
+          "count": 48,
+          "total_ms": 3.88299
+        },
+        {
+          "name": "ink2_depth_mix_multi_b",
+          "count": 24,
+          "total_ms": 3.568939
+        },
+        {
+          "name": "ink2_moe_mxfp8_tc_down_t160_u4_packed_scales",
+          "count": 4,
+          "total_ms": 3.342056
+        },
+        {
+          "name": "ink2_rmsnorm_quant_q8_64_b",
+          "count": 25,
+          "total_ms": 2.482396
+        },
+        {
+          "name": "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+          "count": 24,
+          "total_ms": 1.845975
+        },
+        {
+          "name": "ink2_depth_mix_rmsnorm_d_quant_q8_16_b",
+          "count": 24,
+          "total_ms": 1.764246
+        },
+        {
+          "name": "ink2_gather_nvfp4_sorted_b",
+          "count": 44,
+          "total_ms": 1.38721
+        },
+        {
+          "name": "ink2_router_topk8_par_b",
+          "count": 48,
+          "total_ms": 1.198634
+        },
+        {
+          "name": "ink2_embed_rmsnorm_b",
+          "count": 1,
+          "total_ms": 0.737833
+        },
+        {
+          "name": "ink2_build_expert_groups_par_b",
+          "count": 48,
+          "total_ms": 0.663978
+        },
+        {
+          "name": "ink2_q8_dp4a_gemv_c2304",
+          "count": 1,
+          "total_ms": 0.615047
+        },
+        {
+          "name": "ink2_f32_to_bf16_b",
+          "count": 48,
+          "total_ms": 0.580743
+        },
+        {
+          "name": "ink2_quant_mxfp8_b",
+          "count": 8,
+          "total_ms": 0.462598
+        },
+        {
+          "name": "ink2_rmsnorm_d_b",
+          "count": 24,
+          "total_ms": 0.453961
+        },
+        {
+          "name": "ink2_loop_pass_setup_b",
+          "count": 3,
+          "total_ms": 0.438341
+        },
+        {
+          "name": "ink2_short_conv4_commit_hist_b",
+          "count": 192,
+          "total_ms": 0.39104
+        },
+        {
+          "name": "ink2_argmax_b",
+          "count": 1,
+          "total_ms": 0.016224
+        },
+        {
+          "name": "ink2_inc_pos_by",
+          "count": 1,
+          "total_ms": 0.015584
+        }
+      ],
+      "gate_up_ms": 56.577151,
+      "down_ms": 30.100929,
+      "top_id": 2
+    },
+    "5-tile": {
+      "launches": 1324,
+      "span_ms": 206.310174,
+      "kernel_busy_ms": 206.308687,
+      "uncovered_ms": 0.001487,
+      "kernels": [
+        {
+          "name": "ink2_moe_ternary_tc_up_situ_packed_scales",
+          "count": 44,
+          "total_ms": 56.902528
+        },
+        {
+          "name": "ink2_moe_ternary_tc_down_packed_scales",
+          "count": 44,
+          "total_ms": 30.47415
+        },
+        {
+          "name": "ink2_q8_tc_gemm_b",
+          "count": 68,
+          "total_ms": 20.184496
+        },
+        {
+          "name": "ink2_flash_attn_tc_q8_b",
+          "count": 48,
+          "total_ms": 15.592853
+        },
+        {
+          "name": "ink2_q8_tc_qkv3_gemm_b",
+          "count": 28,
+          "total_ms": 15.165107
+        },
+        {
+          "name": "ink2_depth_mix_multi_ctrl_norm_bf16_b",
+          "count": 48,
+          "total_ms": 11.090984
+        },
+        {
+          "name": "ink2_ctrl_apply_tc_b",
+          "count": 48,
+          "total_ms": 7.055891
+        },
+        {
+          "name": "ink2_bf16_tc_gemm_b",
+          "count": 96,
+          "total_ms": 6.60936
+        },
+        {
+          "name": "ink2_moe_mxfp8_tc_up_situ_t160_u4_packed_scales",
+          "count": 4,
+          "total_ms": 6.423787
+        },
+        {
+          "name": "ink2_short_conv4_save_par_b",
+          "count": 192,
+          "total_ms": 6.011598
+        },
+        {
+          "name": "ink2_quant_nvfp4_2term_1p_b",
+          "count": 88,
+          "total_ms": 4.262249
+        },
+        {
+          "name": "ink2_prep_qkv_and_cache_b",
+          "count": 48,
+          "total_ms": 4.020622
+        },
+        {
+          "name": "ink2_moe_combine_top8_f16_b",
+          "count": 48,
+          "total_ms": 3.886542
+        },
+        {
+          "name": "ink2_depth_mix_multi_b",
+          "count": 24,
+          "total_ms": 3.582471
+        },
+        {
+          "name": "ink2_moe_mxfp8_tc_down_t160_u4_packed_scales",
+          "count": 4,
+          "total_ms": 3.343943
+        },
+        {
+          "name": "ink2_rmsnorm_quant_q8_64_b",
+          "count": 25,
+          "total_ms": 2.474334
+        },
+        {
+          "name": "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+          "count": 24,
+          "total_ms": 1.845619
+        },
+        {
+          "name": "ink2_depth_mix_rmsnorm_d_quant_q8_16_b",
+          "count": 24,
+          "total_ms": 1.763699
+        },
+        {
+          "name": "ink2_gather_nvfp4_sorted_b",
+          "count": 44,
+          "total_ms": 1.386124
+        },
+        {
+          "name": "ink2_router_topk8_par_b",
+          "count": 48,
+          "total_ms": 1.195985
+        },
+        {
+          "name": "ink2_embed_rmsnorm_b",
+          "count": 1,
+          "total_ms": 0.71444
+        },
+        {
+          "name": "ink2_build_expert_groups_par_b",
+          "count": 48,
+          "total_ms": 0.668101
+        },
+        {
+          "name": "ink2_q8_dp4a_gemv_c2304",
+          "count": 1,
+          "total_ms": 0.613991
+        },
+        {
+          "name": "ink2_f32_to_bf16_b",
+          "count": 48,
+          "total_ms": 0.582275
+        },
+        {
+          "name": "ink2_quant_mxfp8_b",
+          "count": 8,
+          "total_ms": 0.462599
+        },
+        {
+          "name": "ink2_rmsnorm_d_b",
+          "count": 24,
+          "total_ms": 0.45466
+        },
+        {
+          "name": "ink2_loop_pass_setup_b",
+          "count": 3,
+          "total_ms": 0.435813
+        },
+        {
+          "name": "ink2_short_conv4_commit_hist_b",
+          "count": 192,
+          "total_ms": 0.387363
+        },
+        {
+          "name": "ink2_argmax_b",
+          "count": 1,
+          "total_ms": 0.016576
+        },
+        {
+          "name": "ink2_inc_pos_by",
+          "count": 1,
+          "total_ms": 0.01632
+        }
+      ],
+      "gate_up_ms": 56.902528,
+      "down_ms": 30.47415,
+      "top_id": 2
+    },
+    "6-raw": {
+      "launches": 1324,
+      "span_ms": 204.954651,
+      "kernel_busy_ms": 204.952778,
+      "uncovered_ms": 0.001873,
+      "kernels": [
+        {
+          "name": "ink2_moe_nvfp4_tc_up_situ_packed_scales",
+          "count": 44,
+          "total_ms": 55.428692
+        },
+        {
+          "name": "ink2_moe_ternary_tc_down_packed_scales",
+          "count": 44,
+          "total_ms": 30.679084
+        },
+        {
+          "name": "ink2_q8_tc_gemm_b",
+          "count": 68,
+          "total_ms": 20.163405
+        },
+        {
+          "name": "ink2_flash_attn_tc_q8_b",
+          "count": 48,
+          "total_ms": 15.597338
+        },
+        {
+          "name": "ink2_q8_tc_qkv3_gemm_b",
+          "count": 28,
+          "total_ms": 15.132979
+        },
+        {
+          "name": "ink2_depth_mix_multi_ctrl_norm_bf16_b",
+          "count": 48,
+          "total_ms": 11.084002
+        },
+        {
+          "name": "ink2_ctrl_apply_tc_b",
+          "count": 48,
+          "total_ms": 7.011797
+        },
+        {
+          "name": "ink2_bf16_tc_gemm_b",
+          "count": 96,
+          "total_ms": 6.720682
+        },
+        {
+          "name": "ink2_moe_mxfp8_tc_up_situ_t160_u4_packed_scales",
+          "count": 4,
+          "total_ms": 6.426124
+        },
+        {
+          "name": "ink2_short_conv4_save_par_b",
+          "count": 192,
+          "total_ms": 6.024808
+        },
+        {
+          "name": "ink2_quant_nvfp4_2term_1p_b",
+          "count": 88,
+          "total_ms": 4.261262
+        },
+        {
+          "name": "ink2_prep_qkv_and_cache_b",
+          "count": 48,
+          "total_ms": 4.012528
+        },
+        {
+          "name": "ink2_moe_combine_top8_f16_b",
+          "count": 48,
+          "total_ms": 3.89246
+        },
+        {
+          "name": "ink2_depth_mix_multi_b",
+          "count": 24,
+          "total_ms": 3.559885
+        },
+        {
+          "name": "ink2_moe_mxfp8_tc_down_t160_u4_packed_scales",
+          "count": 4,
+          "total_ms": 3.342343
+        },
+        {
+          "name": "ink2_rmsnorm_quant_q8_64_b",
+          "count": 25,
+          "total_ms": 2.455706
+        },
+        {
+          "name": "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+          "count": 24,
+          "total_ms": 1.856695
+        },
+        {
+          "name": "ink2_depth_mix_rmsnorm_d_quant_q8_16_b",
+          "count": 24,
+          "total_ms": 1.761843
+        },
+        {
+          "name": "ink2_gather_nvfp4_sorted_b",
+          "count": 44,
+          "total_ms": 1.391939
+        },
+        {
+          "name": "ink2_router_topk8_par_b",
+          "count": 48,
+          "total_ms": 1.19461
+        },
+        {
+          "name": "ink2_embed_rmsnorm_b",
+          "count": 1,
+          "total_ms": 0.692201
+        },
+        {
+          "name": "ink2_build_expert_groups_par_b",
+          "count": 48,
+          "total_ms": 0.649895
+        },
+        {
+          "name": "ink2_q8_dp4a_gemv_c2304",
+          "count": 1,
+          "total_ms": 0.615847
+        },
+        {
+          "name": "ink2_f32_to_bf16_b",
+          "count": 48,
+          "total_ms": 0.589386
+        },
+        {
+          "name": "ink2_quant_mxfp8_b",
+          "count": 8,
+          "total_ms": 0.461382
+        },
+        {
+          "name": "ink2_rmsnorm_d_b",
+          "count": 24,
+          "total_ms": 0.457605
+        },
+        {
+          "name": "ink2_loop_pass_setup_b",
+          "count": 3,
+          "total_ms": 0.423333
+        },
+        {
+          "name": "ink2_short_conv4_commit_hist_b",
+          "count": 192,
+          "total_ms": 0.374438
+        },
+        {
+          "name": "ink2_argmax_b",
+          "count": 1,
+          "total_ms": 0.016704
+        },
+        {
+          "name": "ink2_inc_pos_by",
+          "count": 1,
+          "total_ms": 0.01616
+        }
+      ],
+      "gate_up_ms": 55.428692,
+      "down_ms": 30.679084,
+      "top_id": 2
+    }
+  }
+}
