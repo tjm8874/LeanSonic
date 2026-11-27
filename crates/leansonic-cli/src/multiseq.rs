@@ -17,6 +17,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut round_rows = 8usize;
     let mut check = true;
     let mut spec = 0usize;
+    let mut dspark = false;
     let mut i = 0;
     while i < args.len() {
         let v = args.get(i + 1).cloned();
@@ -27,6 +28,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
             "--gen" => gen = v.and_then(|s| s.parse().ok()).ok_or("bad --gen")?,
             "--round" => round_rows = v.and_then(|s| s.parse().ok()).ok_or("bad --round")?,
             "--spec" => spec = v.and_then(|s| s.parse().ok()).ok_or("bad --spec")?,
+            "--dspark" => {
+                dspark = true;
+                i += 1;
+                continue;
+            }
             "--no-check" => {
                 check = false;
                 i += 1;
@@ -51,7 +57,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(8192)
         .max(base.len() + gen + 64);
-    let mut eng = Inkling2GpuEngine::load_from_dir_with_spec(Path::new(&dir), max_ctx, true, 0)?;
+    // `--dspark` loads the MTP drafter (per-sequence contexts) for `--spec K` rounds.
+    let spec_k = if dspark { spec.max(1) } else { 0 };
+    let mut eng =
+        Inkling2GpuEngine::load_from_dir_with_spec(Path::new(&dir), max_ctx, true, spec_k)?;
     if eng.n_seqs != seqs {
         return Err(format!("engine has {} sequences", eng.n_seqs));
     }
@@ -101,6 +110,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
     let t1 = Instant::now();
     let (mut drafted, mut accepted, mut verify_rounds) = (0usize, 0usize, 0usize);
+    let mut draft_ms = 0f64;
     if spec == 0 {
         for _ in 1..gen {
             for chunk in (0..seqs).collect::<Vec<_>>().chunks(round_rows) {
@@ -123,14 +133,20 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 if rem == 0 {
                     continue;
                 }
-                let mut hist = prompts[s].clone();
-                hist.extend_from_slice(&round[s][..round[s].len() - 1]);
                 let mut run = vec![cur3[s]];
-                run.extend(SuffixDrafter::draft_from_history(
-                    &hist,
-                    cur3[s],
-                    spec.min(rem - 1),
-                ));
+                if dspark {
+                    let td = Instant::now();
+                    run.extend(eng.draft_for_seq(s, cur3[s], spec.min(rem - 1))?);
+                    draft_ms += td.elapsed().as_secs_f64() * 1e3;
+                } else {
+                    let mut hist = prompts[s].clone();
+                    hist.extend_from_slice(&round[s][..round[s].len() - 1]);
+                    run.extend(SuffixDrafter::draft_from_history(
+                        &hist,
+                        cur3[s],
+                        spec.min(rem - 1),
+                    ));
+                }
                 if rows + run.len() > round_rows {
                     if rows + 1 > round_rows {
                         break;
@@ -163,7 +179,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         for r in &mut round {
             r.truncate(gen);
         }
-        println!("spec: {verify_rounds} verify rounds, accepted {accepted}/{drafted} drafts");
+        println!("spec: {verify_rounds} verify rounds, accepted {accepted}/{drafted} drafts, drafting {draft_ms:.1} ms");
     }
     let ms3 = t1.elapsed().as_secs_f64() * 1e3;
     println!(

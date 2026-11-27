@@ -2255,6 +2255,9 @@ impl Inkling2GpuEngine {
         self.seq_pos[self.cur_seq] = self.host_pos;
         self.cur_seq = seq;
         self.host_pos = self.seq_pos[seq];
+        if let Some(d) = &mut self.drafter {
+            d.select_seq(seq)?;
+        }
         let pos = self.host_pos as i32;
         unsafe {
             check_cu(
@@ -4819,8 +4822,8 @@ impl Inkling2GpuEngine {
                 "verify_round: LEANSONIC_SEQS > 1 and 1..={max_rows} rows"
             ));
         }
-        if self.attn_split_g == 0 || self.drafter.is_some() {
-            return Err("verify_round needs split-KV attention and --spec 0".into());
+        if self.attn_split_g == 0 {
+            return Err("verify_round needs split-KV attention".into());
         }
         if self.fns.short_conv4_vms.is_none() || self.fns.conv_commit_ms.is_none() {
             return Err("cubin lacks ink2_short_conv4_vms / ink2_conv_commit_ms".into());
@@ -4979,6 +4982,26 @@ impl Inkling2GpuEngine {
                 self.seq_pos[s] += k;
             }
         }
+        // DSpark: each sequence's drafter context takes its kept rows' taps.
+        if let Some(d) = &mut self.drafter {
+            let taps = self
+                .prefill
+                .d_taps
+                .as_ref()
+                .ok_or("missing DSpark tap storage")?;
+            let mut first = 0usize;
+            for (&(s, len), &k) in runs.iter().zip(keep) {
+                d.select_seq(s)?;
+                d.enqueue_add_ctx(
+                    self.ctx.compute_stream,
+                    taps.ptr + (first * D * 4) as u64,
+                    self.prefill.capacity,
+                    k,
+                )?;
+                first += len;
+            }
+            d.select_seq(self.cur_seq)?;
+        }
         let pos = self.host_pos as i32;
         unsafe {
             check_cu(
@@ -4987,6 +5010,36 @@ impl Inkling2GpuEngine {
             )?;
         }
         Ok(())
+    }
+
+    /// DSpark drafts (up to `max_k`) for sequence `seq` after its pending token `next_tok`,
+    /// from that sequence's own drafter context. Empty without a drafter (`--spec 0`).
+    pub fn draft_for_seq(
+        &mut self,
+        seq: usize,
+        next_tok: u32,
+        max_k: usize,
+    ) -> Result<Vec<u32>, String> {
+        let Some(d) = self.drafter.as_mut() else {
+            return Ok(Vec::new());
+        };
+        let pos = if seq == self.cur_seq {
+            self.host_pos
+        } else {
+            self.seq_pos[seq]
+        };
+        let max_k = max_k.min(self.max_ctx.saturating_sub(pos + 1));
+        d.select_seq(seq)?;
+        let r = d.draft_tokens(
+            self.ctx.compute_stream,
+            self.embed.ptr(),
+            self.embed_norm.ptr,
+            &self.unembed_q8,
+            next_tok,
+            max_k,
+        );
+        d.select_seq(self.cur_seq)?;
+        r
     }
 
     /// Benchmark-only: move the decode position to `pos` without prefilling the rows in between.
