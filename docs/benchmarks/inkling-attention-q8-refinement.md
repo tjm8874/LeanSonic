@@ -10,6 +10,16 @@ Each original BF16 attention matrix is quantized in blocks of 64, using the pare
 
 Both builders regenerated all 352 canonical control frames byte for byte. The alternate frames were decoded and compared with the intended Q8 codes and FP32 scale words, and every tensor payload was re-read after assembling the shard. The sum of squared weight differences does not measure language-model accuracy.
 
+## BF16 fidelity
+
+| Set | Candidate | Mean KL | Worst KL | BF16 top-1 / scored positions | PPL |
+|---|---|---:|---:|---:|---:|
+| chat | canonical | 0.00264874 | 0.09567916 | 609/613 | 3.736971 |
+| chat | refine | 0.00244614 | 0.08607209 | 606/613 | 3.721961 |
+| chat | rate | 0.00259262 | 0.08234757 | 606/613 | 3.725609 |
+
+WikiText uses the canonical 512-context BF16 oracles and 100 chunks per split. The refine package was assigned PRO 4500 and the rate package PRO 5000. Chat uses the independent [613-position bilingual full-vocabulary suite](inkling-chat-quality.md) on PRO 5000.
+
 ## Reproduce
 
 Start from the official BF16 attention tensors and the complete [canonical expert-code package](inkling-storage-candidates.md). Use an empty output path. The example runs on CPU and the repacker verifies the expected canonical shard hash. The test workload and quality commands are available in the [corpus benchmark](inkling-storage-candidates.md).
