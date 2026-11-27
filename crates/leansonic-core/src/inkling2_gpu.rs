@@ -4492,6 +4492,18 @@ impl Inkling2GpuEngine {
         Ok(out_tok as u32)
     }
 
+    /// Diagnostic readback immediately after a successful multi-sequence round.
+    pub fn read_round_logits(&self, rows: usize) -> Result<Vec<f32>, String> {
+        let count = rows
+            .checked_mul(VOCAB)
+            .filter(|n| *n > 0 && *n <= self.d_spec_logits.byte_len / 4)
+            .ok_or("round logits exceed the output allocation")?;
+        self.ctx.sync_compute()?;
+        let mut host = vec![0.0; count];
+        self.d_spec_logits.copy_to_host_f32(&mut host)?;
+        Ok(host)
+    }
+
     pub fn read_last_logits(&self) -> Result<Vec<f32>, String> {
         self.ctx.sync_compute()?;
         let mut host = vec![0.0f32; VOCAB];
