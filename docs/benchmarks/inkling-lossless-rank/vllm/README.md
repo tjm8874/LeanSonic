@@ -20,6 +20,8 @@ The normal LeanSonic CLI was rebuilt at the timed source revision. vLLM scores c
 | test | LeanSonic rank | 0.0077481 | 1.4620404 | 24,537 | 7.083731 |
 | test | vLLM native | 0.0101532 | 3.1885196 | 24,395 | 7.085312 |
 
+On test, rank has lower mean KL in 92/100 chunks. A paired bootstrap over whole chunks (10,000 draws) gives a 95% interval of [-0.0028989, -0.0019751] for rank minus vLLM mean KL, [0.286, 0.835] percentage points for top-1, and [-0.262%, 0.216%] for relative PPL. [Largest row differences and paired results](paired-test.json). Regenerate with [paired_quality.py](paired_quality.py) on rank then vLLM score rows.
+
 ## Reproduce
 
 Build the release leansonic-core example [lean.rs](https://github.com/tjm8874/LeanSonic/tree/4d40691/docs/benchmarks/inkling-class-frames/three-engines/lean.rs) as bench at 9bc4d48. Build its SM120a cubin as described in the [GPU replay](../README.md#gpu-replay). Use [native.py, peak.py, prompt.ids, anchor.ids and the pinned vLLM runtime](https://github.com/tjm8874/LeanSonic/tree/4d40691/docs/benchmarks/inkling-class-frames/three-engines). Use the [four-bank leg runner](leg.py) from this directory. Save the artifacts under their original filenames and set OFFICIAL, LEAN_MODEL, VLLM_PYTHON and LEANSONIC_CUBIN_PATH. Select the test GPU by UUID. Enable LEANSONIC_PDL, LEANSONIC_PDL_ALL, LEANSONIC_MXFP8_DEVICE_U4 and LEANSONIC_MXFP8_DIRECT_ALL. Set LEANSONIC_KV=fp16, LEANSONIC_CTX=2048, LEANSONIC_SEQS=1 and LEANSONIC_PREFILL_CHUNK=1024. Run in a new directory:
