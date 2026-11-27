@@ -20,6 +20,24 @@ const HD: usize = 128;
 const DFF: usize = 9216;
 const LOCAL_RING: usize = 2048;
 const LOCAL_WIN: usize = 1025;
+/// Most slices of `mtp_attn_split` (256+ keys each).
+const MTP_ATTN_MAX_SPLITS: usize = 128;
+
+/// Context keys from which DSpark attention uses `mtp_attn_split`
+/// (`LEANSONIC_MTP_SPLIT_MIN`, default 2048; 0 disables).
+fn mtp_split_min() -> usize {
+    static V: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        match std::env::var("LEANSONIC_MTP_SPLIT_MIN")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+        {
+            Some(0) => usize::MAX,
+            Some(n) => n,
+            None => 2048,
+        }
+    })
+}
 
 #[inline]
 fn bf16_to_f32(b: u16) -> f32 {
@@ -49,6 +67,8 @@ pub struct MtpKernelFns {
     pub init_draft: CUfunction,
     pub qk_norm_rope: CUfunction,
     pub attn: CUfunction,
+    /// Long-context split attention + merge (#107); `None` keeps `attn` for every context.
+    pub attn_split: Option<(CUfunction, CUfunction)>,
     pub add_inplace: CUfunction,
     pub silu_mul: CUfunction,
     pub concat_frnn: CUfunction,
@@ -82,6 +102,8 @@ struct MtpLayerGpu {
 
 /// Scratch buffers of one draft (`draft_tokens`) or context update (`enqueue_add_ctx`).
 struct DraftScratch {
+    d_part_ml: DeviceBuf,
+    d_part_o: DeviceBuf,
     d_mix: DeviceBuf,
     d_kv: DeviceBuf,
     d_x: DeviceBuf,
@@ -109,6 +131,8 @@ impl DraftScratch {
     fn alloc(ctx: &Arc<CudaContextHandle>) -> Result<Self, String> {
         let nb_fold = VOCAB.div_ceil(64);
         Ok(Self {
+            d_part_ml: DeviceBuf::alloc_zeroed(ctx, MTP_ATTN_MAX_SPLITS * 8 * 24 * 2 * 4)?,
+            d_part_o: DeviceBuf::alloc_zeroed(ctx, MTP_ATTN_MAX_SPLITS * 8 * 24 * 128 * 4)?,
             d_mix: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * D * 4)?,
             d_kv: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * 2048 * 4)?,
             d_x: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * D * 4)?,
@@ -955,7 +979,37 @@ impl DsparkDrafterGpu {
                     (&mut hii as *mut _) as *mut c_void,
                     (&mut patt as *mut _) as *mut c_void,
                 ];
-                self.launch(stream, self.fns.attn, (24, 8), 256, &mut args)?;
+                let total = p - lo + B_DRAFT;
+                match self.fns.attn_split {
+                    Some((f_split, f_merge)) if p - lo >= mtp_split_min() => {
+                        // Long context: slices of >= 256 keys over (8 KV heads x S) CTAs.
+                        let n_split = total.div_ceil(256).min(MTP_ATTN_MAX_SPLITS);
+                        let mut kps = total.div_ceil(n_split) as i32;
+                        let mut pml = self.scr.d_part_ml.ptr;
+                        let mut po = self.scr.d_part_o.ptr;
+                        let mut split_args: [*mut c_void; 9] = [
+                            (&mut pqkv as *mut _) as *mut c_void,
+                            (&mut pkc as *mut _) as *mut c_void,
+                            (&mut pvc as *mut _) as *mut c_void,
+                            (&mut rng as *mut _) as *mut c_void,
+                            (&mut loi as *mut _) as *mut c_void,
+                            (&mut hii as *mut _) as *mut c_void,
+                            (&mut kps as *mut _) as *mut c_void,
+                            (&mut pml as *mut _) as *mut c_void,
+                            (&mut po as *mut _) as *mut c_void,
+                        ];
+                        self.launch(stream, f_split, (8, n_split as u32), 256, &mut split_args)?;
+                        let mut ns = n_split as i32;
+                        let mut merge_args: [*mut c_void; 4] = [
+                            (&mut pml as *mut _) as *mut c_void,
+                            (&mut po as *mut _) as *mut c_void,
+                            (&mut ns as *mut _) as *mut c_void,
+                            (&mut patt as *mut _) as *mut c_void,
+                        ];
+                        self.launch(stream, f_merge, (24, 8), 128, &mut merge_args)?;
+                    }
+                    _ => self.launch(stream, self.fns.attn, (24, 8), 256, &mut args)?,
+                }
             }
             self.enqueue_quant_q8(stream, self.scr.d_att.ptr, 3072, B_DRAFT)?;
             self.enqueue_q8_ktiled(
