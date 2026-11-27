@@ -15,6 +15,10 @@ The three original GGUFs (Q3_K_XL, IQ3_XXS, IQ1_S) have identical names and logi
 |---|---|---:|---:|---:|---:|
 | test | Original IQ3 | 0.027728 | 4.049091 | 23,655/25,500 | 7.188809 |
 | valid | Original IQ3 | 0.025635 | 2.807837 | 23,785/25,500 | 6.613878 |
+| chat | Original IQ3 | 0.026935 | 0.396535 | 576/613 | 3.634267 |
+| test | Original IQ1 | 0.113021 | 5.888690 | 21,921/25,500 | 7.707463 |
+| valid | Original IQ1 | 0.107617 | 5.568518 | 22,138/25,500 | 7.121110 |
+| chat | Original IQ1 | 0.111789 | 2.171679 | 537/613 | 3.489395 |
 
 For the same corpus oracles, compact LeanSonic used RTX PRO 4500 and the original native packages used RTX PRO 5000. The bilingual runs used RTX PRO 5000 for both. The following are the [pinned compact results](https://github.com/tjm8874/LeanSonic/blob/10425ae/docs/benchmarks/inkling-codebooks/results.json).
 
@@ -22,6 +26,7 @@ For the same corpus oracles, compact LeanSonic used RTX PRO 4500 and the origina
 |---|---:|---:|---:|---:|
 | test | 0.0137735 | 0.7519345 | 24,289/25,500 | 7.131377 |
 | valid | 0.0131739 | 0.9835867 | 24,341/25,500 | 6.564200 |
+| chat | 0.0126191 | 0.4765965 | 585/613 | 3.732578 |
 
 ## Fixed-token replay
 
