@@ -1,0 +1,39 @@
+{
+  "test": {
+    "parent": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.072955538814124,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.003158425985163431,
+      "median_kld": 0.0012734924757468779,
+      "p99_kld": 0.030384473744206587,
+      "max_kld": 0.6809773323028823,
+      "start_chunk": 0,
+      "max_kld_chunk": 69,
+      "max_kld_position": 353,
+      "ref_floor_targets": 14,
+      "top1_matches": 24865,
+      "top1_agreement": 0.9750980392156863
+    },
+    "last": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.073101913120481,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.0034054356597880554,
+      "median_kld": 0.0015008367254944616,
+      "p99_kld": 0.031286907544338056,
+      "max_kld": 0.6915734248231273,
+      "start_chunk": 0,
+      "max_kld_chunk": 69,
+      "max_kld_position": 353,
+      "ref_floor_targets": 14,
+      "top1_matches": 24822,
+      "top1_agreement": 0.9734117647058823,
+      "gpu": "PRO 4500"
+    }
+  }
+}

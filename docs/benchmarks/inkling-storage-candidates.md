@@ -34,3 +34,14 @@ Reproduce from the official checkpoint and the parent from #125. Reserve space f
 cargo build --release -p leansonic-core --example inkling_mxfp8_round
 python3 tools/inkling_storage_probe/pack_mxfp8.py "$OFFICIAL" "$CANONICAL" "$OUTPUT"
 ```
+
+## BF16 corpus scores
+
+Same canonical BF16 oracle, context 512, greedy, FP16 KV, PDL. Each row covers 100 WikiText-2 chunks and 25,500 scored positions. The parent is the 15,548,157,542-byte canonical package and matched the previous reference measurements. The model loader and cubin were identical for the changed-weight candidates.
+
+| Split | Model | Mean KL | Worst KL | Top-1 matches | PPL | Worst chunk, position |
+|---|---|---:|---:|---:|---:|---|
+| test | parent | 0.003158426 | 0.680977332 | 24,865 | 7.07295554 | 69, 353 |
+| test | last | 0.003405436 | 0.691573425 | 24,822 | 7.07310191 | 69, 353 |
+
+Run `LEANSONIC_PDL=1 LEANSONIC_KV=fp16 LEANSONIC_CUBIN_PATH="$CUBIN" leansonic eval-kld --weights "$OUTPUT/last" --ref "$ORACLE" --chunks 100`, then repeat for `all`. Scoring uses CLI `64200ed` and cubin source `48b7ec2`. The [full metrics](inkling-rounded-corpus.json) also include the reference PPL, median and p99 KL. The layer-23-only candidate lost top-1 matches and increased mean and worst KL on test; it is not proposed as a quality-equivalent replacement.
