@@ -29,3 +29,7 @@ Each row includes five alternating mirrored cycles, ten fresh processes per form
 |---|---:|---:|
 | PRO4500 | 5.840 / 5.792 | 390.70 / 390.64 |
 | 5060Ti | 11.346 / 11.499 | 1266.40 / 1266.47 |
+
+## Test corpus on RTX 5070 Ti
+
+The candidate matched 24,865/25,500 top tokens at PPL 7.07295554. Mean KL was 0.0031584260 and worst KL was 0.6809773323 at chunk 69, position 353. The 100-chunk BF16 reference had SHA-256 `895fac2136c06dce1854568c83eb76a0225a05fab3c37897a12fec1d56949b97` on both hosts.
