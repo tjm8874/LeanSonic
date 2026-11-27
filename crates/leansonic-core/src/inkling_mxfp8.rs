@@ -217,6 +217,22 @@ impl<'a> Matrix<'a> {
 mod tests {
     use super::*;
     #[test]
+    fn missing_normalization_byte_is_rejected_even_with_valid_framing() {
+        // The table, states, frame length and padding still parse after truncation.
+        let raw: Vec<u8> = (0..=255).cycle().take(4096).collect();
+        let mut packed = Vec::new();
+        pack(&raw, &mut packed).unwrap();
+        let size = u32::from_le_bytes(packed[512..516].try_into().unwrap());
+        assert!(size > 16);
+        packed[512..516].copy_from_slice(&(size - 1).to_le_bytes());
+        packed.truncate(516 + size as usize - 1);
+        packed.resize(packed.len().next_multiple_of(8), 0);
+        let matrix = Matrix::parse(&packed, raw.len()).unwrap();
+        let mut out = vec![MaybeUninit::uninit(); raw.len()];
+        assert!(matrix.decode_at(0, &mut out).is_err());
+    }
+
+    #[test]
     fn frames_restore_every_code_and_reject_damage() {
         for raw in [
             vec![0x9d; TILE + 7],
