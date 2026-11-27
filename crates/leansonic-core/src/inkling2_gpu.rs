@@ -360,8 +360,11 @@ struct ExpertKernels {
     /// Expert-parallel decode MoE down (bit-identical to `nvfp4_dp4a_down`).
     nvfp4_dp4a_down_xw: Option<CUfunction>,
     nvfp4_dp4a_down_xw_conv: Option<CUfunction>,
+    ternary_up: Option<CUfunction>,
     ternary_down: Option<CUfunction>,
     ternary_down_conv: Option<CUfunction>,
+    ternary_tc_up: Option<CUfunction>,
+    ternary_tc_up_t160: Option<CUfunction>,
     ternary_tc_down: Option<CUfunction>,
     ternary_tc_down_t160: Option<CUfunction>,
     mxfp8_up_situ: CUfunction,
@@ -825,6 +828,7 @@ pub struct Inkling2GpuEngine {
     d_all_msg_queries: DeviceBuf,
     layers: Vec<LayerGpu>,
     expert_weights: Vec<[TierBuf; 2]>,
+    ternary_up_scratch: Option<DeviceBuf>,
     ternary_down_scratch: Option<DeviceBuf>,
     device_codebook_scratch: Option<DeviceBuf>,
     direct_device_up: bool,
@@ -2302,27 +2306,33 @@ impl Inkling2GpuEngine {
         let d_ms_j = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 4)?;
         let d_ms_runs = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 16)?;
         let d_ms_tokens = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 4)?;
-        let ternary_down_scratch = if std::env::var("LEANSONIC_TERNARY_DOWN").as_deref() == Ok("1")
-        {
+        // Older modules and grouped/verify paths can still read full-width nibbles.
+        let mut ternary_scratch = |slot: usize, setting: &str, bytes: usize| -> Result<_, String> {
+            if std::env::var(setting).as_deref() != Ok("1") {
+                return Ok(None);
+            }
             if fns.expand_ternary_nibbles.is_none() {
                 return Err("missing ternary expansion kernel in the selected CUDA module".into());
             }
-            for [_, down] in &mut expert_views[..NVFP4_LAYERS] {
-                match down {
+            for pair in &mut expert_views[..NVFP4_LAYERS] {
+                match &mut pair[slot] {
                     ExpertMatrix::ScaleSplit {
                         format: ScaleFormat::Direct,
                         ternary,
                         ..
                     } => *ternary = true,
                     _ => {
-                        return Err("ternary NVFP4 down requires a direct scale-coded model".into())
+                        return Err(format!(
+                            "{setting} requires a direct scale-coded NVFP4 model"
+                        ))
                     }
                 }
             }
-            Some(DeviceBuf::alloc_zeroed(&ctx, N_EXP * D * FF / 2)?)
-        } else {
-            None
+            Ok(Some(DeviceBuf::alloc_zeroed(&ctx, bytes)?))
         };
+        let ternary_up_scratch = ternary_scratch(0, "LEANSONIC_TERNARY_UP", N_EXP * D * FF)?;
+        let ternary_down_scratch =
+            ternary_scratch(1, "LEANSONIC_TERNARY_DOWN", N_EXP * D * FF / 2)?;
         let mut device_codebooks = Vec::new();
         let device_codebook_scratch = if device_u4 {
             if !direct_all && fns.expand_mxfp8_indices.is_none() {
@@ -2454,6 +2464,7 @@ impl Inkling2GpuEngine {
             direct_device_tc,
             direct_device_up: direct_all
                 || (device_u4 && std::env::var("LEANSONIC_MXFP8_LOOKUP_UP").as_deref() == Ok("1")),
+            ternary_up_scratch,
             ternary_down_scratch,
             device_codebook_scratch,
             resident_expert_layers: 0,
@@ -2655,7 +2666,15 @@ impl Inkling2GpuEngine {
         // before copying the larger expert matrices into VRAM or pinned host memory.
         st.discard_resident_pages();
         let mut mixed_layers = 0;
-        for ([up, down], [up_on_device, down_on_device]) in expert_views.into_iter().zip(resident) {
+        for ([mut up, down], [up_on_device, down_on_device]) in
+            expert_views.into_iter().zip(resident)
+        {
+            // PCIe staging and cross-layer prefetch copy full-width host offsets.
+            if !up_on_device {
+                if let ExpertMatrix::ScaleSplit { ternary, .. } = &mut up {
+                    *ternary = false;
+                }
+            }
             let pair = [
                 up.place(&eng.ctx, up_on_device)?,
                 down.place(&eng.ctx, down_on_device)?,
@@ -2982,8 +3001,11 @@ impl Inkling2GpuEngine {
                     .zip(load("nvfp4_dp4a_up_half_staged").ok()),
                 nvfp4_dp4a_down: load("nvfp4_dp4a_down")?,
                 nvfp4_dp4a_down_xw: load("nvfp4_dp4a_down_xw").ok(),
+                ternary_up: load("ternary_dp4a_up_half_q8").ok(),
                 ternary_down: load("ternary_dp4a_down_xw").ok(),
                 ternary_down_conv: load("ternary_dp4a_down_xw_conv").ok(),
+                ternary_tc_up: set_dyn_smem(load("ternary_tc_up_situ").ok(), 62_976)?,
+                ternary_tc_up_t160: set_dyn_smem(load("ternary_tc_up_situ_t160").ok(), 58_112)?,
                 ternary_tc_down: set_dyn_smem(load("ternary_tc_down").ok(), 62_976)?,
                 ternary_tc_down_t160: set_dyn_smem(load("ternary_tc_down_t160").ok(), 58_112)?,
                 nvfp4_dp4a_down_xw_conv: load("nvfp4_dp4a_down_xw_conv").ok(),
@@ -3334,12 +3356,35 @@ impl Inkling2GpuEngine {
     }
 
     fn raw_nvfp4_down(&self, stream: CUstream, weight: &TierBuf) -> Result<CUdeviceptr, String> {
-        let Some(scratch) = &self.ternary_down_scratch else {
+        self.expand_nvfp4(
+            stream,
+            weight,
+            self.ternary_down_scratch.as_ref(),
+            N_EXP * D * FF / 16,
+        )
+    }
+
+    fn raw_nvfp4_up(&self, stream: CUstream, weight: &TierBuf) -> Result<CUdeviceptr, String> {
+        let scratch = self
+            .ternary_up_scratch
+            .as_ref()
+            .filter(|_| matches!(weight, TierBuf::Vram(_)));
+        self.expand_nvfp4(stream, weight, scratch, N_EXP * D * FF / 8)
+    }
+
+    fn expand_nvfp4(
+        &self,
+        stream: CUstream,
+        weight: &TierBuf,
+        scratch: Option<&DeviceBuf>,
+        groups: usize,
+    ) -> Result<CUdeviceptr, String> {
+        let Some(scratch) = scratch else {
             return Ok(weight.ptr());
         };
         let mut src = weight.ptr();
         let mut dst = scratch.ptr;
-        let mut count = (N_EXP * D * FF / 16) as u32;
+        let mut count = groups as u32;
         let mut args = [
             (&mut src as *mut _) as *mut c_void,
             (&mut dst as *mut _) as *mut c_void,
@@ -3977,13 +4022,23 @@ impl Inkling2GpuEngine {
         a13: &DeviceBuf,
         use_staging: bool,
     ) -> Result<bool, String> {
-        let mut pw13 = w13.ptr();
+        let ternary = self.ternary_up_scratch.is_some() && matches!(w13, TierBuf::Vram(_));
+        let fused = if ternary {
+            s13.kernels.ternary_up
+        } else {
+            s13.kernels.nvfp4_dp4a_up_half_q8
+        };
+        let mut pw13 = if ternary && fused.is_none() {
+            self.raw_nvfp4_up(stream, w13)?
+        } else {
+            w13.ptr()
+        };
         let mut ps13 = s13.buffer.ptr;
         let mut pa13 = a13.ptr;
         let mut pxq = self.d_act_q8_16.ptr;
         let mut pxs = self.d_act_sc_16.ptr;
         let mut pids = self.d_sel_ids.ptr;
-        if let (TierBuf::Vram(_), Some(f_q8)) = (w13, s13.kernels.nvfp4_dp4a_up_half_q8) {
+        if let (TierBuf::Vram(_), Some(f_q8)) = (w13, fused) {
             let mut poq = self.d_moe_q8_16.ptr;
             let mut pos = self.d_moe_sc_16.ptr;
             let mut q8_args: [*mut c_void; 8] = [
@@ -5037,7 +5092,7 @@ impl Inkling2GpuEngine {
                         }
                     }
                 } else {
-                    let mut pw13 = w13.ptr();
+                    let mut pw13 = self.raw_nvfp4_up(stream, w13)?;
                     let mut ps13 = s13.buffer.ptr;
                     let mut pa13 = a13.ptr;
                     let mut px = self.d_mlp_h.ptr;
@@ -8952,7 +9007,20 @@ impl Inkling2GpuEngine {
                             exp_begin = exp_end;
                         }
                     } else {
-                        let mut pw13 = w13.ptr();
+                        let direct = if self.ternary_up_scratch.is_none()
+                            || !matches!(w13, TierBuf::Vram(_))
+                        {
+                            None
+                        } else if nvfp4_tile_toks == 160 {
+                            s13.kernels.ternary_tc_up_t160
+                        } else {
+                            s13.kernels.ternary_tc_up
+                        };
+                        let (f_up, mut pw13) = if let Some(kernel) = direct {
+                            (kernel, w13.ptr())
+                        } else {
+                            (f_up, self.raw_nvfp4_up(stream, w13)?)
+                        };
                         let mut eb = 0i32;
                         let mut ee = N_EXP as i32;
                         let mut up_args: [*mut c_void; 12] = [
@@ -9113,7 +9181,7 @@ impl Inkling2GpuEngine {
                         )?;
                     }
                     let max_active = (b_len * TOP_K).min(N_EXP) as u32;
-                    let mut pw13 = w13.ptr();
+                    let mut pw13 = self.raw_nvfp4_up(stream, w13)?;
                     let mut ps13 = s13.buffer.ptr;
                     let mut pa13 = a13.ptr;
                     let mut pxq = self.prefill.d_b_act_codes.ptr;
@@ -9165,7 +9233,7 @@ impl Inkling2GpuEngine {
                             D,
                         )?;
                     }
-                    let mut pw13 = w13.ptr();
+                    let mut pw13 = self.raw_nvfp4_up(stream, w13)?;
                     let mut ps13 = s13.buffer.ptr;
                     let mut pa13 = a13.ptr;
                     let mut pxq = self.prefill.d_b_act_codes.ptr;
