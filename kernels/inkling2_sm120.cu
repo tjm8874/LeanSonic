@@ -2476,6 +2476,27 @@ INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_up_situ, (
     }
 }
 
+// In 6-bit NVFP4 scale storage the original positive E4M3 byte is
+// 64 + code. Its unbiased exponent after the existing 0.5 factor is
+// code / 8; the three mantissa bits shift directly into binary32.
+__device__ __forceinline__ float nvfp4_packed_half_scale(unsigned code) {
+    return __uint_as_float(0x3f800000u + ((code & 63u) << 20));
+}
+
+template<bool PackedScales>
+__device__ __forceinline__ unsigned nvfp4_gate_scale_input(
+    const unsigned* scales, unsigned pair) {
+    if constexpr (!PackedScales) {
+        return scales[pair >> 1];
+    } else {
+        const unsigned bit = pair * 12u;
+        const unsigned word = bit >> 5;
+        // The allocation has a final zero word for a crossing pair.
+        return __funnelshift_r(scales[word], scales[word + 1], bit & 31);
+    }
+}
+
+template<bool PackedPair = false>
 __device__ __forceinline__ float accum_nvfp4_dp4a_u128_step(
     float acc,
     uint4 pk16,
@@ -2483,9 +2504,17 @@ __device__ __forceinline__ float accum_nvfp4_dp4a_u128_step(
     int u16,
     const uint4* xq16,
     const float* xsc16) {
-    int sh = (u16 & 1) * 16;
-    float s0 = __fmul_rn(e4m3_byte_to_f32((sc4 >> sh) & 0xFFu) * 0.5f, xsc16[u16 * 2]);
-    float s1 = __fmul_rn(e4m3_byte_to_f32((sc4 >> (sh + 8)) & 0xFFu) * 0.5f, xsc16[u16 * 2 + 1]);
+    float half_scale0, half_scale1;
+    if constexpr (PackedPair) {
+        half_scale0 = nvfp4_packed_half_scale(sc4);
+        half_scale1 = nvfp4_packed_half_scale(sc4 >> 6);
+    } else {
+        const unsigned sh = (u16 & 1) * 16;
+        half_scale0 = e4m3_byte_to_f32((sc4 >> sh) & 0xffu) * 0.5f;
+        half_scale1 = e4m3_byte_to_f32((sc4 >> (sh + 8)) & 0xffu) * 0.5f;
+    }
+    const float s0 = __fmul_rn(half_scale0, xsc16[u16 * 2]);
+    const float s1 = __fmul_rn(half_scale1, xsc16[u16 * 2 + 1]);
     uint4 xq0 = xq16[u16 * 2];
     uint4 xq1 = xq16[u16 * 2 + 1];
     int d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x & 0xFFFFu)), static_cast<int>(xq0.x), 0);
@@ -2619,7 +2648,7 @@ INK2_SCALE_KERNEL_LB(ink2_moe_nvfp4_dp4a_up_half_q8, 512, 2, (
     const float alpha = a13[ex];
     const size_t row = (static_cast<size_t>(ex) * kFf + channel) * 2 + (lane >> 4);
     const uint4* weights = w13_u128 + row * 72u;
-    const unsigned sc_off = static_cast<unsigned>(row * 36u);
+    const unsigned pair_base = static_cast<unsigned>(row * 72u);
 
     const int u0 = index;
     const int u1 = index + 16;
@@ -2635,24 +2664,24 @@ INK2_SCALE_KERNEL_LB(ink2_moe_nvfp4_dp4a_up_half_q8, 512, 2, (
     if (has4) {
         pk4 = weights[u4];
     }
-    const uint32_t sc0 = expert_scale_word<PackedScales, 6, 64>(s13_u32, sc_off + (u0 >> 1));
-    const uint32_t sc1 = expert_scale_word<PackedScales, 6, 64>(s13_u32, sc_off + (u1 >> 1));
-    const uint32_t sc2 = expert_scale_word<PackedScales, 6, 64>(s13_u32, sc_off + (u2 >> 1));
-    const uint32_t sc3 = expert_scale_word<PackedScales, 6, 64>(s13_u32, sc_off + (u3 >> 1));
+    const uint32_t sc0 = nvfp4_gate_scale_input<PackedScales>(s13_u32, pair_base + u0);
+    const uint32_t sc1 = nvfp4_gate_scale_input<PackedScales>(s13_u32, pair_base + u1);
+    const uint32_t sc2 = nvfp4_gate_scale_input<PackedScales>(s13_u32, pair_base + u2);
+    const uint32_t sc3 = nvfp4_gate_scale_input<PackedScales>(s13_u32, pair_base + u3);
     uint32_t sc4 = 0u;
     if (has4) {
-        sc4 = expert_scale_word<PackedScales, 6, 64>(s13_u32, sc_off + (u4 >> 1));
+        sc4 = nvfp4_gate_scale_input<PackedScales>(s13_u32, pair_base + u4);
     }
 
     __syncthreads();
 
-    float lo = accum_nvfp4_dp4a_u128_step(0.0f, pk0, sc0, u0, smem_xq, smem_xsc);
-    lo = accum_nvfp4_dp4a_u128_step(lo, pk2, sc2, u2, smem_xq, smem_xsc);
+    float lo = accum_nvfp4_dp4a_u128_step<PackedScales>(0.0f, pk0, sc0, u0, smem_xq, smem_xsc);
+    lo = accum_nvfp4_dp4a_u128_step<PackedScales>(lo, pk2, sc2, u2, smem_xq, smem_xsc);
     if (has4) {
-        lo = accum_nvfp4_dp4a_u128_step(lo, pk4, sc4, u4, smem_xq, smem_xsc);
+        lo = accum_nvfp4_dp4a_u128_step<PackedScales>(lo, pk4, sc4, u4, smem_xq, smem_xsc);
     }
-    float hi = accum_nvfp4_dp4a_u128_step(0.0f, pk1, sc1, u1, smem_xq, smem_xsc);
-    hi = accum_nvfp4_dp4a_u128_step(hi, pk3, sc3, u3, smem_xq, smem_xsc);
+    float hi = accum_nvfp4_dp4a_u128_step<PackedScales>(0.0f, pk1, sc1, u1, smem_xq, smem_xsc);
+    hi = accum_nvfp4_dp4a_u128_step<PackedScales>(hi, pk3, sc3, u3, smem_xq, smem_xsc);
 
     float dot = lo + hi;
     #pragma unroll
