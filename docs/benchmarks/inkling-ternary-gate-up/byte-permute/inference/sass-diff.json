@@ -1,0 +1,101 @@
+{
+  "compared": 234,
+  "changed": {
+    "ink2_expand_ternary_nibbles": {
+      "prior": [
+        56,
+        "7a23925e0b2fb77d02f580ea49a82f1a64c166b941151715767fea241fd48ad5"
+      ],
+      "trial": [
+        56,
+        "8122af9ea370434e17d14442f7cad4a41918741332631a2bcbc067915f9bbb1d"
+      ]
+    },
+    "ink2_moe_ternary_tc_down_t160_packed_scales": {
+      "prior": [
+        2592,
+        "1d3fd4593b569c5f100b4d6798501cf882a4bb1b2e81fadbc1dc3e529d89a3a9"
+      ],
+      "trial": [
+        2552,
+        "f8beb3358fd25bce69afbad82ae55a62db267fc868c0c13e36429b6eaf6b5a88"
+      ]
+    },
+    "ink2_moe_ternary_tc_up_situ_t160_packed_scales": {
+      "prior": [
+        2008,
+        "5397975ab880546ffb2b63fe18e85215ba6a881343380af2254157f489eadb62"
+      ],
+      "trial": [
+        1960,
+        "7c8720ac303a89f92b3fe909e08b16cfd442603db4ef36d183c5e6cc3c6744b2"
+      ]
+    },
+    "ink2_moe_ternary_tc_down_packed_scales": {
+      "prior": [
+        2176,
+        "0fa3a3175df8af4a6cba63e9edf4883e5d5f94fcfdf43b12e29b395474c2402b"
+      ],
+      "trial": [
+        2128,
+        "cfb734407db3842b04cb69cb7dba5391e78b1877bd648c17c80015ee9a43e9be"
+      ]
+    },
+    "ink2_moe_ternary_tc_up_situ_packed_scales": {
+      "prior": [
+        1728,
+        "d5ac68e5e9eec23406d3e663c21ec238a49f9cd57571cc412899ab0e9fa03454"
+      ],
+      "trial": [
+        1688,
+        "110f43b6a695739820f4c35a923f8c437f0e1a2b72bcffc10a30e75e8272e96c"
+      ]
+    }
+  },
+  "ternary_decode": {
+    "ink2_moe_ternary_dp4a_down_xw_conv_packed_scales": {
+      "prior": [
+        616,
+        "b6a061e705ab67562b308fb7c3cb131df8b10d09036ea0ccbbcd9b7fa43ac4a7"
+      ],
+      "trial": [
+        616,
+        "b6a061e705ab67562b308fb7c3cb131df8b10d09036ea0ccbbcd9b7fa43ac4a7"
+      ],
+      "identical": true
+    },
+    "ink2_moe_ternary_dp4a_down_xw_packed_scales": {
+      "prior": [
+        608,
+        "f7a01d7dc70326d3a72c864155a267caa09ab0134b3af2f81fbd97b788aa85da"
+      ],
+      "trial": [
+        608,
+        "f7a01d7dc70326d3a72c864155a267caa09ab0134b3af2f81fbd97b788aa85da"
+      ],
+      "identical": true
+    },
+    "ink2_moe_ternary_dp4a_up_half_q8_packed_scales": {
+      "prior": [
+        704,
+        "898dab94e58b4097e3efd1ded4d87df648760bf2b29266170baae67fb95ae00c"
+      ],
+      "trial": [
+        704,
+        "898dab94e58b4097e3efd1ded4d87df648760bf2b29266170baae67fb95ae00c"
+      ],
+      "identical": true
+    },
+    "ink2_moe_ternary_dp4a_up_half_q8": {
+      "prior": [
+        640,
+        "129424286eaef59fd5f43ae7a31b35e053bed8743dc0bc15cbbc61cfd4a802a8"
+      ],
+      "trial": [
+        640,
+        "129424286eaef59fd5f43ae7a31b35e053bed8743dc0bc15cbbc61cfd4a802a8"
+      ],
+      "identical": true
+    }
+  }
+}
