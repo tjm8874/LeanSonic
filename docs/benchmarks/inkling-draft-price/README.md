@@ -25,3 +25,5 @@ python3 analyze.py card verified.json
 ```
 
 The four additional fixtures were en_count, en_extract, ja_json and ja_filter. Each input must stay within a 1% decode regression versus stock and the Japanese reasoning gain must reproduce before considering a default change. [Predeclared scope and decision criteria](https://github.com/tjm8874/LeanSonic/issues/177#issuecomment-7223531794).
+
+[Paired performance and correctness results](results/).
