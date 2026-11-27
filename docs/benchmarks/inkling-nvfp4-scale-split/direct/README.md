@@ -12,3 +12,5 @@ The same integrated executable (a2008463cf028ee56bdefe39e79f6c2f95d57e73) loaded
 | valid | 25,500 | 0.0069527 | 0.7446714 | 24,645 | 6.530797 |
 
 [Actual file sizes, SHA-256, tensor checks, traces and oracle results](verified.json). The [parity and BF16 procedure](https://github.com/tjm8874/LeanSonic/tree/cc62564/docs/benchmarks/inkling-nvfp4-trim-context) uses the same prompts and references.
+
+[Matched process starts on RTX PRO 4500](startup.md) measured a 14.573 to 8.181 s reduction against the split format.
