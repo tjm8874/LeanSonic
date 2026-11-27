@@ -3,8 +3,9 @@
 //! Guards against silent numerical / attention / KV-cache regressions (such as FP16 Split-KV
 //! partial overflow at long contexts or speculative verify divergence) by asserting:
 //! 1. `short_tokyo` : Constant factual prompt (`"What is the capital of Japan?..."`) -> `"Tokyo"`,
-//!    `0` non-finite (`NaN`/`Inf`) vocabulary logits, and (when `mtp.safetensors` is present)
-//!    `0-ULP` greedy token-sequence identity between `--spec 0` and `--spec 7`.
+//!    `0` non-finite (`NaN`/`Inf`) vocabulary logits, and (when a GPU drafter is present:
+//!    `mtp.safetensors` or a DFlash 2 checkpoint, #103) `0-ULP` greedy token-sequence identity
+//!    between `--spec 0` and `--spec 7`.
 //! 2. `needle_16k`  : Deterministic `16,384`-token archive retrieval (`"RAVEN-731"` @ `50%` depth)
 //!    + `0` non-finite logits.
 //! 3. `needle_128k` : Deterministic `131,072`-token archive retrieval (`"MARSH-527"` @ `50%` depth
@@ -140,7 +141,11 @@ fn run_short_and_16k(
     check_spec: bool,
     results: &mut Vec<CanaryCaseResult>,
 ) -> Result<(), String> {
-    let has_mtp = check_spec && weights_dir.join("mtp.safetensors").exists();
+    // A GPU drafter (DSpark `mtp.safetensors` or DFlash 2) makes the spec-7 identity check
+    // meaningful; DFlash 2-only packages have no `mtp.safetensors`.
+    let has_mtp = check_spec
+        && (weights_dir.join("mtp.safetensors").exists()
+            || leansonic_core::inkling2_dflash2::find_dflash2(weights_dir).is_some());
     let init_spec = if has_mtp { 7 } else { 0 };
     let max_ctx = if short_only {
         1024
