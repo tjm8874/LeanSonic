@@ -141,8 +141,51 @@ fn score_row(logits: &[f32], row: &[u8], target: usize) -> Result<Score> {
     })
 }
 
+enum LogitsSource {
+    Gpu(Box<Inkling2GpuEngine>),
+    Replay {
+        reader: Box<dyn Read>,
+        bytes: Vec<u8>,
+    },
+}
+
+impl LogitsSource {
+    fn row(&mut self, ids: &[u32], pos: usize) -> Result<Vec<f32>> {
+        match self {
+            Self::Gpu(engine) => {
+                if pos == ids.len() / 2 {
+                    engine.reset()?;
+                    engine.prefill_tokens(&ids[..=pos])?;
+                } else {
+                    engine.forward_greedy_token(ids[pos])?;
+                }
+                Ok(engine.read_last_logits()?)
+            }
+            Self::Replay { reader, bytes } => {
+                reader.read_exact(bytes)?;
+                Ok(bytes
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|v| f32::from_le_bytes(*v))
+                    .collect())
+            }
+        }
+    }
+
+    fn finish(&mut self) -> Result<()> {
+        if let Self::Replay { reader, .. } = self {
+            if reader.read(&mut [0u8])? != 0 {
+                return Err("extra bytes after the last requested logit row".into());
+            }
+        }
+        Ok(())
+    }
+}
+
 pub fn run(args: &[String]) -> Result<()> {
     let mut weights = None;
+    let mut replay = None;
     let mut reference = None;
     let mut limit = None;
     let mut start = 0usize;
@@ -153,13 +196,13 @@ pub fn run(args: &[String]) -> Result<()> {
             .ok_or_else(|| format!("missing value for {flag}"))?;
         match flag.as_str() {
             "--weights" => weights = Some(value),
+            "--logits-f32" => replay = Some(value),
             "--ref" => reference = Some(Path::new(value)),
             "--start-chunk" => start = value.parse()?,
             "--chunks" => limit = Some(value.parse::<usize>()?),
             _ => return Err(format!("unknown eval-kld option {flag}").into()),
         }
     }
-    let weights = weights.ok_or("--weights <directory> is required")?;
     let mut reference = Reference::open(reference.ok_or("--ref <file> is required")?)?;
     reference.seek_chunk(start)?;
     let remaining = reference.chunks - start;
@@ -167,7 +210,23 @@ pub fn run(args: &[String]) -> Result<()> {
     if chunks == 0 || chunks > remaining {
         return Err(format!("--chunks must be between 1 and {remaining}").into());
     }
-    let mut engine = Inkling2GpuEngine::load_from_dir_with_spec(weights, reference.ctx, true, 0)?;
+    let mut source = match (weights, replay) {
+        (Some(path), None) => LogitsSource::Gpu(Box::new(
+            Inkling2GpuEngine::load_from_dir_with_spec(path, reference.ctx, true, 0)?,
+        )),
+        (None, Some(path)) => {
+            let reader: Box<dyn Read> = if path == "-" {
+                Box::new(std::io::stdin().lock())
+            } else {
+                Box::new(BufReader::new(File::open(path)?))
+            };
+            LogitsSource::Replay {
+                reader,
+                bytes: vec![0; 4 * VOCAB],
+            }
+        }
+        _ => return Err("specify exactly one of --weights and --logits-f32".into()),
+    };
     let mut row = vec![0; row_bytes(VOCAB)];
     let mut klds = Vec::new();
     let (mut sum_nll, mut sum_ref, mut matches) = (0.0, 0.0, 0usize);
@@ -175,13 +234,13 @@ pub fn run(args: &[String]) -> Result<()> {
     let mut worst = (f64::NEG_INFINITY, start, 0);
     for chunk in start..start + chunks {
         let ids = reference.next_tokens()?;
-        engine.reset()?;
         let first = reference.ctx / 2;
-        engine.prefill_tokens(&ids[..=first])?;
         for pos in first..reference.ctx - 1 {
             let target = ids[pos + 1];
             reference.rows.read_exact(&mut row)?;
-            let logits = engine.read_last_logits()?;
+            let logits = source
+                .row(&ids, pos)
+                .map_err(|e| format!("chunk {chunk}, position {pos}: {e}"))?;
             let s = score_row(&logits, &row, target as usize)
                 .map_err(|e| format!("chunk {chunk}, position {pos}: {e}"))?;
             if s.kld > worst.0 {
@@ -192,11 +251,9 @@ pub fn run(args: &[String]) -> Result<()> {
             sum_ref += s.nll_ref;
             matches += usize::from(s.same_top);
             ref_floor_targets += usize::from(s.target_at_ref_floor);
-            if pos + 2 < reference.ctx {
-                engine.forward_greedy_token(target)?;
-            }
         }
     }
+    source.finish()?;
     let count = klds.len();
     let n = count as f64;
     let mean = klds.iter().sum::<f64>() / n;
@@ -239,6 +296,30 @@ pub fn run(args: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replay_requires_complete_little_endian_rows_and_eof() {
+        fn reader(bytes: Vec<u8>) -> LogitsSource {
+            LogitsSource::Replay {
+                reader: Box::new(std::io::Cursor::new(bytes)),
+                bytes: vec![0; 8],
+            }
+        }
+        let bytes: Vec<_> = [1.25_f32, -7.0, 3.5, 0.0]
+            .into_iter()
+            .flat_map(f32::to_le_bytes)
+            .collect();
+        let mut source = reader(bytes.clone());
+        assert_eq!(source.row(&[], 0).unwrap(), [1.25, -7.0]);
+        assert_eq!(source.row(&[], 1).unwrap(), [3.5, 0.0]);
+        source.finish().unwrap();
+
+        let mut short = reader(bytes[..7].to_vec());
+        assert!(short.row(&[], 0).is_err());
+        let mut long = reader(bytes[..9].to_vec());
+        long.row(&[], 0).unwrap();
+        assert!(long.finish().is_err());
+    }
 
     #[test]
     fn reference_row_with_odd_vocabulary_and_known_distribution() {

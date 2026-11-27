@@ -61,7 +61,7 @@ fn print_help() {
     println!("  leansonic bench --weights <dir> --tokens <id1,id2|@file|synth:N|chat:@file.txt> [--spec 0..7] [--gen N] [--repeat R] [--no-graph]");
     println!("  leansonic bench-matrix --weights <dir> [--gpus all|0,1] [--n 5] [--ctx 20480] [--spec-prompts <dir>] [--quick] [--out <json>]");
     println!("  leansonic bench-matrix --merge <a.json> <b.json> ...   Combine per-host results into one 4-GPU table");
-    println!("  leansonic eval-kld --weights <dir> --ref <reference.kld> [--start-chunk INDEX] [--chunks COUNT]");
+    println!("  leansonic eval-kld (--weights <dir> | --logits-f32 <file|->) --ref <reference.kld> [--start-chunk INDEX] [--chunks COUNT]");
     println!("  leansonic serve [--weights <dir>] [--spec 0..7] [--effort none|low|high] [--host 127.0.0.1] [--port 8080] [--model inkling-2-mini]");
     println!(
         "  leansonic info            Print Lean-verified SM120, Hybrid Pool & Offload constants"

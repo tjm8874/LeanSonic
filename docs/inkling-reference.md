@@ -70,3 +70,13 @@ target/release/examples/inkling_fixed_decode "$MODEL_DIR" \
 ```
 
 Each executable prints the request number, prefill and decode milliseconds, count of matching greedy predictions and first predicted ID. A fresh process runs one warm-up and four measured requests. For the table we ran five LeanSonic–llama.cpp–llama.cpp–LeanSonic cycles on the same idle GPU, with an 8,192-token context and drafting disabled. Each process used the fixed continuation even while checking its own greedy predictions. The paired reduction was 23.83% for prefill (95% bootstrap interval 23.77–23.89%) and 39.77% for decode (39.75–39.79%). The raw samples and aggregation method are in the [comparison receipt](benchmarks/inkling-llama-bf16.json).
+
+## Score another engine against the same reference
+
+`eval-kld --logits-f32` reads raw teacher-forced logits from a file or standard input and runs on the CPU. For example, to score chunk 69 alone, run:
+
+```bash
+leansonic eval-kld --ref inkling2-bf16-base.kld --start-chunk 69 --chunks 1 --logits-f32 chunk69.f32
+```
+
+Feed the reference token IDs to the engine in their original order, resetting its state at each chunk. For this 512-token oracle, export the distribution immediately after each input position from 256 through 510 inclusive. The target at position 510 is token 511. Each row contains 200,058 little-endian FP32 logits in vocabulary-ID order. Concatenate the 255 rows per chunk, then concatenate the requested chunks in increasing order, without headers or padding. A single chunk occupies 204,059,160 bytes. Pass `--logits-f32 -` to stream rows from a producer. The JSON fields and reference scoring rules are shared with GPU evaluation. Record the producer's model, vocabulary, prefill schedule and KV format alongside the result.
