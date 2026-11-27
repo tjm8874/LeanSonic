@@ -1,0 +1,110 @@
+{
+  "receipt": {
+    "raw_source": "official Inkling-2-Mini",
+    "parent_sha256": "9b242a81188f0f552625639dec98879a0090a7f9a003141631d3a836aed3fcb3",
+    "unchanged_tensors": 991,
+    "shard_sha256": "0d29a503a09be34d0e36339f78364fe966a70254534a6828c83558d20c2d4b67",
+    "package_bytes": 13626725054,
+    "selected": {
+      "model.llm.layers.23.mlp.experts.w13_weight.rans_v1": {
+        "bytes": 225174056,
+        "sha256": "f0d679fcc682da58938074e30acfdd8b3cd28f67601ab2b0e857d60fdee9307e",
+        "changed_codes": 609988393,
+        "codes": 679477248,
+        "original_relative_mse": 0.04489402875508165,
+        "fitted_relative_mse": 0.04487870722818821,
+        "original_entropy_bits": 1800523545.4848237,
+        "fitted_cross_entropy_bits": 1800522283.1600947
+      },
+      "model.llm.layers.23.mlp.experts.w2_weight.rans_v1": {
+        "bytes": 130149888,
+        "sha256": "4dd5588c9759d789865390965ac75e6a11b8b01b3d88dfac5205e6395c74d27d",
+        "changed_codes": 293747115,
+        "codes": 339738624,
+        "original_relative_mse": 0.02376553805237941,
+        "fitted_relative_mse": 0.02376553805237941,
+        "original_entropy_bits": 1040720976.4410774,
+        "fitted_cross_entropy_bits": 1040720976.4410774
+      },
+      "model.llm.layers.22.mlp.experts.w13_weight.rans_v1": {
+        "bytes": 225244800,
+        "sha256": "ce7df01a4faa92709656e7fa44550c85502c2d4eba566f5fce690a2dbed18af6",
+        "changed_codes": 609921239,
+        "codes": 679477248,
+        "original_relative_mse": 0.04480009358109891,
+        "fitted_relative_mse": 0.04478738093033177,
+        "original_entropy_bits": 1801090332.7572434,
+        "fitted_cross_entropy_bits": 1801086862.777478
+      },
+      "model.llm.layers.22.mlp.experts.w2_weight.rans_v1": {
+        "bytes": 130508496,
+        "sha256": "d29937c3c091d7c33cb332c51b71f3a4bc07ff0838a9fcabaf6e3705b594459f",
+        "changed_codes": 293420377,
+        "codes": 339738624,
+        "original_relative_mse": 0.023500889071514378,
+        "fitted_relative_mse": 0.023500889071514378,
+        "original_entropy_bits": 1043588507.2415775,
+        "fitted_cross_entropy_bits": 1043588507.2415775
+      },
+      "model.llm.layers.21.mlp.experts.w13_weight.rans_v1": {
+        "bytes": 222439704,
+        "sha256": "351e7a6d24f4d86b83bb603ad766cd463b75e2cc10f9fcf66d0691a2d91cacc5",
+        "changed_codes": 604119815,
+        "codes": 679477248,
+        "original_relative_mse": 0.046749120594630406,
+        "fitted_relative_mse": 0.046749120594630406,
+        "original_entropy_bits": 1778565400.9401512,
+        "fitted_cross_entropy_bits": 1778565400.9401512
+      },
+      "model.llm.layers.21.mlp.experts.w2_weight.rans_v1": {
+        "bytes": 130630496,
+        "sha256": "347605dd3648af22d8a925c389f28668051e168f6f15aa9fa4409543512402d8",
+        "changed_codes": 293306855,
+        "codes": 339738624,
+        "original_relative_mse": 0.02338367087754835,
+        "fitted_relative_mse": 0.02338367087754835,
+        "original_entropy_bits": 1044563936.4024867,
+        "fitted_cross_entropy_bits": 1044563936.4024867
+      },
+      "model.llm.layers.20.mlp.experts.w13_weight.rans_v1": {
+        "bytes": 222473864,
+        "sha256": "1349512910bec9f434d4b14c69c3a13058cb1d00cc8605eaeaeea86f92a9a759",
+        "changed_codes": 604106993,
+        "codes": 679477248,
+        "original_relative_mse": 0.046703925435074525,
+        "fitted_relative_mse": 0.046703925435074525,
+        "original_entropy_bits": 1778838394.4003615,
+        "fitted_cross_entropy_bits": 1778838394.4003615
+      },
+      "model.llm.layers.20.mlp.experts.w2_weight.rans_v1": {
+        "bytes": 131138376,
+        "sha256": "db1bdc569c6764be5696376a00c9aebebd99f6248c10115c7a47311d19b8f661",
+        "changed_codes": 290087701,
+        "codes": 339738624,
+        "original_relative_mse": 0.023009915364130537,
+        "fitted_relative_mse": 0.023009915364130537,
+        "original_entropy_bits": 1048626579.7172612,
+        "fitted_cross_entropy_bits": 1048626579.7172612
+      }
+    }
+  },
+  "quality": {
+    "test": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.131102579031751,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.013780438990074821,
+      "median_kld": 0.00711556146275017,
+      "p99_kld": 0.11514334306009191,
+      "max_kld": 0.7458703003115486,
+      "start_chunk": 0,
+      "max_kld_chunk": 69,
+      "max_kld_position": 353,
+      "ref_floor_targets": 14,
+      "top1_matches": 24278,
+      "top1_agreement": 0.952078431372549
+    }
+  }
+}

@@ -20,7 +20,11 @@ selection.add_argument(
     type=Path,
     help="Use eight per-plane magnitude cutoffs from choose_cutoffs.py and write the budget variant.",
 )
-parser.add_argument("--condition-on-scale", action="store_true", help="Refit code assignments per block exponent within each plane's original cross-entropy budget.")
+parser.add_argument(
+    "--condition-on-scale",
+    action="store_true",
+    help="Refit code assignments per block exponent within each plane's original cross-entropy budget.",
+)
 args = parser.parse_args()
 if args.condition_on_scale and not args.codebooks:
     parser.error("--condition-on-scale requires --codebooks")
@@ -130,6 +134,7 @@ with tempfile.TemporaryDirectory(prefix="round-frame-", dir=args.output_dir) as 
             conditioned = None
             if args.condition_on_scale:
                 from scale_codebook import transform
+
                 source = Path(scratch) / (key + ".raw")
                 conditioned = transform(original, raw, roff, name, magnitudes, source)
                 offset, options = 0, ["0"]

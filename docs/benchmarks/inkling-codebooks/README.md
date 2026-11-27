@@ -42,6 +42,31 @@ Compact LeanSonic was 3.849× faster in prefill (paired cycle bootstrap 95% inte
 
 Build [the Lean replay driver](replay.rs) as a leansonic-core example on engine revision `1f70908` with its native SM120a cubin. Use the [original native GGUF replay instructions](../inkling-original-q3-timing.md) with the same 1,024 and 32 ID files. Run each executable with arguments MODEL PREFIX.ids CONTINUATION.ids. The drivers reset between requests and report phase milliseconds.
 
+## Two 16 GB GeForce cards
+
+The original native Q3 configuration offloaded all layers, then failed to allocate its 1,661,706,240-byte compute buffer at microbatch 1,024 on both cards. Reducing its internal microbatch to 512 retained all 25/25 layers on the GPU. Both packages still process the same 1,024 prompt IDs and 32 forced inputs at context 8,192. LeanSonic uses its automatic placement with 20/24 resident expert layers and four partially host-backed layers. Both arms use the PRO 4500 protocol above, including 40 warm requests per arm on each card.
+
+| GPU and package | Prefill ms (tok/s) | Decode 32 ms (tok/s) | Peak GPU bytes | Matches to fixed 32 IDs |
+|---|---:|---:|---:|---:|
+| RTX 5070Ti Compact LeanSonic | 160.482 (6,380.8) | 303.962 (105.28) | 16,546,529,280 | 32/32 |
+| RTX 5070Ti Original Q3_K_XL | 526.192 (1,946.1) | 402.414 (79.52) | 16,150,167,552 | 31/32 |
+| RTX 5060Ti Compact LeanSonic | 380.367 (2,692.1) | 746.686 (42.86) | 16,554,917,888 | 32/32 |
+| RTX 5060Ti Original Q3_K_XL | 881.696 (1,161.4) | 573.706 (55.78) | 16,030,629,888 | 30/32 |
+
+Compact improves both phases on RTX 5070 Ti. On RTX 5060 Ti it improves prefill, but original Q3 decodes faster. Each of the eight compact MXFP8 planes uses just 9 or 13 signed byte values. A reversible four-bit representation in device memory is a candidate for reducing host-backed expert traffic. The runtime measured here expands these weights to bytes. [Every request, process peak, binary digest and paired interval](geforce-q3-timing.json).
+
+On the 613 bilingual teacher-forced positions, compact has 585 BF16 top-1 matches versus Q3's 583 and canonical's 609. Compact's worst KL is 0.476597, exceeding original Q3's 0.293811. This independent suite reverses the two packages' WikiText ordering for worst KL.
+
+## Assigning existing symbols by block scale
+
+The follow-up keeps the compact codebook's output symbols and the original exponent of each 32-weight block. It refits assignments under the original per-plane cross-entropy budget. Only two planes improved the weight objective enough to change their maps. The result is 13,626,725,054 bytes, saving a further 20,920 bytes. To rebuild, append `--condition-on-scale` to the compact packing command below with a fresh output directory.
+
+| Split | Mean KL | Worst KL | Top-1 / 25,500 | PPL |
+|---|---:|---:|---:|---:|
+| test | 0.0137804 | 0.7458703 | 24,278 | 7.131103 |
+
+On test, the worst KL fell from 0.751935 to 0.745870, while top-1 matches fell from 24,289 to 24,278. Retain this as an offline experiment. [Eight frame hashes, per-plane weight distortion and corpus metrics](scale-conditioned.json).
+
 ## Reproduce
 
 Start from the [canonical package and official checkpoint](../inkling-storage-candidates.md). Install NumPy. Use fresh output directories. To reproduce the measured byte stream directly, pass the committed lookup table to the packer. To regenerate the tables from weights use the selector first.

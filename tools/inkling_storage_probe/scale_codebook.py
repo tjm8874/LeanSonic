@@ -1,6 +1,6 @@
 """Refine a finite E4M3 codebook using the existing exponent of each 32-weight block."""
-import numpy as np
 
+import numpy as np
 from choose_codebooks import count_weights, magnitude
 
 
@@ -9,10 +9,15 @@ def fit(counts, magnitudes):
     active = np.flatnonzero(counts.sum(axis=1))
     freq = counts[active]
     levels = np.array([magnitude(i & 127) for i in range(256)])
-    baseline = np.array([
-        (i & 128) | magnitudes[i & 127] if (i & 127) < 127 and magnitudes[i & 127] else 0
-        for i in range(256)
-    ], dtype=np.uint8)
+    baseline = np.array(
+        [
+            (i & 128) | magnitudes[i & 127]
+            if (i & 127) < 127 and magnitudes[i & 127]
+            else 0
+            for i in range(256)
+        ],
+        dtype=np.uint8,
+    )
     output_freq = np.bincount(baseline, weights=freq.sum(axis=0), minlength=256)
     centers = np.flatnonzero(output_freq)
     # Model the same signed byte stream that the four-lane rANS frame encodes.
@@ -22,7 +27,9 @@ def fit(counts, magnitudes):
     power = np.sum(square_scale[:, None] * freq * levels**2)
     if power <= 0:
         raise ValueError("plane has no signal")
-    distance = square_scale[:, None, None] * (levels[None, :, None] - levels[centers])**2
+    distance = (
+        square_scale[:, None, None] * (levels[None, :, None] - levels[centers]) ** 2
+    )
     # One unit of rate is one bit per source weight. One unit of distortion is full signal power.
     distance *= freq.sum() / power
     source = np.arange(256)[:, None]
@@ -49,18 +56,26 @@ def fit(counts, magnitudes):
         else:
             low = mid
     table, fitted_bits = solve(high)
+
     def error(codes):
-        return float(np.sum(square_scale[:,None] * freq * (levels - levels[codes])**2) / power)
+        return float(
+            np.sum(square_scale[:, None] * freq * (levels - levels[codes]) ** 2) / power
+        )
+
     base_error = error(baseline)
     if error(table) > base_error:
         table = np.broadcast_to(baseline, freq.shape)
         fitted_bits = base_bits
-    lut = np.zeros((256,256), dtype=np.uint8)
+    lut = np.zeros((256, 256), dtype=np.uint8)
     lut[active] = table
-    return lut, dict(original_relative_mse=base_error, fitted_relative_mse=error(table),
-                     original_entropy_bits=float(base_bits), fitted_cross_entropy_bits=float(fitted_bits),
-                     changed_codes=int(np.sum(freq * (table != np.arange(256)))),
-                     codes=int(freq.sum()))
+    return lut, {
+        "original_relative_mse": base_error,
+        "fitted_relative_mse": error(table),
+        "original_entropy_bits": float(base_bits),
+        "fitted_cross_entropy_bits": float(fitted_bits),
+        "changed_codes": int(np.sum(freq * (table != np.arange(256)))),
+        "codes": int(freq.sum()),
+    }
 
 
 def transform(shard, meta, start, key, magnitudes, output):
@@ -69,17 +84,21 @@ def transform(shard, meta, start, key, magnitudes, output):
     lo, hi = meta[key]["data_offsets"]
     first, last = meta[key + "_scale"]["data_offsets"]
     observed = np.zeros(256, dtype=np.int64)
-    with shard.open("rb") as codes, shard.open("rb") as scales, output.open("xb") as out:
-        codes.seek(start+lo)
-        scales.seek(start+first)
-        for begin in range(0, last-first, 1<<16):
-            n = min(1<<16, last-first-begin)
-            exponent = np.frombuffer(scales.read(n),dtype=np.uint8).reshape(n,1)
-            src = np.frombuffer(codes.read(n*32),dtype=np.uint8).reshape(n,32)
-            encoded = lut[exponent,src]
+    with (
+        shard.open("rb") as codes,
+        shard.open("rb") as scales,
+        output.open("xb") as out,
+    ):
+        codes.seek(start + lo)
+        scales.seek(start + first)
+        for begin in range(0, last - first, 1 << 16):
+            n = min(1 << 16, last - first - begin)
+            exponent = np.frombuffer(scales.read(n), dtype=np.uint8).reshape(n, 1)
+            src = np.frombuffer(codes.read(n * 32), dtype=np.uint8).reshape(n, 32)
+            encoded = lut[exponent, src]
             out.write(encoded.tobytes())
-            observed += np.bincount(encoded.ravel(),minlength=256)
-    assert output.stat().st_size == hi-lo
-    expected = np.bincount(lut.ravel(),weights=counts.ravel(),minlength=256)
+            observed += np.bincount(encoded.ravel(), minlength=256)
+    assert output.stat().st_size == hi - lo
+    expected = np.bincount(lut.ravel(), weights=counts.ravel(), minlength=256)
     np.testing.assert_array_equal(observed, expected)
     return receipt
