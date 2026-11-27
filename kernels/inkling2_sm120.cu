@@ -1596,13 +1596,21 @@ __device__ __forceinline__ float warp_dot_mxfp8_u128_row(
     return warp_sum(acc);
 }
 
-INK2_SCALE_KERNEL(ink2_moe_mxfp8_up_situ, (
-    const uint4* __restrict__ w13_u128,    // [128, 2304, 144]
+// PRMT indexes eight bytes. Select between the two eight-entry table halves per byte.
+__device__ __forceinline__ unsigned expand_four_indices(uint4 table, unsigned indices) {
+    const unsigned lanes = indices & 0x7777u;
+    const unsigned upper = __byte_perm(0u, ~0u, (indices >> 1) & 0x4444u);
+    const unsigned lo = __byte_perm(table.x, table.y, lanes);
+    const unsigned hi = __byte_perm(table.z, table.w, lanes);
+    return (upper & hi) | (~upper & lo);
+}
+
+template<bool PackedScales, bool Indexed>
+__device__ __forceinline__ void mxfp8_up_situ_body(    const uint4* __restrict__ w13_u128,    // [128, 2304, 144]
     const uint32_t* __restrict__ s13_u32,  // [128, 2304, 18]
     const float4* __restrict__ x4,         // [576]
     const int32_t* __restrict__ sel_ids,   // [8]
-    float* __restrict__ act_out),
-    (w13_u128, s13_u32, x4, sel_ids, act_out)) {         // [8, 1152]
+    float* __restrict__ act_out) {
     __shared__ float4 smem_x4[576];
     __shared__ float smem_gu[8];
 
@@ -1625,7 +1633,18 @@ INK2_SCALE_KERNEL(ink2_moe_mxfp8_up_situ, (
     }
     const int ex = sel_ids[k];
     const size_t row_idx = static_cast<size_t>(ex) * (2u * kFf) + r;
-    const uint4* row_fp8 = w13_u128 + row_idx * 144u;
+    uint4 table;
+    if constexpr (Indexed) table = w13_u128[0];
+    auto load_weight = [&](unsigned column) -> uint4 {
+        const size_t idx = row_idx * 144u + column;
+        if constexpr (Indexed) {
+            const uint2 packed = reinterpret_cast<const uint2*>(w13_u128 + 1)[idx];
+            return make_uint4(expand_four_indices(table, packed.x), expand_four_indices(table, packed.x >> 16),
+                              expand_four_indices(table, packed.y), expand_four_indices(table, packed.y >> 16));
+        } else {
+            return w13_u128[idx];
+        }
+    };
     const unsigned sc_start = static_cast<unsigned>(row_idx * 18u);
 
     uint4 wp[4];
@@ -1633,7 +1652,7 @@ INK2_SCALE_KERNEL(ink2_moe_mxfp8_up_situ, (
     #pragma unroll
     for (int it = 0; it < 4; ++it) {
         const int u16 = lane + 32 * it;
-        wp[it] = row_fp8[u16];
+        wp[it] = load_weight(u16);
         const int blk32 = u16 >> 1;
         uint32_t s4 = expert_scale_word<PackedScales, 3, 112>(s13_u32, sc_start + (blk32 >> 2));
         esc[it] = __uint_as_float(((s4 >> ((blk32 & 3) * 8)) & 0xFFu) << 23);
@@ -1642,7 +1661,7 @@ INK2_SCALE_KERNEL(ink2_moe_mxfp8_up_situ, (
     float esc4 = 0.0f;
     if (lane < 16) {
         const int u16 = lane + 128;
-        wp4 = row_fp8[u16];
+        wp4 = load_weight(u16);
         const int blk32 = u16 >> 1;
         uint32_t s4 = expert_scale_word<PackedScales, 3, 112>(s13_u32, sc_start + (blk32 >> 2));
         esc4 = __uint_as_float(((s4 >> ((blk32 & 3) * 8)) & 0xFFu) << 23);
@@ -1669,6 +1688,24 @@ INK2_SCALE_KERNEL(ink2_moe_mxfp8_up_situ, (
         float situ = 4.0f * ptx_tanh(g * 0.25f) * ptx_sigmoid(g) * 25.0f * ptx_tanh(u * 0.04f);
         act_out[k * kFf + m] = situ;
     }
+}
+
+INK2_SCALE_KERNEL(ink2_moe_mxfp8_up_situ, (    const uint4* __restrict__ w13_u128,    // [128, 2304, 144]
+    const uint32_t* __restrict__ s13_u32,  // [128, 2304, 18]
+    const float4* __restrict__ x4,         // [576]
+    const int32_t* __restrict__ sel_ids,   // [8]
+    float* __restrict__ act_out),
+    (w13_u128, s13_u32, x4, sel_ids, act_out)) {
+    mxfp8_up_situ_body<PackedScales, false>(w13_u128, s13_u32, x4, sel_ids, act_out);
+}
+
+INK2_SCALE_KERNEL(ink2_moe_mxfp8_up_situ_u4, (    const uint4* __restrict__ w13_u128,    // [128, 2304, 144]
+    const uint32_t* __restrict__ s13_u32,  // [128, 2304, 18]
+    const float4* __restrict__ x4,         // [576]
+    const int32_t* __restrict__ sel_ids,   // [8]
+    float* __restrict__ act_out),
+    (w13_u128, s13_u32, x4, sel_ids, act_out)) {
+    mxfp8_up_situ_body<PackedScales, true>(w13_u128, s13_u32, x4, sel_ids, act_out);
 }
 
 INK2_SCALE_KERNEL(ink2_moe_mxfp8_down, (

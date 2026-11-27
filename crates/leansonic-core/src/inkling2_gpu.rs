@@ -333,6 +333,7 @@ struct ExpertKernels {
     nvfp4_dp4a_down_xw: Option<CUfunction>,
     nvfp4_dp4a_down_xw_conv: Option<CUfunction>,
     mxfp8_up_situ: CUfunction,
+    mxfp8_up_situ_u4: Option<CUfunction>,
     mxfp8_down: CUfunction,
     mxfp8_down_xw: Option<CUfunction>,
     mxfp8_down_xw_conv: Option<CUfunction>,
@@ -771,6 +772,7 @@ pub struct Inkling2GpuEngine {
     layers: Vec<LayerGpu>,
     expert_weights: Vec<[TierBuf; 2]>,
     device_codebook_scratch: Option<DeviceBuf>,
+    direct_device_up: bool,
     slots: Vec<SlotStateGpu>,
     conv_history: DeviceBuf,
     /// Number of independent sequences with their own state (`LEANSONIC_SEQS`, default 1).
@@ -2127,6 +2129,8 @@ impl Inkling2GpuEngine {
             layers,
             slots,
             expert_weights: Vec::with_capacity(N_LAYER),
+            direct_device_up: device_codebook_scratch.is_some()
+                && std::env::var("LEANSONIC_MXFP8_LOOKUP_UP").as_deref() == Ok("1"),
             device_codebook_scratch,
             resident_expert_layers: 0,
             spilled_expert_layers: 0,
@@ -2576,6 +2580,7 @@ impl Inkling2GpuEngine {
                 nvfp4_dp4a_down_xw: load("nvfp4_dp4a_down_xw").ok(),
                 nvfp4_dp4a_down_xw_conv: load("nvfp4_dp4a_down_xw_conv").ok(),
                 mxfp8_up_situ: load("mxfp8_up_situ")?,
+                mxfp8_up_situ_u4: load("mxfp8_up_situ_u4").ok(),
                 mxfp8_down: load("mxfp8_down")?,
                 mxfp8_down_xw: load("mxfp8_down_xw").ok(),
                 mxfp8_down_xw_conv: load("mxfp8_down_xw_conv").ok(),
@@ -4436,7 +4441,19 @@ impl Inkling2GpuEngine {
                 }
             }
             ExpertScales::Mxfp8 { s13, s2 } => {
-                let mut pw13 = self.mxfp8_weight_ptr(stream, w13, 2 * FF * D, true)?;
+                let (mut pw13, up_kernel) = if self.direct_device_up {
+                    (
+                        w13.ptr(),
+                        s13.kernels
+                            .mxfp8_up_situ_u4
+                            .ok_or("missing ink2_moe_mxfp8_up_situ_u4")?,
+                    )
+                } else {
+                    (
+                        self.mxfp8_weight_ptr(stream, w13, 2 * FF * D, true)?,
+                        s13.kernels.mxfp8_up_situ,
+                    )
+                };
                 let mut ps13 = s13.buffer.ptr;
                 let mut px = self.d_mlp_h.ptr;
                 let mut pids = self.d_sel_ids.ptr;
@@ -4448,13 +4465,7 @@ impl Inkling2GpuEngine {
                     (&mut pids as *mut _) as *mut c_void,
                     (&mut pact as *mut _) as *mut c_void,
                 ];
-                self.launch_pdl(
-                    stream,
-                    s13.kernels.mxfp8_up_situ,
-                    (288, 8),
-                    256,
-                    &mut up_args,
-                )?;
+                self.launch_pdl(stream, up_kernel, (288, 8), 256, &mut up_args)?;
 
                 let mut pw2 = self.mxfp8_weight_ptr(stream, w2, FF * D, true)?;
                 let mut ps2 = s2.buffer.ptr;
