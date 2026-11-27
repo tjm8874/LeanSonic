@@ -1,0 +1,73 @@
+--- a/crates/leansonic-core/src/inkling2_gpu.rs
++++ b/crates/leansonic-core/src/inkling2_gpu.rs
+@@ -2741,6 +2741,14 @@
+         msg_base_ptr: CUdeviceptr,
+     ) -> Result<(), String> {
+         let l = &self.layers[il];
++        let diagnostic = std::env::var_os("DIAG_LEAN_ROUTE");
++        let snapshot = |ptr: CUdeviceptr, words: usize| -> Result<Vec<u8>, String> {
++            self.ctx.sync_compute()?;
++            let mut bytes=vec![0u8;words*4];
++            unsafe { check_cu((self.ctx.api.cuMemcpyDtoH_v2)(bytes.as_mut_ptr().cast(),ptr,bytes.len()), "read diagnostic")?; }
++            Ok(bytes)
++        };
++        let hidden=if diagnostic.is_some() {snapshot(self.d_cur.ptr,D)?}else{Vec::new()};
+         let st = &self.slots[slot_idx];
+         let d_bytes = (D * 4) as u64;
+         let has_msgs = msg_base_ptr != 0;
+@@ -3308,10 +3316,19 @@
+         }
+ 
+         // 10. Exact BF16 Router + Warp-Butterfly TopK8 + Wide `uint4` Full-GPU MoE!
++        let router_input = if diagnostic.is_some()
++            && std::env::var("PROBE_SLOT").ok().and_then(|v|v.parse().ok())==Some(slot_idx) {
++            let path=std::env::var("PROBE_NORM").map_err(|e|e.to_string())?;
++            let input=std::fs::read(path).map_err(|e|e.to_string())?;
++            if input.len()!=D*4{return Err("invalid diagnostic router input".into())}
++            self.ctx.sync_compute()?;
++            self.d_logits.copy_from_host_at(0,&input)?;
++            self.d_logits.ptr
++        } else {self.d_mlp_h.ptr};
+         self.enqueue_bf16_gemv(
+             stream,
+             l.router_w.ptr,
+-            self.d_mlp_h.ptr,
++            router_input,
+             self.d_router_logits.ptr,
+             N_EXP as i32,
+             D as i32,
+@@ -3331,6 +3348,14 @@
+             self.launch(stream, self.fns.router_topk8, (1, 1), 32, &mut args)?;
+         }
+ 
++        if let Some(path)=diagnostic {
++            use std::io::Write;
++            let mut f=std::fs::OpenOptions::new().append(true).create(true).open(path).map_err(|e|e.to_string())?;
++            for n in [il,slot_idx,self.host_pos] {f.write_all(&(n as i32).to_le_bytes()).map_err(|e|e.to_string())?;}
++            for data in [snapshot(self.d_sel_ids.ptr,TOP_K)?,snapshot(self.d_sel_wts.ptr,TOP_K)?,snapshot(router_input,D)?,hidden] {
++                f.write_all(&data).map_err(|e|e.to_string())?;
++            }
++        }
+         let [w13, w2] = &self.expert_weights[il];
+         match &l.expert_scales {
+             ExpertScales::Nvfp4 { s13, a13, s2, a2 } => {
+--- /dev/null
++++ b/crates/leansonic-core/examples/route_probe.rs
+@@ -0,0 +1,17 @@
++use leansonic_core::inkling2_gpu::Inkling2GpuEngine;
++use std::{env,fs,io::Write};
++fn main()->Result<(),Box<dyn std::error::Error>> {
++ let a:Vec<_>=env::args().collect();
++ let ids:Vec<u32>=fs::read_to_string(&a[2])?.trim().split(',').map(str::parse).collect::<Result<_,_>>()?;
++ let n=ids.len();
++ let mut eng=Inkling2GpuEngine::load_from_dir_with_spec(&a[1],512,false,0)?;
++ eng.reset()?;
++ eng.prefill_tokens(&ids[..257])?;
++ for &id in &ids[257..n-1] {eng.forward_greedy_token(id)?;}
++ env::set_var("DIAG_LEAN_ROUTE",&a[3]);
++ let next=eng.forward_greedy_token(ids[n-1])?;
++ let logits=eng.read_last_logits()?;
++ let mut f=fs::File::create(&a[4])?;
++ for x in logits {f.write_all(&x.to_le_bytes())?;}
++ println!("position={} top={next}",n-1);Ok(())
++}

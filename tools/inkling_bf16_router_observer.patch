@@ -1,0 +1,101 @@
+--- a/tools/perplexity/perplexity.cpp
++++ b/tools/perplexity/perplexity.cpp
+@@ -23,6 +23,36 @@
+ #if defined(_MSC_VER)
+ #pragma warning(disable: 4244 4267) // possible loss of data
+ #endif
++
++
++#include "ggml-backend.h"
++#include <cstdlib>
++#include <map>
++
++static int active_row = -1;
++static int trace_chunk() { return std::atoi(std::getenv("REPLAY_CHUNK")); }
++static int trace_pos() { return std::atoi(std::getenv("REPLAY_POSITION")); }
++static bool trace_node(ggml_tensor * t, bool ask, void *) {
++    if (active_row < 0) return false;
++    std::string n = t->name;
++    if (n.rfind("ffn_moe_topk-",0) && n.rfind("ffn_moe_logits-",0) && n.rfind("ffn_inp-",0) && n.rfind("l_out-",0)) return false;
++    if (ask) return true;
++    int row = active_row;
++    if (row >= t->ne[1] || t->nb[0]!=4 || t->ne[2]!=1 || t->ne[3]!=1) {
++        std::fprintf(stderr,"TRACE_SHAPE %s %ld %ld %ld %ld\n", t->name,t->ne[0],t->ne[1],t->ne[2],t->ne[3]); return true;
++    }
++    auto save=[&](ggml_tensor * src,const std::string& name){
++        static std::map<std::string,int> visits;
++        std::vector<char> buf(src->ne[0]*4);
++        std::string file = std::string(std::getenv("REPLAY_OUT"))+"/"+name+"."+std::to_string(visits[name]++)+".bin";
++        ggml_backend_tensor_get(src,buf.data(),row*src->nb[1],buf.size());
++        std::ofstream f(file,std::ios::binary);f.write(buf.data(),buf.size()); if (!f) std::abort();
++    };
++    save(t,n);
++    if (!n.rfind("ffn_moe_logits-",0) && t->src[1] && t->src[1]->ne[0]==2304 && t->src[1]->ne[1]==t->ne[1] && t->src[1]->nb[0]==4)
++        save(t->src[1],"norm-"+n.substr(15));
++    return true;
++}
+ 
+ struct results_perplexity {
+     std::vector<llama_token> tokens;
+@@ -503,15 +533,6 @@
+     if (score_serial && (n_batch != n_ctx || n_ctx != 512 || params.n_ubatch < n_ctx / 2 || add_bos)) {
+         throw std::runtime_error("serial scoring requires a 512-token single sequence, ubatch >= 256 and no added BOS");
+     }
+-    std::ofstream serial_layout;
+-    if (score_serial) {
+-        if (const char * path = std::getenv("LEANSONIC_BF16_SERIAL_LAYOUT")) {
+-            serial_layout.open(path);
+-            if (!serial_layout) {
+-                throw std::runtime_error("could not open serial layout trace");
+-            }
+-        }
+-    }
+     const int num_batches = score_serial ? n_ctx / 2 : (n_ctx + n_batch - 1) / n_batch;
+     const int n_seq = std::max(1, n_batch / n_ctx);
+ 
+@@ -553,6 +574,7 @@
+     const int first = n_ctx/2;
+ 
+     for (int i = 0; i < n_chunk; i += n_seq) {
++        if (trace_chunk() < i || trace_chunk() >= i+n_seq) continue;
+         const int start =     i * n_ctx;
+         const int end   = start + n_ctx;
+ 
+@@ -594,14 +616,11 @@
+                 tokens[seq_start] = token_org;
+             }
+ 
++            active_row = (trace_pos() >= offset && trace_pos() < offset + batch_size)
++                    ? (trace_chunk()-i)*batch_size + trace_pos()-offset : -1;
+             if (llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get())) {
+                 LOG_INF("%s : failed to decode\n", __func__);
+                 return {tokens, -1, logit_history, prob_history};
+-            }
+-
+-            if (i == 0 && serial_layout.is_open()) {
+-                const llama_pos first_pos = batch.tokens.front().pos[0];
+-                serial_layout << first_pos << ' ' << batch.size() << '\n';
+             }
+ 
+             if (num_batches > 1 && n_outputs > 0) {
+@@ -627,6 +646,12 @@
+         for (int seq = 0; seq < n_seq_batch; seq++) {
+             const float * all_logits = num_batches > 1 ? logits.data() : llama_get_logits_ith(ctx, seq*n_ctx + first);
+ 
++            if (i + seq == trace_chunk()) {
++                const float * row = all_logits + (trace_pos() - first) * size_t(n_vocab);
++                std::ofstream f(std::string(std::getenv("REPLAY_OUT"))+"/logits.bin",std::ios::binary);
++                f.write(reinterpret_cast<const char *>(row), n_vocab * sizeof(float));
++                if (!f) std::abort();
++            }
+             llama_token * tokens_data = tokens.data() + start + seq*n_ctx + first;
+             if (!params.logits_file.empty()) {
+                 process_logits(logits_stream, n_vocab, all_logits,
+@@ -2044,6 +2069,7 @@
+     llama_numa_init(params.numa);
+ 
+     // load the model and apply lora adapter, if any
++    if (std::getenv("REPLAY_TRACE")) params.cb_eval = trace_node;
+     auto llama_init = common_init_from_params(params);
+ 
+     auto * model = llama_init->model();

@@ -10,3 +10,19 @@ Starting from the official Inkling-2-Mini checkpoint, use the normal text packer
 
 Using the #113 cubin, PDL enabled, greedy sampling, FP16 KV and the same 32-token prompt and 16 forced continuation IDs, the previous and new representation produced the same 17 × 200,058 FP32 logits (13,603,944 bytes).
 - PRO4500: `68538b83e50b2df69e032bc05740bd5f019a9dd279f7077905553fe792df3489`.
+- 5060Ti: `68538b83e50b2df69e032bc05740bd5f019a9dd279f7077905553fe792df3489`.
+
+## Loading and generation
+
+Five mirrored cycles used fresh processes, the same CLI and cubin, and fully page-cached model files before each measurement. Each of the ten processes per arm ran three 64-step generations. Decode reports the mean of the last two runs. All 64 IDs matched in every run.
+
+| GPU | Previous load / neighbor load (s) | Previous decode64 / neighbor decode64 (ms) |
+|---|---:|---:|
+| PRO4500 | 5.132 / 5.551 | 390.38 / 390.35 |
+
+## Matched BF16 quality
+
+| WikiText-2 split | scored positions | mean KL | maximum KL | top-1 matches | PPL |
+|---|---:|---:|---:|---:|---:|
+| test | 25500 | 0.0031584 | 0.6809773 | 24865 | 7.0729555 |
+| valid | 25500 | 0.0027607 | 0.3524361 | 24963 | 6.5046210 |
