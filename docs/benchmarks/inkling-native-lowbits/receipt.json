@@ -1,0 +1,56 @@
+{
+  "revision": "ae9327c5fbc7333116ba32eee78bb5d2bbefae4f",
+  "hashes": {
+    "forced-lean": "bdbadfe60a7604e4fa64d2aaa0c45c925f2df4040485cffff58888772b55717f",
+    "forced-native": "7c5e5eea90374863ac3778a8d7536e7d6ad158d4c9c84c4aa3339ccfc1d87e62",
+    "matched.cubin": "5313936c247cbf3c719717bc5614752ecb05511015624415fbc685ddaa6b115c",
+    "inkling-readme1024.ids": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843",
+    "inkling-continuation32.ids": "424005ba620148c43483b62cced3f11cbc90f3c01cef01cb3abbb03264020e27",
+    "/models/inkling2-mini-cuda01-20261121/llama/llama-perplexity": "f3362a140944c6413fdcede7626b3ec6c6e92a217d68d7f803212f9d792985c7"
+  },
+  "oracles": {
+    "Inkling-2-Mini-UD-IQ4_XS.gguf": "a861d21e7c6d7bc69d8cdcdfb9eb195fd37ef1cd2ab31499db61cd7d30d9b3a1",
+    "valid.kld": "b3d804824373950c9b6d7cd37e5607d132d2f3caca6f80ffd26739b2776a2ca0",
+    "wiki.test.raw": "173c87a53759e0201f33e0ccf978e510c2042d7f2cb78229d9a50d79b9e7dd08",
+    "wiki.valid.raw": "4cd0f6876d07a413aa911261ff6d363c72d757d47f0fdd6015702014c89cb9c7",
+    "test.kld": "895fac2136c06dce1854568c83eb76a0225a05fab3c37897a12fec1d56949b97"
+  },
+  "models": {
+    "iq3": {
+      "filename": "Inkling-2-Mini-UD-IQ3_XXS.gguf",
+      "bytes": 11663309504,
+      "sha256": "bd7ef0865adf119b5183e45e741c629bafa649769b33b5ebf689bb4bcc4690d6",
+      "wiki": {
+        "test": {
+          "mean_kl": 0.027728,
+          "worst_kl": 4.049091,
+          "p99": 0.243804,
+          "ppl": 7.188809,
+          "oracle_ppl": 7.064408,
+          "top1_pct": 92.765,
+          "matches": 23655,
+          "requested_gpu_layers": 99,
+          "gpu_offload_reported": false
+        },
+        "valid": {
+          "mean_kl": 0.025635,
+          "worst_kl": 2.807837,
+          "p99": 0.232671,
+          "ppl": 6.613878,
+          "oracle_ppl": 6.498589,
+          "top1_pct": 93.275,
+          "matches": 23785,
+          "requested_gpu_layers": 99,
+          "gpu_offload_reported": false
+        }
+      }
+    },
+    "iq1": {
+      "filename": "Inkling-2-Mini-UD-IQ1_S.gguf",
+      "bytes": 7764291776,
+      "sha256": "c09c028b050c108624682baeb28ac6e0cdb936af021ac637c8c3609f923ea4b8",
+      "wiki": {}
+    }
+  },
+  "traces": {}
+}
