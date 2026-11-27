@@ -100,6 +100,12 @@ __device__ __forceinline__ float fp16_bits_to_f32(uint16_t h) {
 // serialization when the cubin exports `ink2_pdl_all_marker`, hiding the launch gap between
 // dependent kernels in the verify, drafter and prefill paths as well as single-sequence decode.
 // `crates/leansonic-core` has a unit test that rejects a kernel without `pdl_wait()`.
+//
+// The speculative-verify and drafter kernels also call `pdl_trigger()` right after the wait, so
+// their successor becomes resident early and loads its constant weights before its own wait
+// (`ink2_q8_dp4a_gemm_b8_fast`, `ink2_bf16_gemv_router_b`, `ctrl_down_rows`).  Kernels shared
+// with prefill, C=64 rounds and single-sequence decode keep their existing trigger points: an
+// early trigger there measured 1-2% slower.
 __device__ __forceinline__ void pdl_wait() {
 #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900)
     asm volatile("griddepcontrol.wait;" ::: "memory");
@@ -2904,6 +2910,7 @@ extern "C" __global__ void ink2_embed_rmsnorm_b(
     const int32_t* __restrict__ token_buf_ptr,     // [B]
     float* __restrict__ out_x_base) {              // [B, D]
     pdl_wait();
+    pdl_trigger();
     __shared__ float smem_red[8];
     const int b = blockIdx.x;
     const int tid = threadIdx.x;
@@ -2943,6 +2950,7 @@ extern "C" __global__ void ink2_rmsnorm_d_b(
     float* __restrict__ out_base,                   // [B, D]
     int32_t has_gamma) {
     pdl_wait();
+    pdl_trigger();
     __shared__ float smem_red[8];
     const int b = blockIdx.x;
     const int tid = threadIdx.x;
@@ -2987,6 +2995,7 @@ extern "C" __global__ void ink2_rmsnorm_quant_q8_64_b(
     float* __restrict__ out_sc64,                  // [count, B_out, 36]
     int32_t B_out) {
     pdl_wait();
+    pdl_trigger();
     __shared__ float smem_red[8];
     const int b = blockIdx.x;
     const int c_idx = blockIdx.y;
@@ -3052,6 +3061,7 @@ extern "C" __global__ void ink2_quant_q8_64_b(
     float* __restrict__ out_sc64,       // [B, cols / 64]
     int32_t cols) {
     pdl_wait();
+    pdl_trigger();
     __shared__ float smem_max[2];
     __shared__ float smem_inv;
     const int blk = blockIdx.x;
@@ -3103,6 +3113,7 @@ extern "C" __global__ void ink2_depth_mix_b(
     float* __restrict__ out_mixed,        // [n_q, B_out, D] (or `[3, B_out, D]` if `broadcast3`)
     int32_t broadcast3) {
     pdl_wait();
+    pdl_trigger();
     __shared__ float smem_sq[6][8];
     __shared__ float smem_dq[6][8];
     __shared__ float smem_probs[6];
@@ -3226,6 +3237,17 @@ __device__ __forceinline__ void ctrl_down_rows(
     const int warp_id = tid >> 5;
     const int lane = tid & 31;
 
+    // The first `c8` pass of the (constant) weights is loaded before `pdl_wait()` (#152 P0-B).
+    uint4 pre[Rows];
+    #pragma unroll
+    for (int row = 0; row < Rows; ++row) {
+        const size_t rank = static_cast<size_t>(c_idx) * 64 + first_row + row;
+        pre[row] = down_bf16_u128[rank * 576 + tid];
+    }
+    pdl_wait();
+    cur_base = pdl_in(cur_base);
+    msg_base = pdl_in(msg_base);
+
     const float* cur = cur_base + static_cast<size_t>(cb) * kD;
     const float* msg = msg_base + static_cast<size_t>(cb) * kD;
 
@@ -3264,7 +3286,10 @@ __device__ __forceinline__ void ctrl_down_rows(
     // the scalar kernel's accumulation order and its eight-warp reduction tree.
     __shared__ float partial[Rows][8];
     float dot[Rows] = {};
-    for (int c8 = tid; c8 < 576; c8 += 256) {
+    #pragma unroll
+    for (int pass = 0; pass < 3; ++pass) {
+        const int c8 = tid + pass * 256;
+        if (c8 >= 576) break;
         const int offset = c8 * 8;
         const float* src = offset < kD
             ? (Rows > 1 ? cur_tile : cur) + offset
@@ -3273,7 +3298,7 @@ __device__ __forceinline__ void ctrl_down_rows(
         #pragma unroll
         for (int row = 0; row < Rows; ++row) {
             size_t rank = static_cast<size_t>(c_idx) * 64 + first_row + row;
-            uint4 pack = down_bf16_u128[rank * 576 + c8];
+            const uint4 pack = pass == 0 ? pre[row] : down_bf16_u128[rank * 576 + c8];
             uint32_t words[4] = {pack.x, pack.y, pack.z, pack.w};
             #pragma unroll
             for (int p = 0; p < 4; ++p) {
@@ -3303,7 +3328,7 @@ extern "C" __global__ void ink2_ctrl_down_b(
     const uint4* __restrict__ down_bf16_u128, // [n_ctrls, 64, 576]
     float* __restrict__ g_out_base,           // [n_ctrls, B, 64]
     int32_t B) {
-    pdl_wait();
+    // pdl_wait() runs inside ctrl_down_rows, after the weight prefetch.
     ctrl_down_rows<1>(cur_base, msg_base, down_bf16_u128, g_out_base, B);
 }
 
@@ -3313,7 +3338,7 @@ extern "C" __global__ void ink2_ctrl_down_r8_b(
     const uint4* __restrict__ down_bf16_u128, // [n_ctrls, 64, 576]
     float* __restrict__ g_out_base,           // [n_ctrls, B, 64]
     int32_t B) {
-    pdl_wait();
+    // pdl_wait() runs inside ctrl_down_rows, after the weight prefetch.
     ctrl_down_rows<8>(cur_base, msg_base, down_bf16_u128, g_out_base, B);
 }
 
@@ -3764,6 +3789,7 @@ extern "C" __global__ void ink2_short_conv4_b(
     int32_t has_dyn,
     int32_t do_res_add) {
     pdl_wait();
+    pdl_trigger();
     const int c = blockIdx.x * blockDim.x + threadIdx.x;
     if (c >= channels) return;
 
@@ -4068,6 +4094,7 @@ extern "C" __global__ void ink2_prep_qkv_and_cache_b(
     float* __restrict__ k_scale, float* __restrict__ v_scale,
     const int32_t* __restrict__ pos_ptr, int32_t kv_cap, int32_t is_global) {
     pdl_wait();
+    pdl_trigger();
     prep_qkv_and_cache_b_body<false>(qrgs_base, qrgs_stride, k_in_base, v_in_base, q_clip_bf16,
         r_clip_bf16, k_cache_fp16, v_cache_fp16, k_scale, v_scale, pos_ptr, kv_cap, is_global);
 }
@@ -4269,6 +4296,42 @@ extern "C" __global__ void ink2_bf16_gemm_router_b(
     }
 }
 
+// Grid: `(128, ceil(B / 4))`, Block: `32`. One warp per expert row; the row's 9 weight
+// vectors are loaded before `pdl_wait()` so they overlap the preceding kernel. Each lane
+// accumulates `c8 = lane, lane + 32, ...` and `warp_sum` reduces, exactly as
+// `ink2_bf16_gemm_router_b` and `ink2_router_gemv_topk8`, so the logits are bit-identical.
+extern "C" __global__ void ink2_bf16_gemv_router_b(
+    const uint4* __restrict__ w_bf16_u128, // [128, 288]
+    const float4* __restrict__ x4_base,    // [B, 576]
+    float* __restrict__ y_base,            // [B, 128]
+    int32_t B) {
+    const int row = blockIdx.x;
+    const int lane = threadIdx.x & 31;
+    const uint4* w_row = w_bf16_u128 + static_cast<size_t>(row) * 288u;
+    constexpr int kIters = 288 / 32;
+    uint4 w[kIters];
+    #pragma unroll
+    for (int i = 0; i < kIters; ++i) w[i] = w_row[lane + 32 * i];
+
+    pdl_wait();
+    pdl_trigger();
+    x4_base = pdl_in(x4_base);
+    const int b_base = blockIdx.y * 4;
+    #pragma unroll
+    for (int t = 0; t < 4; ++t) {
+        if (b_base + t >= B) break;
+        const float4* x4 = x4_base + static_cast<size_t>(b_base + t) * 576u;
+        float acc = 0.0f;
+        #pragma unroll
+        for (int i = 0; i < kIters; ++i) {
+            const int c8 = lane + 32 * i;
+            acc = accum_bf16_8(acc, w[i], x4[c8 * 2], x4[c8 * 2 + 1]);
+        }
+        acc = warp_sum(acc);
+        if (lane == 0) y_base[(b_base + t) * kExp + row] = acc;
+    }
+}
+
 // Grid: `(B, 1)`, Block: `32`
 extern "C" __global__ void ink2_router_topk8_b(
     const float* __restrict__ logits128_base, // [B, 128]
@@ -4276,6 +4339,7 @@ extern "C" __global__ void ink2_router_topk8_b(
     int32_t* __restrict__ sel_ids_base,       // [B, 8]
     float* __restrict__ sel_wts_base) {       // [B, 8]
     pdl_wait();
+    pdl_trigger();
     __shared__ int smem_ids[8];
     __shared__ float smem_ps[8];
 
@@ -4863,6 +4927,7 @@ extern "C" __global__ void ink2_argmax_b(
     const float* __restrict__ logits_base, // [B_out, VOCAB]
     int32_t* __restrict__ out_toks) {      // [B_out]
     pdl_wait();
+    pdl_trigger();
     __shared__ float smem_val[8];
     __shared__ int smem_idx[8];
 
@@ -4970,6 +5035,7 @@ extern "C" __global__ void ink2_conv_rewind(
     int32_t keep,
     int32_t B) {
     pdl_wait();
+    pdl_trigger();
     const int slot = blockIdx.y >> 2;
     const int kind = blockIdx.y & 3;
     const int c = blockIdx.x * 256 + threadIdx.x;
@@ -5016,6 +5082,7 @@ extern "C" __global__ void ink2_q8_dp4a_gemm_ktiled(
     int32_t B,
     int32_t y_stride) {
     pdl_wait();
+    pdl_trigger();
     __shared__ uint4 smem_x[8][64];   // 8,192 B (`K_TILE = 1024`)
     __shared__ float smem_xsc[8][16]; // 512 B
 
@@ -5107,6 +5174,7 @@ extern "C" __global__ void mtp_tapmix(
     int32_t n_floats,
     float* __restrict__ out) {
     pdl_wait();
+    pdl_trigger();
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n_floats) return;
     out[i] = a0 * taps[i]
@@ -5121,6 +5189,7 @@ extern "C" __global__ void mtp_copy_anchor(
     int32_t tok_idx,
     float* __restrict__ anchor_out) { // [4, D]
     pdl_wait();
+    pdl_trigger();
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     const int j = blockIdx.y; // 0..3
     if (i >= kD) return;
@@ -5138,6 +5207,7 @@ extern "C" __global__ void mtp_ctx_store(
     uint16_t* __restrict__ kc_fp16,
     uint16_t* __restrict__ vc_fp16) {
     pdl_wait();
+    pdl_trigger();
     __shared__ float smem_hd[128];
     const int h = blockIdx.x;
     const int t = blockIdx.y;
@@ -5168,6 +5238,7 @@ extern "C" __global__ void mtp_init_draft(
     float* __restrict__ dr_state,             // [256]
     uint32_t* __restrict__ dr_res) {          // [16]
     pdl_wait();
+    pdl_trigger();
     __shared__ float smem_red[8];
     const int tid = threadIdx.x;
     const uint32_t* row = embed_bf16_pairs + static_cast<size_t>(next_tok) * (kD / 2);
@@ -5218,6 +5289,7 @@ extern "C" __global__ void mtp_qk_norm_rope(
     const float* __restrict__ inv_freq64,     // [64]
     int32_t pos0) {
     pdl_wait();
+    pdl_trigger();
     __shared__ float smem_hd[128];
     const int hh = blockIdx.x; // 0..31 (`0..23` = Q, `24..31` = K)
     const int t = blockIdx.y;  // 0..7
@@ -5244,6 +5316,7 @@ extern "C" __global__ void mtp_attn(
     int32_t hi,                               // `p = ctx_end`
     float* __restrict__ att_out) {            // [8, 3072]
     pdl_wait();
+    pdl_trigger();
     __shared__ float smem_q[128];
     __shared__ float smem_m[8];
     __shared__ float smem_l[8];
@@ -5357,6 +5430,7 @@ extern "C" __global__ void mtp_attn_split(
     float* __restrict__ part_ml,              // [S, 8, 24, 2]
     float* __restrict__ part_o) {             // [S, 8, 24, 128]
     pdl_wait();
+    pdl_trigger();
     const int kvh = blockIdx.x;
     const int s = blockIdx.y;
     const int t = threadIdx.x >> 5;
@@ -5449,6 +5523,7 @@ extern "C" __global__ void mtp_attn_merge(
     int32_t S,
     float* __restrict__ att_out) {            // [8, 3072]
     pdl_wait();
+    pdl_trigger();
     const int h = blockIdx.x;
     const int t = blockIdx.y;
     const int d = threadIdx.x;
@@ -5475,6 +5550,7 @@ extern "C" __global__ void mtp_add_inplace(
     const float* __restrict__ o,
     int32_t n) {
     pdl_wait();
+    pdl_trigger();
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < n) x[i] += o[i];
 }
@@ -5483,6 +5559,7 @@ extern "C" __global__ void mtp_silu_mul(
     const float* __restrict__ gu, // [8, 18432]
     float* __restrict__ act) {    // [8, 9216]
     pdl_wait();
+    pdl_trigger();
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= 8 * 9216) return;
     const int t = i / 9216;
@@ -5497,6 +5574,7 @@ extern "C" __global__ void mtp_concat_frnn(
     const float* __restrict__ frnn,           // [2304]
     float* __restrict__ x2_out) {             // [7, 4608]
     pdl_wait();
+    pdl_trigger();
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= 7 * 4608) return;
     const int t = i / 4608;
@@ -5510,6 +5588,7 @@ extern "C" __global__ void mtp_add_bias_rows(
     int32_t cols,
     int32_t total) {
     pdl_wait();
+    pdl_trigger();
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < total) y[i] += bias[i % cols];
 }
@@ -5525,6 +5604,7 @@ extern "C" __global__ void mtp_markov_raw(
     float* __restrict__ raw_out,                  // [768]
     const float* __restrict__ cum_ptr) {
     pdl_wait();
+    pdl_trigger();
     if (*cum_ptr < 0.0f) return;
     __shared__ float smem_in[512];
 
@@ -5562,6 +5642,7 @@ extern "C" __global__ void mtp_markov_step_q8(
     float* __restrict__ lat_sc64,      // [4]
     const float* __restrict__ cum_ptr) {
     pdl_wait();
+    pdl_trigger();
     if (*cum_ptr < 0.0f) return;
     __shared__ float smem_lat[256];
 
@@ -5616,7 +5697,6 @@ extern "C" __global__ void ink2_q8_dp4a_gemm_b8_fast(
     int32_t B,
     int32_t y_stride,
     float softcap) {
-    pdl_wait();
     __shared__ uint4 smem_x[8][192];   // 24,576 B (`max cols = 3072`)
     __shared__ float smem_xsc[8][48];  // 1,536 B
 
@@ -5629,17 +5709,53 @@ extern "C" __global__ void ink2_q8_dp4a_gemm_b8_fast(
     const bool has_row0 = (row0 < rows);
     const bool has_row1 = (row0 + 1 < rows);
 
+    // The weights are constant: for the unrolled widths (`cols16 = 144 / 192`) they are loaded
+    // before `pdl_wait()`, overlapping the kernel that produces `x` (#152 P0-B).
+    const uint4* w_r0 = w_q8_u128 + static_cast<size_t>(has_row0 ? row0 : 0) * cols16;
+    const uint4* w_r1 = has_row1 ? (w_r0 + cols16) : w_r0;
+    const float* s_r0 = w_sc64 + static_cast<size_t>(has_row0 ? row0 : 0) * cols64;
+    const float* s_r1 = has_row1 ? (s_r0 + cols64) : s_r0;
+    uint4 w0[6], w1[6];
+    float ws0[6], ws1[6];
+    uint4 w0_4 = make_uint4(0u, 0u, 0u, 0u), w1_4 = w0_4;
+    float ws0_4 = 0.0f, ws1_4 = 0.0f;
+    if (cols16 == 144) {
+        #pragma unroll
+        for (int i = 0; i < 4; ++i) {
+            const int c16 = lane + 32 * i;
+            w0[i] = w_r0[c16];
+            w1[i] = w_r1[c16];
+            ws0[i] = s_r0[c16 >> 2];
+            ws1[i] = s_r1[c16 >> 2];
+        }
+        if (lane < 16) {
+            const int c16 = lane + 128;
+            w0_4 = w_r0[c16];
+            w1_4 = w_r1[c16];
+            ws0_4 = s_r0[c16 >> 2];
+            ws1_4 = s_r1[c16 >> 2];
+        }
+    } else if (cols16 == 192) {
+        #pragma unroll
+        for (int i = 0; i < 6; ++i) {
+            const int c16 = lane + 32 * i;
+            w0[i] = w_r0[c16];
+            w1[i] = w_r1[c16];
+            ws0[i] = s_r0[c16 >> 2];
+            ws1[i] = s_r1[c16 >> 2];
+        }
+    }
+
+    pdl_wait();
+    pdl_trigger();
+    x_q8_u128 = pdl_in(x_q8_u128);
+    x_sc64 = pdl_in(x_sc64);
     for (int t = 0; t < B; ++t) {
         if (tid < cols16) smem_x[t][tid] = x_q8_u128[static_cast<size_t>(t) * cols16 + tid];
         if (tid < cols64) smem_xsc[t][tid] = x_sc64[static_cast<size_t>(t) * cols64 + tid];
     }
     __syncthreads();
     if (!has_row0) return;
-
-    const uint4* w_r0 = w_q8_u128 + static_cast<size_t>(row0) * cols16;
-    const uint4* w_r1 = has_row1 ? (w_r0 + cols16) : w_r0;
-    const float* s_r0 = w_sc64 + static_cast<size_t>(row0) * cols64;
-    const float* s_r1 = has_row1 ? (s_r0 + cols64) : s_r0;
 
     float a[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
     float b[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
@@ -5662,25 +5778,6 @@ extern "C" __global__ void ink2_q8_dp4a_gemm_b8_fast(
     };
 
     if (cols16 == 144) {
-        uint4 w0[4], w1[4];
-        float ws0[4], ws1[4];
-        #pragma unroll
-        for (int i = 0; i < 4; ++i) {
-            const int c16 = lane + 32 * i;
-            w0[i] = w_r0[c16];
-            w1[i] = w_r1[c16];
-            ws0[i] = s_r0[c16 >> 2];
-            ws1[i] = s_r1[c16 >> 2];
-        }
-        uint4 w0_4 = make_uint4(0u, 0u, 0u, 0u), w1_4 = w0_4;
-        float ws0_4 = 0.0f, ws1_4 = 0.0f;
-        if (lane < 16) {
-            const int c16 = lane + 128;
-            w0_4 = w_r0[c16];
-            w1_4 = w_r1[c16];
-            ws0_4 = s_r0[c16 >> 2];
-            ws1_4 = s_r1[c16 >> 2];
-        }
         #pragma unroll
         for (int i = 0; i < 4; ++i) {
             step_col(lane + 32 * i, w0[i], w1[i], ws0[i], ws1[i]);
@@ -5689,16 +5786,6 @@ extern "C" __global__ void ink2_q8_dp4a_gemm_b8_fast(
             step_col(lane + 128, w0_4, w1_4, ws0_4, ws1_4);
         }
     } else if (cols16 == 192) {
-        uint4 w0[6], w1[6];
-        float ws0[6], ws1[6];
-        #pragma unroll
-        for (int i = 0; i < 6; ++i) {
-            const int c16 = lane + 32 * i;
-            w0[i] = w_r0[c16];
-            w1[i] = w_r1[c16];
-            ws0[i] = s_r0[c16 >> 2];
-            ws1[i] = s_r1[c16 >> 2];
-        }
         #pragma unroll
         for (int i = 0; i < 6; ++i) {
             step_col(lane + 32 * i, w0[i], w1[i], ws0[i], ws1[i]);
@@ -5740,6 +5827,7 @@ extern "C" __global__ void mtp_fold_mv_q8(
     float* __restrict__ part_out,           // [nb, 3]
     const float* __restrict__ cum_ptr) {
     pdl_wait();
+    pdl_trigger();
     if (*cum_ptr < 0.0f) return;
     __shared__ uint4 smem_lq[16];
     __shared__ float smem_lsc[4];
@@ -5837,6 +5925,7 @@ extern "C" __global__ void mtp_fold_fin(
     float tau,
     int32_t is_last) {
     pdl_wait();
+    pdl_trigger();
     if (*cum_inout < 0.0f) return;
     __shared__ float smem_bv[8];
     __shared__ int smem_bi[8];
@@ -7400,6 +7489,7 @@ extern "C" __global__ void ink2_short_conv4_save_b(
     int32_t has_dyn,
     int32_t do_res_add) {
     pdl_wait();
+    pdl_trigger();
     const int c = blockIdx.x * blockDim.x + threadIdx.x;
     if (c >= channels) return;
 
@@ -8456,6 +8546,7 @@ extern "C" __global__ void ink2_build_expert_groups_active_b(
     int32_t* __restrict__ active_exps,   // [128]
     int32_t B) {
     pdl_wait();
+    pdl_trigger();
     __shared__ int32_t smem_sel[128];
     __shared__ int32_t sm_wcnt[4];
 
@@ -8519,6 +8610,7 @@ INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_verify_up_half_q8, (
     uint32_t* __restrict__ out_q8_u32,         // [B * 8, 288]
     float* __restrict__ out_sc16),             // [B * 8, 72]
     (w13_u128, s13_u32, a13, x_q8_u128, x_sc16, active_exps, exp_counts, exp_toks, exp_pairs, out_q8_u32, out_sc16)) {
+    pdl_trigger();
     const int ex = active_exps[blockIdx.y];
     if (ex < 0) return;
     const int cnt = exp_counts[ex];
@@ -8642,6 +8734,7 @@ INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_verify_down, (
     const int32_t* __restrict__ exp_pairs,     // [128, 64]
     float* __restrict__ pair_y),               // [B * 8, 2304]
     (w2_u128, s2_u32, a2, act_q8_u128, act_sc16, active_exps, exp_counts, exp_pairs, pair_y)) {
+    pdl_trigger();
     const int ex = active_exps[blockIdx.y];
     if (ex < 0) return;
     const int cnt = exp_counts[ex];
@@ -8706,6 +8799,7 @@ INK2_SCALE_KERNEL_LB(ink2_moe_mxfp8_verify_up_situ, 256, 2, (
     const int32_t* __restrict__ exp_pairs,     // [128, 64]
     float* __restrict__ act_out),              // [B * 8, 1152]
     (w13_u128, s13_u32, x4_base, active_exps, exp_counts, exp_toks, exp_pairs, act_out)) {
+    pdl_trigger();
     const int ex = active_exps[blockIdx.y];
     if (ex < 0) return;
     const int cnt = exp_counts[ex];
@@ -8779,6 +8873,7 @@ INK2_SCALE_KERNEL(ink2_moe_mxfp8_verify_down, (
     const int32_t* __restrict__ exp_pairs,     // [128, 64]
     float* __restrict__ pair_y),               // [B * 8, 2304]
     (w2_u128, s2_u32, act4_base, active_exps, exp_counts, exp_pairs, pair_y)) {
+    pdl_trigger();
     const int ex = active_exps[blockIdx.y];
     if (ex < 0) return;
     const int cnt = exp_counts[ex];
@@ -12073,6 +12168,7 @@ extern "C" __global__ void ink2_moe_combine_top8_vec4_b(
     float4* __restrict__ moe_out4,       // [B, 576]
     int32_t B) {
     pdl_wait();
+    pdl_trigger();
     const int d4 = blockIdx.x * 192 + threadIdx.x;
     const int b = blockIdx.y;
     if (d4 >= 576 || b >= B) return;
@@ -12111,6 +12207,7 @@ extern "C" __global__ void ink2_depth_mix_multi_b(
     int32_t broadcast3,
     int32_t n_q) {
     pdl_wait();
+    pdl_trigger();
     __shared__ float smem_sq[6][8];
     __shared__ float smem_dq[4][6][8];
     __shared__ float smem_probs[4][6];

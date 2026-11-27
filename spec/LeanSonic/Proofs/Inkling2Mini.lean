@@ -715,10 +715,10 @@ theorem cycle4_splitkv_all_kernels_valid :
 def kInk2CtrlDownR8B : KernelResourceSpec :=
   { name := "ink2_ctrl_down_r8_b"
     threadsPerCta := 256
-    rawRegsPerThread := 48
+    rawRegsPerThread := 56          -- first weight pass loaded before `pdl_wait` (#152): 4 CTAs
     userSmemPerCtaBytes := 18760
     smemAlignPadBytes := 0
-    ctasPerSm := 5
+    ctasPerSm := 4
     clusterCtas := 1
     minRequiredL1KiB := 28
     hasStackSpill := false
@@ -1719,7 +1719,7 @@ def kInk2GqaAttnCombineQ8Dyn : KernelResourceSpec :=
 def kInk2Q8Dp4aGemmB8Fast : KernelResourceSpec :=
   { name := "ink2_q8_dp4a_gemm_b8_fast"
     threadsPerCta := 256
-    rawRegsPerThread := 89          -- aligns to 96 -> 24,576 regs/CTA; 2 CTAs = 49,152 <= 65,536
+    rawRegsPerThread := 122         -- weights loaded before `pdl_wait` (#152): aligns to 128 -> 32,768 regs/CTA; 2 CTAs = 65,536 <= 65,536
     userSmemPerCtaBytes := 26112    -- 2 * (26,112 + 1,024) = 54,272 B <= 64 KiB carveout -> 64 KiB L1!
     smemAlignPadBytes := 0
     ctasPerSm := 2
@@ -2211,5 +2211,26 @@ def cycle9ConvFuseAndVerifyMoeSuite : List KernelResourceSpec :=
 
 theorem cycle9_conv_fuse_and_verify_moe_all_kernels_valid :
     (cycle9ConvFuseAndVerifyMoeSuite.all checkSm120Kernel) = true := by decide
+
+/-! ## Constant-weight prefetch under PDL (#152 P0-B)
+
+Speculative-verify and drafter kernels trigger their dependents right after `pdl_wait`, so the
+next kernel becomes resident early and loads its constant weights before its own wait. The verify
+router reads its 9 weight vectors per lane that way. -/
+
+/-- Verify router GEMV: one warp per expert row, `Grid (128, ceil(B / 4))`. -/
+def kInk2Bf16GemvRouterB : KernelResourceSpec :=
+  { name := "ink2_bf16_gemv_router_b"
+    threadsPerCta := 32
+    rawRegsPerThread := 112         -- 3,584 regs/CTA; 18 CTAs = 64,512 <= 65,536
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 18
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+theorem ink2_bf16_gemv_router_b_valid : ValidSm120Kernel kInk2Bf16GemvRouterB := by decide
 
 end LeanSonic.Proofs
