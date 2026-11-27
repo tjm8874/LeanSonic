@@ -76,7 +76,7 @@ def copy_bytes(src, out, count):
         count -= len(data)
 
 
-def pack(source, destination, packer, compact=False):
+def pack(source, destination, packer, compact=False, compact_markov=False):
     if destination.exists():
         raise FileExistsError(destination)
     with source.open("rb") as src, tempfile.TemporaryDirectory(dir=destination.parent) as temp:
@@ -142,6 +142,16 @@ def pack(source, destination, packer, compact=False):
             if name in segments:
                 raise ValueError(f"conflicting output {name}")
             lo, hi = tensor["data_offsets"]
+            if compact_markov and name == "markov_head.markov_w1.weight":
+                src.seek(base + lo)
+                frame = work / "markov.bf16planes"
+                with frame.open("xb") as out:
+                    subprocess.run([packer, "bf16planes-pack", str(hi - lo)],
+                                   stdin=src, stdout=out, check=True)
+                size = frame.stat().st_size
+                if 0 < size < hi - lo:
+                    segments[name + ".bf16planes_v1"] = ("U8", [size], frame, 0, size)
+                    continue
             segments[name] = (tensor["dtype"], tensor["shape"], source, base + lo, hi - lo)
 
         final = {"__metadata__": metadata}
@@ -168,5 +178,6 @@ if __name__ == "__main__":
     parser.add_argument("source", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--compact", action="store_true", help="losslessly entropy-code each Q8 plane when smaller")
+    parser.add_argument("--compact-markov", action="store_true", help="losslessly compress the BF16 Markov head")
     args = parser.parse_args()
-    print(pack(args.source, args.output, build_packer(), compact=args.compact))
+    print(pack(args.source, args.output, build_packer(), compact=args.compact, compact_markov=args.compact_markov))

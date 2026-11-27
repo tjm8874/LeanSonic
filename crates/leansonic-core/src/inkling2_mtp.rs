@@ -438,23 +438,21 @@ impl DsparkDrafterGpu {
         }
         let jb = DeviceBuf::from_host_bytes(ctx, &jb_bytes)?;
 
-        let w1_raw = st
-            .require(
-                "markov_head.markov_w1.weight",
-                "BF16",
-                &[PADDED_VOCAB, R_MARKOV],
-            )
-            .data;
+        let w1_raw = crate::inkling2_gpu::read_bf16_weight(
+            &st,
+            "markov_head.markov_w1.weight",
+            &[PADDED_VOCAB, R_MARKOV],
+        )?;
         let (_free_vram, total_vram) = ctx.mem_info().unwrap_or((0, 0));
         let use_vram_w1 = std::env::var("LEANSONIC_MTP_W1_VRAM")
             .ok()
             .map(|v| v != "0")
             .unwrap_or(total_vram >= (24 << 30));
         let (w1_dev_ptr, w1_vram, w1_pinned) = if use_vram_w1 {
-            let buf = DeviceBuf::from_host_bytes(ctx, w1_raw)?;
+            let buf = DeviceBuf::from_host_bytes(ctx, &w1_raw)?;
             (buf.ptr, Some(buf), None)
         } else {
-            let buf = PinnedHostBuf::from_bytes(ctx, w1_raw)?;
+            let buf = PinnedHostBuf::from_bytes(ctx, &w1_raw)?;
             (buf.dev_ptr, None, Some(buf))
         };
 

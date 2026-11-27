@@ -75,8 +75,8 @@ fn main() -> io::Result<()> {
     if let [mode, size] = args.as_slice() {
         if matches!(mode.as_str(), "bf16planes-size" | "bf16planes-pack") {
             let n: usize = size.parse().map_err(io::Error::other)?;
-            if n > 128 * 2304 * 2 {
-                return Err(io::Error::other("unexpected router/controller length"));
+            if n > 128 * 2304 * 2 && n != 201_024 * 256 * 2 {
+                return Err(io::Error::other("unexpected BF16 plane length"));
             }
             let mut raw = vec![0; n];
             io::stdin().lock().read_exact(&mut raw)?;
