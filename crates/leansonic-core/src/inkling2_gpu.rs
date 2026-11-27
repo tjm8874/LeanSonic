@@ -2768,6 +2768,7 @@ impl Inkling2GpuEngine {
         {
             return Err("mixed-even experts require one sequence, matching kernels, and exclusive packing of each weight plane".into());
         }
+        let mut mixed_scratch_bytes = 0;
         let mut mixed_layers = 0;
         for ([mut up, down], [up_on_device, down_on_device]) in
             expert_views.into_iter().zip(resident)
@@ -2782,6 +2783,7 @@ impl Inkling2GpuEngine {
                 if resident && mixed {
                     if let Some((buf, compact)) = view.place_mixed_even(&eng.ctx)? {
                         if compact {
+                            mixed_scratch_bytes = mixed_scratch_bytes.max(view.len());
                             eng.mixed_weight_ptrs.push(buf.ptr());
                         }
                         return Ok(buf);
@@ -2805,12 +2807,12 @@ impl Inkling2GpuEngine {
             st.discard_resident_pages();
         }
 
-        if !eng.mixed_weight_ptrs.is_empty() {
-            // Generic CUDA readers expand into a shared mapped host buffer on the same stream.
-            // Direct gate/up kernels only read the compact device weights.
-            eng.mixed_expert_scratch = Some(PinnedHostBuf::alloc_uninit(&eng.ctx, N_EXP * D * FF)?);
+        if mixed_scratch_bytes > 0 {
+            // Generic readers on the same stream share space for the largest packed projection.
+            eng.mixed_expert_scratch =
+                Some(PinnedHostBuf::alloc_uninit(&eng.ctx, mixed_scratch_bytes)?);
             eprintln!(
-                "[LeanSonic GPU] mixed-even expert planes {}",
+                "[LeanSonic GPU] mixed-even expert planes {}, mapped scratch {mixed_scratch_bytes} bytes",
                 eng.mixed_weight_ptrs.len()
             );
         }
@@ -3499,11 +3501,14 @@ impl Inkling2GpuEngine {
         mut cells: u32,
     ) -> Result<CUdeviceptr, String> {
         let mut src = weight.ptr();
-        let mut dst = self
+        let scratch = self
             .mixed_expert_scratch
             .as_ref()
-            .ok_or("missing mixed-even scratch")?
-            .dev_ptr;
+            .ok_or("missing mixed-even scratch")?;
+        if cells as usize * N_EXP * 16 > scratch.byte_len {
+            return Err("mixed-even expansion exceeds mapped scratch".into());
+        }
+        let mut dst = scratch.dev_ptr;
         let mut args = [
             (&mut src as *mut _) as *mut c_void,
             (&mut dst as *mut _) as *mut c_void,
