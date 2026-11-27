@@ -624,7 +624,178 @@
             "answer": "e14e728255ff427ae3f9717b74e586c1b2790080f02d5ddeb66c96fbe280f302"
           }
         }
-      }
+      },
+      "free": [
+        {
+          "case": "ja_name",
+          "encoding": "raw",
+          "text": "\ud842\udfb7\u91ce\u5bb6\ud83c\udf75",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 53,
+            "completion_tokens": 180,
+            "total_tokens": 233
+          },
+          "expected_prompt_tokens": 53,
+          "passed": true
+        },
+        {
+          "case": "en_count",
+          "encoding": "raw",
+          "text": "3",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 36,
+            "completion_tokens": 92,
+            "total_tokens": 128
+          },
+          "expected_prompt_tokens": 36,
+          "passed": true
+        },
+        {
+          "case": "ja_stock",
+          "encoding": "raw",
+          "text": "42",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 55,
+            "completion_tokens": 80,
+            "total_tokens": 135
+          },
+          "expected_prompt_tokens": 55,
+          "passed": true
+        },
+        {
+          "case": "en_sort",
+          "encoding": "raw",
+          "text": "[-2, 0, 3, 6, 6]",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 46,
+            "completion_tokens": 82,
+            "total_tokens": 128
+          },
+          "expected_prompt_tokens": 46,
+          "passed": true
+        },
+        {
+          "case": "ja_reading",
+          "encoding": "raw",
+          "text": "C",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 63,
+            "completion_tokens": 129,
+            "total_tokens": 192
+          },
+          "expected_prompt_tokens": 63,
+          "passed": true
+        },
+        {
+          "case": "en_boolean",
+          "encoding": "raw",
+          "text": "{\"ready\":false,\"count\":0}",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 38,
+            "completion_tokens": 65,
+            "total_tokens": 103
+          },
+          "expected_prompt_tokens": 38,
+          "passed": true
+        },
+        {
+          "case": "ja_filter",
+          "encoding": "raw",
+          "text": "[4, 8, 6]",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 61,
+            "completion_tokens": 112,
+            "total_tokens": 173
+          },
+          "expected_prompt_tokens": 61,
+          "passed": true
+        },
+        {
+          "case": "en_code",
+          "encoding": "raw",
+          "text": "pio",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 51,
+            "completion_tokens": 107,
+            "total_tokens": 158
+          },
+          "expected_prompt_tokens": 51,
+          "passed": true
+        },
+        {
+          "case": "ja_time",
+          "encoding": "raw",
+          "text": "15:20",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 42,
+            "completion_tokens": 160,
+            "total_tokens": 202
+          },
+          "expected_prompt_tokens": 42,
+          "passed": true
+        },
+        {
+          "case": "en_extract",
+          "encoding": "raw",
+          "text": "green",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 47,
+            "completion_tokens": 50,
+            "total_tokens": 97
+          },
+          "expected_prompt_tokens": 47,
+          "passed": true
+        },
+        {
+          "case": "ja_json",
+          "encoding": "raw",
+          "text": "{\"item\":\"\u8336\",\"quantity\":2}",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 59,
+            "completion_tokens": 136,
+            "total_tokens": 195
+          },
+          "expected_prompt_tokens": 59,
+          "passed": true
+        },
+        {
+          "case": "en_days",
+          "encoding": "raw",
+          "text": "Monday",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 37,
+            "completion_tokens": 113,
+            "total_tokens": 150
+          },
+          "expected_prompt_tokens": 37,
+          "passed": true
+        },
+        {
+          "case": "ja_name",
+          "encoding": "repeat",
+          "text": "\ud842\udfb7\u91ce\u5bb6\ud83c\udf75",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 53,
+            "completion_tokens": 180,
+            "total_tokens": 233
+          },
+          "expected_prompt_tokens": 53,
+          "passed": true
+        }
+      ]
     }
   },
   "middle": {
@@ -1252,7 +1423,178 @@
             "answer": "e14e728255ff427ae3f9717b74e586c1b2790080f02d5ddeb66c96fbe280f302"
           }
         }
-      }
+      },
+      "free": [
+        {
+          "case": "ja_name",
+          "encoding": "raw",
+          "text": "\ud842\udfb7\u91ce\u5bb6\ud83c\udf75",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 53,
+            "completion_tokens": 306,
+            "total_tokens": 359
+          },
+          "expected_prompt_tokens": 53,
+          "passed": true
+        },
+        {
+          "case": "en_count",
+          "encoding": "raw",
+          "text": "3",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 36,
+            "completion_tokens": 92,
+            "total_tokens": 128
+          },
+          "expected_prompt_tokens": 36,
+          "passed": true
+        },
+        {
+          "case": "ja_stock",
+          "encoding": "raw",
+          "text": "42",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 55,
+            "completion_tokens": 80,
+            "total_tokens": 135
+          },
+          "expected_prompt_tokens": 55,
+          "passed": true
+        },
+        {
+          "case": "en_sort",
+          "encoding": "raw",
+          "text": "[-2, 0, 3, 6, 6]",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 46,
+            "completion_tokens": 82,
+            "total_tokens": 128
+          },
+          "expected_prompt_tokens": 46,
+          "passed": true
+        },
+        {
+          "case": "ja_reading",
+          "encoding": "raw",
+          "text": "C",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 63,
+            "completion_tokens": 135,
+            "total_tokens": 198
+          },
+          "expected_prompt_tokens": 63,
+          "passed": true
+        },
+        {
+          "case": "en_boolean",
+          "encoding": "raw",
+          "text": "{\"ready\":false,\"count\":0}",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 38,
+            "completion_tokens": 62,
+            "total_tokens": 100
+          },
+          "expected_prompt_tokens": 38,
+          "passed": true
+        },
+        {
+          "case": "ja_filter",
+          "encoding": "raw",
+          "text": "[4, 8, 6]",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 61,
+            "completion_tokens": 110,
+            "total_tokens": 171
+          },
+          "expected_prompt_tokens": 61,
+          "passed": true
+        },
+        {
+          "case": "en_code",
+          "encoding": "raw",
+          "text": "pio",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 51,
+            "completion_tokens": 107,
+            "total_tokens": 158
+          },
+          "expected_prompt_tokens": 51,
+          "passed": true
+        },
+        {
+          "case": "ja_time",
+          "encoding": "raw",
+          "text": "15:20",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 42,
+            "completion_tokens": 193,
+            "total_tokens": 235
+          },
+          "expected_prompt_tokens": 42,
+          "passed": true
+        },
+        {
+          "case": "en_extract",
+          "encoding": "raw",
+          "text": "green",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 47,
+            "completion_tokens": 62,
+            "total_tokens": 109
+          },
+          "expected_prompt_tokens": 47,
+          "passed": true
+        },
+        {
+          "case": "ja_json",
+          "encoding": "raw",
+          "text": "{\"item\":\"\u8336\",\"quantity\":2}",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 59,
+            "completion_tokens": 135,
+            "total_tokens": 194
+          },
+          "expected_prompt_tokens": 59,
+          "passed": true
+        },
+        {
+          "case": "en_days",
+          "encoding": "raw",
+          "text": "Monday",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 37,
+            "completion_tokens": 112,
+            "total_tokens": 149
+          },
+          "expected_prompt_tokens": 37,
+          "passed": true
+        },
+        {
+          "case": "ja_name",
+          "encoding": "repeat",
+          "text": "\ud842\udfb7\u91ce\u5bb6\ud83c\udf75",
+          "finish": "stop",
+          "usage": {
+            "prompt_tokens": 53,
+            "completion_tokens": 306,
+            "total_tokens": 359
+          },
+          "expected_prompt_tokens": 53,
+          "passed": true
+        }
+      ]
     }
   }
 }

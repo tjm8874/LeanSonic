@@ -30,6 +30,10 @@ Each WikiText-2 split scores 25,500 positions using a 512-token context and the 
 
 On the test split, compact beats original Q3 on all four reported metrics while saving 5,032,042 distribution bytes. Relative to canonical LeanSonic, compact loses 576 top-1 matches and increases mean KL. Keep the canonical default.
 
+At a 384-token generation cap, compact answered 12/12 of the independent English/Japanese tasks correctly. Canonical scored 12/12 and original Q3 scored 11/12.
+
+At a 384-token generation cap, middle answered 12/12 of the independent English/Japanese tasks correctly. Canonical scored 12/12 and original Q3 scored 11/12.
+
 ## Matched speed on RTX PRO 4500
 
 Both engines used context 8,192, one sequence, FP16 KV, greedy decoding, the same 1,024 README tokens and 32 forced decode inputs. Original Q3 offloaded 25/25 layers. Five mirrored ABBA/BAAB cycles used 10 fresh processes per arm, each with one excluded warm-up plus four timed requests. Peaks are process GPU allocations sampled every 4 ms across loading and inference.
