@@ -6,6 +6,8 @@ Both engines processed the same 1,024 prompt IDs, then 32 identical teacher-forc
 |---|---|---:|---:|---:|---:|---:|
 | PRO4500 | LeanSonic #117 | 120.611 / 8,490.1 | 200.999 / 159.21 | 18,111,004,672 | 15,724,161,014 | 32 |
 | PRO4500 | Unsloth original IQ4_XS | 458.140 / 2,235.1 | 413.169 / 77.45 | 18,928,893,952 | 15,733,755,232 | 30 |
+| PRO5000 | LeanSonic #117 | 89.718 / 11,413.6 | 155.548 / 205.72 | 18,253,611,008 | 15,724,161,014 | 32 |
+| PRO5000 | Unsloth original IQ4_XS | 411.600 / 2,487.9 | 381.227 / 83.94 | 19,023,265,792 | 15,733,755,232 | 31 |
 
 LeanSonic used the #117 shard (including its separate tokenizer for distribution size), FP16 KV, and the PDL kernels. The comparison uses the original 48-slot GGUF and its matching prebuilt CUDA backend, with 25/25 reported layers on GPU. Fixed continuations keep the two engines on exactly the same history when their predictions differ. The match count uses the committed continuation; corpus KL and perplexity need the separate BF16 reference. [Quality control on the original release](https://github.com/tjm8874/LeanSonic/issues/78#issuecomment-7212074361).
 

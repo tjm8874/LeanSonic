@@ -5,6 +5,45 @@ use std::io::{self, Read, Write};
 
 fn main() -> io::Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    // Existing raw, byte-rANS and contextual planes can all produce the same canonical frame.
+    if let [mode, size, rest @ ..] = args.as_slice() {
+        if matches!(mode.as_str(), "nvctx-zero-size" | "nvctx-zero-pack") {
+            let max = 128 * 2304 * 1152;
+            let length = |s: &str| -> io::Result<usize> {
+                s.parse::<usize>()
+                    .ok()
+                    .filter(|n| (1..=max).contains(n))
+                    .ok_or_else(|| io::Error::other("invalid NVFP4 plane length"))
+            };
+            let size = length(size)?;
+            let mut input = vec![0; size];
+            io::stdin().lock().read_exact(&mut input)?;
+            let mut raw = match rest {
+                [] => input,
+                [codec, count] if matches!(codec.as_str(), "rans" | "nvctx") => {
+                    leansonic_core::inkling_mxfp8::unpack_nvfp4_codes(
+                        &input,
+                        length(count)?,
+                        codec == "nvctx",
+                    )
+                    .map_err(io::Error::other)?
+                }
+                _ => return Err(io::Error::other("invalid NVFP4 source encoding")),
+            };
+            leansonic_core::inkling_mxfp8::canonicalize_nvfp4_zeros(&mut raw);
+            if mode.ends_with("-size") {
+                println!(
+                    "{}",
+                    leansonic_core::inkling_mxfp8::pack_nvfp4_context(&raw, io::sink())?
+                );
+            } else {
+                let mut out = io::BufWriter::new(io::stdout().lock());
+                leansonic_core::inkling_mxfp8::pack_nvfp4_context(&raw, &mut out)?;
+                out.flush()?;
+            }
+            return Ok(());
+        }
+    }
     if let [mode, size, width] = args.as_slice() {
         if matches!(
             mode.as_str(),
