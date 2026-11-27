@@ -477,7 +477,8 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
                     .and_then(|s| s.parse().ok())
             })
             .unwrap_or(default_spec);
-        let mut gpu = Inkling2GpuEngine::load_from_dir_with_spec(dir, max_ctx, true, spec_k)?;
+        let mut gpu =
+            Inkling2GpuEngine::load_for_prompt(dir, max_ctx, true, spec_k, prompt_ids.len())?;
 
         let (next, prefill_ms) = gpu.prefill_tokens(&prompt_ids)?;
         let t_gen = Instant::now();
@@ -784,7 +785,8 @@ fn cmd_bench(args: &[String]) -> Result<(), String> {
         })
         .unwrap_or(default_spec);
 
-    let mut gpu = Inkling2GpuEngine::load_from_dir_with_spec(dir, max_ctx, use_graph, spec_k)?;
+    let mut gpu =
+        Inkling2GpuEngine::load_for_prompt(dir, max_ctx, use_graph, spec_k, prompt_ids.len())?;
 
     for run_idx in 0..repeat {
         gpu.reset()?;

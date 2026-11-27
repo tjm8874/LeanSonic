@@ -835,6 +835,12 @@ fn extend_expert_placement(
     resident
 }
 
+fn known_prompt_limit(tokens: usize) -> usize {
+    tokens
+        .clamp(EXPERT_PAGE, MAX_BATCH_TOKENS)
+        .next_power_of_two()
+}
+
 impl Inkling2GpuEngine {
     pub fn load_from_dir(
         model_dir: impl AsRef<Path>,
@@ -854,7 +860,30 @@ impl Inkling2GpuEngine {
         enable_cuda_graph: bool,
         spec_k: usize,
     ) -> Result<Self, String> {
-        Self::load_model_path(model_dir.as_ref(), max_ctx, enable_cuda_graph, spec_k)
+        Self::load_model_path(
+            model_dir.as_ref(),
+            max_ctx,
+            enable_cuda_graph,
+            spec_k,
+            MAX_BATCH_TOKENS,
+        )
+    }
+
+    /// Size the prefill workspace for a prompt already tokenized by the caller.
+    pub fn load_for_prompt(
+        model_dir: impl AsRef<Path>,
+        max_ctx: usize,
+        enable_cuda_graph: bool,
+        spec_k: usize,
+        prompt_tokens: usize,
+    ) -> Result<Self, String> {
+        Self::load_model_path(
+            model_dir.as_ref(),
+            max_ctx,
+            enable_cuda_graph,
+            spec_k,
+            known_prompt_limit(prompt_tokens),
+        )
     }
 
     // Share the loader across callers passing different path types.
@@ -863,6 +892,7 @@ impl Inkling2GpuEngine {
         max_ctx: usize,
         enable_cuda_graph: bool,
         spec_k: usize,
+        prompt_limit: usize,
     ) -> Result<Self, String> {
         let spec_k = spec_k.min(MAX_SPEC_TOKENS - 1);
         let t_load = Instant::now();
@@ -1555,7 +1585,7 @@ impl Inkling2GpuEngine {
                 .ok()
                 .filter(|n| (EXPERT_PAGE..=MAX_BATCH_TOKENS).contains(n) && n.is_power_of_two())
                 .ok_or("LEANSONIC_PREFILL_CHUNK must be 64, 128, 256, 512 or 1024")?,
-            Err(std::env::VarError::NotPresent) => MAX_BATCH_TOKENS,
+            Err(std::env::VarError::NotPresent) => prompt_limit,
             Err(e) => return Err(e.to_string()),
         };
         if eng.fns.build_expert_groups_wide_b.is_some() {
@@ -5197,6 +5227,23 @@ impl Inkling2GpuEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn known_prompt_rounds_up_to_a_supported_workspace() {
+        for (tokens, width) in [
+            (0, 64),
+            (1, 64),
+            (64, 64),
+            (65, 128),
+            (255, 256),
+            (257, 512),
+            (513, 1024),
+            (1024, 1024),
+            (usize::MAX, 1024),
+        ] {
+            assert_eq!(known_prompt_limit(tokens), width);
+        }
+    }
 
     #[test]
     #[ignore = "requires a CUDA device"]
