@@ -49,8 +49,12 @@ pub fn unpack_scale_split(frame: &[u8], scales: &[u8]) -> Result<Vec<u8>, Box<dy
     let header = frame.get(128..144).ok_or("missing sizes")?;
     let mut sizes = [0usize; 2];
     let groups_per_expert = scales.len() / 128;
-    for (i, &scale) in scales.iter().enumerate() {
-        sizes[arm(scale, cuts[i / groups_per_expert])] += 8;
+    let mut starts = [[0usize; 2]; 128];
+    for (expert, group) in scales.chunks_exact(groups_per_expert).enumerate() {
+        starts[expert] = sizes;
+        let lower = group.iter().filter(|&&scale| scale < cuts[expert]).count();
+        sizes[0] += (group.len() - lower) * 8;
+        sizes[1] += lower * 8;
     }
     let mut data = &frame[144..];
     let mut parts = [Vec::new(), Vec::new()];
@@ -70,13 +74,32 @@ pub fn unpack_scale_split(frame: &[u8], scales: &[u8]) -> Result<Vec<u8>, Box<dy
     if !data.is_empty() {
         return Err("trailing bytes".into());
     }
-    let mut pos = [0usize; 2];
-    let mut out = Vec::with_capacity(scales.len() * 8);
-    for (i, &scale) in scales.iter().enumerate() {
-        let j = arm(scale, cuts[i / groups_per_expert]);
-        out.extend_from_slice(&parts[j][pos[j]..pos[j] + 8]);
-        pos[j] += 8;
-    }
+    let bytes_per_expert = groups_per_expert * 8;
+    let workers = std::thread::available_parallelism().map_or(1, |n| n.get().min(24));
+    let experts_per_worker = cuts.len().div_ceil(workers);
+    let mut out = vec![0; scales.len() * 8];
+    let parts = &parts;
+    std::thread::scope(|scope| {
+        for (worker, dst) in out
+            .chunks_mut(bytes_per_expert * experts_per_worker)
+            .enumerate()
+        {
+            let first = worker * experts_per_worker;
+            let starts = &starts;
+            scope.spawn(move || {
+                for (local, expert_dst) in dst.chunks_exact_mut(bytes_per_expert).enumerate() {
+                    let expert = first + local;
+                    let mut pos = starts[expert];
+                    let row = &scales[expert * groups_per_expert..(expert + 1) * groups_per_expert];
+                    for (&scale, block) in row.iter().zip(expert_dst.chunks_exact_mut(8)) {
+                        let side = arm(scale, cuts[expert]);
+                        block.copy_from_slice(&parts[side][pos[side]..pos[side] + 8]);
+                        pos[side] += 8;
+                    }
+                }
+            });
+        }
+    });
     Ok(out)
 }
 
