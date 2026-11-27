@@ -9,6 +9,7 @@ Each configuration alternates 32 and 1,024 input IDs for four passes. Each resul
 | GPU | Configurations | Requests per configuration | Matched outputs |
 |---|---:|---:|---|
 | 5070Ti | 3 | 8 | All 64 IDs, next prediction and logit hash |
+| 5060Ti | 3 | 8 | All 64 IDs, next prediction and logit hash |
 
 ## Four-sequence verification
 
