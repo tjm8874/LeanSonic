@@ -11,6 +11,16 @@ The compact shard keeps exactly the same symbols and assignment for every weight
 
 The reconstruction tables change 361,479,065 out of 4,076,863,488 weights. The same 3,538,944 bytes of lookup tables plus their manifest take 59,343 bytes in a deterministic ZIP. The resulting three-file distribution is 4,972,699 bytes smaller than the original Unsloth Q3_K_XL GGUF. A stock engine reads the **materialized** package, which occupies 13,732,128,366 bytes. Unpack and apply the tables before loading the stock engine; loading the unchanged compact shard alone would bypass the fitted values.
 
+## BF16 comparison
+
+| Fixture | Package | Mean KL | Worst KL | Top-1 | PPL |
+|---|---|---:|---:|---:|---:|
+| test | compact | 0.0137735 | 0.7519345 | 24,289/25,500 | 7.131377 |
+| test | group tables | 0.0136808 | 0.7296384 | 24,282/25,500 | 7.129212 |
+| valid | compact | 0.0131739 | 0.9835867 | 24,341/25,500 | 6.564200 |
+| valid | group tables | 0.0130798 | 0.9699828 | 24,342/25,500 | 6.563246 |
+
+WikiText uses the same PRO 4500 scorer and 100 chunks per split as compact. The bilingual suite uses the same PRO 5000 full-vocabulary capture and checks exact repeat bytes.
 
 ## Reproduce
 

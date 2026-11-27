@@ -104,5 +104,40 @@
       "sha256": "d863398a67f8593e75bdd24330d99deeb7e8ba5b7260d732bf724821c5e0c403"
     }
   },
-  "quality": {}
+  "quality": {
+    "test": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.1292115212449705,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.013680796572222013,
+      "median_kld": 0.007046766179811703,
+      "p99_kld": 0.11446629362621996,
+      "max_kld": 0.7296384172066802,
+      "start_chunk": 0,
+      "max_kld_chunk": 69,
+      "max_kld_position": 353,
+      "ref_floor_targets": 14,
+      "top1_matches": 24282,
+      "top1_agreement": 0.9522352941176471
+    },
+    "valid": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 6.5632459479294765,
+      "ref_ppl": 6.498588819010602,
+      "mean_kld": 0.013079794924852613,
+      "median_kld": 0.006173471903009917,
+      "p99_kld": 0.11949656331662156,
+      "max_kld": 0.9699827690734707,
+      "start_chunk": 0,
+      "max_kld_chunk": 7,
+      "max_kld_position": 467,
+      "ref_floor_targets": 10,
+      "top1_matches": 24342,
+      "top1_agreement": 0.9545882352941176
+    }
+  }
 }
