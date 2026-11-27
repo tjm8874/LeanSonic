@@ -24,12 +24,18 @@ fn ordered(x: f32) -> u32 {
 }
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = env::args().skip(1).collect();
-    let [model, prompt, n, prefill] = args.as_slice() else {
-        return Err("expected MODEL INPUT.ids SEQUENCES <64|auto>".into());
+    let (core, first_len) = match args.as_slice() {
+        [a, b, c, d] => ([a, b, c, d], 32usize),
+        [a, b, c, d, first] => ([a, b, c, d], first.parse()?),
+        _ => return Err("expected MODEL INPUT.ids SEQUENCES <64|auto> [FIRST_LENGTH]".into()),
     };
+    let [model, prompt, n, prefill] = core;
     let n: usize = n.parse()?;
     if !(2..=64).contains(&n) {
         return Err("expected 2..64 sequences".into());
+    }
+    if !(1..=255 - n).contains(&first_len) {
+        return Err("prompt and two decode steps must fit context 256".into());
     }
     match prefill.as_str() {
         "64" => env::set_var("LEANSONIC_PREFILL_CHUNK", "64"),
@@ -44,7 +50,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if ids.len() != 1024 || ids.iter().any(|&x| x >= VOCAB as u32) {
         return Err("expected the 1024-token fixture".into());
     }
-    let prompts: Vec<_> = (0..n).map(|s| &ids[3 * s..3 * s + 32 + s]).collect();
+    let prompts: Vec<_> = (0..n).map(|s| &ids[3 * s..3 * s + first_len + s]).collect();
     let forced = |slot: usize, step: usize| ids[512 + slot * 2 + step];
     env::set_var("LEANSONIC_SEQS", "1");
     let mut reference = Inkling2GpuEngine::load_from_dir_with_spec(Path::new(model), 256, true, 0)?;
@@ -67,11 +73,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     drop(reference);
     env::set_var("LEANSONIC_SEQS", n.to_string());
     let mut batch = Inkling2GpuEngine::load_from_dir_with_spec(Path::new(model), 256, true, 0)?;
+    let mut prefill_diff = 0;
     for (s, p) in prompts.iter().enumerate() {
         batch.select_seq(s)?;
         batch.reset()?;
-        if batch.prefill_tokens(p)?.0 != first[s] {
-            return Err("prefill first token changed".into());
+        let next = batch.prefill_tokens(p)?.0;
+        if next != first[s] {
+            prefill_diff += 1;
+            println!("prefill,{s},{},{next}", first[s]);
         }
     }
     let mut total_diff = 0u64;
@@ -104,7 +113,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
     println!("total,{n},{},{total_diff},{top_diff}", 2 * n * VOCAB);
-    if total_diff != 0 {
+    if total_diff != 0 || prefill_diff != 0 {
         return Err("independent sequence and batched logits differ; see CSV rows".into());
     }
     Ok(())
