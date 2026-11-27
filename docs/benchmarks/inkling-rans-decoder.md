@@ -11,7 +11,7 @@ The model package and the GPU code were identical across each pair. The CPU load
 
 For each of the 233 compressed tensors we compared the decoded bytes with the source. This covered 1,106,938,368 native Q8 bytes, 1,401,421,824 expert scale bytes and 4,076,863,488 MXFP8 expert weight bytes. On PRO 4500 and RTX 5070 Ti the last input position's complete 200,058 FP32 logits matched the previous loader byte-for-byte. A separate greedy generation matched its 16 output IDs.
 
-The new loader on PRO 5000 produced a byte-identical 100-chunk BF16 score report. Across 25,500 positions, mean KL was 0.003175526, maximum KL 0.674716, top-1 agreement 24,879/25,500 and PPL 7.072582 (BF16 7.064408).
+The new loader on PRO 5000 produced a byte-identical 100-chunk BF16 score report. Across 25,500 positions, mean KL was 0.003175526, maximum KL 0.674716, top-1 agreement 24,879/25,500 and PPL 7.072582. The stored BF16 reference gives PPL 7.064408 after decoding its clipped probabilities. The [original BF16 generator](../inkling-reference.md) reported PPL 7.0724 from raw logits.
 
 ## Reproduction
 
