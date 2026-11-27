@@ -67,7 +67,8 @@ EMBED_SHAPE = [201_024, 2304]
 
 
 def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack_attention: bool = False,
-         prepack_scales: bool = False, prepack_embedding: bool = False, prepack_mxfp8: bool = False) -> tuple[int, int]:
+         prepack_scales: bool = False, prepack_embedding: bool = False, prepack_mxfp8: bool = False,
+         entropy_scales: bool = False) -> tuple[int, int]:
     """Publish a complete shard atomically without replacing an existing file."""
     if destination.exists():
         raise FileExistsError(f"destination exists: {destination}")
@@ -112,11 +113,14 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
             if prefix + "codes" in header or prefix + "scales" in header:
                 raise ValueError(f"input contains conflicting native tensors for {name}")
 
-        scales = expert_scale_tensors() if prepack_scales else {}
+        if prepack_scales and entropy_scales:
+            raise ValueError("choose one expert scale format")
+        scales = expert_scale_tensors() if prepack_scales or entropy_scales else {}
         for name in scales:
-            if name not in header or name + ".range_v1" in header:
+            if name not in header or name + ".range_v1" in header or name + ".rans_v1" in header:
                 raise ValueError(f"missing or conflicting source expert scales for {name}")
-        lossless = {name: (dtype, shape, "scale", ".range_v1") for name, (dtype, shape) in scales.items()}
+        scale_mode, scale_suffix = ("rans", ".rans_v1") if entropy_scales else ("scale", ".range_v1")
+        lossless = {name: (dtype, shape, scale_mode, scale_suffix) for name, (dtype, shape) in scales.items()}
         if prepack_mxfp8:
             for name, shape in mxfp8_expert_weights().items():
                 if name not in header or name + ".rans_v1" in header:
@@ -225,13 +229,16 @@ def main() -> None:
     parser.add_argument("destination", type=Path, help="new text-only safetensors shard")
     parser.add_argument("--prepack-head", action="store_true", help="store LeanSonic native output-head weights (requires Cargo)")
     parser.add_argument("--prepack-attention", action="store_true", help="store native Q8_64 attention projections (requires Cargo)")
-    parser.add_argument("--prepack-scales", action="store_true", help="store lossless packed MoE expert scales (requires Cargo)")
+    scale_group = parser.add_mutually_exclusive_group()
+    scale_group.add_argument("--entropy-scales", action="store_true", help="store MoE expert scales with lossless byte rANS")
+    scale_group.add_argument("--prepack-scales", action="store_true", help="store lossless packed MoE expert scales (requires Cargo)")
     parser.add_argument("--prepack-embedding", action="store_true", help="store the BF16 input embedding losslessly (requires Cargo)")
     parser.add_argument("--prepack-mxfp8", action="store_true", help="store MXFP8 expert weights losslessly (requires Cargo)")
     args = parser.parse_args()
     try:
         removed, saved = pack(args.source, args.destination, prepack_head=args.prepack_head, prepack_attention=args.prepack_attention,
-                              prepack_scales=args.prepack_scales, prepack_embedding=args.prepack_embedding, prepack_mxfp8=args.prepack_mxfp8)
+                              prepack_scales=args.prepack_scales, prepack_embedding=args.prepack_embedding, prepack_mxfp8=args.prepack_mxfp8,
+                              entropy_scales=args.entropy_scales)
     except (OSError, ValueError, TypeError, KeyError, subprocess.CalledProcessError) as exc:
         parser.exit(1, f"pack failed: {exc}\n")
     print(f"Omitted {removed} vision tensors. Saved {saved:,} bytes.")

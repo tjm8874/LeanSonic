@@ -261,6 +261,7 @@ struct ExpertScalePlane {
 enum ExpertScaleSource<'a> {
     Raw(&'a [u8]),
     RangeV1(&'a [u8]),
+    RansV1(&'a [u8]),
 }
 
 impl ExpertScaleSource<'_> {
@@ -278,6 +279,9 @@ impl ExpertScaleSource<'_> {
                 Ok(())
             }
             Self::RangeV1(frame) => crate::inkling_scales::unpack_scales(frame, count, emit),
+            Self::RansV1(frame) => {
+                crate::inkling_mxfp8::Matrix::parse(frame, count)?.for_each_chunk(emit)
+            }
         }
     }
 
@@ -313,7 +317,7 @@ impl ExpertScaleSource<'_> {
         }
         let buffer = match self {
             Self::Raw(bytes) => DeviceBuf::from_host_bytes(ctx, bytes)?,
-            Self::RangeV1(_) => {
+            Self::RangeV1(_) | Self::RansV1(_) => {
                 let buffer = DeviceBuf::alloc_zeroed(ctx, count)?;
                 self.tiles(count, |offset, bytes| {
                     buffer.copy_from_host_at(offset, bytes)
@@ -777,19 +781,9 @@ impl<'a> ExpertMatrix<'a> {
                 if on_device {
                     match DeviceBuf::alloc_zeroed(ctx, count) {
                         Ok(buf) => {
-                            // Bound temporary host memory even for a 648 MiB expert matrix.
-                            let mut staging = vec![0u8; count.min(16 << 20)];
-                            let chunk = staging.len();
-                            for offset in (0..count).step_by(chunk) {
-                                let len = chunk.min(count - offset);
-                                let dst = &mut staging[..len];
-                                // decode_at writes only initialized bytes; upload after successful decode.
-                                let target = unsafe {
-                                    std::slice::from_raw_parts_mut(dst.as_mut_ptr().cast(), len)
-                                };
-                                matrix.decode_at(offset, target)?;
-                                buf.copy_from_host_at(offset, dst)?;
-                            }
+                            matrix.for_each_chunk(|offset, bytes| {
+                                buf.copy_from_host_at(offset, bytes)
+                            })?;
                             return Ok(TierBuf::Vram(buf));
                         }
                         Err(e) if e.starts_with("CUDA error 2 in `cuMemAlloc_v2`") => {}
@@ -1314,14 +1308,21 @@ impl Inkling2GpuEngine {
 
             let load_scale = |name: &str, dtype: &str, shape: &[usize]| {
                 let count = shape.iter().product();
-                let source = match (st.get(name), st.get(&format!("{name}.range_v1"))) {
-                    (Some(t), None)
+                let source = match (
+                    st.get(name),
+                    st.get(&format!("{name}.range_v1")),
+                    st.get(&format!("{name}.rans_v1")),
+                ) {
+                    (Some(t), None, None)
                         if t.dtype == dtype && t.shape == shape && t.data.len() == count =>
                     {
                         ExpertScaleSource::Raw(t.data)
                     }
-                    (None, Some(t)) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                    (None, Some(t), None) if t.dtype == "U8" && t.shape == [t.data.len()] => {
                         ExpertScaleSource::RangeV1(t.data)
+                    }
+                    (None, None, Some(t)) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                        ExpertScaleSource::RansV1(t.data)
                     }
                     _ => {
                         return Err(format!(

@@ -156,6 +156,38 @@ class PackInklingTextTest(unittest.TestCase):
                 pack(src, other, prepack_embedding=True)
             self.assertFalse(other.exists())
 
+    def test_entropy_scales_choose_each_plane_and_reject_collisions(self):
+        scales = {"s13": ("F8_E4M3", [1024]), "s2": ("U8", [256])}
+        payload = b"EEHH" + bytes([43]) * 1024 + bytes(range(256)) + b"TAIL"
+        header = {
+            "model.llm.embed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [0, 2]},
+            "model.llm.unembed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [2, 4]},
+            "s13": {"dtype": "F8_E4M3", "shape": [1024], "data_offsets": [4, 1028]},
+            "s2": {"dtype": "U8", "shape": [256], "data_offsets": [1028, 1284]},
+            "tail": {"dtype": "F32", "shape": [1], "data_offsets": [1284, 1288]},
+        }
+        with tempfile.TemporaryDirectory() as tmp, patch("pack_inkling_text.expert_scale_tensors", return_value=scales):
+            src, dst = Path(tmp) / "source", Path(tmp) / "packed"
+            def write_input():
+                encoded = json.dumps(header).encode()
+                src.write_bytes(struct.pack("<Q", len(encoded)) + encoded + payload)
+            write_input()
+            pack(src, dst, entropy_scales=True)
+            with dst.open("rb") as f:
+                out = json.loads(f.read(struct.unpack("<Q", f.read(8))[0]))
+                result = f.read()
+            self.assertEqual(out["s13.rans_v1"]["shape"], [536])
+            self.assertNotIn("s13", out)
+            self.assertEqual(result[out["s2"]["data_offsets"][0]:], bytes(range(256)) + b"TAIL")
+            for suffix in (".range_v1", ".rans_v1"):
+                header["s13" + suffix] = {"dtype": "U8", "shape": [0], "data_offsets": [1288, 1288]}
+                write_input()
+                bad = Path(tmp) / ("bad" + suffix)
+                with self.assertRaisesRegex(ValueError, "conflicting source expert scales"):
+                    pack(src, bad, entropy_scales=True)
+                self.assertFalse(bad.exists())
+                del header["s13" + suffix]
+
     def test_mxfp8_encoding_is_optional_per_matrix(self):
         weights = {"mx.a": [1024], "mx.b": [256]}
         data = b"EEHH" + bytes([63])*1024 + bytes(range(256)) + b"TAIL"
