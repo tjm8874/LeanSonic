@@ -1,0 +1,131 @@
+{
+  "package_bytes": 11663036518,
+  "scorer_sha256": "0801d825f4095c8553b4d7f29c1b0d8014c50cb39b8ebd76a7c37e0f44177641",
+  "cubin_sha256": "65fb004d7d44c3d5450b7146dc9e3cb302d728ac35f1bcda2cf162a51c6dfb6d",
+  "splits": {
+    "test": {
+      "four": {
+        "result": {
+          "chunks": 100,
+          "context": 512,
+          "rows": 25500,
+          "ppl": 7.158300177588255,
+          "ref_ppl": 7.064408191101908,
+          "mean_kld": 0.023083792661816212,
+          "median_kld": 0.01142065315099583,
+          "p99_kld": 0.19984918356421819,
+          "max_kld": 2.48092464982939,
+          "start_chunk": 0,
+          "max_kld_chunk": 23,
+          "max_kld_position": 330,
+          "ref_floor_targets": 14,
+          "top1_matches": 23829,
+          "top1_agreement": 0.9344705882352942
+        },
+        "output_sha256": "b29065b9a920af9bf64647cbce094668b778751521e657dbe6553c4a86faa7c9"
+      },
+      "whole_planes": {
+        "result": {
+          "chunks": 100,
+          "context": 512,
+          "rows": 25500,
+          "ppl": 7.157658304899744,
+          "ref_ppl": 7.064408191101908,
+          "mean_kld": 0.02257543312129972,
+          "median_kld": 0.01104953952461224,
+          "p99_kld": 0.19618627196885194,
+          "max_kld": 2.5457894196561073,
+          "start_chunk": 0,
+          "max_kld_chunk": 23,
+          "max_kld_position": 330,
+          "ref_floor_targets": 14,
+          "top1_matches": 23842,
+          "top1_agreement": 0.9349803921568628
+        },
+        "output_sha256": "666b702ed53e9e6045d0579bf1f240693a42432d349306713433370b76a73b1b"
+      },
+      "ranked68": {
+        "result": {
+          "chunks": 100,
+          "context": 512,
+          "rows": 25500,
+          "ppl": 7.13965125371239,
+          "ref_ppl": 7.064408191101908,
+          "mean_kld": 0.02162204834452526,
+          "median_kld": 0.010500882842079205,
+          "p99_kld": 0.1854982596201274,
+          "max_kld": 2.7777588587481086,
+          "start_chunk": 0,
+          "max_kld_chunk": 23,
+          "max_kld_position": 330,
+          "ref_floor_targets": 14,
+          "top1_matches": 23871,
+          "top1_agreement": 0.9361176470588235
+        },
+        "output_sha256": "eab2eb4e1c58383b1bccd7361365d5fd8961e9e8fbe7f6b11d51e055bd7fa790"
+      }
+    },
+    "valid": {
+      "four": {
+        "result": {
+          "chunks": 100,
+          "context": 512,
+          "rows": 25500,
+          "ppl": 6.609502914500258,
+          "ref_ppl": 6.498588819010602,
+          "mean_kld": 0.021618952784058718,
+          "median_kld": 0.00977462922121565,
+          "p99_kld": 0.1937724759214306,
+          "max_kld": 2.9282703969049413,
+          "start_chunk": 0,
+          "max_kld_chunk": 11,
+          "max_kld_position": 374,
+          "ref_floor_targets": 10,
+          "top1_matches": 23939,
+          "top1_agreement": 0.9387843137254902
+        },
+        "output_sha256": "0e644636df5d7ad3377ad90c02c4da9a74be2f0055d37cf2309b1f48bdaa0f76"
+      },
+      "whole_planes": {
+        "result": {
+          "chunks": 100,
+          "context": 512,
+          "rows": 25500,
+          "ppl": 6.604097254945344,
+          "ref_ppl": 6.498588819010602,
+          "mean_kld": 0.020978301621600772,
+          "median_kld": 0.009419887166814328,
+          "p99_kld": 0.18513507353567352,
+          "max_kld": 3.0298715604372974,
+          "start_chunk": 0,
+          "max_kld_chunk": 11,
+          "max_kld_position": 374,
+          "ref_floor_targets": 10,
+          "top1_matches": 23957,
+          "top1_agreement": 0.9394901960784314
+        },
+        "output_sha256": "c071b32f2fb8fa43fa0539f89b586b101a7805958d16f6f8cb32ffcb0f986473"
+      },
+      "ranked68": {
+        "result": {
+          "chunks": 100,
+          "context": 512,
+          "rows": 25500,
+          "ppl": 6.59427583398808,
+          "ref_ppl": 6.498588819010602,
+          "mean_kld": 0.019915613903737486,
+          "median_kld": 0.009000760223924029,
+          "p99_kld": 0.18222236666871525,
+          "max_kld": 2.352986596044278,
+          "start_chunk": 0,
+          "max_kld_chunk": 41,
+          "max_kld_position": 499,
+          "ref_floor_targets": 10,
+          "top1_matches": 24013,
+          "top1_agreement": 0.9416862745098039
+        },
+        "output_sha256": "2e39e14840d4324dcdab8ca02365e7eadc7811741460f57eb232f33c0d67f507"
+      }
+    }
+  }
+}
