@@ -1,0 +1,156 @@
+{
+  "compact": {
+    "receipt": {
+      "raw_source": "official Inkling-2-Mini",
+      "parent_sha256": "9b242a81188f0f552625639dec98879a0090a7f9a003141631d3a836aed3fcb3",
+      "unchanged_tensors": 991,
+      "shard_sha256": "a60c22b6626a50e1380abbfb80b69a73ff96d6404fb5b60c750d5bff7ff4cd02",
+      "package_bytes": 13626745974,
+      "selected": {
+        "model.llm.layers.23.mlp.experts.w13_weight.rans_v1": {
+          "bytes": 225184472,
+          "sha256": "a2b627b3b6369ea984f1d08769c7b751d1e34cd64a5b3cad5f7156b1c08165dc",
+          "changed_codes": 609988393,
+          "codes": 679477248,
+          "normalized_code_mse": 0.03822699319664909
+        },
+        "model.llm.layers.23.mlp.experts.w2_weight.rans_v1": {
+          "bytes": 130149888,
+          "sha256": "4dd5588c9759d789865390965ac75e6a11b8b01b3d88dfac5205e6395c74d27d",
+          "changed_codes": 293747115,
+          "codes": 339738624,
+          "normalized_code_mse": 0.01995413513684197
+        },
+        "model.llm.layers.22.mlp.experts.w13_weight.rans_v1": {
+          "bytes": 225255304,
+          "sha256": "d33025429dc2c62618e9adc0c430391bc7b3176661cb7f340354eded50002e23",
+          "changed_codes": 609921239,
+          "codes": 679477248,
+          "normalized_code_mse": 0.03819151634988398
+        },
+        "model.llm.layers.22.mlp.experts.w2_weight.rans_v1": {
+          "bytes": 130508496,
+          "sha256": "d29937c3c091d7c33cb332c51b71f3a4bc07ff0838a9fcabaf6e3705b594459f",
+          "changed_codes": 293420377,
+          "codes": 339738624,
+          "normalized_code_mse": 0.019763658787791183
+        },
+        "model.llm.layers.21.mlp.experts.w13_weight.rans_v1": {
+          "bytes": 222439704,
+          "sha256": "351e7a6d24f4d86b83bb603ad766cd463b75e2cc10f9fcf66d0691a2d91cacc5",
+          "changed_codes": 604119815,
+          "codes": 679477248,
+          "normalized_code_mse": 0.03802303910508917
+        },
+        "model.llm.layers.21.mlp.experts.w2_weight.rans_v1": {
+          "bytes": 130630496,
+          "sha256": "347605dd3648af22d8a925c389f28668051e168f6f15aa9fa4409543512402d8",
+          "changed_codes": 293306855,
+          "codes": 339738624,
+          "normalized_code_mse": 0.019704212428442915
+        },
+        "model.llm.layers.20.mlp.experts.w13_weight.rans_v1": {
+          "bytes": 222473864,
+          "sha256": "1349512910bec9f434d4b14c69c3a13058cb1d00cc8605eaeaeea86f92a9a759",
+          "changed_codes": 604106993,
+          "codes": 679477248,
+          "normalized_code_mse": 0.03800401562391814
+        },
+        "model.llm.layers.20.mlp.experts.w2_weight.rans_v1": {
+          "bytes": 131138376,
+          "sha256": "db1bdc569c6764be5696376a00c9aebebd99f6248c10115c7a47311d19b8f661",
+          "changed_codes": 290087701,
+          "codes": 339738624,
+          "normalized_code_mse": 0.01972557880586414
+        }
+      }
+    },
+    "quality": {
+      "test": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.131377239752072,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.013773526019220618,
+        "median_kld": 0.007104991389031609,
+        "p99_kld": 0.11517063325413654,
+        "max_kld": 0.7519345011976903,
+        "start_chunk": 0,
+        "max_kld_chunk": 69,
+        "max_kld_position": 353,
+        "ref_floor_targets": 14,
+        "top1_matches": 24289,
+        "top1_agreement": 0.9525098039215686
+      }
+    }
+  },
+  "middle": {
+    "receipt": {
+      "raw_source": "official Inkling-2-Mini",
+      "parent_sha256": "9b242a81188f0f552625639dec98879a0090a7f9a003141631d3a836aed3fcb3",
+      "unchanged_tensors": 991,
+      "shard_sha256": "836e89b52e29b10615c008d945ad9d0ca6461b83b9fd8f52fbaff1e53f908c98",
+      "package_bytes": 14590408254,
+      "selected": {
+        "model.llm.layers.23.mlp.experts.w13_weight.rans_v1": {
+          "bytes": 396579352,
+          "sha256": "6ce1e4365251ec095aa655bc1ee40284938c82932304eccd963aedcc8c4bd49b",
+          "changed_codes": 383229844,
+          "codes": 679477248,
+          "normalized_code_mse": 0.0019075944116801638
+        },
+        "model.llm.layers.23.mlp.experts.w2_weight.rans_v1": {
+          "bytes": 207881352,
+          "sha256": "cd995b48a285edb224f4d0f4cfbef0ff2e334c5997df039722865516449521ff",
+          "changed_codes": 176163740,
+          "codes": 339738624,
+          "normalized_code_mse": 0.0010759324472205966
+        },
+        "model.llm.layers.22.mlp.experts.w13_weight.rans_v1": {
+          "bytes": 383930808,
+          "sha256": "0ddd57f0069d2653c73bac2cfe88b9632b49678ee6975c1425f6680f43a5ac8c",
+          "changed_codes": 427430566,
+          "codes": 679477248,
+          "normalized_code_mse": 0.0026047986650437503
+        },
+        "model.llm.layers.22.mlp.experts.w2_weight.rans_v1": {
+          "bytes": 208234984,
+          "sha256": "978fdd2e95835cbd6269578e277b5d0b59203e76743d0b75891c596e93698d34",
+          "changed_codes": 174757519,
+          "codes": 339738624,
+          "normalized_code_mse": 0.0010593568741989157
+        },
+        "model.llm.layers.21.mlp.experts.w13_weight.rans_v1": {
+          "bytes": 383994304,
+          "sha256": "ea9438e1fb875a5511e03811ffbef0ecdf51e190cd63c7be5ed12787c5adda09",
+          "changed_codes": 427227076,
+          "codes": 679477248,
+          "normalized_code_mse": 0.0026018834445103636
+        },
+        "model.llm.layers.21.mlp.experts.w2_weight.rans_v1": {
+          "bytes": 208358048,
+          "sha256": "36cb3490a7cf4bef33e81b0e982fa2c5ac88355c59f122087ec25f09d97c822c",
+          "changed_codes": 174270598,
+          "codes": 339738624,
+          "normalized_code_mse": 0.001053793954903646
+        },
+        "model.llm.layers.20.mlp.experts.w13_weight.rans_v1": {
+          "bytes": 384018608,
+          "sha256": "23864fd80843d804897a6528abe543a86eabec11cf1e3aa2728ac15e7fa0fc33",
+          "changed_codes": 427165800,
+          "codes": 679477248,
+          "normalized_code_mse": 0.0026008604466424084
+        },
+        "model.llm.layers.20.mlp.experts.w2_weight.rans_v1": {
+          "bytes": 208445416,
+          "sha256": "95a7f0eb95e319de7e7bac5a080f0175b1c13d71b81126b4b4dce4492b7d04f9",
+          "changed_codes": 173912984,
+          "codes": 339738624,
+          "normalized_code_mse": 0.0010496277716035615
+        }
+      }
+    },
+    "quality": {}
+  }
+}
