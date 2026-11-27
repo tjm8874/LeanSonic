@@ -274,6 +274,7 @@ struct KernelFns {
     depth_mix_b: CUfunction,
     ctrl_down_b: CUfunction,
     ctrl_down_r8_b: Option<CUfunction>,
+    ctrl_down_r8_t2_b: Option<CUfunction>,
     ctrl_apply_b: CUfunction,
     ctrl_apply_t8_b: Option<CUfunction>,
     q8_dp4a_gemm_b: CUfunction,
@@ -1622,6 +1623,7 @@ impl Inkling2GpuEngine {
             quant_q8_64_b: get_fn("ink2_quant_q8_64_b")?,
             depth_mix_b: get_fn("ink2_depth_mix_b")?,
             ctrl_down_b: get_fn("ink2_ctrl_down_b")?,
+            ctrl_down_r8_t2_b: get_fn("ink2_ctrl_down_r8_t2_b").ok(),
             ctrl_down_r8_b: get_fn("ink2_ctrl_down_r8_b").ok(),
             ctrl_apply_b: get_fn("ink2_ctrl_apply_b")?,
             ctrl_apply_t8_b: get_fn("ink2_ctrl_apply_t8_b").ok(),
@@ -3568,17 +3570,12 @@ impl Inkling2GpuEngine {
         ];
         // A short batch has too few blocks to amortize an eight-wide tile.
         // Optional symbols also support previously built external cubins.
-        let (down, rank_blocks) = match self.fns.ctrl_down_r8_b {
-            Some(f) if b_len >= 16 => (f, 8),
-            _ => (self.fns.ctrl_down_b, 64),
+        let (down, grid) = match (self.fns.ctrl_down_r8_t2_b, self.fns.ctrl_down_r8_b) {
+            (Some(f), _) if b_len >= 64 => (f, (8, n_ctrls * b_u32.div_ceil(2))),
+            (_, Some(f)) if b_len >= 16 => (f, (8, n_ctrls * b_u32)),
+            _ => (self.fns.ctrl_down_b, (64, n_ctrls * b_u32)),
         };
-        self.launch(
-            stream,
-            down,
-            (rank_blocks, n_ctrls * b_u32),
-            256,
-            &mut args1,
-        )?;
+        self.launch(stream, down, grid, 256, &mut args1)?;
 
         let mut p_gain = ctrl.gain.ptr;
         let mut p_forget = ctrl.forget.ptr;

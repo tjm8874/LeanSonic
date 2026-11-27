@@ -64,7 +64,8 @@ int main(int argc, char** argv) {
     check(cuModuleLoad(&ref, argv[1]));
     check(cuModuleLoad(&candidate, argv[2]));
     CUfunction down[] = {kernel(ref, "ink2_ctrl_down_b"), kernel(candidate, "ink2_ctrl_down_b"),
-                         kernel(candidate, "ink2_ctrl_down_r8_b")};
+                         kernel(candidate, "ink2_ctrl_down_r8_b"),
+                         kernel(candidate, "ink2_ctrl_down_r8_t2_b")};
     CUfunction apply[] = {kernel(ref, "ink2_ctrl_apply_b"), kernel(candidate, "ink2_ctrl_apply_b"),
                           kernel(candidate, "ink2_ctrl_apply_t8_b")};
 
@@ -89,7 +90,7 @@ int main(int argc, char** argv) {
         auto wd = weights(controllers * rank * 2 * hidden);
         auto wg = weights(controllers * hidden * rank);
         auto wf = weights(controllers * hidden * rank);
-        for (int batch : {1, 2, 3, 7, 8, 9, 15, 16, 17, 31, 32, 47, 63, 64}) {
+        for (int batch : {1, 2, 3, 7, 8, 9, 15, 16, 17, 31, 32, 47, 63, 64, 65, 129, 256}) {
             int rows = controllers * batch;
             auto input = inputs(rows * hidden);
             auto x = upload(input);
@@ -98,15 +99,18 @@ int main(int argc, char** argv) {
             auto gate = upload(ref_gate);
             void* down_args[] = {&x, &msg, &wd, &gate, &batch};
             void* apply_args[] = {&x, &msg, &gate, &wg, &wf, &batch};
-            for (int variant = 0; variant < 3; ++variant) {
-                const int tile = variant == 2 ? 8 : 1;
+            for (int variant = 0; variant < 4; ++variant) {
+                const bool wide = variant >= 2;
+                const int tile = wide ? 8 : 1;
+                const CUfunction apply_kernel = apply[wide ? 2 : variant];
+                const int down_blocks = variant == 3 ? controllers * ((batch + 1) / 2) : rows;
                 check(cuMemcpyHtoD(x, input.data(), input.size() * sizeof(float)));
                 // Poison the output so a skipped row fails even for the reference.
                 check(cuMemsetD32(gate, 0x7fc00000, ref_gate.size()));
-                check(cuLaunchKernel(down[variant], rank / tile, rows, 1, 256, 1, 1,
+                check(cuLaunchKernel(down[variant], rank / tile, down_blocks, 1, 256, 1, 1,
                                      0, nullptr, down_args, nullptr));
                 compare(gate, ref_gate, variant == 0, "down", batch, controllers);
-                check(cuLaunchKernel(apply[variant], hidden / 256, controllers * ((batch + tile - 1) / tile),
+                check(cuLaunchKernel(apply_kernel, hidden / 256, controllers * ((batch + tile - 1) / tile),
                                      1, 256, 1, 1, 0, nullptr, apply_args, nullptr));
                 compare(x, ref_output, variant == 0, "apply", batch, controllers);
             }
