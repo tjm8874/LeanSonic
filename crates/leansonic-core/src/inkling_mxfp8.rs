@@ -683,21 +683,16 @@ impl<'a> Matrix<'a> {
     /// Convert four decoded NVFP4 nibbles to the resident signed two-bit layout.
     pub(crate) fn pack_ternary_weights(&self) -> Result<Vec<u8>, String> {
         let mut packed = Vec::with_capacity(self.count / 2);
-        let table = std::array::from_fn::<_, 256, _>(|b| {
-            let code = |n| match n {
-                0 => 0,
-                7 => 1,
-                15 => 3,
-                _ => 0xff,
-            };
-            let lo = code(b & 15);
-            let hi = code(b >> 4);
-            if lo == 0xff || hi == 0xff {
-                0xff
-            } else {
-                lo | (hi << 2)
-            }
-        });
+        // A selector indexes the eight literal bytes in the CUDA PRMT table.
+        // For two negative weights selector 15 replicates byte 7's sign.
+        let mut table = [0xff; 256];
+        for (selector, byte) in [0x00, 0x07, 0x0f, 0x70, 0x77, 0x7f, 0xf0, 0xf7]
+            .into_iter()
+            .enumerate()
+        {
+            table[byte] = selector as u8;
+        }
+        table[0xff] = 15;
         self.for_each_chunk(|_, tile| {
             let (pairs, tail) = tile.as_chunks::<2>();
             if !tail.is_empty() {
@@ -802,12 +797,12 @@ mod tests {
         for i in 0..count / 2 {
             let mut n = i % 81;
             let mut nibbles = 0u16;
-            let mut packed = 0u8;
+            let selector = |index| if index == 8 { 15 } else { index as u8 };
+            let packed = selector(n % 9) | (selector(n / 9) << 4);
             for j in 0..4 {
                 let digit = n % 3;
                 n /= 3;
                 nibbles |= [0u16, 7, 15][digit] << (4 * j);
-                packed |= [0u8, 1, 3][digit] << (2 * j);
             }
             raw.extend(nibbles.to_le_bytes());
             expected.push(packed);
