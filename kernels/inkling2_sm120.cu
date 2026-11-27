@@ -1646,10 +1646,10 @@ struct Mxfp8Row {
 
 #define INK2_INDEXED_KERNEL(name, bounds, params, args) \
     template<bool PackedScales, bool Indexed> __device__ __forceinline__ void name##_impl params; \
-    extern "C" __global__ bounds void name params { name##_impl<false, false> args; } \
-    extern "C" __global__ bounds void name##_packed_scales params { name##_impl<true, false> args; } \
-    extern "C" __global__ bounds void name##_u4 params { name##_impl<false, true> args; } \
-    extern "C" __global__ bounds void name##_u4_packed_scales params { name##_impl<true, true> args; } \
+    extern "C" __global__ bounds void name params { pdl_wait(); name##_impl<false, false> args; } \
+    extern "C" __global__ bounds void name##_packed_scales params { pdl_wait(); name##_impl<true, false> args; } \
+    extern "C" __global__ bounds void name##_u4 params { pdl_wait(); name##_impl<false, true> args; } \
+    extern "C" __global__ bounds void name##_u4_packed_scales params { pdl_wait(); name##_impl<true, true> args; } \
     template<bool PackedScales, bool Indexed> __device__ __forceinline__ void name##_impl params
 
 template<bool PackedScales, bool Indexed>
