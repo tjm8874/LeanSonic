@@ -1,0 +1,503 @@
+{
+  "binary_sha256": "4ea4ce28efc2244e22d68495462568210dd0e7a8219dbed1c117fd27b5b59451",
+  "commit": "6aa971d",
+  "ctx": 20480,
+  "engine_env": {
+    "LEANSONIC_CUBIN_PATH": "/home/ts/leansonic-v090-rel/build/leansonic_sm120a.cubin"
+  },
+  "gpus": [
+    {
+      "canary": {
+        "canary_pass": true,
+        "cases": [
+          {
+            "answer": "Tokyo",
+            "elapsed_ms": 364.33,
+            "expected": "Tokyo",
+            "id": "short_tokyo",
+            "input_tokens": 27,
+            "nonfinite_logits": 0,
+            "pass": true,
+            "spec7_0ulp": true
+          },
+          {
+            "answer": "RAVEN-731",
+            "elapsed_ms": 1769.96,
+            "expected": "RAVEN-731",
+            "id": "needle_16k_50",
+            "input_tokens": 16384,
+            "nonfinite_logits": 0,
+            "pass": true,
+            "spec7_0ulp": null
+          },
+          {
+            "answer": "MARSH-527",
+            "elapsed_ms": 14814.13,
+            "expected": "MARSH-527",
+            "id": "needle_128k_50",
+            "input_tokens": 131072,
+            "nonfinite_logits": 0,
+            "pass": true,
+            "spec7_0ulp": null
+          },
+          {
+            "answer": "CORAL-841",
+            "elapsed_ms": 15104.79,
+            "expected": "CORAL-841",
+            "id": "needle_128k_90",
+            "input_tokens": 131072,
+            "nonfinite_logits": 0,
+            "pass": true,
+            "spec7_0ulp": null
+          }
+        ],
+        "passed": 4,
+        "total": 4
+      },
+      "cells": {
+        "c4_32k_code": {
+          "ci95_hi": 532.7,
+          "ci95_lo": 527.4,
+          "median": 529.8,
+          "n": 3,
+          "ratio_to_target": 0.8356466876971608,
+          "samples": [
+            532.7,
+            529.8,
+            527.4
+          ],
+          "target": 634,
+          "verdict": "FAIL"
+        },
+        "c64_total": {
+          "ci95_hi": 1567.2,
+          "ci95_lo": 1560.3,
+          "median": 1562.8,
+          "n": 3,
+          "ratio_to_target": 0.9593615715162677,
+          "samples": [
+            1567.2,
+            1562.8,
+            1560.3
+          ],
+          "target": 1629,
+          "verdict": "FAIL"
+        },
+        "decode_16k": {
+          "ci95_hi": 193.9,
+          "ci95_lo": 193.8,
+          "median": 193.9,
+          "n": 3,
+          "ratio_to_target": 0.9103286384976526,
+          "samples": [
+            193.8,
+            193.9,
+            193.9
+          ],
+          "target": 213,
+          "verdict": "FAIL"
+        },
+        "decode_short": {
+          "ci95_hi": 220.5,
+          "ci95_lo": 220.2,
+          "median": 220.3,
+          "n": 3,
+          "ratio_to_target": 1.0013636363636365,
+          "samples": [
+            220.2,
+            220.5,
+            220.3
+          ],
+          "target": 220,
+          "verdict": "PASS"
+        },
+        "kld_mean": {
+          "ci95_hi": null,
+          "ci95_lo": null,
+          "median": null,
+          "n": 0,
+          "ratio_to_target": null,
+          "samples": [],
+          "target": 0.003,
+          "verdict": "UNMEASURED"
+        },
+        "long_128k_decode": {
+          "ci95_hi": 121.3,
+          "ci95_lo": 121.2,
+          "median": 121.3,
+          "n": 3,
+          "ratio_to_target": 0.933076923076923,
+          "samples": [
+            121.3,
+            121.3,
+            121.2
+          ],
+          "target": 130,
+          "verdict": "FAIL"
+        },
+        "prefill_128k": {
+          "ci95_hi": 9240,
+          "ci95_lo": 9218,
+          "median": 9230.9,
+          "n": 3,
+          "ratio_to_target": 0.9925698924731182,
+          "samples": [
+            9230.9,
+            9240,
+            9218
+          ],
+          "target": 9300,
+          "verdict": "FAIL"
+        },
+        "prefill_16k": {
+          "ci95_hi": 14264.1,
+          "ci95_lo": 14203.1,
+          "median": 14230.3,
+          "n": 3,
+          "ratio_to_target": 1.0164499999999999,
+          "samples": [
+            14264.1,
+            14230.3,
+            14203.1
+          ],
+          "target": 14000,
+          "verdict": "PASS"
+        },
+        "prefill_2k": {
+          "ci95_hi": 15061.2,
+          "ci95_lo": 15050.2,
+          "median": 15056.4,
+          "n": 3,
+          "ratio_to_target": 0.9351801242236024,
+          "samples": [
+            15061.2,
+            15056.4,
+            15050.2
+          ],
+          "target": 16100,
+          "verdict": "FAIL"
+        },
+        "spec_accept_wide": {
+          "ci95_hi": null,
+          "ci95_lo": null,
+          "median": null,
+          "n": 0,
+          "ratio_to_target": null,
+          "samples": [],
+          "target": null,
+          "verdict": "UNMEASURED"
+        },
+        "spec_avg": {
+          "ci95_hi": 263.90000000000003,
+          "ci95_lo": 263.59999999999997,
+          "median": 263.7666666666667,
+          "n": 3,
+          "ratio_to_target": 0.8508602150537635,
+          "samples": [
+            263.59999999999997,
+            263.7666666666667,
+            263.90000000000003
+          ],
+          "target": 310,
+          "verdict": "FAIL"
+        },
+        "spec_wide": {
+          "ci95_hi": null,
+          "ci95_lo": null,
+          "median": null,
+          "n": 0,
+          "ratio_to_target": null,
+          "samples": [],
+          "target": null,
+          "verdict": "UNMEASURED"
+        },
+        "vram_gib": {
+          "ci95_hi": 16.84,
+          "ci95_lo": 16.84,
+          "median": 16.84,
+          "n": 3,
+          "ratio_to_target": 0.985748218527316,
+          "samples": [
+            16.84,
+            16.84,
+            16.84
+          ],
+          "target": 16.6,
+          "verdict": "FAIL"
+        }
+      },
+      "driver": "595.99.02",
+      "engine_device": "NVIDIA RTX PRO 5000 72GB Blackwell",
+      "errors": [],
+      "foreign_processes": [],
+      "index": 1,
+      "inputs": {
+        "c4_32k": "inkling-code32k.ids fnv1a64=e0e01ddebc7fc1c1",
+        "c64": "synth:400 fnv1a64=18ec483e2671f0af",
+        "p128k": "synth:131072 fnv1a64=303d6caa45dcf5f5",
+        "p16k": "synth:16384 fnv1a64=ec9b964dd9ec8b17",
+        "p2k": "synth:2048 fnv1a64=b653688be1987be7",
+        "short": "synth:32 fnv1a64=ec033ebab2f63f04",
+        "spec_conv": "conv.ids fnv1a64=3c8fdb2c7b56b775",
+        "spec_prose": "prose.ids fnv1a64=56051e00dacc5136",
+        "spec_struct": "struct.ids fnv1a64=424f09b822aec0e9"
+      },
+      "kld": null,
+      "name": "NVIDIA RTX PRO 5000 72GB Blackwell",
+      "pcie": "Gen5 x16",
+      "power_limit_w": "350.00",
+      "resident_expert_layers": "24/24",
+      "sku": "rtx_pro_5000",
+      "uuid": "GPU-REDACTED"
+    },
+    {
+      "canary": {
+        "canary_pass": true,
+        "cases": [
+          {
+            "answer": "Tokyo",
+            "elapsed_ms": 467.54,
+            "expected": "Tokyo",
+            "id": "short_tokyo",
+            "input_tokens": 27,
+            "nonfinite_logits": 0,
+            "pass": true,
+            "spec7_0ulp": true
+          },
+          {
+            "answer": "RAVEN-731",
+            "elapsed_ms": 2519.65,
+            "expected": "RAVEN-731",
+            "id": "needle_16k_50",
+            "input_tokens": 16384,
+            "nonfinite_logits": 0,
+            "pass": true,
+            "spec7_0ulp": null
+          },
+          {
+            "answer": "MARSH-527",
+            "elapsed_ms": 21750.67,
+            "expected": "MARSH-527",
+            "id": "needle_128k_50",
+            "input_tokens": 131072,
+            "nonfinite_logits": 0,
+            "pass": true,
+            "spec7_0ulp": null
+          },
+          {
+            "answer": "CORAL-841",
+            "elapsed_ms": 22106.42,
+            "expected": "CORAL-841",
+            "id": "needle_128k_90",
+            "input_tokens": 131072,
+            "nonfinite_logits": 0,
+            "pass": true,
+            "spec7_0ulp": null
+          }
+        ],
+        "passed": 4,
+        "total": 4
+      },
+      "cells": {
+        "c4_32k_code": {
+          "ci95_hi": 374.4,
+          "ci95_lo": 372.4,
+          "median": 373.4,
+          "n": 3,
+          "ratio_to_target": null,
+          "samples": [
+            374.4,
+            373.4,
+            372.4
+          ],
+          "target": null,
+          "verdict": "RECORDED"
+        },
+        "c64_total": {
+          "ci95_hi": 1167.5,
+          "ci95_lo": 1163.5,
+          "median": 1165.7,
+          "n": 3,
+          "ratio_to_target": 0.9539279869067103,
+          "samples": [
+            1167.5,
+            1165.7,
+            1163.5
+          ],
+          "target": 1222,
+          "verdict": "FAIL"
+        },
+        "decode_16k": {
+          "ci95_hi": 144.4,
+          "ci95_lo": 144.4,
+          "median": 144.4,
+          "n": 3,
+          "ratio_to_target": 0.9500000000000001,
+          "samples": [
+            144.4,
+            144.4,
+            144.4
+          ],
+          "target": 152,
+          "verdict": "FAIL"
+        },
+        "decode_short": {
+          "ci95_hi": 169.1,
+          "ci95_lo": 169,
+          "median": 169,
+          "n": 3,
+          "ratio_to_target": 0.9883040935672515,
+          "samples": [
+            169,
+            169.1,
+            169
+          ],
+          "target": 171,
+          "verdict": "FAIL"
+        },
+        "kld_mean": {
+          "ci95_hi": null,
+          "ci95_lo": null,
+          "median": null,
+          "n": 0,
+          "ratio_to_target": null,
+          "samples": [],
+          "target": 0.003,
+          "verdict": "UNMEASURED"
+        },
+        "long_128k_decode": {
+          "ci95_hi": 80,
+          "ci95_lo": 79.9,
+          "median": 79.9,
+          "n": 3,
+          "ratio_to_target": 0.8977528089887641,
+          "samples": [
+            80,
+            79.9,
+            79.9
+          ],
+          "target": 89,
+          "verdict": "FAIL"
+        },
+        "prefill_128k": {
+          "ci95_hi": 6358.1,
+          "ci95_lo": 6325.6,
+          "median": 6341.6,
+          "n": 3,
+          "ratio_to_target": 0.834421052631579,
+          "samples": [
+            6358.1,
+            6341.6,
+            6325.6
+          ],
+          "target": 7600,
+          "verdict": "FAIL"
+        },
+        "prefill_16k": {
+          "ci95_hi": 9625.1,
+          "ci95_lo": 9599.1,
+          "median": 9612.1,
+          "n": 3,
+          "ratio_to_target": 0.8358347826086957,
+          "samples": [
+            9625.1,
+            9612.1,
+            9599.1
+          ],
+          "target": 11500,
+          "verdict": "FAIL"
+        },
+        "prefill_2k": {
+          "ci95_hi": 10200.7,
+          "ci95_lo": 10176.4,
+          "median": 10182.5,
+          "n": 3,
+          "ratio_to_target": 0.8854347826086957,
+          "samples": [
+            10182.5,
+            10176.4,
+            10200.7
+          ],
+          "target": 11500,
+          "verdict": "FAIL"
+        },
+        "spec_accept_wide": {
+          "ci95_hi": null,
+          "ci95_lo": null,
+          "median": null,
+          "n": 0,
+          "ratio_to_target": null,
+          "samples": [],
+          "target": null,
+          "verdict": "UNMEASURED"
+        },
+        "spec_avg": {
+          "ci95_hi": 208,
+          "ci95_lo": 207.76666666666668,
+          "median": 207.83333333333334,
+          "n": 3,
+          "ratio_to_target": 0.8588154269972452,
+          "samples": [
+            207.83333333333334,
+            207.76666666666668,
+            208
+          ],
+          "target": 242,
+          "verdict": "FAIL"
+        },
+        "spec_wide": {
+          "ci95_hi": null,
+          "ci95_lo": null,
+          "median": null,
+          "n": 0,
+          "ratio_to_target": null,
+          "samples": [],
+          "target": null,
+          "verdict": "UNMEASURED"
+        },
+        "vram_gib": {
+          "ci95_hi": 16.76,
+          "ci95_lo": 16.76,
+          "median": 16.76,
+          "n": 3,
+          "ratio_to_target": 0.9904534606205251,
+          "samples": [
+            16.76,
+            16.76,
+            16.76
+          ],
+          "target": 16.6,
+          "verdict": "FAIL"
+        }
+      },
+      "driver": "595.99.02",
+      "engine_device": "NVIDIA RTX PRO 4500 Blackwell",
+      "errors": [],
+      "foreign_processes": [],
+      "index": 0,
+      "inputs": {
+        "c4_32k": "inkling-code32k.ids fnv1a64=e0e01ddebc7fc1c1",
+        "c64": "synth:400 fnv1a64=18ec483e2671f0af",
+        "p128k": "synth:131072 fnv1a64=303d6caa45dcf5f5",
+        "p16k": "synth:16384 fnv1a64=ec9b964dd9ec8b17",
+        "p2k": "synth:2048 fnv1a64=b653688be1987be7",
+        "short": "synth:32 fnv1a64=ec033ebab2f63f04",
+        "spec_conv": "conv.ids fnv1a64=3c8fdb2c7b56b775",
+        "spec_prose": "prose.ids fnv1a64=56051e00dacc5136",
+        "spec_struct": "struct.ids fnv1a64=424f09b822aec0e9"
+      },
+      "kld": null,
+      "name": "NVIDIA RTX PRO 4500 Blackwell",
+      "pcie": "Gen5 x16",
+      "power_limit_w": "200.00",
+      "resident_expert_layers": "24/24",
+      "sku": "rtx_pro_4500",
+      "uuid": "GPU-REDACTED"
+    }
+  ],
+  "host": "cuda01",
+  "method": "fresh process per sample; warm 2nd request per process; median + 95% percentile bootstrap (2000, fixed seed) of the median; PASS iff CI bound clears target",
+  "n_per_cell": 3,
+  "schema": "leansonic.bench-matrix.v1",
+  "weights": "/tmp/v080_model"
+}

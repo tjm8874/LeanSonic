@@ -726,14 +726,14 @@ fn probes(o: &Opts) -> Vec<Probe> {
             tokens: "synth:32".into(),
             spec: 0,
             gen: 128,
-            ctx: None,
+            ctx: Some(8192),
         },
         Probe {
             id: "p2k",
             tokens: "synth:2048".into(),
             spec: 0,
             gen: 32,
-            ctx: None,
+            ctx: Some(8192),
         },
     ];
     if !o.quick {
