@@ -3192,6 +3192,133 @@ extern "C" __global__ void ink2_q8_dp4a_gemm_b(
     }
 }
 
+// Multi-sequence rounds (#107): `ink2_q8_dp4a_gemm_b` with `kTiles` 8-token tiles per block.
+// A warp loads its weight fragments once per K=16 step and reuses them for every tile, instead
+// of one block (and one weight read) per 8 tokens. Each (row, token) keeps the same MMA K=16
+// integer dot, FP32 `__fmaf_rn` sequence, virtual-lane combine and cross-warp sum as
+// `ink2_q8_dp4a_gemm_b` (`0-ULP` to `ink2_q8_dp4a_gemv`). `Grid (ceil(rows / 16),
+// ceil(B / (8 * kTiles)))`, `Block 256`.
+template <int kTiles>
+__device__ __forceinline__ void q8_gemm_ms_body(
+    const uint4* __restrict__ w_q8_u128,
+    const float* __restrict__ w_sc64,
+    const uint4* __restrict__ x_q8_u128,
+    const float* __restrict__ x_sc64,
+    float* __restrict__ y_base,
+    int32_t rows,
+    int32_t cols,
+    int32_t B,
+    int32_t y_stride,
+    float softcap) {
+    const int tid = threadIdx.x;
+    const int warp = tid / 32;
+    const int lane = tid % 32;
+    const int fragment = lane % 4;
+    const int first_row = blockIdx.x * 16;
+    const int first_token = blockIdx.y * 8 * kTiles;
+    const int row0 = min(first_row + lane / 4, rows - 1);
+    const int row1 = min(first_row + lane / 4 + 8, rows - 1);
+    const int cols16 = cols / 16;
+    const int cols64 = cols / 64;
+    const auto* top = reinterpret_cast<const uint32_t*>(w_q8_u128 + static_cast<size_t>(row0) * cols16);
+    const auto* bottom = reinterpret_cast<const uint32_t*>(w_q8_u128 + static_cast<size_t>(row1) * cols16);
+    const float* top_scales = w_sc64 + static_cast<size_t>(row0) * cols64;
+    const float* bottom_scales = w_sc64 + static_cast<size_t>(row1) * cols64;
+    const uint32_t* inputs[kTiles];
+    const float* input_scales[kTiles];
+    #pragma unroll
+    for (int t = 0; t < kTiles; ++t) {
+        const int token = min(first_token + 8 * t + lane / 4, B - 1);
+        inputs[t] = reinterpret_cast<const uint32_t*>(x_q8_u128 + static_cast<size_t>(token) * cols16);
+        input_scales[t] = x_sc64 + static_cast<size_t>(token) * cols64;
+    }
+    __shared__ float partials[kTiles][8][128];
+    float sum[kTiles][4] = {};
+    float left[kTiles][4] = {};
+
+    #pragma unroll 1
+    for (int step = 0; step < 4; ++step) {
+        float acc[kTiles][4] = {};
+        const int k_lane = warp + (step % 2) * 16 + (step / 2) * 8;
+        for (int k = k_lane; k < cols16; k += 32) {
+            const unsigned a0 = top[k * 4 + fragment];
+            const unsigned a1 = bottom[k * 4 + fragment];
+            const float w0 = top_scales[k / 4];
+            const float w1 = bottom_scales[k / 4];
+            #pragma unroll
+            for (int t = 0; t < kTiles; ++t) {
+                const unsigned b = inputs[t][k * 4 + fragment];
+                int d0, d1, d2, d3;
+                mma_s8_k16(a0, a1, b, d0, d1, d2, d3);
+                const float xs = input_scales[t][k / 4];
+                const float x0 = __shfl_sync(0xffffffffu, xs, 8 * fragment);
+                const float x1 = __shfl_sync(0xffffffffu, xs, 8 * fragment + 4);
+                acc[t][0] = __fmaf_rn(float(d0), __fmul_rn(w0, x0), acc[t][0]);
+                acc[t][1] = __fmaf_rn(float(d1), __fmul_rn(w0, x1), acc[t][1]);
+                acc[t][2] = __fmaf_rn(float(d2), __fmul_rn(w1, x0), acc[t][2]);
+                acc[t][3] = __fmaf_rn(float(d3), __fmul_rn(w1, x1), acc[t][3]);
+            }
+        }
+        #pragma unroll
+        for (int t = 0; t < kTiles; ++t) {
+            #pragma unroll
+            for (int i = 0; i < 4; ++i) {
+                if (step % 2 == 0) {
+                    left[t][i] = acc[t][i];
+                } else if (step == 1) {
+                    sum[t][i] = left[t][i] + acc[t][i];
+                } else {
+                    sum[t][i] += left[t][i] + acc[t][i];
+                }
+            }
+        }
+    }
+    const int dst = (lane / 4) * 8 + 2 * fragment;
+    #pragma unroll
+    for (int t = 0; t < kTiles; ++t) {
+        partials[t][warp][dst] = sum[t][0];
+        partials[t][warp][dst + 1] = sum[t][1];
+        partials[t][warp][dst + 64] = sum[t][2];
+        partials[t][warp][dst + 65] = sum[t][3];
+    }
+    __syncthreads();
+
+    #pragma unroll
+    for (int t0 = 0; t0 < kTiles; t0 += 2) {
+        const int t = t0 + tid / 128;
+        const int e = tid % 128;
+        const int out_row = first_row + e / 8;
+        const int out_token = first_token + 8 * t + e % 8;
+        if (t < kTiles && out_row < rows && out_token < B) {
+            const float s0 = partials[t][0][e] + partials[t][4][e];
+            const float s1 = partials[t][1][e] + partials[t][5][e];
+            const float s2 = partials[t][2][e] + partials[t][6][e];
+            const float s3 = partials[t][3][e] + partials[t][7][e];
+            float value = (s0 + s2) + (s1 + s3);
+            if (softcap > 0.0f) value = softcap * ptx_tanh(value * ptx_rcp(softcap));
+            y_base[static_cast<size_t>(out_token) * y_stride + out_row] = value;
+        }
+    }
+}
+
+extern "C" __global__ void ink2_q8_dp4a_gemm_b_ms4(
+    const uint4* __restrict__ w_q8_u128, const float* __restrict__ w_sc64,
+    const uint4* __restrict__ x_q8_u128, const float* __restrict__ x_sc64,
+    float* __restrict__ y_base, int32_t rows, int32_t cols, int32_t B, int32_t y_stride,
+    float softcap) {
+    q8_gemm_ms_body<4>(w_q8_u128, w_sc64, x_q8_u128, x_sc64, y_base, rows, cols, B, y_stride,
+                       softcap);
+}
+
+extern "C" __global__ void ink2_q8_dp4a_gemm_b_ms8(
+    const uint4* __restrict__ w_q8_u128, const float* __restrict__ w_sc64,
+    const uint4* __restrict__ x_q8_u128, const float* __restrict__ x_sc64,
+    float* __restrict__ y_base, int32_t rows, int32_t cols, int32_t B, int32_t y_stride,
+    float softcap) {
+    q8_gemm_ms_body<8>(w_q8_u128, w_sc64, x_q8_u128, x_sc64, y_base, rows, cols, B, y_stride,
+                       softcap);
+}
+
 // Register-Persistent Causal `short_conv4` over `b = 0..B-1` (`0-ULP` bit-identical!)
 // Optional `seq_out` (`[3 + B, channels]`) records `[hist3; x_0..x_{B-1}]` for `O(1)` speculative rewind!
 extern "C" __global__ void ink2_short_conv4_b(
