@@ -1,0 +1,152 @@
+{
+  "leansonic": "144430561eda9ff87bf557dbf984a169dd353810",
+  "llama_cpp": "29b52d398b294509746ec0a3f28948a3107c0213",
+  "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+  "kv": "FP16",
+  "has_identity_control": true,
+  "observed_lean_prefill": [
+    "matched-ref prefill offset=0 len=256 host_pos=0",
+    "matched-ref prefill offset=256 len=1 host_pos=256"
+  ],
+  "schedule_per_chunk": [
+    {
+      "start": 0,
+      "tokens": 256
+    },
+    {
+      "positions_inclusive": [
+        256,
+        510
+      ],
+      "tokens_per_call": 1
+    }
+  ],
+  "canonical_logical_and_physical_batch": 8192,
+  "serial_logical_and_physical_batch": 512,
+  "kld_sha256": {
+    "control.kld": "ceaceb935aa6c63090fe5e7c097116e06e77cd4ea68edc118bcbf1743702b188",
+    "test.kld": "cdb0a2ede0a1313c14f9253170d374d027e09e1e481b55b6339cf1e5b085d826",
+    "first_chunk_serial.kld": "a57bb2cb2769227f55c2c6065459818a3fe590a0ca7b5130363fdaed1bd4232d"
+  },
+  "public_first_serial_chunk_vs_canonical": {
+    "chunks": 1,
+    "context": 512,
+    "rows": 255,
+    "ppl": 5.251243709163302,
+    "ref_ppl": 5.251680690456401,
+    "mean_kld": 0.0011284496877000257,
+    "median_kld": 0.0003148185450503353,
+    "p99_kld": 0.010745716983082583,
+    "max_kld": 0.04582637378054663,
+    "start_chunk": 0,
+    "max_kld_chunk": 0,
+    "max_kld_position": 466,
+    "ref_floor_targets": 0,
+    "top1_matches": 253,
+    "top1_agreement": 0.9921568627450981
+  },
+  "results": {
+    "test-bf16-vs-canonical": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.073207872341283,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.001862447036898032,
+      "median_kld": 0.0006685383144562143,
+      "p99_kld": 0.018211726488410733,
+      "max_kld": 0.5147707543282461,
+      "start_chunk": 0,
+      "max_kld_chunk": 80,
+      "max_kld_position": 452,
+      "ref_floor_targets": 14,
+      "top1_matches": 25043,
+      "top1_agreement": 0.982078431372549
+    },
+    "test-serial-v13": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.072955538814124,
+      "ref_ppl": 7.06532735753101,
+      "mean_kld": 0.003171705164493709,
+      "median_kld": 0.0012578696345625952,
+      "p99_kld": 0.0300755344871085,
+      "max_kld": 0.8274179725180755,
+      "start_chunk": 0,
+      "max_kld_chunk": 80,
+      "max_kld_position": 452,
+      "ref_floor_targets": 15,
+      "top1_matches": 24863,
+      "top1_agreement": 0.9750196078431372
+    },
+    "test-canonical-v13": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.072955538814124,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.003158425985163431,
+      "median_kld": 0.0012734924757468779,
+      "p99_kld": 0.030384473744206587,
+      "max_kld": 0.6809773323028823,
+      "start_chunk": 0,
+      "max_kld_chunk": 69,
+      "max_kld_position": 353,
+      "ref_floor_targets": 14,
+      "top1_matches": 24865,
+      "top1_agreement": 0.9750980392156863
+    },
+    "control-bf16-vs-canonical": {
+      "chunks": 16,
+      "context": 512,
+      "rows": 4080,
+      "ppl": 8.185805454199754,
+      "ref_ppl": 8.178078471980376,
+      "mean_kld": 1.4069544520367297e-07,
+      "median_kld": 4.2891823800366227e-10,
+      "p99_kld": 3.932987136077545e-05,
+      "max_kld": 5.617714144970381e-05,
+      "start_chunk": 0,
+      "max_kld_chunk": 7,
+      "max_kld_position": 260,
+      "ref_floor_targets": 3,
+      "top1_matches": 4080,
+      "top1_agreement": 1
+    },
+    "stock-1": {
+      "chunks": 1,
+      "context": 512,
+      "rows": 255,
+      "ppl": 5.2352339445825775,
+      "ref_ppl": 5.251680690456401,
+      "mean_kld": 0.001688157059008518,
+      "median_kld": 0.0005879345200194349,
+      "p99_kld": 0.013785657696248612,
+      "max_kld": 0.019593164313068026,
+      "start_chunk": 0,
+      "max_kld_chunk": 0,
+      "max_kld_position": 466,
+      "ref_floor_targets": 0,
+      "top1_matches": 250,
+      "top1_agreement": 0.9803921568627451
+    },
+    "trace-1": {
+      "chunks": 1,
+      "context": 512,
+      "rows": 255,
+      "ppl": 5.2352339445825775,
+      "ref_ppl": 5.251680690456401,
+      "mean_kld": 0.001688157059008518,
+      "median_kld": 0.0005879345200194349,
+      "p99_kld": 0.013785657696248612,
+      "max_kld": 0.019593164313068026,
+      "start_chunk": 0,
+      "max_kld_chunk": 0,
+      "max_kld_position": 466,
+      "ref_floor_targets": 0,
+      "top1_matches": 250,
+      "top1_agreement": 0.9803921568627451
+    }
+  }
+}
