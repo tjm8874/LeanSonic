@@ -19,6 +19,7 @@ Five mirrored cycles used fresh processes, the same CLI and cubin, and fully pag
 | GPU | Previous load / neighbor load (s) | Previous decode64 / neighbor decode64 (ms) |
 |---|---:|---:|
 | PRO4500 | 5.132 / 5.551 | 390.38 / 390.35 |
+| 5060Ti | 10.458 / 11.226 | 1266.46 / 1266.48 |
 
 ## Matched BF16 quality
 

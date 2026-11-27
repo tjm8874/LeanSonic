@@ -45,6 +45,8 @@ pub const GLOBAL_LAYERS: [usize; 4] = [5, 11, 17, 23];
 const AUTO_INT8_KV_MAX_VRAM: usize = 16_896 << 20; // 16.5 GiB
 const AUTO_INT8_KV_MIN_CTX: usize = 8_192;
 pub const MAX_BATCH_TOKENS: usize = 2048;
+/// Rows of one multi-sequence decode round (#107) when `LEANSONIC_SEQS` > 1.
+pub const MAX_MS_ROWS: usize = 64;
 const NVFP4_LAYERS: usize = 20;
 const EXPERT_PAGE: usize = 64;
 pub const MAX_SPEC_TOKENS: usize = 8;
@@ -679,14 +681,25 @@ impl PrefillBuffers {
             bytes += size;
             DeviceBuf::alloc_zeroed(ctx, size)
         };
-        let split_rows = if has_flash_tc {
+        // Multi-sequence rounds (#107) run up to `MAX_MS_ROWS` decode-style rows per pass: every
+        // row may take the split-KV path and precomputes all 48 control messages.
+        let multi_seq = std::env::var("LEANSONIC_SEQS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .is_some_and(|n| n > 1);
+        let msg_rows = if multi_seq {
+            48 * MAX_MS_ROWS.min(capacity).max(MAX_SPEC_TOKENS)
+        } else {
+            48 * MAX_SPEC_TOKENS
+        };
+        let split_rows = if has_flash_tc && !multi_seq {
             capacity.min(32)
         } else {
             capacity
         };
         let part_ml_bytes = (split_rows * N_HEAD * splits * 2 * 4).max(4);
         let part_o_bytes = (split_rows * N_HEAD * splits * HD * 4).max(4);
-        let fixed_part_bytes = if has_flash_tc {
+        let fixed_part_bytes = if has_flash_tc && !multi_seq {
             part_ml_bytes + part_o_bytes
         } else {
             0
@@ -705,7 +718,7 @@ impl PrefillBuffers {
             d_b_blocks: allocate(4 * capacity * D * 4)?,
             d_b_prelude_block0: allocate(capacity * D * 4)?,
             d_b_bank: allocate(2 * capacity * D * 4)?,
-            d_b_msgs: allocate((48 * MAX_SPEC_TOKENS).max(4 * capacity) * D * 4)?,
+            d_b_msgs: allocate(msg_rows.max(4 * capacity) * D * 4)?,
             d_b_ctrl_g: allocate(3 * capacity * RANK * 4)?,
             d_b_sel_ids: allocate(capacity * TOP_K * 4)?,
             d_b_sel_wts: allocate(capacity * TOP_K * 4)?,
@@ -717,7 +730,7 @@ impl PrefillBuffers {
             d_b_act_scales: allocate(capacity * (TOP_K * (FF / 16)).max(3 * N_HEAD * HD / 64) * 4)?,
             bytes_per_row: (bytes
                 - fixed_part_bytes
-                - (48 * MAX_SPEC_TOKENS).saturating_sub(4 * capacity) * D * 4)
+                - msg_rows.saturating_sub(4 * capacity) * D * 4)
                 / capacity,
         })
     }
@@ -1263,6 +1276,16 @@ impl Inkling2GpuEngine {
             0
         };
         let dec_split_max = attn_split_g_decode.max(attn_split_g_decode_global);
+        // Decode-style rows per pass: DSpark verify, or a multi-sequence round (#107).
+        let multi_seq = std::env::var("LEANSONIC_SEQS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .is_some_and(|n| n > 1);
+        let dec_rows = if multi_seq {
+            MAX_MS_ROWS.max(MAX_SPEC_TOKENS)
+        } else {
+            MAX_SPEC_TOKENS
+        };
         let st_path = model_dir.join("model-00001-of-00001.safetensors");
         let st = MappedSafeTensors::open(&st_path)
             .map_err(|e| format!("open {}: {e}", st_path.display()))?;
@@ -1334,7 +1357,21 @@ impl Inkling2GpuEngine {
         let kv_auto = kv_env.is_none()
             && total_vram_at_load <= AUTO_INT8_KV_MAX_VRAM
             && max_ctx > AUTO_INT8_KV_MIN_CTX;
-        let kv_mode = if kv_auto {
+        // #107: C sequences keep C copies of every KV cache and ring. When their FP16 bytes
+        // would not fit next to the resident model (~17.5 GiB with workspaces), store all
+        // layers as INT8 instead (e.g. PRO 4500: C = 64 x ctx 4096 needs ~19.8 GiB in FP16).
+        let ms_fp16_kv_bytes = n_seqs
+            * (8 * max_ctx + (N_SLOT - 8) * max_ctx.min(EXTENT + EXPERT_PAGE))
+            * N_KV
+            * HD
+            * 2
+            * 2;
+        let kv_auto_ms = kv_env.is_none()
+            && n_seqs > 1
+            && ms_fp16_kv_bytes + (17_920usize << 20) > total_vram_at_load;
+        let kv_mode = if kv_auto_ms {
+            "int8-all".to_string()
+        } else if kv_auto {
             "int8".to_string()
         } else {
             kv_env.unwrap_or_default().to_ascii_lowercase()
@@ -1862,8 +1899,8 @@ impl Inkling2GpuEngine {
             .unwrap_or(true)
             && ctx.api.cuLaunchKernelEx.is_some()
             && fns.depth_mix_inv.is_some();
-        let d_ms_rows = DeviceBuf::alloc_zeroed(&ctx, MAX_SPEC_TOKENS * 8)?;
-        let d_ms_tokens = DeviceBuf::alloc_zeroed(&ctx, MAX_SPEC_TOKENS * 4)?;
+        let d_ms_rows = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 8)?;
+        let d_ms_tokens = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 4)?;
         let mut eng = Self {
             d_token_in: DeviceBuf::alloc_zeroed(&ctx, 4)?,
             d_prefill_tokens: DeviceBuf::alloc_zeroed(&ctx, max_ctx * 4)?,
@@ -1890,11 +1927,11 @@ impl Inkling2GpuEngine {
             attn_split_g_decode_global,
             d_dec_part_ml: DeviceBuf::alloc_zeroed(
                 &ctx,
-                (MAX_SPEC_TOKENS * N_HEAD * dec_split_max * 2 * 4).max(4),
+                (dec_rows * N_HEAD * dec_split_max * 2 * 4).max(4),
             )?,
             d_dec_part_o: DeviceBuf::alloc_zeroed(
                 &ctx,
-                (MAX_SPEC_TOKENS * N_HEAD * dec_split_max * HD * 4).max(4),
+                (dec_rows * N_HEAD * dec_split_max * HD * 4).max(4),
             )?,
             d_wo_out: DeviceBuf::alloc_zeroed(&ctx, D * 4)?,
             d_mlp_h: DeviceBuf::alloc_zeroed(&ctx, D * 4)?,
@@ -1919,8 +1956,8 @@ impl Inkling2GpuEngine {
                 drafter.is_some(),
             )?,
             d_b_exp_counts: DeviceBuf::alloc_zeroed(&ctx, N_EXP * 4)?,
-            d_spec_logits: DeviceBuf::alloc_zeroed(&ctx, MAX_SPEC_TOKENS * VOCAB * 4)?,
-            d_spec_tokens_out: DeviceBuf::alloc_zeroed(&ctx, MAX_SPEC_TOKENS * 4)?,
+            d_spec_logits: DeviceBuf::alloc_zeroed(&ctx, dec_rows * VOCAB * 4)?,
+            d_spec_tokens_out: DeviceBuf::alloc_zeroed(&ctx, dec_rows * 4)?,
             d_conv_seq,
             d_conv_hist_ptrs,
             drafter,
@@ -2968,7 +3005,7 @@ impl Inkling2GpuEngine {
         } else {
             self.attn_split_g_decode
         };
-        let decode_rows = b_len <= MAX_SPEC_TOKENS && g_dec != self.attn_split_g;
+        let decode_rows = self.small_rows(b_len) && g_dec != self.attn_split_g;
         let g_split = if decode_rows {
             g_dec
         } else {
@@ -4630,15 +4667,30 @@ impl Inkling2GpuEngine {
         Ok(out_i32.into_iter().map(|v| v as u32).collect())
     }
 
+    /// Tensor Core batch paths (>= 32 rows) are off in multi-sequence rounds, whose rows must
+    /// match B = 1 decode arithmetic for any batch size.
+    fn tc_rows(&self, b_len: usize) -> bool {
+        b_len >= 32 && self.ms_rows.get() == 0
+    }
+    /// Decode / verify-style rows: `<= MAX_SPEC_TOKENS`, or any multi-sequence round.
+    fn small_rows(&self, b_len: usize) -> bool {
+        b_len <= MAX_SPEC_TOKENS || self.ms_rows.get() != 0
+    }
+
     /// One decode step for up to `MAX_SPEC_TOKENS` independent sequences in a single batched
     /// pass (#107): row `i` feeds `tokens[i]` to sequence `seqs[i]` at that sequence's position
     /// and returns its greedy next token. Each row uses the same arithmetic as a B = 1 decode
     /// step of that sequence, so the tokens equal `select_seq(s)` + `forward_greedy_token`.
     pub fn decode_round(&mut self, seqs: &[usize], tokens: &[u32]) -> Result<Vec<u32>, String> {
         let b_len = seqs.len();
-        if b_len == 0 || b_len > MAX_SPEC_TOKENS || tokens.len() != b_len {
+        let max_rows = if self.n_seqs > 1 {
+            MAX_MS_ROWS.min(self.prefill.capacity)
+        } else {
+            MAX_SPEC_TOKENS
+        };
+        if b_len == 0 || b_len > max_rows || tokens.len() != b_len {
             return Err(format!(
-                "decode_round: 1..={MAX_SPEC_TOKENS} rows with one token each"
+                "decode_round: 1..={max_rows} rows with one token each"
             ));
         }
         if self.attn_split_g == 0 || self.drafter.is_some() {
@@ -4997,7 +5049,7 @@ impl Inkling2GpuEngine {
         let mut p_down = ctrl.down.ptr;
         let mut p_g = self.prefill.d_b_ctrl_g.ptr;
         if let (true, Some(f_norm), Some(f_tc)) = (
-            self.tc_bf16 && b_len >= 32,
+            self.tc_bf16 && self.tc_rows(b_len),
             self.fns.ctrl_norm_bf16_b,
             self.fns.bf16_tc_gemm_b,
         ) {
@@ -5038,7 +5090,9 @@ impl Inkling2GpuEngine {
             // A short batch has too few blocks to amortize an eight-wide tile.
             // Optional symbols also support previously built external cubins.
             let (down, grid) = match (self.fns.ctrl_down_r8_t2_b, self.fns.ctrl_down_r8_b) {
-                (Some(f), _) if b_len >= 64 => (f, (8, n_ctrls * b_u32.div_ceil(2))),
+                (Some(f), _) if b_len >= 64 && self.ms_rows.get() == 0 => {
+                    (f, (8, n_ctrls * b_u32.div_ceil(2)))
+                }
                 (_, Some(f)) if n_ctrls * b_u32 >= 2 => (f, (8, n_ctrls * b_u32)),
                 _ => (self.fns.ctrl_down_b, (64, n_ctrls * b_u32)),
             };
@@ -5047,7 +5101,7 @@ impl Inkling2GpuEngine {
 
         let mut p_gain = ctrl.gain.ptr;
         let mut p_forget = ctrl.forget.ptr;
-        if self.tc_bf16 && b_len >= 32 {
+        if self.tc_bf16 && self.tc_rows(b_len) {
             if let Some(f_apply_tc) = self.fns.ctrl_apply_tc_b {
                 let t_blocks = b_u32.div_ceil(64);
                 let mut tb = t_blocks as i32;
@@ -5077,7 +5131,7 @@ impl Inkling2GpuEngine {
             (&mut p_forget as *mut _) as *mut c_void,
             (&mut b_i32 as *mut _) as *mut c_void,
         ];
-        if b_len >= 16 {
+        if b_len >= 16 && self.ms_rows.get() == 0 {
             if let Some(f_t8) = self.fns.ctrl_apply_t8_b {
                 return self.launch(
                     stream,
@@ -5213,7 +5267,7 @@ impl Inkling2GpuEngine {
             (&mut ys as *mut _) as *mut c_void,
             (&mut sc as *mut _) as *mut c_void,
         ];
-        if self.tc_q8 && b_len >= 32 {
+        if self.tc_q8 && self.tc_rows(b_len) {
             if let Some(f_tc) = self.fns.q8_tc_gemm_b {
                 let grid_x = (rows as u32).div_ceil(128);
                 let grid_y = (b_len as u32).div_ceil(128);
@@ -5556,7 +5610,10 @@ impl Inkling2GpuEngine {
             ];
             let mut norm_bf16_ready = false;
             if let (true, Some(f_fused)) = (
-                !record_seq && self.tc_bf16 && b_len >= 32 && self.fns.bf16_tc_gemm_b.is_some(),
+                !record_seq
+                    && self.tc_bf16
+                    && self.tc_rows(b_len)
+                    && self.fns.bf16_tc_gemm_b.is_some(),
                 self.fns.depth_mix_multi_ctrl_norm_bf16_b,
             ) {
                 let mut nqi = n_q as i32;
@@ -5660,8 +5717,10 @@ impl Inkling2GpuEngine {
                     1024i32,
                 )
             };
-            if let (true, Some(f_qkv3_tc)) = (self.tc_q8 && b_len >= 32, self.fns.q8_tc_qkv3_gemm_b)
-            {
+            if let (true, Some(f_qkv3_tc)) = (
+                self.tc_q8 && self.tc_rows(b_len),
+                self.fns.q8_tc_qkv3_gemm_b,
+            ) {
                 let mut pwq = l.wq_all_q8.codes.ptr;
                 let mut pwqs = l.wq_all_q8.scales64.ptr;
                 let mut pwk = wk_ref.codes.ptr + (wk_off * D) as u64;
@@ -5919,7 +5978,7 @@ impl Inkling2GpuEngine {
 
         // 6. Batched GQA Relative-Bias + Sink Attention + In-Register `Q8_64` Epilogue!
         let mut attn_done = false;
-        if !record_seq && self.tc_attn && b_len >= 32 {
+        if !record_seq && self.tc_attn && self.tc_rows(b_len) {
             let total_kv = self.host_pos + b_len;
             let use_long_split = l.global
                 && total_kv >= 8192
@@ -6340,7 +6399,7 @@ impl Inkling2GpuEngine {
 
         // 8. Fused Batched MLP Prologue (`depth_mix + rmsnorm_d + quant_q8_16` when `!has_msgs`)
         let has_nvfp4_tc = self.tc_nvfp4
-            && b_len >= 32
+            && self.tc_rows(b_len)
             && self.fns.quant_nvfp4_2term_b.is_some()
             && self.fns.gather_nvfp4_sorted_b.is_some()
             && match &l.expert_scales {
@@ -6491,7 +6550,7 @@ impl Inkling2GpuEngine {
                 has_msgs
                     && !record_seq
                     && self.tc_bf16
-                    && b_len >= 32
+                    && self.tc_rows(b_len)
                     && self.fns.bf16_tc_gemm_b.is_some(),
                 self.fns.depth_mix_multi_ctrl_norm_bf16_b,
             ) {
@@ -6593,7 +6652,7 @@ impl Inkling2GpuEngine {
 
         // 9. Batched BF16 Router + TopK8 + Zero-Atomic Grouped-Expert MoE + Combine!
         if let (true, Some(f_pack), Some(f_tc)) = (
-            self.tc_bf16 && b_len >= 32,
+            self.tc_bf16 && self.tc_rows(b_len),
             self.fns.f32_to_bf16_b,
             self.fns.bf16_tc_gemm_b,
         ) {
@@ -7207,7 +7266,7 @@ impl Inkling2GpuEngine {
                     )
                 };
                 if let (true, Some(f_qm), Some(f_up), Some(f_dn)) = (
-                    self.tc_mxfp8 && b_len >= 32,
+                    self.tc_mxfp8 && self.tc_rows(b_len),
                     self.fns.quant_mxfp8_b,
                     opt_mup,
                     opt_mdn,
@@ -7491,7 +7550,7 @@ impl Inkling2GpuEngine {
         }
 
         let mut spilled_schedule = Vec::new();
-        if b_len >= 32
+        if self.tc_rows(b_len)
             && !record_seq
             && stream == self.ctx.compute_stream
             && self.tc_nvfp4
@@ -7588,7 +7647,7 @@ impl Inkling2GpuEngine {
             )?;
         }
 
-        let precompute_all_msgs = b_len <= MAX_SPEC_TOKENS;
+        let precompute_all_msgs = self.small_rows(b_len);
         for pass in 0..3 {
             if pass > 0 {
                 if let Some(f_setup) = self.fns.loop_pass_setup_b {
