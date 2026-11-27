@@ -1,0 +1,164 @@
+{
+  "prefix": 82,
+  "cap": 7880785292,
+  "parent_bytes": 7763991646,
+  "package_bytes": 7879973686,
+  "files": {
+    "model-00001-of-00001.safetensors": {
+      "bytes": 7876587192,
+      "sha256": "b2220554491289cc0a7e41d9f7ccca0836df0030303edb2e8a496d8655ef03e0"
+    },
+    "tiktoken/tokenizer.model": {
+      "bytes": 3386494,
+      "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+    }
+  },
+  "rank_sha256": "d2532376faf2f6d723b26e1bd0f037343a2bc80a3f7a4ccc3893197a1c039336",
+  "training_gain": 248858.74697696738,
+  "training_objective": 1396845.0532644915,
+  "whole_plane_gain": 123425.47650096146,
+  "selected": {
+    "model.llm.layers.15.mlp.experts.w2_weight": [
+      67,
+      33,
+      16,
+      86,
+      104,
+      39
+    ],
+    "model.llm.layers.13.mlp.experts.w2_weight": [
+      50,
+      122,
+      92,
+      65,
+      9,
+      55
+    ],
+    "model.llm.layers.11.mlp.experts.w2_weight": [
+      44,
+      45,
+      113,
+      84,
+      127,
+      9
+    ],
+    "model.llm.layers.9.mlp.experts.w2_weight": [
+      16,
+      78,
+      7,
+      86,
+      89,
+      92,
+      43
+    ],
+    "model.llm.layers.8.mlp.experts.w2_weight": [
+      50,
+      82,
+      84,
+      89,
+      125,
+      86,
+      105
+    ],
+    "model.llm.layers.10.mlp.experts.w2_weight": [
+      83,
+      85,
+      11,
+      98,
+      61,
+      88,
+      35,
+      92,
+      121,
+      42
+    ],
+    "model.llm.layers.16.mlp.experts.w2_weight": [
+      49,
+      64,
+      92,
+      115,
+      23,
+      123,
+      27
+    ],
+    "model.llm.layers.7.mlp.experts.w2_weight": [
+      6,
+      78,
+      71,
+      49,
+      20
+    ],
+    "model.llm.layers.12.mlp.experts.w2_weight": [
+      78,
+      31,
+      104,
+      38,
+      65,
+      63,
+      82
+    ],
+    "model.llm.layers.14.mlp.experts.w2_weight": [
+      66,
+      125,
+      77,
+      102,
+      117,
+      23,
+      8,
+      48,
+      106
+    ],
+    "model.llm.layers.6.mlp.experts.w2_weight": [
+      104,
+      55,
+      33,
+      97,
+      24,
+      53,
+      112,
+      84,
+      80,
+      15,
+      98
+    ],
+    "model.llm.layers.1.mlp.experts.w2_weight": [
+      79
+    ]
+  },
+  "trials": [
+    {
+      "prefix": 147,
+      "estimated_archive_bytes_before_header": 7958179838
+    },
+    {
+      "prefix": 73,
+      "estimated_archive_bytes_before_header": 7868093646
+    },
+    {
+      "prefix": 110,
+      "estimated_archive_bytes_before_header": 7914202934
+    },
+    {
+      "prefix": 91,
+      "estimated_archive_bytes_before_header": 7891682366
+    },
+    {
+      "prefix": 82,
+      "estimated_archive_bytes_before_header": 7879973686
+    },
+    {
+      "prefix": 86,
+      "estimated_archive_bytes_before_header": 7885546622
+    },
+    {
+      "prefix": 84,
+      "estimated_archive_bytes_before_header": 7882459094
+    },
+    {
+      "prefix": 83,
+      "estimated_archive_bytes_before_header": 7881230134
+    }
+  ],
+  "changed_tensors": 24,
+  "verified_tensors": 999
+}
