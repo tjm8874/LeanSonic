@@ -83,6 +83,23 @@
     "top1_matches": 24879,
     "top1_agreement": 0.9756470588235294
   },
+  "v12-native": {
+    "chunks": 100,
+    "context": 512,
+    "rows": 25500,
+    "ppl": 7.072582283191336,
+    "ref_ppl": 7.064408191101908,
+    "mean_kld": 0.003175525720314373,
+    "median_kld": 0.0012816721567639787,
+    "p99_kld": 0.030938605542115,
+    "max_kld": 0.674715904066122,
+    "start_chunk": 0,
+    "max_kld_chunk": 69,
+    "max_kld_position": 353,
+    "ref_floor_targets": 14,
+    "top1_matches": 24879,
+    "top1_agreement": 0.9756470588235294
+  },
   "v12-grid": {
     "chunks": 100,
     "context": 512,
@@ -99,6 +116,110 @@
     "ref_floor_targets": 14,
     "top1_matches": 24910,
     "top1_agreement": 0.9768627450980392
+  },
+  "5060ti-raw": {
+    "chunks": 100,
+    "context": 512,
+    "rows": 25500,
+    "ppl": 7.071985759563496,
+    "ref_ppl": 7.064408191101908,
+    "mean_kld": 0.0030389868322863254,
+    "median_kld": 0.0012228699963499484,
+    "p99_kld": 0.028630558999079292,
+    "max_kld": 0.6639923296258949,
+    "start_chunk": 0,
+    "max_kld_chunk": 69,
+    "max_kld_position": 353,
+    "ref_floor_targets": 14,
+    "top1_matches": 24880,
+    "top1_agreement": 0.9756862745098039
+  },
+  "full-wo": {
+    "chunks": 100,
+    "context": 512,
+    "rows": 25500,
+    "ppl": 7.070330079128736,
+    "ref_ppl": 7.064408191101908,
+    "mean_kld": 0.0030901001885423143,
+    "median_kld": 0.0012583057104483594,
+    "p99_kld": 0.028956732845104513,
+    "max_kld": 0.3803578311870317,
+    "start_chunk": 0,
+    "max_kld_chunk": 90,
+    "max_kld_position": 302,
+    "ref_floor_targets": 14,
+    "top1_matches": 24895,
+    "top1_agreement": 0.9762745098039216
+  },
+  "v12-selected": {
+    "except_wo": {
+      "21/313": {
+        "kl": 0.13673614152263766,
+        "next_token_nll": 1.1273765563964844,
+        "top1_agrees": true
+      },
+      "69/353": {
+        "kl": 0.03196625467283868,
+        "next_token_nll": 0.7068271636962891,
+        "top1_agrees": false
+      },
+      "69/395": {
+        "kl": 0.06279604511906027,
+        "next_token_nll": 5.819463729858398,
+        "top1_agrees": true
+      }
+    },
+    "grid": {
+      "21/313": {
+        "kl": 0.12025212210995478,
+        "next_token_nll": 1.1343955993652344,
+        "top1_agrees": true
+      },
+      "69/353": {
+        "kl": 0.5646905514937366,
+        "next_token_nll": 0.1645355224609375,
+        "top1_agrees": false
+      },
+      "69/395": {
+        "kl": 0.07393202357604553,
+        "next_token_nll": 5.678138732910156,
+        "top1_agrees": true
+      }
+    },
+    "native": {
+      "21/313": {
+        "kl": 0.3497806247124148,
+        "next_token_nll": 0.9462871551513672,
+        "top1_agrees": true
+      },
+      "69/353": {
+        "kl": 0.674715904066122,
+        "next_token_nll": 0.1346759796142578,
+        "top1_agrees": false
+      },
+      "69/395": {
+        "kl": 0.027388798180564056,
+        "next_token_nll": 5.260730743408203,
+        "top1_agrees": true
+      }
+    },
+    "wo_only": {
+      "21/313": {
+        "kl": 0.2972600601598423,
+        "next_token_nll": 1.0408382415771484,
+        "top1_agrees": true
+      },
+      "69/353": {
+        "kl": 0.002929323441867427,
+        "next_token_nll": 0.8784980773925781,
+        "top1_agrees": true
+      },
+      "69/395": {
+        "kl": 0.0524273208773528,
+        "next_token_nll": 5.412353515625,
+        "top1_agrees": true
+      }
+    }
   },
   "selected_simt_rows": {
     "2/476": {
@@ -163,5 +284,10 @@
     }
   },
   "v12_source": "7a02b538048d819fa76d2efb084b734d4c3bf2cb",
-  "v12_cubin_sha256": "8771508cc25cc5896aa0f2456a6260921f85d6d3ab071b8d7c1b8283cd8a087b"
+  "v12_cubin_sha256": "8771508cc25cc5896aa0f2456a6260921f85d6d3ab071b8d7c1b8283cd8a087b",
+  "output_projection_only": {
+    "raw_sha256": "e48ec0c89e591a7d8985a4529e5e297975ef132995a16c43660b69b3759d9b05",
+    "dictionary_sha256": "a4ba3e60d1838325a4d5109687d0a7ddb3e3722a726424ce68057beee8e9441a",
+    "dictionary_shard_bytes": 16035182576
+  }
 }
