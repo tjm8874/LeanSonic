@@ -746,6 +746,9 @@ impl<'a> Matrix<'a> {
             return Err("invalid MXFP8 output extent".into());
         }
         let frames = &self.frames[offset / TILE..end.div_ceil(TILE)];
+        if let [frame] = frames {
+            return self.decode_tile(offset, frame, dst);
+        }
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(24));
         let group = frames.len().div_ceil(threads);
         std::thread::scope(|scope| {

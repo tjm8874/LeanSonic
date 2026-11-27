@@ -1,6 +1,6 @@
 //! Lossless BF16 frequency ranks. Eight adjacent low ranks occupy `bits` bytes.
 //! The high ranks use the existing byte rANS matrix and decode into bounded scratch.
-use crate::inkling_mxfp8::Matrix;
+use crate::inkling_mxfp8::{Matrix, TILE};
 use std::mem::MaybeUninit;
 
 pub fn unpack_rank_embedding(frame: &[u8], dst: &mut [MaybeUninit<u8>]) -> Result<(), String> {
@@ -29,25 +29,48 @@ pub fn unpack_rank_embedding(frame: &[u8], dst: &mut [MaybeUninit<u8>]) -> Resul
     if upper.len() != upper_bytes {
         return Err("invalid high rank stream length".into());
     }
+    let matrix = Matrix::parse(upper, count)?;
+    let workers = std::thread::available_parallelism().map_or(1, |n| n.get().min(24));
+    let group = count.div_ceil(TILE).div_ceil(workers) * TILE;
     let mask = (1u64 << bits) - 1;
-    Matrix::parse(upper, count)?.for_each_chunk(|offset, high| {
-        let (groups, tail) = high.as_chunks::<8>();
-        if !tail.is_empty() || !offset.is_multiple_of(8) {
-            return Err("unaligned rank matrix chunk".into());
+    std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for (part, region) in dst.chunks_mut(2 * group).enumerate() {
+            let matrix = &matrix;
+            handles.push(scope.spawn(move || {
+                let mut scratch = vec![MaybeUninit::uninit(); TILE.min(region.len() / 2)];
+                for (tile, output) in region.chunks_mut(2 * TILE).enumerate() {
+                    let offset = part * group + tile * TILE;
+                    let high = &mut scratch[..output.len() / 2];
+                    matrix.decode_at(offset, high)?;
+                    let lower_start = offset / 8 * bits;
+                    let low_groups = lower[lower_start..].chunks_exact(bits);
+                    for ((hi, low), out) in high
+                        .chunks_exact(8)
+                        .zip(low_groups)
+                        .zip(output.chunks_exact_mut(16))
+                    {
+                        let mut packed = [0u8; 8];
+                        packed[..bits].copy_from_slice(low);
+                        let mut lanes = u64::from_le_bytes(packed);
+                        for (&h, word_out) in hi.iter().zip(out.chunks_exact_mut(2)) {
+                            // decode_at initialized every upper rank in this tile.
+                            let rank = ((unsafe { h.assume_init() } as usize) << bits)
+                                | (lanes & mask) as usize;
+                            let word = words.get(rank).ok_or("BF16 rank outside table")?;
+                            word_out[0].write(word[0]);
+                            word_out[1].write(word[1]);
+                            lanes >>= bits;
+                        }
+                    }
+                }
+                Ok::<_, String>(())
+            }));
         }
-        let low_groups = lower[offset / 8 * bits..].chunks_exact(bits);
-        let outputs = dst[2 * offset..].chunks_exact_mut(16);
-        for ((hi, low), output) in groups.iter().zip(low_groups).zip(outputs) {
-            let mut packed = [0u8; 8];
-            packed[..bits].copy_from_slice(low);
-            let mut lanes = u64::from_le_bytes(packed);
-            for (&h, out) in hi.iter().zip(output.chunks_exact_mut(2)) {
-                let rank = ((h as usize) << bits) | (lanes & mask) as usize;
-                let word = words.get(rank).ok_or("BF16 rank outside table")?;
-                out[0].write(word[0]);
-                out[1].write(word[1]);
-                lanes >>= bits;
-            }
+        for handle in handles {
+            handle
+                .join()
+                .map_err(|_| "rank embedding decoder thread panicked")??;
         }
         Ok(())
     })
@@ -93,6 +116,31 @@ mod tests {
                 frame[16 + table.len() * 2] = 250;
                 assert!(unpack_rank_embedding(&frame, &mut dst).is_err());
             }
+        }
+    }
+
+    #[test]
+    fn rank_stream_crosses_a_tile_boundary() {
+        let count = TILE + 8;
+        let high: Vec<_> = (0..count).map(|i| u8::from(i >= TILE)).collect();
+        let mut upper = Vec::new();
+        pack(&high, &mut upper).unwrap();
+        let mut frame = b"BRK1".to_vec();
+        for field in [4, 1, upper.len() as u32] {
+            frame.extend(field.to_le_bytes());
+        }
+        for word in [0u16, 1, 2, 3] {
+            frame.extend(word.to_le_bytes());
+        }
+        frame.resize(frame.len() + count / 8, 0b10101010);
+        frame.extend(upper);
+        let mut output = vec![MaybeUninit::uninit(); count * 2];
+        unpack_rank_embedding(&frame, &mut output).unwrap();
+        for (i, word) in output.chunks_exact(2).enumerate() {
+            // The checked decode completed for both tiles.
+            let actual =
+                unsafe { u16::from_le_bytes([word[0].assume_init(), word[1].assume_init()]) };
+            assert_eq!(actual, (i % 2 + 2 * usize::from(i >= TILE)) as u16);
         }
     }
 }
