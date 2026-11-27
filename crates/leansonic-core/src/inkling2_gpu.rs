@@ -42,7 +42,7 @@ pub const GLOBAL_LAYERS: [usize; 4] = [5, 11, 17, 23];
 /// #80: GPUs with at most this much VRAM (16 GB cards report ~15.5-15.9 GiB) default to INT8
 /// global KV when `max_ctx > AUTO_INT8_KV_MIN_CTX` and `LEANSONIC_KV` is unset.
 const AUTO_INT8_KV_MAX_VRAM: usize = 16_896 << 20; // 16.5 GiB
-const AUTO_INT8_KV_MIN_CTX: usize = 20_480;
+const AUTO_INT8_KV_MIN_CTX: usize = 8_192;
 pub const MAX_BATCH_TOKENS: usize = 2048;
 const NVFP4_LAYERS: usize = 20;
 const EXPERT_PAGE: usize = 64;
@@ -1155,7 +1155,7 @@ impl Inkling2GpuEngine {
         // `LEANSONIC_KV=int8-all` also stores the sliding-window rings as INT8 (same kernels:
         // each slot picks the INT8 path from its own scale buffers).
         // #80: on 16 GB cards a long context's FP16 global KV (up to ~2 GiB at 128K) pushes
-        // expert layers out of VRAM, so with `LEANSONIC_KV` unset and `max_ctx > 20,480` they
+        // expert layers out of VRAM, so with `LEANSONIC_KV` unset and `max_ctx > 8,192` they
         // start with INT8 global KV. Standard contexts keep FP16 (bit-identical on all GPUs).
         let (_, total_vram_at_load) = ctx.mem_info()?;
         let kv_env = std::env::var("LEANSONIC_KV").ok();
@@ -1956,7 +1956,7 @@ impl Inkling2GpuEngine {
             if eng.slots.iter().all(|st| st.k_scale.is_some()) {
                 "int8 (all layers)"
             } else if kv_auto {
-                "int8 (auto, <=16GB ctx>20480; set LEANSONIC_KV=fp16 to override)"
+                "int8 (auto, <=16GB ctx>8192; set LEANSONIC_KV=fp16 to override)"
             } else if eng.slots.iter().any(|st| st.k_scale.is_some()) {
                 "int8 (global layers)"
             } else {
