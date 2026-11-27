@@ -10,6 +10,8 @@ Weight placement changes the result. On an RTX 5070 Ti with 21 fully resident ex
 | Half warp everywhere (experiment) | 711.04 ms | +6.91% |
 | Half warp for VRAM weights | 662.87 ms | −0.33% |
 
+On RTX 5060 Ti the same three arms took 1,331.32, 1,329.05 and 1,329.09 ms. Its 17 full-vocabulary output rows produced the same SHA-256 as the 5070 Ti. On 5070 Ti the official model with its speculative drafter also returned identical 200-token greedy sequences with widths 0 and 7 on Basalt's conversation input (output SHA-256 `0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6`).
+
 Each of three balanced cycles rotated the starting arm and then ran the arms in reverse order. Every visit started a fresh CLI, ran four repeats, and contributed the median of the last three. All arms produced the same 64 token IDs. The stock and placement-aware arms also produced byte-identical FP32 logits for all 200,058 vocabulary entries at 17 positions (13,603,944 bytes, SHA-256 `68538b83e50b2df69e032bc05740bd5f019a9dd279f7077905553fe792df3489`). The checkpoint and tokenizer were identical. Full timing samples, build hashes and the independent five-cycle all-layer screen are in [the measurement file](inkling-nvfp4-half-warp.json).
 
 The device-memory microbenchmark sampled eight distinct experts out of 128 across 128 selections. For packed scales, time per launch fell from 28.15 to 26.53 µs on the RTX 5070 Ti and from 55.89 to 53.38 µs on the RTX 5060 Ti. Testing raw and packed scales covered 9,216 output floats per selection for each candidate. These timings describe VRAM weights. Use an end-to-end decode with actual placement to evaluate the dispatcher.
