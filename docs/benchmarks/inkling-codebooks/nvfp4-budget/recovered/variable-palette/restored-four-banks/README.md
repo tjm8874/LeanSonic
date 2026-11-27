@@ -6,7 +6,7 @@ The ordinary four-bank encoder reduced the parent's shipped files to **11,577,23
 
 Starting from this package, the allocator enumerates nondominated whole-plane choices under the published IQ3_XXS budget of 11,663,309,504 bytes. The cost of an option is the measured increase in both weight and scale frames. Its benefit is the decrease in the parent's frozen training objective. Within these whole-plane options and a 4 KiB header allowance, the largest benefit came from restoring both the weights and scales of the **layer 11 and 13 down projections**. This reduced the training objective from 360,348.70 to 343,710.64. The corpus result needs a separate measurement.
 
-The resulting model and tokenizer occupy **11,648,582,790 bytes**, 14,726,714 below native IQ3_XXS. All four restored payloads came directly from the 13,455,139,382-byte four-bank control. The other 995 tensor payloads came from the lossless parent. [Frozen plan hash, costs, benefits and output hashes](restored.json)
+The resulting model and tokenizer occupy **11,648,582,790 bytes**, 14,726,714 below native IQ3_XXS. All four restored payloads came directly from the 13,455,139,382-byte four-bank control. A separate pass reopened the published shard and verified these four payloads against the control, the other 995 against the lossless parent, and the tokenizer against both. [Readback results](verified.json). [Frozen plan hash, costs, benefits and output hashes](restored.json)
 
 ## Reproduce
 
