@@ -1,0 +1,203 @@
+{
+  "cpu": [
+    "CPU(s):                                  24",
+    "Model name:                              AMD Ryzen 9 9900X 12-Core Processor"
+  ],
+  "digests": [
+    "9cc5876da38ad90c5c4cc5b7ed53229cd6d0ecc9c3bd544052ebbdc32ea998de  baseline",
+    "a82b4d555bfa17d153c95607fd48a6371f634fa47a9b29b409da145d0e1433ce  fused"
+  ],
+  "decoded_sha256": "86afe04b91893883cf823392f1c954bbf0881988e0b6c5f34ed7b2f938fe0a30",
+  "per_process_ms": [
+    {
+      "cycle": 1,
+      "leg": 0,
+      "arm": "prefix",
+      "ms": 107.595
+    },
+    {
+      "cycle": 1,
+      "leg": 1,
+      "arm": "baseline",
+      "ms": 99.127
+    },
+    {
+      "cycle": 1,
+      "leg": 2,
+      "arm": "fused",
+      "ms": 100.521
+    },
+    {
+      "cycle": 1,
+      "leg": 3,
+      "arm": "fused",
+      "ms": 97.466
+    },
+    {
+      "cycle": 1,
+      "leg": 4,
+      "arm": "baseline",
+      "ms": 104.307
+    },
+    {
+      "cycle": 1,
+      "leg": 5,
+      "arm": "prefix",
+      "ms": 68.608
+    },
+    {
+      "cycle": 2,
+      "leg": 0,
+      "arm": "baseline",
+      "ms": 111.023
+    },
+    {
+      "cycle": 2,
+      "leg": 1,
+      "arm": "fused",
+      "ms": 129.146
+    },
+    {
+      "cycle": 2,
+      "leg": 2,
+      "arm": "prefix",
+      "ms": 96.973
+    },
+    {
+      "cycle": 2,
+      "leg": 3,
+      "arm": "prefix",
+      "ms": 82.081
+    },
+    {
+      "cycle": 2,
+      "leg": 4,
+      "arm": "fused",
+      "ms": 104.06
+    },
+    {
+      "cycle": 2,
+      "leg": 5,
+      "arm": "baseline",
+      "ms": 116.497
+    },
+    {
+      "cycle": 3,
+      "leg": 0,
+      "arm": "fused",
+      "ms": 124.072
+    },
+    {
+      "cycle": 3,
+      "leg": 1,
+      "arm": "prefix",
+      "ms": 95.869
+    },
+    {
+      "cycle": 3,
+      "leg": 2,
+      "arm": "baseline",
+      "ms": 114.548
+    },
+    {
+      "cycle": 3,
+      "leg": 3,
+      "arm": "baseline",
+      "ms": 129.361
+    },
+    {
+      "cycle": 3,
+      "leg": 4,
+      "arm": "prefix",
+      "ms": 85.517
+    },
+    {
+      "cycle": 3,
+      "leg": 5,
+      "arm": "fused",
+      "ms": 113.723
+    },
+    {
+      "cycle": 4,
+      "leg": 0,
+      "arm": "prefix",
+      "ms": 80.633
+    },
+    {
+      "cycle": 4,
+      "leg": 1,
+      "arm": "baseline",
+      "ms": 127.834
+    },
+    {
+      "cycle": 4,
+      "leg": 2,
+      "arm": "fused",
+      "ms": 113.586
+    },
+    {
+      "cycle": 4,
+      "leg": 3,
+      "arm": "fused",
+      "ms": 114.823
+    },
+    {
+      "cycle": 4,
+      "leg": 4,
+      "arm": "baseline",
+      "ms": 114.888
+    },
+    {
+      "cycle": 4,
+      "leg": 5,
+      "arm": "prefix",
+      "ms": 108.388
+    },
+    {
+      "cycle": 5,
+      "leg": 0,
+      "arm": "baseline",
+      "ms": 122.8
+    },
+    {
+      "cycle": 5,
+      "leg": 1,
+      "arm": "fused",
+      "ms": 119.054
+    },
+    {
+      "cycle": 5,
+      "leg": 2,
+      "arm": "prefix",
+      "ms": 91.234
+    },
+    {
+      "cycle": 5,
+      "leg": 3,
+      "arm": "prefix",
+      "ms": 89.103
+    },
+    {
+      "cycle": 5,
+      "leg": 4,
+      "arm": "fused",
+      "ms": 116.793
+    },
+    {
+      "cycle": 5,
+      "leg": 5,
+      "arm": "baseline",
+      "ms": 106.148
+    }
+  ],
+  "mean_ms": {
+    "baseline": 114.6533,
+    "fused": 113.3244,
+    "prefix": 90.6001
+  },
+  "specialized_over_generic": 0.988409404700955,
+  "bootstrap95": [
+    0.9598370387451033,
+    1.0176670817023032
+  ]
+}

@@ -1,0 +1,302 @@
+{
+  "widths": [
+    {
+      "bits": 5,
+      "bytes": 608134954,
+      "frame_sha256": "ed19250effbf746363334241ce87cec9a7c37b2dccc371160d0be5dc0f66f264",
+      "decoded_sha256": "86afe04b91893883cf823392f1c954bbf0881988e0b6c5f34ed7b2f938fe0a30",
+      "mean_cpu_decode_ms": 98.3122,
+      "time_ratio_vs_5": {
+        "ratio": 1.0,
+        "percentile_95": [
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "bits": 6,
+      "bytes": 607225986,
+      "frame_sha256": "1a3a70ba6827545a548f0a15df01fa0baf9ed7f36b2dcedee36c97e6d628d238",
+      "decoded_sha256": "86afe04b91893883cf823392f1c954bbf0881988e0b6c5f34ed7b2f938fe0a30",
+      "mean_cpu_decode_ms": 98.5043,
+      "time_ratio_vs_5": {
+        "ratio": 1.0019539792619838,
+        "percentile_95": [
+          0.966536873789088,
+          1.034745830357088
+        ]
+      }
+    },
+    {
+      "bits": 7,
+      "bytes": 607046690,
+      "frame_sha256": "13ac5ff82d2151900f5803d2528b2906180ea2e4e9836d8674568c62d9105736",
+      "decoded_sha256": "86afe04b91893883cf823392f1c954bbf0881988e0b6c5f34ed7b2f938fe0a30",
+      "mean_cpu_decode_ms": 99.9996,
+      "time_ratio_vs_5": {
+        "ratio": 1.017163688738529,
+        "percentile_95": [
+          0.9892819495721072,
+          1.0514132180142224
+        ]
+      }
+    },
+    {
+      "bits": 8,
+      "bytes": 607505258,
+      "frame_sha256": "ef371f0898171e1479b0c62c065ac407ae713b6fa4b6acb81ac1e351f1cb737a",
+      "decoded_sha256": "86afe04b91893883cf823392f1c954bbf0881988e0b6c5f34ed7b2f938fe0a30",
+      "mean_cpu_decode_ms": 92.3199,
+      "time_ratio_vs_5": {
+        "ratio": 0.939048256472747,
+        "percentile_95": [
+          0.9180099991705666,
+          0.9559708424613337
+        ]
+      }
+    }
+  ],
+  "processes": [
+    {
+      "cycle": 1,
+      "leg": 0,
+      "bits": 5,
+      "time_ms": 99.818
+    },
+    {
+      "cycle": 1,
+      "leg": 1,
+      "bits": 6,
+      "time_ms": 96.081
+    },
+    {
+      "cycle": 1,
+      "leg": 2,
+      "bits": 7,
+      "time_ms": 94.893
+    },
+    {
+      "cycle": 1,
+      "leg": 3,
+      "bits": 8,
+      "time_ms": 92.482
+    },
+    {
+      "cycle": 1,
+      "leg": 4,
+      "bits": 8,
+      "time_ms": 91.593
+    },
+    {
+      "cycle": 1,
+      "leg": 5,
+      "bits": 7,
+      "time_ms": 97.579
+    },
+    {
+      "cycle": 1,
+      "leg": 6,
+      "bits": 6,
+      "time_ms": 94.117
+    },
+    {
+      "cycle": 1,
+      "leg": 7,
+      "bits": 5,
+      "time_ms": 93.685
+    },
+    {
+      "cycle": 2,
+      "leg": 0,
+      "bits": 6,
+      "time_ms": 97.071
+    },
+    {
+      "cycle": 2,
+      "leg": 1,
+      "bits": 7,
+      "time_ms": 97.052
+    },
+    {
+      "cycle": 2,
+      "leg": 2,
+      "bits": 8,
+      "time_ms": 92.158
+    },
+    {
+      "cycle": 2,
+      "leg": 3,
+      "bits": 5,
+      "time_ms": 96.379
+    },
+    {
+      "cycle": 2,
+      "leg": 4,
+      "bits": 5,
+      "time_ms": 95.857
+    },
+    {
+      "cycle": 2,
+      "leg": 5,
+      "bits": 8,
+      "time_ms": 87.264
+    },
+    {
+      "cycle": 2,
+      "leg": 6,
+      "bits": 7,
+      "time_ms": 103.424
+    },
+    {
+      "cycle": 2,
+      "leg": 7,
+      "bits": 6,
+      "time_ms": 97.182
+    },
+    {
+      "cycle": 3,
+      "leg": 0,
+      "bits": 7,
+      "time_ms": 110.585
+    },
+    {
+      "cycle": 3,
+      "leg": 1,
+      "bits": 8,
+      "time_ms": 89.63
+    },
+    {
+      "cycle": 3,
+      "leg": 2,
+      "bits": 5,
+      "time_ms": 95.916
+    },
+    {
+      "cycle": 3,
+      "leg": 3,
+      "bits": 6,
+      "time_ms": 101.775
+    },
+    {
+      "cycle": 3,
+      "leg": 4,
+      "bits": 6,
+      "time_ms": 100.025
+    },
+    {
+      "cycle": 3,
+      "leg": 5,
+      "bits": 5,
+      "time_ms": 97.801
+    },
+    {
+      "cycle": 3,
+      "leg": 6,
+      "bits": 8,
+      "time_ms": 97.045
+    },
+    {
+      "cycle": 3,
+      "leg": 7,
+      "bits": 7,
+      "time_ms": 97.645
+    },
+    {
+      "cycle": 4,
+      "leg": 0,
+      "bits": 8,
+      "time_ms": 95.247
+    },
+    {
+      "cycle": 4,
+      "leg": 1,
+      "bits": 5,
+      "time_ms": 106.379
+    },
+    {
+      "cycle": 4,
+      "leg": 2,
+      "bits": 6,
+      "time_ms": 95.397
+    },
+    {
+      "cycle": 4,
+      "leg": 3,
+      "bits": 7,
+      "time_ms": 103.957
+    },
+    {
+      "cycle": 4,
+      "leg": 4,
+      "bits": 7,
+      "time_ms": 97.903
+    },
+    {
+      "cycle": 4,
+      "leg": 5,
+      "bits": 6,
+      "time_ms": 96.754
+    },
+    {
+      "cycle": 4,
+      "leg": 6,
+      "bits": 5,
+      "time_ms": 98.531
+    },
+    {
+      "cycle": 4,
+      "leg": 7,
+      "bits": 8,
+      "time_ms": 88.933
+    },
+    {
+      "cycle": 5,
+      "leg": 0,
+      "bits": 5,
+      "time_ms": 101.91
+    },
+    {
+      "cycle": 5,
+      "leg": 1,
+      "bits": 6,
+      "time_ms": 105.986
+    },
+    {
+      "cycle": 5,
+      "leg": 2,
+      "bits": 7,
+      "time_ms": 95.454
+    },
+    {
+      "cycle": 5,
+      "leg": 3,
+      "bits": 8,
+      "time_ms": 94.003
+    },
+    {
+      "cycle": 5,
+      "leg": 4,
+      "bits": 8,
+      "time_ms": 94.844
+    },
+    {
+      "cycle": 5,
+      "leg": 5,
+      "bits": 7,
+      "time_ms": 101.504
+    },
+    {
+      "cycle": 5,
+      "leg": 6,
+      "bits": 6,
+      "time_ms": 100.655
+    },
+    {
+      "cycle": 5,
+      "leg": 7,
+      "bits": 5,
+      "time_ms": 96.846
+    }
+  ]
+}

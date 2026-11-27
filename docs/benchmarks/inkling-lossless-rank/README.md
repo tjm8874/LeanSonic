@@ -1,8 +1,8 @@
 # Lossless BF16 embedding ranks on Inkling-2-Mini
 
-The new package is **13,438,517,744 bytes**, including the tokenizer, down **10,456,270 bytes** from the 13,448,974,014-byte four-bank parent. All 463,159,296 BF16 embedding words match both the original publisher tensor and the existing prefix decoder byte for byte. The other 998 tensor payloads and the tokenizer match the parent. The model requires the new reader at load time. The runtime still reads the same pinned BF16 weights.
+The smallest measured rank package is **13,437,429,480 bytes**, including the tokenizer, down **11,544,534 bytes** from the 13,448,974,014-byte four-bank parent. It uses seven low bits. [Physical package, full readback and width tradeoffs](measured-widths/README.md). The first five-bit package used for the matched GPU comparisons is 13,438,517,744 bytes. All 463,159,296 BF16 embedding words match both the original publisher tensor and the existing prefix decoder byte for byte. The other 998 tensor payloads and the tokenizer match the parent. The model requires the new reader at load time. The runtime still reads the same pinned BF16 weights.
 
-| Measurement | Prefix | Rank |
+| Original measurement | Prefix | Five-bit rank |
 |---|---:|---:|
 | Embedding frame bytes | 618,590,352 | 608,134,954 |
 | Complete distribution bytes | 13,448,974,014 | 13,438,517,744 |
@@ -10,7 +10,7 @@ The new package is **13,438,517,744 bytes**, including the tokenizer, down **10,
 
 The single-run timings above describe the first rank reader. The revised reader assigns disjoint output tiles to CPU workers and consumes each decoded upper-rank tile immediately. In five mirrored cycles on the same host the original rank reader took **620.33 ms**, the revised reader **97.95 ms**, and the prefix reader **75.26 ms**. The new reader cuts mean rank time by **84.21%** with the same output hash for all 926,318,592 bytes. Its residual cost versus prefix was **22.69 ms**. The 30 fresh processes rotated prefix, original rank and revised rank. Timers covered CPU decoding and excluded file I/O. [All samples, checksums and paired cycle interval](cpu.json). The measured saving is 0.078% of the model. Full loader, inference and other-model results are separate measurements. [All sizes and hashes](receipt.json).
 
-The encoder ranks all 6,001 distinct BF16 bit patterns by frequency, with ties in unsigned bit-pattern order. It measures the empirical entropy of the upper ranks for each feasible low-bit width and chooses five bits on this model. The frame holds a 16-byte header, the exact little-endian u16 table, five bytes of packed low bits per eight ranks, and a tiled rANS stream of the upper ranks. The decoder uses the host loader's existing rANS implementation to stream into the final pinned buffer. Raw BF16 and prefix packages retain their original readers.
+The encoder ranks all 6,001 distinct BF16 bit patterns by frequency, with ties in unsigned bit-pattern order. The original entropy estimate favored five bits. The encoder now packs every feasible upper-rank stream and chooses the smallest complete frame, including metadata and packed low bits. It selects seven bits for this model. The frame holds a 16-byte header, the exact little-endian u16 table, one group of packed low bits per eight ranks, and a tiled rANS stream of the upper ranks. The decoder uses the host loader's existing rANS implementation to stream into the final pinned buffer. Raw BF16 and prefix packages retain their original readers.
 
 ## Reproduce
 
@@ -24,7 +24,7 @@ sha256sum rank.bf16
 python3 assemble.py FOUR_BANK_PARENT FIT_DIR/embedding.frame NEW_MODEL > model.json
 ```
 
-The expected decoded SHA-256 is 86afe04b91893883cf823392f1c954bbf0881988e0b6c5f34ed7b2f938fe0a30. The original prefix frame, rank frame and official source were independently checked against it. Verify the resulting shard and tokenizer against receipt.json. For a GPU model comparison use identical cubins and scorer flags for both model directories and check full-vocabulary output fingerprints.
+The expected decoded SHA-256 is 86afe04b91893883cf823392f1c954bbf0881988e0b6c5f34ed7b2f938fe0a30. The original prefix frame, rank frame and official source were independently checked against it. Verify the default seven-bit shard and tokenizer against [the measured-width package](measured-widths/package.json). Pass `--low-bits 5` to encode.py to reproduce the original GPU benchmark package and its receipt.json. For a GPU model comparison use identical cubins and scorer flags for both model directories and check full-vocabulary output fingerprints.
 
 ## GPU replay
 
