@@ -8329,7 +8329,11 @@ impl Inkling2GpuEngine {
                 (&mut ppair as *mut _) as *mut c_void,
                 (&mut bi as *mut _) as *mut c_void,
             ];
-            let (kernel, grid_x, block_x) = if b_len > EXPERT_PAGE {
+            // One CTA per expert (`_par_b`) beyond speculative-verify sizes: the single CTA scans
+            // all `8 B` selections per expert serially (C=64: 14 us of a 41 ms round). For
+            // `b_len <= 64` its `expert_map_offset` layout equals the single-CTA `ex * 64 + rank`,
+            // and both list each expert's pairs in input order, so the groups are identical.
+            let (kernel, grid_x, block_x) = if b_len > MAX_SPEC_TOKENS {
                 if let Some(f_par) = self.fns.build_expert_groups_par_b {
                     (f_par, N_EXP as u32, 256)
                 } else {
