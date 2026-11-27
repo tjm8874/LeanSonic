@@ -1,0 +1,166 @@
+{
+  "planes": {
+    "model.llm.layers.0.mlp.experts.w13_weight.nvctx_trim_v1": [
+      51210590,
+      32905044
+    ],
+    "model.llm.layers.0.mlp.experts.w2_weight.nvctx_trim_v1": [
+      25616539,
+      16470787
+    ],
+    "model.llm.layers.1.mlp.experts.w13_weight.nvctx_trim_v1": [
+      50235670,
+      32304966
+    ],
+    "model.llm.layers.1.mlp.experts.w2_weight.nvctx_trim_v1": [
+      25203428,
+      16209866
+    ],
+    "model.llm.layers.10.mlp.experts.w13_weight.nvctx_trim_v1": [
+      14370825,
+      9367777
+    ],
+    "model.llm.layers.10.mlp.experts.w2_weight.nvctx_trim_v1": [
+      7125627,
+      4646619
+    ],
+    "model.llm.layers.11.mlp.experts.w13_weight.nvctx_trim_v1": [
+      12844898,
+      8373898
+    ],
+    "model.llm.layers.11.mlp.experts.w2_weight.nvctx_trim_v1": [
+      6271507,
+      4089883
+    ],
+    "model.llm.layers.12.mlp.experts.w13_weight.nvctx_trim_v1": [
+      13623504,
+      8874372
+    ],
+    "model.llm.layers.12.mlp.experts.w2_weight.nvctx_trim_v1": [
+      6611202,
+      4311928
+    ],
+    "model.llm.layers.13.mlp.experts.w13_weight.nvctx_trim_v1": [
+      14354472,
+      9355976
+    ],
+    "model.llm.layers.13.mlp.experts.w2_weight.nvctx_trim_v1": [
+      7047209,
+      4595349
+    ],
+    "model.llm.layers.14.mlp.experts.w13_weight.nvctx_trim_v1": [
+      13594628,
+      8863698
+    ],
+    "model.llm.layers.14.mlp.experts.w2_weight.nvctx_trim_v1": [
+      6990677,
+      4554535
+    ],
+    "model.llm.layers.15.mlp.experts.w13_weight.nvctx_trim_v1": [
+      14655355,
+      9550277
+    ],
+    "model.llm.layers.15.mlp.experts.w2_weight.nvctx_trim_v1": [
+      7293940,
+      4747022
+    ],
+    "model.llm.layers.16.mlp.experts.w13_weight.nvctx_trim_v1": [
+      14085845,
+      9181785
+    ],
+    "model.llm.layers.16.mlp.experts.w2_weight.nvctx_trim_v1": [
+      7092873,
+      4617213
+    ],
+    "model.llm.layers.17.mlp.experts.w13_weight.nvctx_trim_v1": [
+      15514502,
+      10107602
+    ],
+    "model.llm.layers.17.mlp.experts.w2_weight.nvctx_trim_v1": [
+      7919212,
+      5152148
+    ],
+    "model.llm.layers.18.mlp.experts.w13_weight.nvctx_trim_v1": [
+      51375895,
+      33059069
+    ],
+    "model.llm.layers.18.mlp.experts.w2_weight.nvctx_trim_v1": [
+      25648272,
+      16495456
+    ],
+    "model.llm.layers.19.mlp.experts.w13_weight.nvctx_trim_v1": [
+      51294275,
+      33003721
+    ],
+    "model.llm.layers.19.mlp.experts.w2_weight.nvctx_trim_v1": [
+      25621052,
+      16487848
+    ],
+    "model.llm.layers.2.mlp.experts.w13_weight.nvctx_trim_v1": [
+      50732489,
+      32610367
+    ],
+    "model.llm.layers.2.mlp.experts.w2_weight.nvctx_trim_v1": [
+      25400679,
+      16339003
+    ],
+    "model.llm.layers.3.mlp.experts.w13_weight.nvctx_trim_v1": [
+      50005917,
+      32153397
+    ],
+    "model.llm.layers.3.mlp.experts.w2_weight.nvctx_trim_v1": [
+      24941314,
+      16049296
+    ],
+    "model.llm.layers.4.mlp.experts.w13_weight.nvctx_trim_v1": [
+      49975750,
+      32131532
+    ],
+    "model.llm.layers.4.mlp.experts.w2_weight.nvctx_trim_v1": [
+      24987444,
+      16080260
+    ],
+    "model.llm.layers.5.mlp.experts.w13_weight.nvctx_trim_v1": [
+      49948476,
+      32115302
+    ],
+    "model.llm.layers.5.mlp.experts.w2_weight.nvctx_trim_v1": [
+      24982811,
+      16075879
+    ],
+    "model.llm.layers.6.mlp.experts.w13_weight.nvctx_trim_v1": [
+      13682337,
+      8921489
+    ],
+    "model.llm.layers.6.mlp.experts.w2_weight.nvctx_trim_v1": [
+      6796490,
+      4431054
+    ],
+    "model.llm.layers.7.mlp.experts.w13_weight.nvctx_trim_v1": [
+      12643558,
+      8240342
+    ],
+    "model.llm.layers.7.mlp.experts.w2_weight.nvctx_trim_v1": [
+      6396759,
+      4171355
+    ],
+    "model.llm.layers.8.mlp.experts.w13_weight.nvctx_trim_v1": [
+      13225067,
+      8619663
+    ],
+    "model.llm.layers.8.mlp.experts.w2_weight.nvctx_trim_v1": [
+      6720764,
+      4384334
+    ],
+    "model.llm.layers.9.mlp.experts.w13_weight.nvctx_trim_v1": [
+      13271360,
+      8653482
+    ],
+    "model.llm.layers.9.mlp.experts.w2_weight.nvctx_trim_v1": [
+      6745075,
+      4398213
+    ]
+  },
+  "before_sum": 856058287,
+  "after_sum": 552701807
+}

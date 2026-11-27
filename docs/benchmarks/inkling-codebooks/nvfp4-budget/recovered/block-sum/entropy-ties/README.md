@@ -1,0 +1,7 @@
+# Entropy tie-break for equal signed block errors
+
+Retain the same 2,137,934,993 rounded values and the same four allowed rounding maps per 16-weight block as the [previous signed-error experiment](../). Estimate coded nibble costs from the control rounding histograms on each plane. Among choices tied on absolute signed error, prefer the lower estimated encoded cost, then the smaller energy change. The fixed cutoffs and the primary objective remain the same. All 40 per-plane sums of absolute signed block error match the previous encoder exactly, with the total falling from 856,058,287 original units to 552,701,807 units.
+
+Full trim encoding produces 13,632,944,494 bytes. Direct scale coding of the same weights produces **13,506,056,734 bytes** including tokenizer. That saves 23,130,536 bytes against the signed-error version in direct format but costs 26,346,440 bytes against its original 13,479,710,294-byte control. Direct encoding verified all 40 planes and all 999 final payloads. This remains an offline experiment pending the two BF16 splits.
+
+Follow the parent recipe, replacing its encode.rs with [encoder.rs](encoder.rs) at runtime commit a200846. Run the same intermediate assembly and direct repacking commands and compare the resulting shard and tokenizer with the [published hashes](receipt.json). [Per-plane primary objective](proxy.json) · [Two complete pilot planes](probe.json).
