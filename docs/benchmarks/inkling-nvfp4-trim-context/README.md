@@ -23,4 +23,4 @@ python3 tools/inkling_storage_probe/trim_context/repack.py \
   target/release/examples/inkling_trim_context "$OUTPUT_DIR"
 ```
 
-On-disk size and decoded-weight identity are verified here. Startup cost, end-to-end logits and matched inference speed require runtime measurements.
+[GPU runtime checks](runtime.md) include the complete BF16 test summary and available free-generation comparisons.
