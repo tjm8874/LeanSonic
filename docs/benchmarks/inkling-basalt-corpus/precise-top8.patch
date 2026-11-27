@@ -1,0 +1,105 @@
+--- a/kernels/inkling2_sm120.cu
++++ b/kernels/inkling2_sm120.cu
+@@ -1040,7 +1040,7 @@
+     const int row = blockIdx.x * 8 + warp_id;
+     if (row >= kD) return;
+ 
+-    float sum_y = 0.0f;
++    double sum_y = 0.0;
+     for (int k = 0; k < kTopK; ++k) {
+         const int ex = sel_ids[k];
+         const size_t r_idx = static_cast<size_t>(ex) * kD + row;
+@@ -1050,7 +1050,7 @@
+             act4 + k * 288,
+             72,
+             lane);
+-        sum_y = __fmaf_rn(__fmul_rn(dot, a2[ex] * (1.0f / 2688.0f)), sel_wts[k], sum_y);
++        sum_y = __fma_rn(__fmul_rn(dot, a2[ex] * (1.0f / 2688.0f)), sel_wts[k], sum_y);
+     }
+     if (lane == 0) {
+         moe_out[row] = sum_y;
+@@ -1150,7 +1150,7 @@
+     const int row = blockIdx.x * 8 + warp_id;
+     if (row >= kD) return;
+ 
+-    float sum_y = 0.0f;
++    double sum_y = 0.0;
+     for (int k = 0; k < kTopK; ++k) {
+         const int ex = sel_ids[k];
+         const size_t r_idx = static_cast<size_t>(ex) * kD + row;
+@@ -1160,7 +1160,7 @@
+             act4 + k * 288,
+             72,
+             lane);
+-        sum_y = __fmaf_rn(dot, sel_wts[k], sum_y);
++        sum_y = __fma_rn(dot, sel_wts[k], sum_y);
+     }
+     if (lane == 0) {
+         moe_out[row] = sum_y;
+@@ -1420,7 +1420,7 @@
+     const int row = blockIdx.x * 8 + warp_id;
+     if (row >= kD) return;
+ 
+-    float sum_y = 0.0f;
++    double sum_y = 0.0;
+     for (int k = 0; k < kTopK; ++k) {
+         const int ex = sel_ids[k];
+         const size_t r_idx = static_cast<size_t>(ex) * kD + row;
+@@ -1431,7 +1431,7 @@
+             smem_asc + k * 72,
+             36,
+             lane);
+-        sum_y = __fmaf_rn(__fmul_rn(dot, a2[ex] * (1.0f / 2688.0f)), sel_wts[k], sum_y);
++        sum_y = __fma_rn(__fmul_rn(dot, a2[ex] * (1.0f / 2688.0f)), sel_wts[k], sum_y);
+     }
+     if (lane == 0) {
+         moe_out[row] = sum_y;
+@@ -3012,10 +3012,10 @@
+     const int b = blockIdx.y;
+     if (d >= kD || b >= B) return;
+ 
+-    float sum_y = 0.0f;
++    double sum_y = 0.0;
+     const size_t base_pair = static_cast<size_t>(b) * 8u;
+     for (int k = 0; k < 8; ++k) {
+-        sum_y = __fmaf_rn(pair_y[(base_pair + k) * kD + d], sel_wts[base_pair + k], sum_y);
++        sum_y = __fma_rn(pair_y[(base_pair + k) * kD + d], sel_wts[base_pair + k], sum_y);
+     }
+     moe_out_base[static_cast<size_t>(b) * kD + d] = sum_y;
+ }
+@@ -5239,7 +5239,7 @@
+     const int row = blockIdx.x * 2 + warp_id;
+     if (row >= kD) return;
+ 
+-    float sum_y = 0.0f;
++    double sum_y = 0.0;
+     for (int k = 0; k < kTopK; ++k) {
+         const int ex = sel_ids[k];
+         const size_t r_idx = static_cast<size_t>(ex) * kD + row;
+@@ -5250,7 +5250,7 @@
+             smem_asc + k * 72,
+             36,
+             lane);
+-        sum_y = __fmaf_rn(__fmul_rn(dot, a2[ex] * (1.0f / 2688.0f)), sel_wts[k], sum_y);
++        sum_y = __fma_rn(__fmul_rn(dot, a2[ex] * (1.0f / 2688.0f)), sel_wts[k], sum_y);
+     }
+     if (lane == 0) {
+         moe_out[row] = sum_y;
+@@ -5270,7 +5270,7 @@
+     const int row = blockIdx.x * 2 + warp_id;
+     if (row >= kD) return;
+ 
+-    float sum_y = 0.0f;
++    double sum_y = 0.0;
+     for (int k = 0; k < kTopK; ++k) {
+         const int ex = sel_ids[k];
+         const size_t r_idx = static_cast<size_t>(ex) * kD + row;
+@@ -5280,7 +5280,7 @@
+             act4 + k * 288,
+             72,
+             lane);
+-        sum_y = __fmaf_rn(dot, sel_wts[k], sum_y);
++        sum_y = __fma_rn(dot, sel_wts[k], sum_y);
+     }
+     if (lane == 0) {
+         moe_out[row] = sum_y;

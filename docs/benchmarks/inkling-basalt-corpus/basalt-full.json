@@ -1,0 +1,15 @@
+{
+  "rows": 25500,
+  "ppl": 7.068541562952749,
+  "ref_ppl": 7.064408191101908,
+  "mean_kld": 0.0029839665828458165,
+  "median_kld": 0.0012179829129947946,
+  "p99_kld": 0.027942197018293202,
+  "max_kld": 0.3306116121147838,
+  "max_kld_chunk": 2,
+  "max_kld_position": 476,
+  "top1_matches": 24948,
+  "ref_floor_targets": 14,
+  "row_csv_sha256": "456362edd7f96082b98580f5e717d8bdf031a5c876533efbc1763da00ab5fc6b",
+  "top1_agreement": 0.9783529411764705
+}

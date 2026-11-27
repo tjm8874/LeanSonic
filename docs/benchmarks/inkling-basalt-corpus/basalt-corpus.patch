@@ -1,0 +1,44 @@
+--- a/src/program/generate/adapter.cpp
++++ b/src/program/generate/adapter.cpp
+@@ -1,3 +1,5 @@
++#include <algorithm>
++#include <cstdlib>
+ // src/program/generate/adapter.cpp - models served by their adapter session: the CLI path and the --serve line protocol.
+ #include "run.hpp"
+ #include "session_model.hpp"
+@@ -149,6 +151,35 @@
+                 done = end;
+                 continue;
+             }
++            if (std::getenv("BASALT_REPLAY_STREAM")) {
++                int offset = 0;
++                while (offset < pr.n_tokens && r.ok()) {
++                    if (pos < 256) {
++                        auto step = pr;
++                        step.n_tokens = std::min({64, pr.n_tokens - offset, (int)(256 - pos)});
++                        step.tokens += offset;
++                        step.pos = pos;
++                        step.rows_after = total - 1 - (pos + step.n_tokens);
++                        r = sess.prefill_chunk(step);
++                        pos += step.n_tokens;
++                        offset += step.n_tokens;
++                    } else {
++                        int32_t ignored = -1;
++                        basalt::model::DecodeRequest one;
++                        one.tokens = pr.tokens + offset;
++                        one.n_tokens = 1;
++                        one.pos = pos++;
++                        one.next_token = &ignored;
++                        std::vector<float> eval_row((size_t)g_n_vocab);
++                        one.logits = eval_row.data();
++                        r = sess.decode_window(one);
++                        if (r.ok() && (!g_diag_logits || std::fwrite(eval_row.data(), sizeof(float), eval_row.size(), g_diag_logits) != eval_row.size())) std::abort();
++                        ++offset;
++                    }
++                }
++                done = end;
++                continue;
++            }
+             const int64_t base = pos;
+             if (report) pr.progress = [&, base](int n) { report_at(base + n); };
+             if (report) pr.live = [&, base](int n) { live_at(base + n); };

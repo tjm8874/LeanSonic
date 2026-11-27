@@ -1,0 +1,1 @@
+{"chunks":100,"context":512,"rows":25500,"ppl":7.067198867409339,"ref_ppl":7.064408191101908,"mean_kld":0.003094330273262271,"median_kld":0.0012516792550639477,"p99_kld":0.030793388921921433,"max_kld":0.38298364502933085,"start_chunk":0,"max_kld_chunk":44,"max_kld_position":435,"ref_floor_targets":14,"top1_matches":24894,"top1_agreement":0.9762352941176471}
