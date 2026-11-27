@@ -363,6 +363,8 @@ struct ExpertKernels {
     ternary_up: Option<CUfunction>,
     ternary_down: Option<CUfunction>,
     ternary_down_conv: Option<CUfunction>,
+    ternary_tc_up: Option<CUfunction>,
+    ternary_tc_up_t160: Option<CUfunction>,
     ternary_tc_down: Option<CUfunction>,
     ternary_tc_down_t160: Option<CUfunction>,
     mxfp8_up_situ: CUfunction,
@@ -2989,6 +2991,8 @@ impl Inkling2GpuEngine {
                 ternary_up: load("ternary_dp4a_up_half_q8").ok(),
                 ternary_down: load("ternary_dp4a_down_xw").ok(),
                 ternary_down_conv: load("ternary_dp4a_down_xw_conv").ok(),
+                ternary_tc_up: set_dyn_smem(load("ternary_tc_up_situ").ok(), 62_976)?,
+                ternary_tc_up_t160: set_dyn_smem(load("ternary_tc_up_situ_t160").ok(), 58_112)?,
                 ternary_tc_down: set_dyn_smem(load("ternary_tc_down").ok(), 62_976)?,
                 ternary_tc_down_t160: set_dyn_smem(load("ternary_tc_down_t160").ok(), 58_112)?,
                 nvfp4_dp4a_down_xw_conv: load("nvfp4_dp4a_down_xw_conv").ok(),
@@ -8963,7 +8967,20 @@ impl Inkling2GpuEngine {
                             exp_begin = exp_end;
                         }
                     } else {
-                        let mut pw13 = self.raw_nvfp4_up(stream, w13)?;
+                        let direct = if self.ternary_up_scratch.is_none()
+                            || !matches!(w13, TierBuf::Vram(_))
+                        {
+                            None
+                        } else if nvfp4_tile_toks == 160 {
+                            s13.kernels.ternary_tc_up_t160
+                        } else {
+                            s13.kernels.ternary_tc_up
+                        };
+                        let (f_up, mut pw13) = if let Some(kernel) = direct {
+                            (kernel, w13.ptr())
+                        } else {
+                            (f_up, self.raw_nvfp4_up(stream, w13)?)
+                        };
                         let mut eb = 0i32;
                         let mut ee = N_EXP as i32;
                         let mut up_args: [*mut c_void; 12] = [

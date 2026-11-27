@@ -10633,6 +10633,26 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_nvfp4_tc_up_situ_p
         exp_counts, exp_pairs, exp_begin, exp_end, act_out);
 }
 
+extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_ternary_tc_up_situ_packed_scales(
+    const uint4* __restrict__ w13_u128,
+    const uint32_t* __restrict__ s13_u32,
+    const float* __restrict__ a13,
+    const uint4* __restrict__ sorted_x_codes_u128,
+    const uint2* __restrict__ sorted_x_sc_u64,
+    const float* __restrict__ sorted_x_gs,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_toks,
+    const int32_t* __restrict__ exp_pairs,
+    int32_t exp_begin,
+    int32_t exp_end,
+    float* __restrict__ act_out) {
+    pdl_wait();
+    (void)exp_toks;
+    grouped_nvfp4_tc_impl<true, true, true>(
+        w13_u128, s13_u32, a13, sorted_x_codes_u128, sorted_x_sc_u64, sorted_x_gs,
+        exp_counts, exp_pairs, exp_begin, exp_end, act_out);
+}
+
 extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_nvfp4_tc_down(
     const uint4* __restrict__ w2_u128,
     const uint32_t* __restrict__ s2_u32,
@@ -10993,6 +11013,26 @@ extern "C" __global__ __launch_bounds__(384, 1) void ink2_moe_nvfp4_tc_up_situ_t
     pdl_wait();
     (void)exp_toks;
     grouped_nvfp4_tc_t160_impl<true, true>(
+        w13_u128, s13_u32, a13, sorted_x_codes_u128, sorted_x_sc_u64, sorted_x_gs,
+        exp_counts, exp_pairs, exp_begin, exp_end, act_out);
+}
+
+extern "C" __global__ __launch_bounds__(384, 1) void ink2_moe_ternary_tc_up_situ_t160_packed_scales(
+    const uint4* __restrict__ w13_u128,
+    const uint32_t* __restrict__ s13_u32,
+    const float* __restrict__ a13,
+    const uint4* __restrict__ sorted_x_codes_u128,
+    const uint2* __restrict__ sorted_x_sc_u64,
+    const float* __restrict__ sorted_x_gs,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_toks,
+    const int32_t* __restrict__ exp_pairs,
+    int32_t exp_begin,
+    int32_t exp_end,
+    float* __restrict__ act_out) {
+    pdl_wait();
+    (void)exp_toks;
+    grouped_nvfp4_tc_t160_impl<true, true, true>(
         w13_u128, s13_u32, a13, sorted_x_codes_u128, sorted_x_sc_u64, sorted_x_gs,
         exp_counts, exp_pairs, exp_begin, exp_end, act_out);
 }
