@@ -1,0 +1,260 @@
+{
+  "valid": {
+    "scores": {
+      "stock": {
+        "hash": "41ee8ae69e57480acc35230e21ba9919cd4b74ab2c41a7a7593c6d82292600d0",
+        "canonical": {
+          "kl": 0.3524361470972671,
+          "reference_top": 170558,
+          "engine_top": 17
+        },
+        "serial": {
+          "kl": 0.4833058620339594,
+          "reference_top": 170558,
+          "engine_top": 17
+        }
+      },
+      "canonical_mismatched_slots": [
+        3,
+        13,
+        26,
+        27,
+        31,
+        36,
+        37,
+        39,
+        44,
+        45,
+        47,
+        19,
+        21,
+        23
+      ],
+      "canonical-visit-3": {
+        "hash": "122a42c9aaccb4c23d4984a9aca6af3ff076cf0a9f8fec2c7a40a0ba59a53daa",
+        "canonical": {
+          "kl": 0.3108916688468635,
+          "reference_top": 170558,
+          "engine_top": 17
+        },
+        "serial": {
+          "kl": 0.4354279705022329,
+          "reference_top": 170558,
+          "engine_top": 17
+        }
+      },
+      "canonical-visit-13": {
+        "hash": "418ecb6b57a5f363fd71af8e2b30171b87548d15da333839501fd7a81f5ce4ab",
+        "canonical": {
+          "kl": 0.26846589100616575,
+          "reference_top": 170558,
+          "engine_top": 17
+        },
+        "serial": {
+          "kl": 0.3826011565051529,
+          "reference_top": 170558,
+          "engine_top": 17
+        }
+      },
+      "canonical-visit-26": {
+        "hash": "ecc6a1e8fcd2004a8d5824f69e5eb834c73370130f99f65af7a2bf9418deccec",
+        "canonical": {
+          "kl": 0.10471029130096812,
+          "reference_top": 170558,
+          "engine_top": 170558
+        },
+        "serial": {
+          "kl": 0.16801672598510997,
+          "reference_top": 170558,
+          "engine_top": 170558
+        }
+      },
+      "serial_mismatched_slots": [
+        3,
+        13,
+        26,
+        27,
+        31,
+        36,
+        37,
+        39,
+        40,
+        41,
+        44,
+        45,
+        47,
+        18,
+        19,
+        20,
+        21,
+        23
+      ],
+      "serial-visit-3": {
+        "hash": "f881416a755285fc22ab4707d5331f7c4445a2286f3114cb5afda0747c2ad7cf",
+        "canonical": {
+          "kl": 0.3456738109806828,
+          "reference_top": 170558,
+          "engine_top": 17
+        },
+        "serial": {
+          "kl": 0.47695346878394956,
+          "reference_top": 170558,
+          "engine_top": 17
+        }
+      },
+      "serial-visit-13": {
+        "hash": "e331c6623e7b5ade8cc6f66b12fdb5e19379006eb5d764dd7943c8319fb7b190",
+        "canonical": {
+          "kl": 0.2739348052585816,
+          "reference_top": 170558,
+          "engine_top": 17
+        },
+        "serial": {
+          "kl": 0.3894671383127964,
+          "reference_top": 170558,
+          "engine_top": 17
+        }
+      },
+      "serial-visit-26": {
+        "hash": "6d3f8cd6d22e487fa7aebc0920b5b51d5f7f721d934209612bb45c5ce27af6da",
+        "canonical": {
+          "kl": 0.2978541145971987,
+          "reference_top": 170558,
+          "engine_top": 17
+        },
+        "serial": {
+          "kl": 0.4183514433836978,
+          "reference_top": 170558,
+          "engine_top": 17
+        }
+      }
+    },
+    "observer_controls": {
+      "canonical": {
+        "status": "exact",
+        "control_sha256": "587b2e2688c0bf3af518efe867787984e0a074d6276e76659361ae0be336aff7",
+        "trace_sha256": "587b2e2688c0bf3af518efe867787984e0a074d6276e76659361ae0be336aff7"
+      },
+      "serial": {
+        "status": "exact",
+        "control_sha256": "2e45370a5ca40f50a33832213a29b91affb434bdae91561e26037606115f9f10",
+        "trace_sha256": "2e45370a5ca40f50a33832213a29b91affb434bdae91561e26037606115f9f10"
+      }
+    },
+    "input_sha256": "5126afc6388dd1a720cba5bcebf621722a19d2ba7da8aaf5b228d639c0d0e3af"
+  },
+  "test": {
+    "scores": {
+      "stock": {
+        "hash": "094b3bdc0cf02bc39c722964908ffa7981162fd502d8748f9de20931def07108",
+        "canonical": {
+          "kl": 0.031249712276165083,
+          "reference_top": 197045,
+          "engine_top": 197045
+        },
+        "serial": {
+          "kl": 0.8274180023319115,
+          "reference_top": 196977,
+          "engine_top": 197045
+        }
+      },
+      "canonical": {
+        "trace": "perturbed"
+      },
+      "serial_mismatched_slots": [
+        5,
+        7,
+        8,
+        9,
+        11,
+        12,
+        13,
+        14,
+        15,
+        17,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ],
+      "serial-visit-5": {
+        "hash": "acb4420885c2519720fd2f177f746dfe980de449f66588bfe103a43b10f6834f",
+        "canonical": {
+          "kl": 0.011875391414363022,
+          "reference_top": 197045,
+          "engine_top": 197045
+        },
+        "serial": {
+          "kl": 0.6876569438079038,
+          "reference_top": 196977,
+          "engine_top": 197045
+        }
+      },
+      "serial-visit-7": {
+        "hash": "12f08093c7991ba60cdec315b179e556b821984fa8389bb594b3a05a0ee5250e",
+        "canonical": {
+          "kl": 0.0316314056612487,
+          "reference_top": 197045,
+          "engine_top": 197045
+        },
+        "serial": {
+          "kl": 0.2828266601198846,
+          "reference_top": 196977,
+          "engine_top": 197045
+        }
+      },
+      "serial-visit-8": {
+        "hash": "3e5c732245e0319bc5d9ab21aaed17cb18e105785f87311e8c9027aecc4f3283",
+        "canonical": {
+          "kl": 0.01958086634009959,
+          "reference_top": 197045,
+          "engine_top": 197045
+        },
+        "serial": {
+          "kl": 0.33011439257717684,
+          "reference_top": 196977,
+          "engine_top": 197045
+        }
+      }
+    },
+    "observer_controls": {
+      "canonical": {
+        "status": "perturbed",
+        "control_sha256": "15d418d56b236e70419a2060f1f8b18873b79325cbfb26f6e2e428612a8d3e1e",
+        "trace_sha256": "459f854f03b34a4bb997df5bbdfac9d016e5dc39e1e8e45a085fb6b32c15cf25"
+      },
+      "serial": {
+        "status": "exact",
+        "control_sha256": "4adbeb312d4b215cd5ad4de244c614decfa8300ca78ff9620ece6e4e08beb9c0",
+        "trace_sha256": "4adbeb312d4b215cd5ad4de244c614decfa8300ca78ff9620ece6e4e08beb9c0"
+      }
+    },
+    "input_sha256": "1b6c05708634cba519d174ff7aea9b426fa003684270f5dc9a867246f79a685e"
+  }
+}
