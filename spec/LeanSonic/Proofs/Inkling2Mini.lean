@@ -1828,6 +1828,20 @@ def kInk2Q8Dp4aGemmBMs8 : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
+-- #107 stage 3: verify rows read earlier rows of their sequence; histories are committed after.
+def kInk2ShortConv4Vms : KernelResourceSpec :=
+  { kInk2ShortConv4Ms with name := "ink2_short_conv4_vms" }            -- 32 <= 32 regs
+
+def kInk2ShortConv4SaveVms : KernelResourceSpec :=
+  { kInk2ShortConv4Ms with
+    name := "ink2_short_conv4_save_vms"
+    rawRegsPerThread := 34 }        -- aligns to 40 -> 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536
+
+def kInk2ConvCommitMs : KernelResourceSpec :=
+  { kInk2ShortConv4Ms with
+    name := "ink2_conv_commit_ms"
+    rawRegsPerThread := 24 }
+
 def multiSeqRoundKernelSuite : List KernelResourceSpec :=
   [ kInk2PrepQkvAndCacheMs
   , kInk2GqaAttnSplitDecMs
@@ -1835,6 +1849,9 @@ def multiSeqRoundKernelSuite : List KernelResourceSpec :=
   , kInk2GqaAttnCombineQ8DynMs
   , kInk2ShortConv4Ms
   , kInk2ShortConv4SaveMs
+  , kInk2ShortConv4Vms
+  , kInk2ShortConv4SaveVms
+  , kInk2ConvCommitMs
   , kInk2Q8Dp4aGemmBMs4
   , kInk2Q8Dp4aGemmBMs8 ]
 

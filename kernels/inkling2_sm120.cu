@@ -3537,6 +3537,96 @@ extern "C" __global__ void ink2_short_conv4_save_ms(
         out_stride, res_base, res_stride, save_prev_base, ms_rows, channels, has_dyn, do_res_add, hist_seq_floats);
 }
 
+// Multi-sequence verify rows (#107 stage 3): rows of one sequence are contiguous and
+// `ms_j[b]` is row `b`'s index inside its sequence. Row `b` sees the window
+// `L[j], L[j + 1], L[j + 2], x_b` of `L = [hist0, hist1, hist2, x_{b - j}, ...]`, i.e. the
+// same inputs a B = 1 decode of that sequence would see after the earlier rows, with the
+// same `eval_conv4_step` arithmetic. The history is not written here: each input is recorded
+// in `xrec[b]` and `ink2_conv_commit_ms` keeps the accepted prefix afterwards.
+template <bool kSave>
+__device__ __forceinline__ void short_conv4_vms_body(
+    const float* __restrict__ cur_base, int32_t in_stride, const float4* __restrict__ w_conv4,
+    const float4* __restrict__ dyn_base, int32_t dyn_f4_stride, const float* __restrict__ hist3,
+    float* out_base, int32_t out_stride, const float* res_base, int32_t res_stride,
+    float* __restrict__ save_prev_base, const int2* __restrict__ ms_rows,
+    const int32_t* __restrict__ ms_j, float* __restrict__ xrec, int32_t channels,
+    int32_t has_dyn, int32_t do_res_add, int32_t hist_seq_floats) {
+    const int c = blockIdx.x * blockDim.x + threadIdx.x;
+    const int b = blockIdx.y;
+    if (c >= channels) return;
+    const size_t ob = static_cast<size_t>(b) * out_stride + c;
+    if (kSave && save_prev_base != nullptr) {
+        save_prev_base[ob] = out_base[ob];
+    }
+    const float* h = hist3 + static_cast<size_t>(ms_rows[b].y) * hist_seq_floats + c * 3;
+    const int j = ms_j[b];
+    float win[3];
+    #pragma unroll
+    for (int i = 0; i < 3; ++i) {
+        const int idx = j + i;  // index into L
+        win[i] = idx < 3 ? h[idx] : cur_base[static_cast<size_t>(b - j + idx - 3) * in_stride + c];
+    }
+    const float4 w = w_conv4[c];
+    const int head = c >> 7;
+    const float x = cur_base[static_cast<size_t>(b) * in_stride + c];
+    xrec[static_cast<size_t>(b) * channels + c] = x;
+    const float4 d = has_dyn ? dyn_base[static_cast<size_t>(b) * dyn_f4_stride + head] : make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+    const float res = do_res_add ? res_base[static_cast<size_t>(b) * res_stride + c] : 0.0f;
+    out_base[ob] = eval_conv4_step(w, win[0], win[1], win[2], x, has_dyn, d, do_res_add, res);
+}
+extern "C" __global__ void ink2_short_conv4_vms(
+    const float* __restrict__ cur_base, int32_t in_stride, const float4* __restrict__ w_conv4,
+    const float4* __restrict__ dyn_base, int32_t dyn_f4_stride, const float* __restrict__ hist3,
+    float* out_base, int32_t out_stride, const float* res_base, int32_t res_stride,
+    const int2* __restrict__ ms_rows, const int32_t* __restrict__ ms_j, float* __restrict__ xrec,
+    int32_t channels, int32_t has_dyn, int32_t do_res_add, int32_t hist_seq_floats) {
+    short_conv4_vms_body<false>(cur_base, in_stride, w_conv4, dyn_base, dyn_f4_stride, hist3, out_base,
+        out_stride, res_base, res_stride, nullptr, ms_rows, ms_j, xrec, channels, has_dyn, do_res_add,
+        hist_seq_floats);
+}
+extern "C" __global__ void ink2_short_conv4_save_vms(
+    const float* __restrict__ cur_base, int32_t in_stride, const float4* __restrict__ w_conv4,
+    const float4* __restrict__ dyn_base, int32_t dyn_f4_stride, const float* __restrict__ hist3,
+    float* out_base, int32_t out_stride, const float* res_base, int32_t res_stride,
+    float* __restrict__ save_prev_base, const int2* __restrict__ ms_rows,
+    const int32_t* __restrict__ ms_j, float* __restrict__ xrec, int32_t channels,
+    int32_t has_dyn, int32_t do_res_add, int32_t hist_seq_floats) {
+    short_conv4_vms_body<true>(cur_base, in_stride, w_conv4, dyn_base, dyn_f4_stride, hist3, out_base,
+        out_stride, res_base, res_stride, save_prev_base, ms_rows, ms_j, xrec, channels, has_dyn,
+        do_res_add, hist_seq_floats);
+}
+
+// Keep each verified sequence's accepted prefix in its `short_conv4` histories (#107 stage 3).
+// `runs[r] = {first row, rows kept, sequence, 0}`; the new history is `L[keep .. keep + 2]` of
+// `L = [hist0, hist1, hist2, x_first, ...]` with the inputs recorded by `ink2_short_conv4_vms`.
+// Grid `(9, 48 * 4, runs)`, Block `256`; `xrec_base` is `[48][6656 * rows_stride]` floats with
+// the four kinds at `0, 1024, 2048, 4352` x `rows_stride`.
+extern "C" __global__ void ink2_conv_commit_ms(
+    const float* __restrict__ xrec_base,
+    const uint64_t* __restrict__ hist_ptrs,   // [seq][48 * 4]
+    const int4* __restrict__ runs,
+    int32_t rows_stride) {
+    const int slot = blockIdx.y >> 2;
+    const int kind = blockIdx.y & 3;
+    const int c = blockIdx.x * 256 + threadIdx.x;
+    const int ch = kind < 2 ? 1024 : 2304;
+    if (c >= ch) return;
+    const int kind_off = kind == 0 ? 0 : (kind == 1 ? 1024 : (kind == 2 ? 2048 : 4352));
+    const int4 run = runs[blockIdx.z];
+    const float* xr = xrec_base + static_cast<size_t>(slot) * 6656u * rows_stride
+                      + static_cast<size_t>(kind_off) * rows_stride;
+    float* h = reinterpret_cast<float*>(hist_ptrs[static_cast<size_t>(run.z) * 192 + blockIdx.y]) + c * 3;
+    float L[3];
+    #pragma unroll
+    for (int i = 0; i < 3; ++i) {
+        const int idx = run.y + i;
+        L[i] = idx < 3 ? h[idx] : xr[static_cast<size_t>(run.x + idx - 3) * ch + c];
+    }
+    h[0] = L[0];
+    h[1] = L[1];
+    h[2] = L[2];
+}
+
 // Grid: `(5, B)`, Block: `256`
 extern "C" __global__ void ink2_prep_qkv_and_cache_b(
     float* __restrict__ qrgs_base, int32_t qrgs_stride,
