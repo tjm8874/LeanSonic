@@ -11,7 +11,9 @@ use std::sync::Arc;
 use crate::cuda_ffi::{
     check_cu, CUdeviceptr, CUfunction, CUstream, CudaContextHandle, DeviceBuf, PinnedHostBuf,
 };
-use crate::inkling2_gpu::{repack_bf16_to_planar_q8_64, PlanarQ8Gpu, D, PADDED_VOCAB, VOCAB};
+use crate::inkling2_gpu::{
+    load_native_planar_q8_64, repack_bf16_to_planar_q8_64, PlanarQ8Gpu, D, PADDED_VOCAB, VOCAB,
+};
 use crate::safetensors::MappedSafeTensors;
 
 const B_DRAFT: usize = 8;
@@ -44,13 +46,118 @@ fn bf16_to_f32(b: u16) -> f32 {
     f32::from_bits((b as u32) << 16)
 }
 
-fn concat_slices(slices: &[&[u8]]) -> Vec<u8> {
-    let total: usize = slices.iter().map(|s| s.len()).sum();
-    let mut out = Vec::with_capacity(total);
-    for s in slices {
-        out.extend_from_slice(s);
+/// One drafter projection in kernel ABI row order: the prefix of its prepacked
+/// `{prefix}.q8_64.{codes,scales}` pair, the official BF16 tensors whose rows it
+/// concatenates, and its column count.
+type Projection = (&'static str, &'static [(&'static str, usize)], usize);
+
+/// Per-layer projections of `mtp.safetensors`, as stored by
+/// `tools/pack_inkling_drafter.py`.
+const LAYER_PROJECTIONS: [Projection; 5] = [
+    (
+        "self_attn.qkv_proj",
+        &[
+            ("self_attn.q_proj", 3072),
+            ("self_attn.k_proj", 1024),
+            ("self_attn.v_proj", 1024),
+        ],
+        D,
+    ),
+    (
+        "self_attn.kv_ctx_proj",
+        &[
+            ("self_attn.k_proj_ctx", 1024),
+            ("self_attn.v_proj_ctx", 1024),
+        ],
+        D,
+    ),
+    ("self_attn.o_proj", &[("self_attn.o_proj", D)], 3072),
+    (
+        "mlp.gate_up_proj",
+        &[("mlp.gate_proj", DFF), ("mlp.up_proj", DFF)],
+        D,
+    ),
+    ("mlp.down_proj", &[("mlp.down_proj", D)], DFF),
+];
+
+/// `markov_head.rnn_proj.weight [768, 5120]` splits into an exact FP32 `j01`
+/// (the leading 512 columns) and a Q8_64 `jctx` (the trailing 4,608).
+const RNN_ROWS: usize = 768;
+const RNN_J01_COLS: usize = 512;
+const RNN_JCTX_COLS: usize = 4608;
+
+/// Loads a projection from its prepacked Q8_64 planes when present, otherwise
+/// quantizes the official BF16 rows exactly as before. Both sources yield the
+/// same planes because the packer runs the loader's own quantizer.
+fn load_projection(
+    ctx: &Arc<CudaContextHandle>,
+    st: &MappedSafeTensors,
+    layer_prefix: &str,
+    (packed, parts, cols): Projection,
+) -> Result<PlanarQ8Gpu, String> {
+    let rows = parts.iter().map(|&(_, r)| r).sum();
+    let prefix = format!("{layer_prefix}{packed}");
+    let dense = |name: &str| format!("{layer_prefix}{name}.weight");
+    if let Some(matrix) = load_native_planar_q8_64(ctx, st, &prefix, rows, cols)? {
+        if let Some((name, _)) = parts.iter().find(|(n, _)| st.get(&dense(n)).is_some()) {
+            return Err(format!(
+                "{prefix}: both Q8_64 planes and BF16 {name} present"
+            ));
+        }
+        return Ok(matrix);
     }
-    out
+    let mut bf16 = Vec::with_capacity(rows * cols * 2);
+    for &(name, part_rows) in parts {
+        bf16.extend_from_slice(st.require(&dense(name), "BF16", &[part_rows, cols]).data);
+    }
+    repack_bf16_to_planar_q8_64(ctx, &bf16, rows, cols)
+}
+
+fn bf16_bytes_to_f32(src: &[u16], out: &mut Vec<u8>) {
+    for &u in src {
+        out.extend_from_slice(&bf16_to_f32(u).to_le_bytes());
+    }
+}
+
+/// Returns `(j01 FP32 bytes, jctx Q8_64)` from either the official fused
+/// `rnn_proj.weight` or the prepacked `rnn_proj.j01.weight` + `rnn_proj.jctx` pair.
+fn load_rnn_proj(
+    ctx: &Arc<CudaContextHandle>,
+    st: &MappedSafeTensors,
+) -> Result<(Vec<u8>, PlanarQ8Gpu), String> {
+    const FUSED: &str = "markov_head.rnn_proj.weight";
+    let mut j01 = Vec::with_capacity(RNN_ROWS * RNN_J01_COLS * 4);
+    if let Some(jctx) = load_native_planar_q8_64(
+        ctx,
+        st,
+        "markov_head.rnn_proj.jctx",
+        RNN_ROWS,
+        RNN_JCTX_COLS,
+    )? {
+        if st.get(FUSED).is_some() {
+            return Err(format!("both prepacked rnn_proj.jctx and {FUSED} present"));
+        }
+        let left = st
+            .require(
+                "markov_head.rnn_proj.j01.weight",
+                "BF16",
+                &[RNN_ROWS, RNN_J01_COLS],
+            )
+            .as_u16_slice();
+        bf16_bytes_to_f32(left, &mut j01);
+        return Ok((j01, jctx));
+    }
+    let cols = RNN_J01_COLS + RNN_JCTX_COLS;
+    let rnn = st.require(FUSED, "BF16", &[RNN_ROWS, cols]).as_u16_slice();
+    let mut jctx = Vec::with_capacity(RNN_ROWS * RNN_JCTX_COLS * 2);
+    for row in rnn.chunks_exact(cols) {
+        bf16_bytes_to_f32(&row[..RNN_J01_COLS], &mut j01);
+        for &u in &row[RNN_J01_COLS..] {
+            jctx.extend_from_slice(&u.to_le_bytes());
+        }
+    }
+    let jctx = repack_bf16_to_planar_q8_64(ctx, &jctx, RNN_ROWS, RNN_JCTX_COLS)?;
+    Ok((j01, jctx))
 }
 
 pub struct MtpKernelFns {
@@ -253,41 +360,8 @@ impl DsparkDrafterGpu {
             } else {
                 (LOCAL_RING, LOCAL_RING, LOCAL_WIN)
             };
-            let wq = st
-                .require(&format!("{pfx}self_attn.q_proj.weight"), "BF16", &[3072, D])
-                .data;
-            let wk = st
-                .require(&format!("{pfx}self_attn.k_proj.weight"), "BF16", &[1024, D])
-                .data;
-            let wv = st
-                .require(&format!("{pfx}self_attn.v_proj.weight"), "BF16", &[1024, D])
-                .data;
-            let wkc = st
-                .require(
-                    &format!("{pfx}self_attn.k_proj_ctx.weight"),
-                    "BF16",
-                    &[1024, D],
-                )
-                .data;
-            let wvc = st
-                .require(
-                    &format!("{pfx}self_attn.v_proj_ctx.weight"),
-                    "BF16",
-                    &[1024, D],
-                )
-                .data;
-            let wo = st
-                .require(&format!("{pfx}self_attn.o_proj.weight"), "BF16", &[D, 3072])
-                .data;
-            let wgate = st
-                .require(&format!("{pfx}mlp.gate_proj.weight"), "BF16", &[DFF, D])
-                .data;
-            let wup = st
-                .require(&format!("{pfx}mlp.up_proj.weight"), "BF16", &[DFF, D])
-                .data;
-            let wdown = st
-                .require(&format!("{pfx}mlp.down_proj.weight"), "BF16", &[D, DFF])
-                .data;
+            let [qkv_q8, kvc_q8, wo_q8, gu_q8, down_q8] =
+                LAYER_PROJECTIONS.map(|p| load_projection(ctx, &st, &pfx, p));
 
             layers.push(MtpLayerGpu {
                 attn_norm: DeviceBuf::from_host_bytes(
@@ -324,11 +398,11 @@ impl DsparkDrafterGpu {
                     st.require(&format!("{pfx}self_attn.k_norm_ctx.weight"), "BF16", &[HD])
                         .data,
                 )?,
-                qkv_q8: repack_bf16_to_planar_q8_64(ctx, &concat_slices(&[wq, wk, wv]), 5120, D)?,
-                kvc_q8: repack_bf16_to_planar_q8_64(ctx, &concat_slices(&[wkc, wvc]), 2048, D)?,
-                wo_q8: repack_bf16_to_planar_q8_64(ctx, wo, D, 3072)?,
-                gu_q8: repack_bf16_to_planar_q8_64(ctx, &concat_slices(&[wgate, wup]), 2 * DFF, D)?,
-                down_q8: repack_bf16_to_planar_q8_64(ctx, wdown, D, DFF)?,
+                qkv_q8: qkv_q8?,
+                kvc_q8: kvc_q8?,
+                wo_q8: wo_q8?,
+                gu_q8: gu_q8?,
+                down_q8: down_q8?,
                 kc: DeviceBuf::alloc_zeroed(ctx, kv_rows * 1024 * 2)?,
                 vc: DeviceBuf::alloc_zeroed(ctx, kv_rows * 1024 * 2)?,
                 ring,
@@ -350,25 +424,10 @@ impl DsparkDrafterGpu {
         }
         let d_mask_embed = DeviceBuf::from_host_bytes(ctx, &mask_bytes)?;
 
-        // Split `markov_head.rnn_proj.weight [768, 5120]`:
-        // - `[768, 0..512]` -> `j01` (`f32`)
-        // - `[768, 512..5120]` -> `jctx_q8` (`PlanarQ8Gpu` `768 x 4608`)
-        let rnn_u16 = st
-            .require("markov_head.rnn_proj.weight", "BF16", &[768, 5120])
-            .as_u16_slice();
-        let mut j01_bytes = Vec::with_capacity(768 * 512 * 4);
-        let mut jctx_bf16_bytes = Vec::with_capacity(768 * 4608 * 2);
-        for o in 0..768 {
-            let row = &rnn_u16[o * 5120..(o + 1) * 5120];
-            for &u in &row[..512] {
-                j01_bytes.extend_from_slice(&bf16_to_f32(u).to_le_bytes());
-            }
-            for &u in &row[512..] {
-                jctx_bf16_bytes.extend_from_slice(&u.to_le_bytes());
-            }
-        }
+        // `rnn_proj [768, 5120]` -> exact FP32 `j01` (columns `0..512`) and
+        // Q8_64 `jctx_q8` (`768 x 4608`), from either storage form.
+        let (j01_bytes, jctx_q8) = load_rnn_proj(ctx, &st)?;
         let j01 = DeviceBuf::from_host_bytes(ctx, &j01_bytes)?;
-        let jctx_q8 = repack_bf16_to_planar_q8_64(ctx, &jctx_bf16_bytes, 768, 4608)?;
 
         let jb_u16 = st
             .require("markov_head.rnn_proj.bias", "BF16", &[768])
@@ -1423,5 +1482,205 @@ impl SuffixDrafter {
             }
         }
         Vec::new()
+    }
+
+    /// Context copy for a neural drafter's round (#177): when the last `min_match` tokens of
+    /// `history + next_tok` occurred earlier, returns the `max_k` tokens that followed their
+    /// most recent earlier occurrence (see `periodic_copy`). Verification keeps the output
+    /// greedy-exact, so a copied run only replaces the drafter pass for that round.
+    pub fn copy_run(history: &[u32], next_tok: u32, min_match: usize, max_k: usize) -> Vec<u32> {
+        let n = history.len() + 1;
+        if min_match == 0 || max_k == 0 || n <= min_match {
+            return Vec::new();
+        }
+        let at = |i: usize| if i + 1 == n { next_tok } else { history[i] };
+        // An occurrence ending at `end` (exclusive) must leave at least one continuation token.
+        for end in (min_match..n).rev() {
+            if (1..=min_match).all(|j| at(end - j) == at(n - j)) {
+                return periodic_copy(end, n, max_k, at);
+            }
+        }
+        Vec::new()
+    }
+}
+
+/// Default match length for the context copy that stands in for a DSpark round (#177).
+/// Verbatim repeats (structured output, quoted text) keep matching past 32 tokens, while
+/// code reuses 12–31-token spans with different continuations, where DSpark drafts better
+/// (PRO 5000, 32K code: 12 costs 2–4%, 32 never fires).
+pub const SPEC_COPY_MATCH: usize = 32;
+
+/// Context-copy match length: `LEANSONIC_SPEC_COPY=n`, `0` disables the copy.
+pub fn spec_copy_match() -> usize {
+    std::env::var("LEANSONIC_SPEC_COPY")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(SPEC_COPY_MATCH)
+}
+
+/// The `max_k` tokens that follow position `end` when the sequence `at(0..n)` keeps
+/// repeating from there: once the copy reaches `n` it continues with its own output (an
+/// overlapping LZ77 copy), so a run of period `n - end` still fills the whole draft.
+fn periodic_copy(end: usize, n: usize, max_k: usize, at: impl Fn(usize) -> u32) -> Vec<u32> {
+    let mut out = Vec::with_capacity(max_k);
+    for i in 0..max_k {
+        let t = if end + i < n {
+            at(end + i)
+        } else {
+            out[i - (n - end)]
+        };
+        out.push(t);
+    }
+    out
+}
+
+/// Incremental index behind `SuffixDrafter::copy_run` for long contexts: maps a rolling
+/// hash of each `min_match`-token window of the history to the latest position it ended at,
+/// so indexing costs O(1) per token and a round one lookup instead of a context scan.
+/// Returns exactly what `copy_run` returns for the same arguments (hash collisions are
+/// caught by comparing the tokens).
+pub struct ContextCopyIndex {
+    min_match: usize,
+    /// `prefix[i]` = polynomial hash of `history[..i]`.
+    prefix: Vec<u64>,
+    /// `BASE^min_match`.
+    base_pow: u64,
+    last_end: std::collections::HashMap<u64, usize, std::hash::BuildHasherDefault<MixHasher>>,
+}
+
+/// The keys are already hashes; one multiply spreads them over the table's bits.
+#[derive(Default)]
+pub struct MixHasher(u64);
+
+impl std::hash::Hasher for MixHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, _: &[u8]) {
+        unreachable!("MixHasher only hashes u64 keys")
+    }
+    fn write_u64(&mut self, h: u64) {
+        self.0 = (h ^ (h >> 29)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    }
+}
+
+impl ContextCopyIndex {
+    const BASE: u64 = 0x0000_0100_0000_01b3;
+
+    pub fn new(min_match: usize) -> Self {
+        Self {
+            min_match,
+            prefix: vec![0],
+            base_pow: (0..min_match).fold(1u64, |p, _| p.wrapping_mul(Self::BASE)),
+            last_end: Default::default(),
+        }
+    }
+
+    fn push(h: u64, t: u32) -> u64 {
+        h.wrapping_mul(Self::BASE).wrapping_add(u64::from(t) + 1)
+    }
+
+    /// Hash of the window ending at `end`, given the prefix hash at `end`.
+    fn window(&self, at_end: u64, end: usize) -> u64 {
+        at_end.wrapping_sub(self.prefix[end - self.min_match].wrapping_mul(self.base_pow))
+    }
+
+    /// `history` must only grow between calls (prompt, then accepted tokens).
+    pub fn run(&mut self, history: &[u32], next_tok: u32, max_k: usize) -> Vec<u32> {
+        let m = self.min_match;
+        if m == 0 || max_k == 0 || history.len() < m {
+            return Vec::new();
+        }
+        // Windows entirely inside `history` end at `m..=history.len()`; the query window
+        // (ending at `next_tok`) is never indexed, so it cannot match itself.
+        for end in self.prefix.len()..=history.len() {
+            let h = Self::push(self.prefix[end - 1], history[end - 1]);
+            self.prefix.push(h);
+            if end >= m {
+                self.last_end.insert(self.window(h, end), end);
+            }
+        }
+        let n = history.len() + 1;
+        let query = Self::push(self.prefix[n - 1], next_tok)
+            .wrapping_sub(self.prefix[n - m].wrapping_mul(self.base_pow));
+        let Some(&end) = self.last_end.get(&query) else {
+            return Vec::new();
+        };
+        let tail = history[n - m..].iter().copied().chain([next_tok]);
+        if !history[end - m..end].iter().copied().eq(tail) {
+            return Vec::new();
+        }
+        periodic_copy(end, n, max_k, |i| {
+            if i + 1 == n {
+                next_tok
+            } else {
+                history[i]
+            }
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn copy_index_matches_the_scan_on_growing_histories() {
+        // Small alphabets make long repeats, short ones and misses all common.
+        let mut x = 0x2545_f491_4f6c_dd1du64;
+        for alphabet in [2u64, 3, 5, 50] {
+            for min_match in [1usize, 2, 4, 8, 32] {
+                let mut hist = Vec::new();
+                let mut idx = ContextCopyIndex::new(min_match);
+                for _ in 0..600 {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    let next = (x % alphabet) as u32;
+                    assert_eq!(
+                        idx.run(&hist, next, 7),
+                        SuffixDrafter::copy_run(&hist, next, min_match, 7),
+                        "alphabet {alphabet} min_match {min_match} len {}",
+                        hist.len()
+                    );
+                    hist.push(next);
+                    // Several accepted tokens can arrive between rounds.
+                    if x.is_multiple_of(3) {
+                        hist.push(((x >> 8) % alphabet) as u32);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn copy_run_continues_the_latest_earlier_occurrence() {
+        let h = [1, 2, 3, 4, 9, 1, 2, 3, 4, 7, 8, 1, 2, 3];
+        assert_eq!(SuffixDrafter::copy_run(&h, 4, 4, 7), [7, 8, 1, 2, 3, 4, 7]);
+        assert_eq!(SuffixDrafter::copy_run(&h, 4, 4, 2), [7, 8]);
+        assert!(SuffixDrafter::copy_run(&h, 5, 4, 7).is_empty());
+        assert!(SuffixDrafter::copy_run(&h, 4, 0, 7).is_empty());
+        assert!(SuffixDrafter::copy_run(&[1, 2], 3, 4, 7).is_empty());
+        // The run being matched never counts as its own earlier occurrence.
+        assert!(SuffixDrafter::copy_run(&[5, 5, 5], 5, 4, 7).is_empty());
+        assert_eq!(SuffixDrafter::copy_run(&[5, 5, 5, 5], 5, 4, 7), [5; 7]);
+        // Period 2: the copy keeps alternating past the current position.
+        assert_eq!(
+            SuffixDrafter::copy_run(&[1, 2, 1], 2, 2, 5),
+            [1, 2, 1, 2, 1]
+        );
+    }
+
+    #[test]
+    fn projection_table_matches_the_drafter_kernel_shapes() {
+        let shape = |(_, parts, cols): Projection| (parts.iter().map(|p| p.1).sum::<usize>(), cols);
+        let shapes = LAYER_PROJECTIONS.map(shape);
+        assert_eq!(
+            shapes,
+            [(5120, D), (2048, D), (D, 3072), (2 * DFF, D), (D, DFF)]
+        );
+        assert!(LAYER_PROJECTIONS.iter().all(|&(_, _, cols)| cols % 64 == 0));
+        assert_eq!(RNN_J01_COLS + RNN_JCTX_COLS, 5120);
+        assert_eq!(RNN_JCTX_COLS % 64, 0);
     }
 }

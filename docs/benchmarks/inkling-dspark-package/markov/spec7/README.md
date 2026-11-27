@@ -14,9 +14,23 @@ Values are control → candidate. Decode uses 128 generated tokens per request. 
 | q11_json_schema | 32 | 99/159 | 76.954 → 76.941 | 141.60 → 141.56 | +0.30 [+0.00, +0.47] |
 | ja_reasoning | 49 | 59/113 | 89.346 → 89.291 | 106.62 → 106.62 | +0.07 [-0.40, +0.54] |
 
-Peak observed process VRAM was 15,447,621,632 → 15,447,621,632 bytes. Mean loader-reported startup was 18.693 → 18.443 seconds (paired difference -0.250 seconds, 95% interval [-1.100, +0.283]). All 120 requests agreed per fixture on generated IDs, next token, final FP32 logit hash, and proposed/accepted/verification counts. These signatures also match [the official-sidecar replay on the RTX 5070 Ti](https://github.com/tjm8874/LeanSonic/blob/cdb13cda66cc3494f20356e8a20b1c7c88e03baf/docs/benchmarks/inkling-dspark-package/entropy/spec7/5070Ti-verified.json). Per-round proposal sequences were recorded separately for the earlier three-arm replay.
+Peak observed process VRAM was 15,447,621,632 → 15,447,621,632 bytes. Mean loader-reported startup was 18.693 → 18.443 seconds (paired difference -0.250 seconds, 95% interval [-1.100, +0.283]). All 120 requests agreed per fixture on generated IDs, next token, the FP32 hash returned by read_last_logits(), and proposed/accepted/verification counts. Batched verification writes to a separate logits buffer. The hash alone therefore cannot establish terminal-distribution equality when the last step was batched. These signatures also match [the official-sidecar replay on the RTX 5070 Ti](https://github.com/tjm8874/LeanSonic/blob/cdb13cda66cc3494f20356e8a20b1c7c88e03baf/docs/benchmarks/inkling-dspark-package/entropy/spec7/5070Ti-verified.json). Per-round proposal sequences were recorded separately for the earlier three-arm replay.
 
 [Individual timings, generated IDs, hashes, loader reports and paired statistics](5060Ti-verified.json).
+
+## PRO5000
+
+Values are control → candidate. Decode uses 128 generated tokens per request. The interval is the paired, five-cycle bootstrap for candidate minus control decode time in milliseconds.
+
+| Fixture | Input tokens | Accepted / proposed | Prefill ms | Decode tok/s | Decode difference, 95% interval (ms) |
+|---|---:|---:|---:|---:|---:|
+| q00_code_merge | 29 | 97/142 | 25.700 → 25.704 | 342.51 → 342.46 | +0.05 [-0.10, +0.31] |
+| q11_json_schema | 32 | 99/159 | 33.059 → 33.053 | 331.59 → 331.58 | +0.02 [-0.12, +0.21] |
+| ja_reasoning | 49 | 59/113 | 37.919 → 37.915 | 237.86 → 237.88 | -0.03 [-0.30, +0.29] |
+
+Peak observed process VRAM was 15,768,485,888 → 15,768,485,888 bytes. Mean loader-reported startup was 8.181 → 8.318 seconds (paired difference +0.137 seconds, 95% interval [-0.194, +0.592]). All 120 requests agreed per fixture on generated IDs, next token, the FP32 hash returned by read_last_logits(), and proposed/accepted/verification counts. Batched verification writes to a separate logits buffer. The hash alone therefore cannot establish terminal-distribution equality when the last step was batched. These signatures also match [the official-sidecar replay on the RTX 5070 Ti](https://github.com/tjm8874/LeanSonic/blob/cdb13cda66cc3494f20356e8a20b1c7c88e03baf/docs/benchmarks/inkling-dspark-package/entropy/spec7/5070Ti-verified.json). Per-round proposal sequences were recorded separately for the earlier three-arm replay.
+
+[Individual timings, generated IDs, hashes, loader reports and paired statistics](PRO5000-verified.json).
 
 ## Reproduction
 
