@@ -1494,7 +1494,10 @@ impl SuffixDrafter {
 }
 
 /// Default match length for the context copy that stands in for a DSpark round (#177).
-pub const SPEC_COPY_MATCH: usize = 12;
+/// Verbatim repeats (structured output, quoted text) keep matching past 32 tokens, while
+/// code reuses 12–31-token spans with different continuations, where DSpark drafts better
+/// (PRO 5000, 32K code: 12 costs 2–4%, 32 never fires).
+pub const SPEC_COPY_MATCH: usize = 32;
 
 /// Context-copy match length: `LEANSONIC_SPEC_COPY=n`, `0` disables the copy.
 pub fn spec_copy_match() -> usize {
@@ -1520,30 +1523,55 @@ fn periodic_copy(end: usize, n: usize, max_k: usize, at: impl Fn(usize) -> u32) 
     out
 }
 
-/// Incremental index behind `SuffixDrafter::copy_run` for long contexts: maps each
-/// `min_match`-token window of the history to the latest position it ended at, so a round
-/// costs one lookup instead of a scan of the whole context. Returns exactly what
-/// `copy_run` returns for the same arguments.
+/// Incremental index behind `SuffixDrafter::copy_run` for long contexts: maps a rolling
+/// hash of each `min_match`-token window of the history to the latest position it ended at,
+/// so indexing costs O(1) per token and a round one lookup instead of a context scan.
+/// Returns exactly what `copy_run` returns for the same arguments (hash collisions are
+/// caught by comparing the tokens).
 pub struct ContextCopyIndex {
     min_match: usize,
-    indexed: usize,
-    last_end: std::collections::HashMap<u64, usize>,
+    /// `prefix[i]` = polynomial hash of `history[..i]`.
+    prefix: Vec<u64>,
+    /// `BASE^min_match`.
+    base_pow: u64,
+    last_end: std::collections::HashMap<u64, usize, std::hash::BuildHasherDefault<MixHasher>>,
+}
+
+/// The keys are already hashes; one multiply spreads them over the table's bits.
+#[derive(Default)]
+pub struct MixHasher(u64);
+
+impl std::hash::Hasher for MixHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, _: &[u8]) {
+        unreachable!("MixHasher only hashes u64 keys")
+    }
+    fn write_u64(&mut self, h: u64) {
+        self.0 = (h ^ (h >> 29)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    }
 }
 
 impl ContextCopyIndex {
+    const BASE: u64 = 0x0000_0100_0000_01b3;
+
     pub fn new(min_match: usize) -> Self {
         Self {
             min_match,
-            indexed: 0,
-            last_end: std::collections::HashMap::new(),
+            prefix: vec![0],
+            base_pow: (0..min_match).fold(1u64, |p, _| p.wrapping_mul(Self::BASE)),
+            last_end: Default::default(),
         }
     }
 
-    fn key(window: impl Iterator<Item = u32>) -> u64 {
-        // FNV-1a over the token ids; a collision is caught by the comparison in `run`.
-        window.fold(0xcbf2_9ce4_8422_2325, |h, t| {
-            (h ^ u64::from(t)).wrapping_mul(0x0000_0100_0000_01b3)
-        })
+    fn push(h: u64, t: u32) -> u64 {
+        h.wrapping_mul(Self::BASE).wrapping_add(u64::from(t) + 1)
+    }
+
+    /// Hash of the window ending at `end`, given the prefix hash at `end`.
+    fn window(&self, at_end: u64, end: usize) -> u64 {
+        at_end.wrapping_sub(self.prefix[end - self.min_match].wrapping_mul(self.base_pow))
     }
 
     /// `history` must only grow between calls (prompt, then accepted tokens).
@@ -1554,26 +1582,23 @@ impl ContextCopyIndex {
         }
         // Windows entirely inside `history` end at `m..=history.len()`; the query window
         // (ending at `next_tok`) is never indexed, so it cannot match itself.
-        for end in self.indexed.max(m)..=history.len() {
-            self.last_end
-                .insert(Self::key(history[end - m..end].iter().copied()), end);
-        }
-        self.indexed = history.len() + 1;
-        let tail = history[history.len() + 1 - m..].iter().copied();
-        let Some(&end) = self
-            .last_end
-            .get(&Self::key(tail.clone().chain([next_tok])))
-        else {
-            return Vec::new();
-        };
-        if !history[end - m..end]
-            .iter()
-            .copied()
-            .eq(tail.chain([next_tok]))
-        {
-            return Vec::new();
+        for end in self.prefix.len()..=history.len() {
+            let h = Self::push(self.prefix[end - 1], history[end - 1]);
+            self.prefix.push(h);
+            if end >= m {
+                self.last_end.insert(self.window(h, end), end);
+            }
         }
         let n = history.len() + 1;
+        let query = Self::push(self.prefix[n - 1], next_tok)
+            .wrapping_sub(self.prefix[n - m].wrapping_mul(self.base_pow));
+        let Some(&end) = self.last_end.get(&query) else {
+            return Vec::new();
+        };
+        let tail = history[n - m..].iter().copied().chain([next_tok]);
+        if !history[end - m..end].iter().copied().eq(tail) {
+            return Vec::new();
+        }
         periodic_copy(end, n, max_k, |i| {
             if i + 1 == n {
                 next_tok
@@ -1593,7 +1618,7 @@ mod tests {
         // Small alphabets make long repeats, short ones and misses all common.
         let mut x = 0x2545_f491_4f6c_dd1du64;
         for alphabet in [2u64, 3, 5, 50] {
-            for min_match in [1usize, 2, 4, 8] {
+            for min_match in [1usize, 2, 4, 8, 32] {
                 let mut hist = Vec::new();
                 let mut idx = ContextCopyIndex::new(min_match);
                 for _ in 0..600 {
@@ -1634,11 +1659,6 @@ mod tests {
             [1, 2, 1, 2, 1]
         );
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 
     #[test]
     fn projection_table_matches_the_drafter_kernel_shapes() {
