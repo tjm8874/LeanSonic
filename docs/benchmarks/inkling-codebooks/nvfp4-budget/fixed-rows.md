@@ -10,6 +10,7 @@ The first precision-reallocation fit reached its maximum test divergence at chun
 | layers 0 through 5 | 0.1274341 / 0.0757932 | 158000 | 0.5606973 / 0.7454026 | 17 |
 | layers 6 through 11 | 1.5276829 / 1.3730360 | 220 | 1.4307086 / 1.7293288 | 17 |
 | layers 12 through 17 | 1.8041650 / 1.6410844 | 220 | 0.9911637 / 1.2237830 | 17 |
+| layers 18 through 19 | 1.8834042 / 1.7156549 | 220 | 1.5373422 / 1.8437511 | 17 |
 
 At test 99/398 both BF16 schedules predict 158000. At valid 46/379 both predict 170558. The corpus target is separately recorded in the receipt; agreement here refers to BF16 top-1. Two rows diagnose localized failures. Adoption requires independent full-corpus and bilingual checks.
 
