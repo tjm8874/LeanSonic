@@ -1825,7 +1825,29 @@ impl Inkling2GpuEngine {
 
         // Load the optional drafter before budgeting memory for tiered expert weights.
         let mtp_path = model_dir.join("mtp.safetensors");
-        let drafter = if spec_k > 0 && mtp_path.exists() {
+        // Drafter choice (#103): `LEANSONIC_DRAFTER=auto` (default) prefers DFlash 2 when its
+        // checkpoint is found. DFlash 2 drafts single-sequence engines; with it selected DSpark
+        // is not loaded (its context commits and VRAM would be unused). `dspark` forces DSpark,
+        // and multi-sequence engines (`LEANSONIC_SEQS > 1`) always draft with DSpark.
+        let drafter_choice = std::env::var("LEANSONIC_DRAFTER").unwrap_or_else(|_| "auto".into());
+        if !matches!(drafter_choice.as_str(), "auto" | "dflash2" | "dspark") {
+            return Err(format!(
+                "LEANSONIC_DRAFTER must be auto, dflash2 or dspark, got {drafter_choice}"
+            ));
+        }
+        let df2_path = if spec_k > 0 && drafter_choice != "dspark" && n_seqs == 1 {
+            find_dflash2(model_dir)
+        } else {
+            None
+        };
+        if spec_k > 0 && drafter_choice == "dflash2" && df2_path.is_none() {
+            return Err(if n_seqs > 1 {
+                "LEANSONIC_DRAFTER=dflash2 drafts single-sequence engines (LEANSONIC_SEQS=1)".into()
+            } else {
+                "LEANSONIC_DRAFTER=dflash2 but no DFlash 2 checkpoint was found".into()
+            });
+        }
+        let drafter = if spec_k > 0 && mtp_path.exists() && df2_path.is_none() {
             let mtp_fns = MtpKernelFns {
                 rmsnorm_d_b: fns.rmsnorm_d_b,
                 rmsnorm_quant_q8_64_b: fns.rmsnorm_quant_q8_64_b,
@@ -1861,10 +1883,8 @@ impl Inkling2GpuEngine {
         } else {
             None
         };
-        // DFlash 2 (#103): `LEANSONIC_DRAFTER=auto` (default) prefers it when its checkpoint is found.
-        let drafter_choice = std::env::var("LEANSONIC_DRAFTER").unwrap_or_else(|_| "auto".into());
-        let dflash2 = match (spec_k > 0, drafter_choice.as_str(), find_dflash2(model_dir)) {
-            (true, "auto" | "dflash2", Some(path)) => {
+        let dflash2 = match df2_path {
+            Some(path) => {
                 let m = load_dflash2_kernels(&ctx)?;
                 Some(Dflash2DrafterGpu::load_from_file(
                     &ctx,
@@ -1878,10 +1898,7 @@ impl Inkling2GpuEngine {
                     &unembed_q8,
                 )?)
             }
-            (true, "dflash2", None) => {
-                return Err("LEANSONIC_DRAFTER=dflash2 but no DFlash 2 checkpoint was found".into())
-            }
-            _ => None,
+            None => None,
         };
 
         let cross_q = st
@@ -2759,11 +2776,7 @@ impl Inkling2GpuEngine {
 
         let (free_after, total_vram) = eng.ctx.mem_info()?;
         let drafter_tag = if eng.dflash2.is_some() {
-            if eng.drafter.is_some() {
-                format!("DFlash2+DSpark(K={spec_k})")
-            } else {
-                format!("DFlash2(K={spec_k})")
-            }
+            format!("DFlash2(K={spec_k})")
         } else if eng.drafter.is_some() {
             format!("DSpark(K={spec_k})")
         } else if spec_k > 0 {
