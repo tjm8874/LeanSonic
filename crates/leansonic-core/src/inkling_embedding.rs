@@ -8,38 +8,8 @@ use std::mem::MaybeUninit;
 const TILE: usize = 128 * 1024;
 const COMMON: [u8; 7] = [63, 62, 61, 64, 60, 59, 58];
 
-/// Decode a BF16 lookup table, one index per weight, then exact BF16 escapes.
-pub fn unpack_lut8_embedding(frame: &[u8], dst: &mut [MaybeUninit<u8>]) -> Result<(), String> {
-    if dst.is_empty() || !dst.len().is_multiple_of(2) {
-        return Err("invalid lookup embedding dimensions".into());
-    }
-    let (table, body) = frame
-        .split_first_chunk::<512>()
-        .ok_or("truncated embedding lookup table")?;
-    let values = table.as_chunks::<2>().0;
-    let (indices, literals) = body
-        .split_at_checked(dst.len() / 2)
-        .ok_or("truncated embedding indices")?;
-    let (literal_words, trailing) = literals.as_chunks::<2>();
-    let finite = |word: &[u8; 2]| u16::from_le_bytes(*word) & 0x7f80 != 0x7f80;
-    if !trailing.is_empty() || !values.iter().all(finite) || !literal_words.iter().all(finite) {
-        return Err("invalid BF16 embedding table or literals".into());
-    }
-    let mut escapes = literal_words.iter();
-    for (&index, out) in indices.iter().zip(dst.as_chunks_mut::<2>().0) {
-        let &[lo, hi] = if index == 255 {
-            escapes.next().ok_or("missing embedding literal")?
-        } else {
-            &values[usize::from(index)]
-        };
-        out[0].write(lo);
-        out[1].write(hi);
-    }
-    if escapes.next().is_some() {
-        return Err("unused embedding literals".into());
-    }
-    Ok(())
-}
+mod lut;
+pub use lut::{pack_lut8_rans, unpack_lut8_embedding, unpack_lut8_rans};
 
 pub fn pack_embedding(
     mut input: impl Read,

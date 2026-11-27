@@ -1690,39 +1690,36 @@ impl Inkling2GpuEngine {
         let st = MappedSafeTensors::open(&st_path)
             .map_err(|e| format!("open {}: {e}", st_path.display()))?;
 
+        use crate::inkling_embedding::{unpack_embedding, unpack_lut8_embedding, unpack_lut8_rans};
+        type EmbeddingDecoder = fn(&[u8], &mut [std::mem::MaybeUninit<u8>]) -> Result<(), String>;
+        let load_embedding = |packed: crate::safetensors::TensorView<'_>,
+                              decode: EmbeddingDecoder|
+         -> Result<PinnedHostBuf, String> {
+            if packed.dtype != "U8" || packed.shape != [packed.data.len()] {
+                return Err("invalid encoded input embedding shape".into());
+            }
+            let buf = PinnedHostBuf::alloc_uninit(&ctx, PADDED_VOCAB * D * 2)?;
+            // The allocation remains private until every byte has been decoded.
+            let dst = unsafe { std::slice::from_raw_parts_mut(buf.host_ptr.cast(), buf.byte_len) };
+            decode(packed.data, dst)?;
+            Ok(buf)
+        };
         let embed = match (
             st.get("model.llm.embed.weight"),
             st.get("model.llm.embed.weight.prefix_v1"),
             st.get("model.llm.embed.weight.lut8_v1"),
+            st.get("model.llm.embed.weight.lut8_rans_v1"),
         ) {
-            (Some(raw), None, None)
+            (Some(raw), None, None, None)
                 if raw.dtype == "BF16"
                     && raw.shape == [PADDED_VOCAB, D]
                     && raw.data.len() == PADDED_VOCAB * D * 2 =>
             {
                 PinnedHostBuf::from_bytes(&ctx, raw.data)?
             }
-            (None, prefix, lut) if prefix.is_some() != lut.is_some() => {
-                let is_lut = lut.is_some();
-                let packed = prefix.or(lut).unwrap();
-                if packed.dtype != "U8" || packed.shape != [packed.data.len()] {
-                    return Err("invalid encoded input embedding shape".into());
-                }
-                let buf = PinnedHostBuf::alloc_uninit(&ctx, PADDED_VOCAB * D * 2)?;
-                // This allocation is exclusively owned until all tiles decode.
-                let dst = unsafe {
-                    std::slice::from_raw_parts_mut(
-                        buf.host_ptr.cast::<std::mem::MaybeUninit<u8>>(),
-                        buf.byte_len,
-                    )
-                };
-                if is_lut {
-                    crate::inkling_embedding::unpack_lut8_embedding(packed.data, dst)?;
-                } else {
-                    crate::inkling_embedding::unpack_embedding(packed.data, dst)?;
-                }
-                buf
-            }
+            (None, Some(packed), None, None) => load_embedding(packed, unpack_embedding)?,
+            (None, None, Some(packed), None) => load_embedding(packed, unpack_lut8_embedding)?,
+            (None, None, None, Some(packed)) => load_embedding(packed, unpack_lut8_rans)?,
             _ => return Err("invalid or ambiguous Inkling input embedding".into()),
         };
         let embed = TierBuf::HostPinned(embed);
