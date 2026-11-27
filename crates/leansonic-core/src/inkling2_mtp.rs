@@ -80,6 +80,16 @@ struct MtpLayerGpu {
     win: usize,
 }
 
+/// One sequence's drafter context (#107): the three layers' context KV, the anchor taps and the
+/// acceptance calibration. The weights and draft scratch buffers are shared.
+struct DraftSeqState {
+    kv: Vec<(DeviceBuf, DeviceBuf)>,
+    anchor: DeviceBuf,
+    ctx_end: usize,
+    cal: (f32, f32),
+    sent: Option<(f32, usize)>,
+}
+
 pub struct DsparkDrafterGpu {
     ctx: Arc<CudaContextHandle>,
     fns: MtpKernelFns,
@@ -119,6 +129,9 @@ pub struct DsparkDrafterGpu {
     d_q8: DeviceBuf,
     d_sc64: DeviceBuf,
     pub ctx_end: usize,
+    /// Parked states of the other sequences (`LEANSONIC_SEQS > 1`); `cur_seq`'s is live.
+    seq_states: Vec<Option<DraftSeqState>>,
+    cur_seq: usize,
     base_tau: f32,
     cal: (f32, f32),
     sent: Option<(f32, usize)>,
@@ -328,6 +341,8 @@ impl DsparkDrafterGpu {
             d_mix: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * D * 4)?,
             d_kv: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * 2048 * 4)?,
             d_anchor: DeviceBuf::alloc_zeroed(ctx, 4 * D * 4)?,
+            seq_states: Vec::new(),
+            cur_seq: 0,
             d_x: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * D * 4)?,
             d_qkv: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * 5120 * 4)?,
             d_att: DeviceBuf::alloc_zeroed(ctx, B_DRAFT * 3072 * 4)?,
@@ -518,6 +533,48 @@ impl DsparkDrafterGpu {
             cols: R_MARKOV as i32,
         };
         Ok((fold_q8, d_fold_b))
+    }
+
+    /// Makes sequence `seq`'s drafter context live (a new sequence starts empty, as after
+    /// `reset`). Drafting and context updates then apply to that sequence only.
+    pub fn select_seq(&mut self, seq: usize) -> Result<(), String> {
+        if seq == self.cur_seq {
+            return Ok(());
+        }
+        if self.seq_states.len() <= seq.max(self.cur_seq) {
+            self.seq_states
+                .resize_with(seq.max(self.cur_seq) + 1, || None);
+        }
+        let mut st = match self.seq_states[seq].take() {
+            Some(st) => st,
+            None => {
+                let mut kv = Vec::with_capacity(self.layers.len());
+                for l in &self.layers {
+                    kv.push((
+                        DeviceBuf::alloc_zeroed(&self.ctx, l.kc.byte_len)?,
+                        DeviceBuf::alloc_zeroed(&self.ctx, l.vc.byte_len)?,
+                    ));
+                }
+                DraftSeqState {
+                    kv,
+                    anchor: DeviceBuf::alloc_zeroed(&self.ctx, self.d_anchor.byte_len)?,
+                    ctx_end: 0,
+                    cal: (1.0, 1.0),
+                    sent: None,
+                }
+            }
+        };
+        for (l, (kc, vc)) in self.layers.iter_mut().zip(st.kv.iter_mut()) {
+            std::mem::swap(&mut l.kc, kc);
+            std::mem::swap(&mut l.vc, vc);
+        }
+        std::mem::swap(&mut self.d_anchor, &mut st.anchor);
+        std::mem::swap(&mut self.ctx_end, &mut st.ctx_end);
+        std::mem::swap(&mut self.cal, &mut st.cal);
+        std::mem::swap(&mut self.sent, &mut st.sent);
+        self.seq_states[self.cur_seq] = Some(st);
+        self.cur_seq = seq;
+        Ok(())
     }
 
     pub fn reset(&mut self) {
