@@ -18,6 +18,7 @@ These two packages change only the final four layers’ eight MXFP8 expert weigh
 | test | compact | 0.0137735 | 0.7519345 | 24,289/25,500 | 7.131377 |
 | valid | canonical | 0.0027607 | 0.3524361 | 24,963/25,500 | 6.504621 |
 | valid | q3 | 0.0167140 | 4.2778210 | 24,179/25,500 | 6.565880 |
+| valid | compact | 0.0131739 | 0.9835867 | 24,341/25,500 | 6.564200 |
 | chat | canonical | 0.0026487 | 0.0956792 | 609/613 | 3.736971 |
 | chat | q3 | 0.0135265 | 0.2938108 | 583/613 | 3.665489 |
 
