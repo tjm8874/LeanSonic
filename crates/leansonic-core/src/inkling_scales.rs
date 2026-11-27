@@ -193,20 +193,24 @@ pub(crate) fn pack_gpu_tile<const BITS: usize, const BASE: u8>(
     if !rem.is_empty() {
         return false;
     }
-    out.clear();
-    out.reserve(groups.len() * BITS);
-    for &group in groups {
+    out.resize(groups.len() * BITS, 0);
+    // Compare fixed bits across the tile while packing; the caller uploads
+    // the tile only after every byte has passed the range check.
+    let mut differences = 0;
+    for (&group, packed) in groups.iter().zip(out.as_chunks_mut::<BITS>().0) {
         let word = u64::from_le_bytes(group);
-        if word & fixed_bits != u64::from(BASE) * BYTE_ONES {
-            return false;
-        }
-        let mut fields = 0;
-        for lane in 0..8 {
-            fields |= ((word >> (8 * lane)) & low_mask) << (BITS * lane);
-        }
-        out.extend_from_slice(&fields.to_le_bytes()[..BITS]);
+        differences |= (word & fixed_bits) ^ (u64::from(BASE) * BYTE_ONES);
+        // Gather adjacent byte fields into pairs, then quads and one word.
+        let byte_lanes = 0x0001_0001_0001_0001 * low_mask;
+        let pairs = (word & byte_lanes) | (((word >> 8) & byte_lanes) << BITS);
+        let pair_mask = (1u64 << (2 * BITS)) - 1;
+        let pair_lanes = 0x0000_0001_0000_0001 * pair_mask;
+        let quads = (pairs & pair_lanes) | (((pairs >> 16) & pair_lanes) << (2 * BITS));
+        let quad_mask = (1u64 << (4 * BITS)) - 1;
+        let fields = (quads & quad_mask) | ((quads >> 32) << (4 * BITS));
+        packed.copy_from_slice(&fields.to_le_bytes()[..BITS]);
     }
-    true
+    differences == 0
 }
 
 #[cfg(test)]
