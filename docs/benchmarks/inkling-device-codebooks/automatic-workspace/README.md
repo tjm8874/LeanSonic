@@ -6,6 +6,7 @@ The loader estimates the peak cost of growing a live workspace after expert plac
 
 | GPU | Startup capacity, control → candidate | Resident layers | Warm and cold traces |
 |---|---|---|---|
+| 5060Ti | 64..2048 → 2048 | 24/24 → 24/24 | 8 matched |
 | 5070Ti | 64..2048 → 2048 | 24/24 → 24/24 | 8 matched |
 
 Lengths 32 and 1,024 alternate on one engine for four passes. Each trace includes all 64 greedy tokens, one extra prediction and a hash of all 200,058 final FP32 logits. The driver checks finite logits and the argmax against the reported final token.
@@ -14,8 +15,11 @@ Lengths 32 and 1,024 alternate on one engine for four passes. Each trace include
 
 | GPU | Phase | Control ms | Candidate ms | Paired change ms (95% interval) |
 |---|---|---:|---:|---:|
+| 5070Ti | prefill_ms | 540.632 | 130.733 | -409.899 [-411.278, -409.102] |
+| 5070Ti | decode32_ms | 205.202 | 205.247 | +0.045 [+0.007, +0.085] |
 
-Waiting for five complete mirrored cycles per GPU.
+Peak sampled process VRAM on 5070Ti was 16,596,860,928 B for control and 16,437,477,376 B for candidate.
+
 
 ## Reproduce
 
