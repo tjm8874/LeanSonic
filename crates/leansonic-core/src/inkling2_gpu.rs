@@ -520,6 +520,7 @@ struct KernelFns {
     quant_q8_64_b: CUfunction,
     depth_mix_b: CUfunction,
     ctrl_down_b: CUfunction,
+    ctrl_down_r4_b: Option<CUfunction>,
     ctrl_down_r8_b: Option<CUfunction>,
     ctrl_down_r8_t2_b: Option<CUfunction>,
     ctrl_apply_b: CUfunction,
@@ -619,6 +620,12 @@ struct KernelFns {
     pdl_all_marker: Option<CUfunction>,
     ctrl_down_r4_fast: Option<CUfunction>,
     q8_dp4a_gemm_b8_fast: Option<CUfunction>,
+    q8_gemm_c2304_r8_b8: Option<CUfunction>,
+    q8_gemm_c3072_r8_b8: Option<CUfunction>,
+    q8_qkv3_r8_b8: Option<CUfunction>,
+    wo_conv4_save_c3072_r8_b8: Option<CUfunction>,
+    bf16_gemv_router_b8: Option<CUfunction>,
+    router_topk8_groups_par_b: Option<CUfunction>,
     q8_dp4a_gemm_b_ms4: Option<CUfunction>,
     q8_dp4a_gemm_b_ms8: Option<CUfunction>,
     kv_conv4_prep_cache: Option<CUfunction>,
@@ -636,6 +643,8 @@ struct KernelFns {
     gqa_attn_split_fused_q8_dec: Option<CUfunction>,
     gqa_attn_split_fused_q8_dec_i8: Option<CUfunction>,
     argmax_par_and_inc_pos: Option<CUfunction>,
+    argmax_par_b: Option<CUfunction>,
+    depth_mix_rmsnorm_f32_quant_q8_64_b: Option<CUfunction>,
 }
 
 unsafe impl Send for KernelFns {}
@@ -1825,21 +1834,27 @@ impl Inkling2GpuEngine {
 
         // Load the optional drafter before budgeting memory for tiered expert weights.
         let mtp_path = model_dir.join("mtp.safetensors");
-        // Drafter choice (#103): `LEANSONIC_DRAFTER=auto` (default) prefers DFlash 2 when its
-        // checkpoint is found. DFlash 2 drafts single-sequence engines; with it selected DSpark
-        // is not loaded (its context commits and VRAM would be unused). `dspark` forces DSpark,
-        // and multi-sequence engines (`LEANSONIC_SEQS > 1`) always draft with DSpark.
+        // Drafter choice (#103 / #204): `LEANSONIC_DRAFTER=auto` (default) prefers DFlash 2 when
+        // its checkpoint is found and all target MoE layers fit in VRAM; on 16 GB spilled runs
+        // `auto` releases the neural drafter below if it would evict target expert layers to PCIe.
+        // `dflash2` / `dspark` force the respective neural drafter, `suffix` forces zero-VRAM
+        // suffix/context-copy drafting, and `LEANSONIC_SEQS > 1` drafts with DSpark.
         let drafter_choice = std::env::var("LEANSONIC_DRAFTER").unwrap_or_else(|_| "auto".into());
-        if !matches!(drafter_choice.as_str(), "auto" | "dflash2" | "dspark") {
+        if !matches!(
+            drafter_choice.as_str(),
+            "auto" | "dflash2" | "dspark" | "suffix"
+        ) {
             return Err(format!(
-                "LEANSONIC_DRAFTER must be auto, dflash2 or dspark, got {drafter_choice}"
+                "LEANSONIC_DRAFTER must be auto, dflash2, dspark or suffix, got {drafter_choice}"
             ));
         }
-        let df2_path = if spec_k > 0 && drafter_choice != "dspark" && n_seqs == 1 {
-            find_dflash2(model_dir)
-        } else {
-            None
-        };
+        let df2_path =
+            if spec_k > 0 && !matches!(drafter_choice.as_str(), "dspark" | "suffix") && n_seqs == 1
+            {
+                find_dflash2(model_dir)
+            } else {
+                None
+            };
         if spec_k > 0 && drafter_choice == "dflash2" && df2_path.is_none() {
             return Err(if n_seqs > 1 {
                 "LEANSONIC_DRAFTER=dflash2 drafts single-sequence engines (LEANSONIC_SEQS=1)".into()
@@ -1847,7 +1862,11 @@ impl Inkling2GpuEngine {
                 "LEANSONIC_DRAFTER=dflash2 but no DFlash 2 checkpoint was found".into()
             });
         }
-        let drafter = if spec_k > 0 && mtp_path.exists() && df2_path.is_none() {
+        let drafter = if spec_k > 0
+            && drafter_choice != "suffix"
+            && mtp_path.exists()
+            && df2_path.is_none()
+        {
             let mtp_fns = MtpKernelFns {
                 rmsnorm_d_b: fns.rmsnorm_d_b,
                 rmsnorm_quant_q8_64_b: fns.rmsnorm_quant_q8_64_b,
@@ -2440,7 +2459,7 @@ impl Inkling2GpuEngine {
             d_moe_y: DeviceBuf::alloc_zeroed(&ctx, D * 4)?,
             d_logits: DeviceBuf::alloc_zeroed(&ctx, VOCAB * 4)?,
             d_router_done: DeviceBuf::alloc_zeroed(&ctx, 4)?,
-            d_sync_counters: DeviceBuf::alloc_zeroed(&ctx, 4096)?,
+            d_sync_counters: DeviceBuf::alloc_zeroed(&ctx, 24576)?,
             d_act_q8_64: DeviceBuf::alloc_zeroed(&ctx, 3 * 3072)?,
             d_act_sc_64: DeviceBuf::alloc_zeroed(&ctx, 3 * 48 * 4)?,
             d_act_q8_16: DeviceBuf::alloc_zeroed(&ctx, TOP_K * FF)?,
@@ -2592,9 +2611,30 @@ impl Inkling2GpuEngine {
             0
         };
         let placement_reserve = user_reserve.saturating_add(graph_reserve);
-        let budget = free.saturating_sub(placement_reserve);
+        let mut budget = free.saturating_sub(placement_reserve);
         let mut resident = plan_expert_placement(&expert_views, budget);
-        let all_experts_resident = resident.iter().all(|pair| *pair == [true, true]);
+        let mut all_experts_resident = resident.iter().all(|pair| *pair == [true, true]);
+        if drafter_choice == "auto"
+            && !all_experts_resident
+            && (eng.dflash2.is_some() || eng.drafter.is_some())
+        {
+            // On 16 GB VRAM-oversubscribed runs, a 0.50–0.95 GiB neural drafter evicts 1–2 extra
+            // target MoE layers to PCIe (+3.26 ms/tok per spilled layer on Gen4 x4), making
+            // speculative decode slower than --spec 0 solo. Release the optional neural drafter in
+            // `auto` mode so target MoE residency matches --spec 0 and draft with O(1) context copy.
+            eng.dflash2 = None;
+            eng.drafter = None;
+            if eng.prefill.d_taps.take().is_some() {
+                eng.prefill.bytes_per_row = eng.prefill.bytes_per_row.saturating_sub(4 * D * 4);
+            }
+            let (now_free, _) = eng.ctx.mem_info()?;
+            budget = now_free.saturating_sub(placement_reserve);
+            resident = plan_expert_placement(&expert_views, budget);
+            all_experts_resident = resident.iter().all(|pair| *pair == [true, true]);
+            eprintln!(
+                "[LeanSonic GPU] LEANSONIC_DRAFTER=auto released neural drafter to preserve target MoE VRAM residency (set LEANSONIC_DRAFTER=dflash2 or dspark to force)"
+            );
+        }
         let explicit_chunk = match std::env::var("LEANSONIC_PREFILL_CHUNK") {
             Ok(s) => Some(
                 s.parse::<usize>()
@@ -3137,6 +3177,7 @@ impl Inkling2GpuEngine {
             quant_q8_64_b: get_fn("ink2_quant_q8_64_b")?,
             depth_mix_b: get_fn("ink2_depth_mix_b")?,
             ctrl_down_b: get_fn("ink2_ctrl_down_b")?,
+            ctrl_down_r4_b: get_fn("ink2_ctrl_down_r4_b").ok(),
             ctrl_down_r8_t2_b: get_fn("ink2_ctrl_down_r8_t2_b").ok(),
             ctrl_down_r8_b: get_fn("ink2_ctrl_down_r8_b").ok(),
             ctrl_apply_b: get_fn("ink2_ctrl_apply_b")?,
@@ -3231,6 +3272,12 @@ impl Inkling2GpuEngine {
             pdl_all_marker: get_fn("ink2_pdl_all_marker").ok(),
             ctrl_down_r4_fast: get_fn("ink2_ctrl_down_r4_fast").ok(),
             q8_dp4a_gemm_b8_fast: get_fn("ink2_q8_dp4a_gemm_b8_fast").ok(),
+            q8_gemm_c2304_r8_b8: get_fn("ink2_q8_gemm_c2304_r8_b8").ok(),
+            q8_gemm_c3072_r8_b8: get_fn("ink2_q8_gemm_c3072_r8_b8").ok(),
+            q8_qkv3_r8_b8: get_fn("ink2_q8_qkv3_r8_b8").ok(),
+            wo_conv4_save_c3072_r8_b8: get_fn("ink2_wo_conv4_save_c3072_r8_b8").ok(),
+            bf16_gemv_router_b8: get_fn("ink2_bf16_gemv_router_b8").ok(),
+            router_topk8_groups_par_b: get_fn("ink2_router_topk8_groups_par_b").ok(),
             q8_dp4a_gemm_b_ms4: get_fn("ink2_q8_dp4a_gemm_b_ms4").ok(),
             q8_dp4a_gemm_b_ms8: get_fn("ink2_q8_dp4a_gemm_b_ms8").ok(),
             kv_conv4_prep_cache: get_fn("ink2_kv_conv4_prep_cache").ok(),
@@ -3250,6 +3297,9 @@ impl Inkling2GpuEngine {
             gqa_attn_split_fused_q8_dec: get_fn("ink2_gqa_attn_split_fused_q8_dec").ok(),
             gqa_attn_split_fused_q8_dec_i8: get_fn("ink2_gqa_attn_split_fused_q8_dec_i8").ok(),
             argmax_par_and_inc_pos: get_fn("ink2_argmax_par_and_inc_pos").ok(),
+            argmax_par_b: get_fn("ink2_argmax_par_b").ok(),
+            depth_mix_rmsnorm_f32_quant_q8_64_b: get_fn("ink2_depth_mix_rmsnorm_f32_quant_q8_64_b")
+                .ok(),
         })
     }
 
@@ -3273,7 +3323,11 @@ impl Inkling2GpuEngine {
                 "zero pos",
             )?;
             check_cu(
-                (self.ctx.api.cuMemsetD8_v2)(self.d_sync_counters.ptr, 0, 4096),
+                (self.ctx.api.cuMemsetD8_v2)(
+                    self.d_sync_counters.ptr,
+                    0,
+                    self.d_sync_counters.byte_len,
+                ),
                 "zero sync counters",
             )?;
             check_cu(
@@ -6572,13 +6626,20 @@ impl Inkling2GpuEngine {
         // `spec_copy_match()` tokens already occurred in the prompt or output proposes the
         // tokens that followed them instead of running the drafter. Verification keeps the
         // output greedy-exact.
-        let copy_match = if self.has_neural_drafter() {
+        let spilled = self.spilled_expert_layers > 0;
+        let has_neural = self.has_neural_drafter();
+        let copy_match = if has_neural {
             spec_copy_match()
+        } else if spilled {
+            std::env::var("LEANSONIC_SPEC_SPILLED_MATCH")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(8)
         } else {
             0
         };
         let mut copy_index = ContextCopyIndex::new(copy_match);
-        let track_hist = !self.has_neural_drafter() || copy_match > 0;
+        let track_hist = !has_neural || copy_match > 0;
         let mut full_hist: Vec<u32> = if track_hist {
             let mut h = Vec::with_capacity(prompt_tokens.len() + n_gen + 8);
             h.extend_from_slice(prompt_tokens);
@@ -6588,79 +6649,35 @@ impl Inkling2GpuEngine {
         };
 
         let mut steps_done = 0usize;
-        if self.spec_k == 0 && self.drafter.is_none() && stop_tok.is_none() && n_gen > 0 {
-            if self.host_pos + n_gen > self.max_ctx {
-                return Err(format!("sequence exceeded max_ctx ({})", self.max_ctx));
-            }
-            unsafe {
-                let ring = self.h_token_ring.host_ptr.cast::<i32>();
-                core::ptr::write_volatile(ring, cur_tok as i32);
-                check_cu(
-                    (self.ctx.api.cuMemcpyHtoDAsync_v2)(
-                        self.d_token_in.ptr,
-                        ring.cast(),
-                        4,
-                        self.ctx.compute_stream,
-                    ),
-                    "HtoD(token_in_chain)",
-                )?;
-            }
-            while steps_done < n_gen {
-                let use_short = self.has_short_decode_regime() && self.host_pos < SHORT_UNSPLIT_CTX;
-                let mut chunk = (n_gen - steps_done).min(64);
-                if use_short {
-                    chunk = chunk.min(SHORT_UNSPLIT_CTX - self.host_pos);
-                }
-                for s in 0..chunk {
-                    if use_short {
-                        if let Some(ref sgraph) = self.decode_graph_short {
-                            sgraph.replay()?;
-                        } else if let Some(ref graph) = self.decode_graph {
-                            graph.replay()?;
-                        } else {
-                            self.enqueue_step_impl(self.ctx.compute_stream, false, true)?;
-                        }
-                    } else if let Some(ref graph) = self.decode_graph {
-                        graph.replay()?;
-                    } else {
-                        self.enqueue_step_impl(self.ctx.compute_stream, false, false)?;
-                    }
-                    unsafe {
-                        check_cu(
-                            (self.ctx.api.cuMemcpyDtoDAsync_v2)(
-                                self.h_token_ring.dev_ptr + ((1 + s) * 4) as u64,
-                                self.d_token_in.ptr,
-                                4,
-                                self.ctx.compute_stream,
-                            ),
-                            "DtoHAsync(token_chain)",
-                        )?;
-                    }
-                }
-                self.ctx.sync_compute()?;
-                let ring = self.h_token_ring.host_ptr.cast::<i32>();
-                out_ids.push(cur_tok);
-                on_token(cur_tok);
-                for s in 0..(chunk - 1) {
-                    let t = unsafe { core::ptr::read_volatile(ring.add(1 + s)) } as u32;
-                    out_ids.push(t);
-                    on_token(t);
-                }
-                cur_tok = unsafe { core::ptr::read_volatile(ring.add(chunk)) } as u32;
-                self.host_pos += chunk;
-                steps_done += chunk;
-            }
-            return Ok((out_ids, cur_tok));
-        }
-
-        // Draft pause: after `PAUSE_AFTER` steps in a row without an accepted draft, decode
+        // Draft pause: after `pause_after` steps in a row without an accepted draft, decode
         // the next `pause_len` tokens without drafting (8, doubling to 64 while drafts keep
         // failing). Drafting a context that rejects everything costs a full drafter pass per
         // token (e.g. 128K: drafter attention over the whole context). The emitted tokens are
         // the greedy tokens either way. `LEANSONIC_SPEC_PAUSE=0` disables the pause.
-        const PAUSE_AFTER: usize = 4;
+        let pause_after: usize = if spilled { 2 } else { 4 };
+        let spilled_k_cap: usize = if !spilled {
+            usize::MAX
+        } else {
+            std::env::var("LEANSONIC_SPEC_SPILLED_K")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .filter(|&k| k >= 1)
+                .unwrap_or(if has_neural {
+                    if self.spilled_expert_layers >= 3 || !self.stage_host_up {
+                        2
+                    } else {
+                        3
+                    }
+                } else if self.spilled_expert_layers >= 3 || !self.stage_host_up {
+                    4
+                } else {
+                    5
+                })
+        };
         let pause_enabled = std::env::var("LEANSONIC_SPEC_PAUSE").map_or(true, |v| v != "0");
         let (mut zero_streak, mut pause_left, mut pause_len) = (0usize, 0usize, 8usize);
+        let mut solo_ns_ema: f64 = 0.0;
+        let mut spec_ns_ema: f64 = 0.0;
         let mut last_verify_row = None;
         while steps_done < n_gen {
             if Some(cur_tok) == stop_tok {
@@ -6674,12 +6691,14 @@ impl Inkling2GpuEngine {
             };
             let max_draft = self
                 .spec_k
+                .min(spilled_k_cap)
                 .min(rem_steps.saturating_sub(1))
                 .min(self.max_ctx.saturating_sub(self.host_pos + 1))
                 .min(short_cap);
 
             let paused = pause_left > 0;
             pause_left = pause_left.saturating_sub(1);
+            let step_t0 = (spilled && has_neural && pause_enabled).then(Instant::now);
             let copied = if max_draft == 0 || paused {
                 Vec::new()
             } else {
@@ -6688,7 +6707,9 @@ impl Inkling2GpuEngine {
             let drafts = if max_draft == 0 || paused {
                 Vec::new()
             } else if !copied.is_empty() {
-                self.spec_copy_rounds += 1;
+                if has_neural {
+                    self.spec_copy_rounds += 1;
+                }
                 copied
             } else if let Some(ref mut d) = self.dflash2.as_mut().filter(|_| self.n_seqs == 1) {
                 d.draft_tokens(
@@ -6708,14 +6729,19 @@ impl Inkling2GpuEngine {
                     cur_tok,
                     max_draft,
                 )?
+            } else if spilled {
+                // On PCIe-spilled 16 GB GPUs without a neural drafter, `copy_index` (`>= 8`-token
+                // rolling hash) already handled high-confidence repeats in O(1); avoid low-order
+                // 2/3-gram guesses whose rejected verify batches cost 2.5x PCIe bandwidth.
+                Vec::new()
             } else {
                 SuffixDrafter::draft_from_history(&full_hist, cur_tok, max_draft)
             };
 
             if drafts.is_empty() {
-                if pause_enabled && !paused && max_draft > 0 {
+                if pause_enabled && has_neural && !paused && max_draft > 0 {
                     zero_streak += 1;
-                    if zero_streak >= PAUSE_AFTER {
+                    if zero_streak >= pause_after {
                         pause_left = pause_len;
                         pause_len = (pause_len * 2).min(64);
                         zero_streak = 0;
@@ -6730,7 +6756,16 @@ impl Inkling2GpuEngine {
                 if stop_tok.is_some() && out_ids.len() >= n_gen {
                     break;
                 }
+                let solo_t0 = step_t0.map(|_| Instant::now());
                 cur_tok = self.forward_greedy_token(cur_tok)?;
+                if let Some(t0) = solo_t0 {
+                    let ns = t0.elapsed().as_nanos() as f64;
+                    solo_ns_ema = if solo_ns_ema == 0.0 {
+                        ns
+                    } else {
+                        0.75 * solo_ns_ema + 0.25 * ns
+                    };
+                }
                 last_verify_row = None;
                 continue;
             }
@@ -6757,12 +6792,24 @@ impl Inkling2GpuEngine {
                 }
             }
             self.spec_accepted_total += accepted;
+            if let Some(t0) = step_t0 {
+                let ns_per_tok = (t0.elapsed().as_nanos() as f64) / ((accepted + 1) as f64);
+                spec_ns_ema = if spec_ns_ema == 0.0 {
+                    ns_per_tok
+                } else {
+                    0.7 * spec_ns_ema + 0.3 * ns_per_tok
+                };
+                if solo_ns_ema > 0.0 && spec_ns_ema > solo_ns_ema * 1.03 {
+                    pause_left = pause_left.max(pause_len);
+                    pause_len = (pause_len * 2).min(64);
+                }
+            }
             if accepted > 0 {
                 zero_streak = 0;
                 pause_len = 8;
             } else if pause_enabled {
                 zero_streak += 1;
-                if zero_streak >= PAUSE_AFTER {
+                if zero_streak >= pause_after {
                     pause_left = pause_len;
                     pause_len = (pause_len * 2).min(64);
                     zero_streak = 0;
@@ -6895,11 +6942,18 @@ impl Inkling2GpuEngine {
             ];
             // A short batch has too few blocks to amortize an eight-wide tile.
             // Optional symbols also support previously built external cubins.
-            let (down, grid) = match (self.fns.ctrl_down_r8_t2_b, self.fns.ctrl_down_r8_b) {
-                (Some(f), _) if b_len >= 64 && self.ms_rows.get() == 0 => {
+            let (down, grid) = match (
+                self.fns.ctrl_down_r8_t2_b,
+                self.fns.ctrl_down_r4_b,
+                self.fns.ctrl_down_r8_b,
+            ) {
+                (Some(f), _, _) if b_len >= 64 && self.ms_rows.get() == 0 => {
                     (f, (8, n_ctrls * b_u32.div_ceil(2)))
                 }
-                (_, Some(f)) if n_ctrls * b_u32 >= 2 => (f, (8, n_ctrls * b_u32)),
+                (_, Some(f), _) if (2..=12).contains(&(n_ctrls * b_u32)) => {
+                    (f, (16, n_ctrls * b_u32))
+                }
+                (_, _, Some(f)) if n_ctrls * b_u32 >= 2 => (f, (8, n_ctrls * b_u32)),
                 _ => (self.fns.ctrl_down_b, (64, n_ctrls * b_u32)),
             };
             self.launch(stream, down, grid, 256, &mut args1)?;
@@ -7081,6 +7135,44 @@ impl Inkling2GpuEngine {
             }
         }
         let grid_x = (rows as u32).div_ceil(16);
+        if b_len <= 8
+            && cols <= 3072
+            && std::env::var("LEANSONIC_Q8_R8_B8").map_or(true, |v| v != "0")
+        {
+            if cols == 2304 {
+                if let Some(f_c2304) = self.fns.q8_gemm_c2304_r8_b8 {
+                    let tiles = (rows as u32).div_ceil(8);
+                    let gx = if rows > 16_384 { tiles.min(990) } else { tiles };
+                    let mut r8_args: [*mut c_void; 9] = [
+                        (&mut pw as *mut _) as *mut c_void,
+                        (&mut pws as *mut _) as *mut c_void,
+                        (&mut px as *mut _) as *mut c_void,
+                        (&mut pxs as *mut _) as *mut c_void,
+                        (&mut py as *mut _) as *mut c_void,
+                        (&mut r as *mut _) as *mut c_void,
+                        (&mut b_i32 as *mut _) as *mut c_void,
+                        (&mut ys as *mut _) as *mut c_void,
+                        (&mut sc as *mut _) as *mut c_void,
+                    ];
+                    return self.launch(stream, f_c2304, (gx, 1), 256, &mut r8_args);
+                }
+            } else if cols == 3072 && softcap == 0.0 {
+                if let Some(f_c3072) = self.fns.q8_gemm_c3072_r8_b8 {
+                    let gx = (rows as u32).div_ceil(8);
+                    let mut r8_args: [*mut c_void; 8] = [
+                        (&mut pw as *mut _) as *mut c_void,
+                        (&mut pws as *mut _) as *mut c_void,
+                        (&mut px as *mut _) as *mut c_void,
+                        (&mut pxs as *mut _) as *mut c_void,
+                        (&mut py as *mut _) as *mut c_void,
+                        (&mut r as *mut _) as *mut c_void,
+                        (&mut b_i32 as *mut _) as *mut c_void,
+                        (&mut ys as *mut _) as *mut c_void,
+                    ];
+                    return self.launch(stream, f_c3072, (gx, 1), 256, &mut r8_args);
+                }
+            }
+        }
         if b_len <= 8 && cols <= 3072 {
             if let Some(f_b8) = self.fns.q8_dp4a_gemm_b8_fast {
                 return self.launch(stream, f_b8, (grid_x, 1), 256, &mut args);
@@ -7643,6 +7735,47 @@ impl Inkling2GpuEngine {
                     64_512,
                     &mut args,
                 )?;
+            } else if let (true, Some(f_qkv3_b8)) = (
+                b_len <= MAX_SPEC_TOKENS
+                    && self.ms_rows.get() == 0
+                    && std::env::var("LEANSONIC_Q8_R8_B8").map_or(true, |v| v != "0"),
+                self.fns.q8_qkv3_r8_b8,
+            ) {
+                let mut pwq = l.wq_all_q8.codes.ptr;
+                let mut pwqs = l.wq_all_q8.scales64.ptr;
+                let mut pwk = wk_ref.codes.ptr + (wk_off * D) as u64;
+                let mut pwks = wk_ref.scales64.ptr + (wk_off * (D / 64) * 4) as u64;
+                let mut pwv = wv_ref.codes.ptr + (wv_off * D) as u64;
+                let mut pwvs = wv_ref.scales64.ptr + (wv_off * (D / 64) * 4) as u64;
+                let mut px = self.prefill.d_b_act_codes.ptr;
+                let mut pxs = self.prefill.d_b_act_scales.ptr;
+                let mut pyq = self.prefill.layer_workspace.qrgs;
+                let mut pyk = self.prefill.layer_workspace.k_raw;
+                let mut pyv = self.prefill.layer_workspace.v_raw;
+                let mut rq = QRGS_ROWS as i32;
+                let mut rkv = kv_rows;
+                let mut yqs = SWA_ALL_ROWS as i32;
+                let mut bi = b_i32;
+                let mut args: [*mut c_void; 15] = [
+                    (&mut pwq as *mut _) as *mut c_void,
+                    (&mut pwqs as *mut _) as *mut c_void,
+                    (&mut pwk as *mut _) as *mut c_void,
+                    (&mut pwks as *mut _) as *mut c_void,
+                    (&mut pwv as *mut _) as *mut c_void,
+                    (&mut pwvs as *mut _) as *mut c_void,
+                    (&mut px as *mut _) as *mut c_void,
+                    (&mut pxs as *mut _) as *mut c_void,
+                    (&mut pyq as *mut _) as *mut c_void,
+                    (&mut pyk as *mut _) as *mut c_void,
+                    (&mut pyv as *mut _) as *mut c_void,
+                    (&mut rq as *mut _) as *mut c_void,
+                    (&mut rkv as *mut _) as *mut c_void,
+                    (&mut yqs as *mut _) as *mut c_void,
+                    (&mut bi as *mut _) as *mut c_void,
+                ];
+                let nb_q = (QRGS_ROWS as u32).div_ceil(8);
+                let nb_kv = (kv_rows as u32).div_ceil(8);
+                self.launch(stream, f_qkv3_b8, (nb_q + 2 * nb_kv, 1), 256, &mut args)?;
             } else {
                 self.enqueue_q8_gemm_slice_at(
                     stream,
@@ -7820,7 +7953,11 @@ impl Inkling2GpuEngine {
                     (k_args as *mut Conv4BArgs).cast(),
                     (v_args as *mut Conv4BArgs).cast(),
                 ];
-                self.launch(stream, f_pair, (kv_conv_grid.0, 2), 256, &mut args)?;
+                if b_len <= MAX_SPEC_TOKENS {
+                    self.launch(stream, f_pair, ((1024 / 32) as u32, 2), 32, &mut args)?;
+                } else {
+                    self.launch(stream, f_pair, (kv_conv_grid.0, 2), 256, &mut args)?;
+                }
             }
             ([], _) => {}
             _ => return Err("short_conv4 K/V pair: expected two launches".into()),
@@ -8212,18 +8349,6 @@ impl Inkling2GpuEngine {
         }
 
         // 7. `wo` Batched `Q8_64` GEMM + `attn_sconv` (+ fused block-start save!)
-        self.enqueue_q8_gemm_slice_at(
-            stream,
-            &l.wo_q8,
-            0,
-            D as i32,
-            0,
-            b_len,
-            self.prefill.layer_workspace.wo_out,
-            D as i32,
-            0.0,
-        )?;
-
         let is_block_start = il.is_multiple_of(6);
         let save_blk_ptr = if is_block_start {
             let blk_dst = self.prefill.d_b_blocks.ptr + (*n_blocks as u64) * bd_bytes;
@@ -8237,7 +8362,60 @@ impl Inkling2GpuEngine {
         } else {
             self.prefill.d_b_cur.ptr
         };
-        let attn_conv_done = if self.ms_rows.get() != 0 {
+        let wo_conv_fused_done = if let (true, Some(f_wo_sc)) = (
+            self.ms_rows.get() == 0
+                && b_len <= MAX_SPEC_TOKENS
+                && l.wo_q8.cols == 3072
+                && std::env::var("LEANSONIC_WO_CONV_B8").map_or(true, |v| v != "0"),
+            self.fns.wo_conv4_save_c3072_r8_b8,
+        ) {
+            let mut pw = l.wo_q8.codes.ptr;
+            let mut pws = l.wo_q8.scales64.ptr;
+            let mut px = self.prefill.d_b_act_codes.ptr;
+            let mut pxs = self.prefill.d_b_act_scales.ptr;
+            let mut pwc = l.attn_conv4.ptr;
+            let mut phist = st.hist_attn_at(self.cur_seq);
+            let mut pcur = self.prefill.d_b_cur.ptr;
+            let mut psave = save_blk_ptr;
+            let mut pseq = if record_seq {
+                slot_seq_base + (2048 * CONV_SEQ_STEPS * 4) as u64
+            } else {
+                0
+            };
+            let mut bi = b_i32;
+            let mut dr = i32::from(!is_block_start);
+            let mut args: [*mut c_void; 11] = [
+                (&mut pw as *mut _) as *mut c_void,
+                (&mut pws as *mut _) as *mut c_void,
+                (&mut px as *mut _) as *mut c_void,
+                (&mut pxs as *mut _) as *mut c_void,
+                (&mut pwc as *mut _) as *mut c_void,
+                (&mut phist as *mut _) as *mut c_void,
+                (&mut pcur as *mut _) as *mut c_void,
+                (&mut psave as *mut _) as *mut c_void,
+                (&mut pseq as *mut _) as *mut c_void,
+                (&mut bi as *mut _) as *mut c_void,
+                (&mut dr as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, f_wo_sc, ((D / 8) as u32, 1), 256, &mut args)?;
+            true
+        } else {
+            self.enqueue_q8_gemm_slice_at(
+                stream,
+                &l.wo_q8,
+                0,
+                D as i32,
+                0,
+                b_len,
+                self.prefill.layer_workspace.wo_out,
+                D as i32,
+                0.0,
+            )?;
+            false
+        };
+        let attn_conv_done = if wo_conv_fused_done {
+            true
+        } else if self.ms_rows.get() != 0 {
             self.enqueue_short_conv4_ms(
                 stream,
                 self.prefill.layer_workspace.wo_out,
@@ -8674,8 +8852,17 @@ impl Inkling2GpuEngine {
                 (&mut py as *mut _) as *mut c_void,
                 (&mut bi as *mut _) as *mut c_void,
             ];
-            match self.fns.bf16_gemv_router_b {
-                Some(f) if std::env::var("LEANSONIC_ROUTER_GEMV").map_or(true, |v| v != "0") => {
+            match (self.fns.bf16_gemv_router_b8, self.fns.bf16_gemv_router_b) {
+                (Some(f8), _)
+                    if b_len <= MAX_SPEC_TOKENS
+                        && std::env::var("LEANSONIC_ROUTER_GEMV").map_or(true, |v| v != "0")
+                        && std::env::var("LEANSONIC_ROUTER_B8").map_or(true, |v| v != "0") =>
+                {
+                    self.launch(stream, f8, (N_EXP as u32, 1), 32, &mut args)?
+                }
+                (_, Some(f))
+                    if std::env::var("LEANSONIC_ROUTER_GEMV").map_or(true, |v| v != "0") =>
+                {
                     self.launch(stream, f, (N_EXP as u32, b_u32.div_ceil(4)), 32, &mut args)?
                 }
                 _ => self.launch(
@@ -8688,18 +8875,24 @@ impl Inkling2GpuEngine {
             }
         }
         // Speculative verify: top-8 and the active-expert groups in one CTA.
-        let fused_groups = match self.fns.router_topk8_groups_b {
-            Some(f)
-                if self.verify_moe
-                    && b_len <= MAX_SPEC_TOKENS
-                    && self.fns.build_expert_groups_active_b.is_some()
-                    && std::env::var("LEANSONIC_TOPK_GROUPS").map_or(true, |v| v != "0") =>
-            {
-                Some(f)
+        let fused_groups = if self.verify_moe
+            && b_len <= MAX_SPEC_TOKENS
+            && self.fns.build_expert_groups_active_b.is_some()
+            && std::env::var("LEANSONIC_TOPK_GROUPS").map_or(true, |v| v != "0")
+        {
+            if let (true, Some(f_par)) = (
+                self.par_topk
+                    && std::env::var("LEANSONIC_TOPK_GROUPS_PAR").map_or(true, |v| v != "0"),
+                self.fns.router_topk8_groups_par_b,
+            ) {
+                Some((f_par, 1024u32))
+            } else {
+                self.fns.router_topk8_groups_b.map(|f| (f, 256u32))
             }
-            _ => None,
+        } else {
+            None
         };
-        if let Some(f_fused) = fused_groups {
+        if let Some((f_fused, fused_block)) = fused_groups {
             let mut pl = self.prefill.layer_workspace.router_logits;
             let mut pb = l.router_bias.ptr;
             let mut pids = self.prefill.d_b_sel_ids.ptr;
@@ -8720,7 +8913,7 @@ impl Inkling2GpuEngine {
                 (&mut pact_exps as *mut _) as *mut c_void,
                 (&mut bi as *mut _) as *mut c_void,
             ];
-            self.launch(stream, f_fused, (1, 1), 256, &mut args)?;
+            self.launch(stream, f_fused, (1, 1), fused_block, &mut args)?;
         } else {
             let mut pl = self.prefill.layer_workspace.router_logits;
             let mut pb = l.router_bias.ptr;
@@ -9587,7 +9780,7 @@ impl Inkling2GpuEngine {
         if let Some(f_cc) = combine_conv {
             let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
             let mut pwts = self.prefill.d_b_sel_wts.ptr;
-            let mut pout = self.prefill.d_b_activations.ptr;
+            let mut pout: CUdeviceptr = 0;
             let mut p_w = l.mlp_conv4.ptr;
             let mut p_hist = st.hist_mlp_at(self.cur_seq);
             let mut p_cur = self.prefill.d_b_cur.ptr;
@@ -9607,7 +9800,7 @@ impl Inkling2GpuEngine {
                 (&mut p_seq as *mut _) as *mut c_void,
                 (&mut bi as *mut _) as *mut c_void,
             ];
-            self.launch(stream, f_cc, (D as u32 / 256, 1), 256, &mut args)?;
+            self.launch(stream, f_cc, (D as u32 / 32, 1), 32, &mut args)?;
         } else {
             let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
             let mut pwts = self.prefill.d_b_sel_wts.ptr;
@@ -10016,7 +10209,11 @@ impl Inkling2GpuEngine {
         }
         debug_assert_eq!(n_blocks, 4);
 
-        if let Some(taps) = &self.prefill.d_taps {
+        let fuse_tap3_into_all_heads = matches!(head_mode, BatchHeadMode::AllHeads)
+            && self.prefill.d_taps.is_some()
+            && self.fns.depth_mix_rmsnorm_f32_quant_q8_64_b.is_some();
+
+        if let (false, Some(taps)) = (fuse_tap3_into_all_heads, &self.prefill.d_taps) {
             // Compute `tap 3` (`final_norm(output_query_mix)`) across all `b_len` tokens!
             let p_tap3_dst = taps.ptr + (3 * self.prefill.capacity * D * 4) as u64;
             if let Some(f_mlp_fused) = self.fns.depth_mix_rmsnorm_d_quant_q8_16_b {
@@ -10163,7 +10360,39 @@ impl Inkling2GpuEngine {
                 self.launch(stream, self.fns.argmax_b, (1, 1), 256, &mut am_args)?;
             }
             BatchHeadMode::AllHeads => {
-                if let Some(f_fused) = self.fns.depth_mix_rmsnorm_quant_q8_64_b {
+                if let (true, Some(taps), Some(f_f32_q8)) = (
+                    fuse_tap3_into_all_heads,
+                    &self.prefill.d_taps,
+                    self.fns.depth_mix_rmsnorm_f32_quant_q8_64_b,
+                ) {
+                    let mut pb = self.prefill.d_b_blocks.ptr;
+                    let mut nb = n_blocks as i32;
+                    let mut sb = b_i32;
+                    let mut bo = 0i32;
+                    let mut bout = b_i32;
+                    let mut pc = self.prefill.d_b_cur.ptr;
+                    let mut ac = 1i32;
+                    let mut pq = self.output_query.ptr;
+                    let mut pg = self.final_norm.ptr;
+                    let mut p_tap3 = taps.ptr + (3 * self.prefill.capacity * D * 4) as u64;
+                    let mut pq8 = self.prefill.d_b_act_codes.ptr;
+                    let mut psc = self.prefill.d_b_act_scales.ptr;
+                    let mut args: [*mut c_void; 12] = [
+                        (&mut pb as *mut _) as *mut c_void,
+                        (&mut nb as *mut _) as *mut c_void,
+                        (&mut sb as *mut _) as *mut c_void,
+                        (&mut bo as *mut _) as *mut c_void,
+                        (&mut bout as *mut _) as *mut c_void,
+                        (&mut pc as *mut _) as *mut c_void,
+                        (&mut ac as *mut _) as *mut c_void,
+                        (&mut pq as *mut _) as *mut c_void,
+                        (&mut pg as *mut _) as *mut c_void,
+                        (&mut p_tap3 as *mut _) as *mut c_void,
+                        (&mut pq8 as *mut _) as *mut c_void,
+                        (&mut psc as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, f_f32_q8, (1, b_u32), 256, &mut args)?;
+                } else if let Some(f_fused) = self.fns.depth_mix_rmsnorm_quant_q8_64_b {
                     let mut pb = self.prefill.d_b_blocks.ptr;
                     let mut nb = n_blocks as i32;
                     let mut sb = b_i32;
@@ -10232,13 +10461,31 @@ impl Inkling2GpuEngine {
                     VOCAB as i32,
                     30.0,
                 )?;
-                let mut pl = self.d_spec_logits.ptr;
-                let mut pt = self.d_spec_tokens_out.ptr;
-                let mut am_args: [*mut c_void; 2] = [
-                    (&mut pl as *mut _) as *mut c_void,
-                    (&mut pt as *mut _) as *mut c_void,
-                ];
-                self.launch(stream, self.fns.argmax_b, (b_u32, 1), 256, &mut am_args)?;
+                if let (true, Some(f_par_am_b)) =
+                    (self.par_argmax && b_len <= 64, self.fns.argmax_par_b)
+                {
+                    let mut pl = self.d_spec_logits.ptr;
+                    let mut pval = self.d_sync_counters.ptr + 4352;
+                    let mut pidx = self.d_sync_counters.ptr + 12544;
+                    let mut pdone = self.d_sync_counters.ptr + 4096;
+                    let mut pt = self.d_spec_tokens_out.ptr;
+                    let mut am_args: [*mut c_void; 5] = [
+                        (&mut pl as *mut _) as *mut c_void,
+                        (&mut pval as *mut _) as *mut c_void,
+                        (&mut pidx as *mut _) as *mut c_void,
+                        (&mut pdone as *mut _) as *mut c_void,
+                        (&mut pt as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, f_par_am_b, (32, b_u32), 256, &mut am_args)?;
+                } else {
+                    let mut pl = self.d_spec_logits.ptr;
+                    let mut pt = self.d_spec_tokens_out.ptr;
+                    let mut am_args: [*mut c_void; 2] = [
+                        (&mut pl as *mut _) as *mut c_void,
+                        (&mut pt as *mut _) as *mut c_void,
+                    ];
+                    self.launch(stream, self.fns.argmax_b, (b_u32, 1), 256, &mut am_args)?;
+                }
             }
         }
 
@@ -10870,6 +11117,37 @@ mod tests {
                             rows,
                         )?;
                     }
+                    // Cycle 12 Verify R8 GEMMs (`c2304` grid-stride + `c3072` single-wave) on odd rows & B.
+                    for (kname, cols, gx) in [
+                        ("ink2_q8_gemm_c2304_r8_b8", 2304usize, 2u32),
+                        ("ink2_q8_gemm_c2304_r8_b8", 2304, (rows as u32).div_ceil(8)),
+                        ("ink2_q8_gemm_c3072_r8_b8", 3072, (rows as u32).div_ceil(8)),
+                    ] {
+                        let mut rng = Lcg((rows * 173 + cols * 11 + b) as u64);
+                        let w = Q8::random(&mut rng, rows, cols);
+                        let x = Q8::random(&mut rng, b, cols);
+                        let (wc, ws) = w.upload(&ctx)?;
+                        let (xc, xs) = x.upload(&ctx)?;
+                        let y = DeviceBuf::alloc_zeroed(&ctx, b * rows * 4)?;
+                        let (mut pw, mut pws, mut px, mut pxs, mut py) =
+                            (wc.ptr, ws.ptr, xc.ptr, xs.ptr, y.ptr);
+                        let (mut r, mut bb, mut ys, mut sc) =
+                            (rows as i32, b as i32, rows as i32, 0.0f32);
+                        run(
+                            &ctx,
+                            func(&ctx, m, kname)?,
+                            (gx, 1),
+                            256,
+                            &mut args![pw, pws, px, pxs, py, r, bb, ys, sc],
+                        )?;
+                        let mut got = vec![0f32; b * rows];
+                        y.copy_to_host_f32(&mut got)?;
+                        let want: Vec<f32> = (0..b)
+                            .flat_map(|t| (0..rows).map(move |rr| (t, rr)))
+                            .map(|(t, rr)| w.dot(rr, &x, t))
+                            .collect();
+                        check(&format!("{kname} rows={rows} gx={gx} B={b}"), &got, &want)?;
+                    }
                     for cols in [256usize, 2304, 4608, 9216] {
                         let f = func(&ctx, m, "ink2_q8_dp4a_gemm_ktiled")?;
                         gemm_case(
@@ -10928,6 +11206,45 @@ mod tests {
                     .iter()
                     .fold(0f32, |a, v| a.max(v.abs()));
                 check("ink2_quant_q8_64_b scale", &[got], &[amax / 127.0])?;
+            }
+            // `ink2_argmax_par_b` on exact `b = 3 * VOCAB` (`200,058` floats/row, odd row starts):
+            let am_b = 3usize;
+            let mut logits = vec![-5.0f32; am_b * VOCAB];
+            let expected = [0usize, VOCAB / 2 + 17, VOCAB - 1];
+            for (r, &idx) in expected.iter().enumerate() {
+                logits[r * VOCAB + idx] = 42.0 + r as f32;
+            }
+            let d_log = DeviceBuf::from_host_bytes(
+                &ctx,
+                &logits
+                    .iter()
+                    .flat_map(|v| v.to_le_bytes())
+                    .collect::<Vec<u8>>(),
+            )?;
+            let d_pval = DeviceBuf::alloc_zeroed(&ctx, am_b * 32 * 4)?;
+            let d_pidx = DeviceBuf::alloc_zeroed(&ctx, am_b * 32 * 4)?;
+            let d_done = DeviceBuf::alloc_zeroed(&ctx, am_b * 4)?;
+            let d_out = DeviceBuf::alloc_zeroed(&ctx, am_b * 4)?;
+            let (mut pl, mut pv, mut pi, mut pd, mut po) =
+                (d_log.ptr, d_pval.ptr, d_pidx.ptr, d_done.ptr, d_out.ptr);
+            run(
+                &ctx,
+                func(&ctx, m, "ink2_argmax_par_b")?,
+                (32, am_b as u32),
+                256,
+                &mut args![pl, pv, pi, pd, po],
+            )?;
+            let mut got_i32 = [0i32; 3];
+            unsafe {
+                check_cu(
+                    (ctx.api.cuMemcpyDtoH_v2)(got_i32.as_mut_ptr().cast(), d_out.ptr, am_b * 4),
+                    "DtoH(argmax_par_b)",
+                )?;
+            }
+            for (r, (&got, &want)) in got_i32.iter().zip(&expected).enumerate() {
+                if got as usize != want {
+                    return Err(format!("ink2_argmax_par_b row {r}: got {got}, want {want}"));
+                }
             }
             Ok(())
         }
