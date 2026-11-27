@@ -8407,13 +8407,18 @@ __device__ __forceinline__ void flash_attn_tc_q8_b_impl(
     l1 += __shfl_xor_sync(0xFFFFFFFFu, l1, 2);
 
     if constexpr (kSplit) {
+        // Store the split's *normalized* output `o / l` in FP16 (|o / l| <= max |v|). The raw
+        // `sum p * v` over a 16K-25K key split can exceed FP16's 65,504 and turn into Inf / NaN
+        // (#101). The combine re-weights each split by `l * exp(m - m_max)`.
         const size_t split_base = static_cast<size_t>(blockIdx.z) * static_cast<size_t>(B);
+        const float sinv_l0 = ptx_rcp(fmaxf(l0, 1e-20f));
+        const float sinv_l1 = ptx_rcp(fmaxf(l1, 1e-20f));
         if (vq0) {
             const size_t qh0 = (split_base + static_cast<size_t>(q_cta + qr0)) * 24u + h;
             uint32_t* dst0 = out_part_o_f16x2 + qh0 * 64u;
             #pragma unroll
             for (int nd = 0; nd < 16; ++nd) {
-                dst0[nd * 4 + t] = pack_f16x2_rn(o_acc[nd][0], o_acc[nd][1]);
+                dst0[nd * 4 + t] = pack_f16x2_rn(o_acc[nd][0] * sinv_l0, o_acc[nd][1] * sinv_l0);
             }
             if (t == 0) {
                 out_part_ml[qh0] = make_float2(m0, l0);
@@ -8424,7 +8429,7 @@ __device__ __forceinline__ void flash_attn_tc_q8_b_impl(
             uint32_t* dst1 = out_part_o_f16x2 + qh1 * 64u;
             #pragma unroll
             for (int nd = 0; nd < 16; ++nd) {
-                dst1[nd * 4 + t] = pack_f16x2_rn(o_acc[nd][2], o_acc[nd][3]);
+                dst1[nd * 4 + t] = pack_f16x2_rn(o_acc[nd][2] * sinv_l1, o_acc[nd][3] * sinv_l1);
             }
             if (t == 0) {
                 out_part_ml[qh1] = make_float2(m1, l1);
@@ -8597,10 +8602,11 @@ extern "C" __global__ void ink2_flash_attn_split_combine_q8_b(
         const float2 ml = part_ml[static_cast<size_t>(s) * stride_split_qh + base_qh];
         if (ml.y > 0.0f) {
             const float alpha = ptx_exp(ml.x - m_max);
-            l_sum += ml.y * alpha;
+            const float wl = ml.y * alpha;   // split weight: its parts store `o / l` (#101)
+            l_sum += wl;
             const uint32_t op = part_o_f16x2[(static_cast<size_t>(s) * stride_split_qh + base_qh) * 64u + half64 * 32 + lane];
-            o_sum.x = __fmaf_rn(fp16_bits_to_f32(static_cast<uint16_t>(op & 0xFFFFu)), alpha, o_sum.x);
-            o_sum.y = __fmaf_rn(fp16_bits_to_f32(static_cast<uint16_t>(op >> 16)), alpha, o_sum.y);
+            o_sum.x = __fmaf_rn(fp16_bits_to_f32(static_cast<uint16_t>(op & 0xFFFFu)), wl, o_sum.x);
+            o_sum.y = __fmaf_rn(fp16_bits_to_f32(static_cast<uint16_t>(op >> 16)), wl, o_sum.y);
         }
     }
 
