@@ -76,7 +76,9 @@ def copy_bytes(src, out, count):
         count -= len(data)
 
 
-def pack(source, destination, packer, compact=False, compact_markov=False):
+def pack(source, destination, packer, compact=False, compact_markov=False, markov_row_exponents=False):
+    if compact_markov and markov_row_exponents:
+        raise ValueError("choose one Markov coding format")
     if destination.exists():
         raise FileExistsError(destination)
     with source.open("rb") as src, tempfile.TemporaryDirectory(dir=destination.parent) as temp:
@@ -142,15 +144,17 @@ def pack(source, destination, packer, compact=False, compact_markov=False):
             if name in segments:
                 raise ValueError(f"conflicting output {name}")
             lo, hi = tensor["data_offsets"]
-            if compact_markov and name == "markov_head.markov_w1.weight":
+            if (compact_markov or markov_row_exponents) and name == "markov_head.markov_w1.weight":
                 src.seek(base + lo)
-                frame = work / "markov.bf16planes"
+                mode, suffix = (("markov-row-pack", ".row_exp_v1") if markov_row_exponents
+                                else ("bf16planes-pack", ".bf16planes_v1"))
+                frame = work / "markov.frame"
                 with frame.open("xb") as out:
-                    subprocess.run([packer, "bf16planes-pack", str(hi - lo)],
+                    subprocess.run([packer, mode, str(hi - lo)],
                                    stdin=src, stdout=out, check=True)
                 size = frame.stat().st_size
                 if 0 < size < hi - lo:
-                    segments[name + ".bf16planes_v1"] = ("U8", [size], frame, 0, size)
+                    segments[name + suffix] = ("U8", [size], frame, 0, size)
                     continue
             segments[name] = (tensor["dtype"], tensor["shape"], source, base + lo, hi - lo)
 
@@ -178,6 +182,9 @@ if __name__ == "__main__":
     parser.add_argument("source", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--compact", action="store_true", help="losslessly entropy-code each Q8 plane when smaller")
-    parser.add_argument("--compact-markov", action="store_true", help="losslessly compress the BF16 Markov head")
+    coding = parser.add_mutually_exclusive_group()
+    coding.add_argument("--markov-row-exponents", action="store_true", help="losslessly encode Markov BF16 exponents relative to each row")
+    coding.add_argument("--compact-markov", action="store_true", help="losslessly compress the BF16 Markov head")
     args = parser.parse_args()
-    print(pack(args.source, args.output, build_packer(), compact=args.compact, compact_markov=args.compact_markov))
+    print(pack(args.source, args.output, build_packer(), compact=args.compact, compact_markov=args.compact_markov,
+               markov_row_exponents=args.markov_row_exponents))
