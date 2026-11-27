@@ -761,6 +761,8 @@ pub struct Inkling2GpuEngine {
     d_ms_rows: DeviceBuf,
     d_ms_tokens: DeviceBuf,
     ms_rows: std::cell::Cell<CUdeviceptr>,
+    /// Use the enclosing prefill arithmetic for a short final workspace chunk.
+    prefill_tc_tail: bool,
     pub resident_expert_layers: usize,
     pub spilled_expert_layers: usize,
     pub max_ctx: usize,
@@ -1974,6 +1976,7 @@ impl Inkling2GpuEngine {
             d_ms_rows,
             d_ms_tokens,
             ms_rows: std::cell::Cell::new(0),
+            prefill_tc_tail: false,
             embed,
             embed_norm,
             final_norm,
@@ -4511,6 +4514,17 @@ impl Inkling2GpuEngine {
         Ok(out_tok as u32)
     }
 
+    pub fn decode_round_with_logits(
+        &mut self,
+        seqs: &[usize],
+        tokens: &[u32],
+    ) -> Result<(Vec<u32>, Vec<f32>), String> {
+        let ids = self.decode_round(seqs, tokens)?;
+        let mut logits = vec![0.0; ids.len() * VOCAB];
+        self.d_spec_logits.copy_to_host_f32(&mut logits)?;
+        Ok((ids, logits))
+    }
+
     pub fn read_last_logits(&self) -> Result<Vec<f32>, String> {
         self.ctx.sync_compute()?;
         let mut host = vec![0.0f32; VOCAB];
@@ -4598,13 +4612,16 @@ impl Inkling2GpuEngine {
             } else {
                 BatchHeadMode::None
             };
-            self.enqueue_batch_step_impl(
+            self.prefill_tc_tail = offset != 0 && chunk_len < 32;
+            let submitted = self.enqueue_batch_step_impl(
                 self.ctx.compute_stream,
                 tok_ptr,
                 chunk_len,
                 head_mode,
                 false,
-            )?;
+            );
+            self.prefill_tc_tail = false;
+            submitted?;
             self.enqueue_drafter_context(chunk_len)?;
             self.host_pos += chunk_len;
             offset += chunk_len;
@@ -4675,11 +4692,11 @@ impl Inkling2GpuEngine {
     /// Tensor Core batch paths (>= 32 rows) are off in multi-sequence rounds, whose rows must
     /// match B = 1 decode arithmetic for any batch size.
     fn tc_rows(&self, b_len: usize) -> bool {
-        b_len >= 32 && self.ms_rows.get() == 0
+        (b_len >= 32 || self.prefill_tc_tail) && self.ms_rows.get() == 0
     }
     /// Decode / verify-style rows: `<= MAX_SPEC_TOKENS`, or any multi-sequence round.
     fn small_rows(&self, b_len: usize) -> bool {
-        b_len <= MAX_SPEC_TOKENS || self.ms_rows.get() != 0
+        (b_len <= MAX_SPEC_TOKENS && !self.prefill_tc_tail) || self.ms_rows.get() != 0
     }
 
     /// One decode step for up to `MAX_SPEC_TOKENS` independent sequences in a single batched
