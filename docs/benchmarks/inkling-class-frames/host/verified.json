@@ -1,0 +1,362 @@
+{
+  "source": "38e8d5786c70e3ef2cf3c7366920246d7aecd82a",
+  "inputs": {
+    "w13": {
+      "key": "model.llm.layers.9.mlp.experts.w13_weight.nvscale_four_v1",
+      "width": 144,
+      "scales_sha256": "fe7d8e492a6213a6c0f7c1833f18f256a97bc46f868d991cbcf9487d78cb78dc",
+      "frames": {
+        "old": {
+          "bytes": 263763208,
+          "sha256": "4c097b27796e7336ad8249842e3ef2fa5c20af4fd0749786a7e832a9148b7bba"
+        },
+        "new": {
+          "bytes": 263297104,
+          "sha256": "24b74f34cca6ce599428bbe304473be44ae554526cf7fbc130ec579813777915"
+        }
+      }
+    },
+    "w2": {
+      "key": "model.llm.layers.11.mlp.experts.w2_weight.nvscale_four_v1",
+      "width": 72,
+      "scales_sha256": "7222f62ab79a0d56ec70ed5a3de2a440566a442dc682a093969f206d213648f5",
+      "frames": {
+        "old": {
+          "bytes": 131339920,
+          "sha256": "e30dbd81cb68389664b47e931b07dc486b22d458a2e899f4dd90ff6f18fc337a"
+        },
+        "new": {
+          "bytes": 131229912,
+          "sha256": "8f6c17950bb78d912095dbe57cbda32408d473ee12540580c72b1a70fa77a75a"
+        }
+      }
+    }
+  },
+  "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+  "allowed_cpus": 4,
+  "unit": "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.34s",
+  "planes": {
+    "w13": {
+      "sha256": "3116724e84a58b3260941b514011b43d334db7531cdbe463a5b9e7e2edb8a78c",
+      "original_frame_control": {
+        "decode_us": 424550,
+        "peak_kib": 653232
+      },
+      "legs": [
+        {
+          "cycle": 1,
+          "leg": 0,
+          "arm": "old",
+          "decode_us": 511573,
+          "peak_kib": 855100
+        },
+        {
+          "cycle": 1,
+          "leg": 1,
+          "arm": "new",
+          "decode_us": 442565,
+          "peak_kib": 661164
+        },
+        {
+          "cycle": 1,
+          "leg": 2,
+          "arm": "new",
+          "decode_us": 430068,
+          "peak_kib": 661108
+        },
+        {
+          "cycle": 1,
+          "leg": 3,
+          "arm": "old",
+          "decode_us": 517852,
+          "peak_kib": 855500
+        },
+        {
+          "cycle": 2,
+          "leg": 0,
+          "arm": "new",
+          "decode_us": 439102,
+          "peak_kib": 661028
+        },
+        {
+          "cycle": 2,
+          "leg": 1,
+          "arm": "old",
+          "decode_us": 501597,
+          "peak_kib": 855072
+        },
+        {
+          "cycle": 2,
+          "leg": 2,
+          "arm": "old",
+          "decode_us": 505487,
+          "peak_kib": 855204
+        },
+        {
+          "cycle": 2,
+          "leg": 3,
+          "arm": "new",
+          "decode_us": 448759,
+          "peak_kib": 661204
+        },
+        {
+          "cycle": 3,
+          "leg": 0,
+          "arm": "old",
+          "decode_us": 523071,
+          "peak_kib": 855436
+        },
+        {
+          "cycle": 3,
+          "leg": 1,
+          "arm": "new",
+          "decode_us": 447807,
+          "peak_kib": 661044
+        },
+        {
+          "cycle": 3,
+          "leg": 2,
+          "arm": "new",
+          "decode_us": 443359,
+          "peak_kib": 661108
+        },
+        {
+          "cycle": 3,
+          "leg": 3,
+          "arm": "old",
+          "decode_us": 507609,
+          "peak_kib": 855348
+        },
+        {
+          "cycle": 4,
+          "leg": 0,
+          "arm": "new",
+          "decode_us": 442685,
+          "peak_kib": 661280
+        },
+        {
+          "cycle": 4,
+          "leg": 1,
+          "arm": "old",
+          "decode_us": 526906,
+          "peak_kib": 855156
+        },
+        {
+          "cycle": 4,
+          "leg": 2,
+          "arm": "old",
+          "decode_us": 500022,
+          "peak_kib": 855228
+        },
+        {
+          "cycle": 4,
+          "leg": 3,
+          "arm": "new",
+          "decode_us": 446429,
+          "peak_kib": 661208
+        },
+        {
+          "cycle": 5,
+          "leg": 0,
+          "arm": "old",
+          "decode_us": 510097,
+          "peak_kib": 855340
+        },
+        {
+          "cycle": 5,
+          "leg": 1,
+          "arm": "new",
+          "decode_us": 446163,
+          "peak_kib": 661188
+        },
+        {
+          "cycle": 5,
+          "leg": 2,
+          "arm": "new",
+          "decode_us": 445595,
+          "peak_kib": 661300
+        },
+        {
+          "cycle": 5,
+          "leg": 3,
+          "arm": "old",
+          "decode_us": 502726,
+          "peak_kib": 855348
+        }
+      ],
+      "summary": {
+        "old": {
+          "median_ms": 508.853,
+          "median_peak_kib": 855284.0,
+          "max_peak_kib": 855500
+        },
+        "new": {
+          "median_ms": 444.477,
+          "median_peak_kib": 661176.0,
+          "max_peak_kib": 661300
+        }
+      }
+    },
+    "w2": {
+      "sha256": "ee02878b4cc902a895f4bab6e132a5b944e110d93b4e1e9df5b7aa67cf78f1f5",
+      "original_frame_control": {
+        "decode_us": 214014,
+        "peak_kib": 337532
+      },
+      "legs": [
+        {
+          "cycle": 1,
+          "leg": 0,
+          "arm": "old",
+          "decode_us": 256095,
+          "peak_kib": 441120
+        },
+        {
+          "cycle": 1,
+          "leg": 1,
+          "arm": "new",
+          "decode_us": 226228,
+          "peak_kib": 341340
+        },
+        {
+          "cycle": 1,
+          "leg": 2,
+          "arm": "new",
+          "decode_us": 223337,
+          "peak_kib": 341460
+        },
+        {
+          "cycle": 1,
+          "leg": 3,
+          "arm": "old",
+          "decode_us": 257915,
+          "peak_kib": 441076
+        },
+        {
+          "cycle": 2,
+          "leg": 0,
+          "arm": "new",
+          "decode_us": 223965,
+          "peak_kib": 341292
+        },
+        {
+          "cycle": 2,
+          "leg": 1,
+          "arm": "old",
+          "decode_us": 259014,
+          "peak_kib": 441416
+        },
+        {
+          "cycle": 2,
+          "leg": 2,
+          "arm": "old",
+          "decode_us": 261535,
+          "peak_kib": 441380
+        },
+        {
+          "cycle": 2,
+          "leg": 3,
+          "arm": "new",
+          "decode_us": 224255,
+          "peak_kib": 341380
+        },
+        {
+          "cycle": 3,
+          "leg": 0,
+          "arm": "old",
+          "decode_us": 257889,
+          "peak_kib": 440904
+        },
+        {
+          "cycle": 3,
+          "leg": 1,
+          "arm": "new",
+          "decode_us": 226094,
+          "peak_kib": 341092
+        },
+        {
+          "cycle": 3,
+          "leg": 2,
+          "arm": "new",
+          "decode_us": 224491,
+          "peak_kib": 341120
+        },
+        {
+          "cycle": 3,
+          "leg": 3,
+          "arm": "old",
+          "decode_us": 259822,
+          "peak_kib": 441100
+        },
+        {
+          "cycle": 4,
+          "leg": 0,
+          "arm": "new",
+          "decode_us": 223650,
+          "peak_kib": 341348
+        },
+        {
+          "cycle": 4,
+          "leg": 1,
+          "arm": "old",
+          "decode_us": 258352,
+          "peak_kib": 441096
+        },
+        {
+          "cycle": 4,
+          "leg": 2,
+          "arm": "old",
+          "decode_us": 250661,
+          "peak_kib": 441300
+        },
+        {
+          "cycle": 4,
+          "leg": 3,
+          "arm": "new",
+          "decode_us": 223076,
+          "peak_kib": 341352
+        },
+        {
+          "cycle": 5,
+          "leg": 0,
+          "arm": "old",
+          "decode_us": 260760,
+          "peak_kib": 441104
+        },
+        {
+          "cycle": 5,
+          "leg": 1,
+          "arm": "new",
+          "decode_us": 226557,
+          "peak_kib": 341160
+        },
+        {
+          "cycle": 5,
+          "leg": 2,
+          "arm": "new",
+          "decode_us": 234848,
+          "peak_kib": 341188
+        },
+        {
+          "cycle": 5,
+          "leg": 3,
+          "arm": "old",
+          "decode_us": 276992,
+          "peak_kib": 441440
+        }
+      ],
+      "summary": {
+        "old": {
+          "median_ms": 258.683,
+          "median_peak_kib": 441112.0,
+          "max_peak_kib": 441440
+        },
+        "new": {
+          "median_ms": 224.373,
+          "median_peak_kib": 341316.0,
+          "max_peak_kib": 341460
+        }
+      }
+    }
+  }
+}
