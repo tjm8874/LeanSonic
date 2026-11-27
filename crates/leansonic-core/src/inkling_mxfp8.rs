@@ -177,6 +177,33 @@ pub fn pack_nvfp4_context(raw: &[u8], mut output: impl Write) -> io::Result<usiz
     )
 }
 
+/// E2M1 codes 0 and 8 both decode to integer zero in the NVFP4 dot products.
+pub fn canonicalize_nvfp4_zeros(raw: &mut [u8]) {
+    for byte in raw {
+        if *byte & 0x0f == 0x08 {
+            *byte &= 0xf0;
+        }
+        if *byte & 0xf0 == 0x80 {
+            *byte &= 0x0f;
+        }
+    }
+}
+
+/// Offline packer input from an existing rANS or block-context rANS plane.
+pub fn unpack_nvfp4_codes(data: &[u8], count: usize, contextual: bool) -> Result<Vec<u8>, String> {
+    let matrix = if contextual {
+        Matrix::parse_nvfp4(data, count)?
+    } else {
+        Matrix::parse(data, count)?
+    };
+    let mut raw = Vec::with_capacity(count);
+    matrix.for_each_chunk(|_, tile| {
+        raw.extend_from_slice(tile);
+        Ok(())
+    })?;
+    Ok(raw)
+}
+
 pub(crate) struct Matrix<'a> {
     scale_context: Option<Box<dyn scale_context::ScaleDecoder>>,
     lookup: Vec<[u32; 4096]>,
@@ -409,6 +436,22 @@ impl<'a> Matrix<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn nvfp4_zero_canonicalization_only_changes_negative_zero_nibbles() {
+        let mut raw: Vec<u8> = (0..=255).collect();
+        canonicalize_nvfp4_zeros(&mut raw);
+        let magnitudes = [0, 1, 2, 3, 4, 6, 8, 12];
+        let decode = |n: u8| magnitudes[usize::from(n & 7)] * if n & 8 != 0 { -1 } else { 1 };
+        for (original, &value) in (0u8..=255).zip(&raw) {
+            for shift in [0, 4] {
+                let source = (original >> shift) & 15;
+                let dest = (value >> shift) & 15;
+                assert_eq!(decode(source), decode(dest));
+                assert_eq!(dest, if source == 8 { 0 } else { source });
+            }
+        }
+    }
+
     #[test]
     fn nvfp4_context_restores_signed_nibbles_and_rejects_truncated_frames() {
         let raw: Vec<u8> = (0..TILE + 96)

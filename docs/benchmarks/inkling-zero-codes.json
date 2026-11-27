@@ -1,0 +1,294 @@
+{
+  "frames": {
+    "model.llm.layers.0.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335403392,
+      "new": 329546496,
+      "sha256": "367333119e1ac06e90c5b59a22afb99bfedaa1876b2e2fe2824f0f4904fdfb2b",
+      "negative_zeros": 23417762
+    },
+    "model.llm.layers.0.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167695288,
+      "new": 164794184,
+      "sha256": "23677b0e407829a2bed884ca8efa76f9a1dd222785ce03e4ce356454bbd39e92",
+      "negative_zeros": 11599729
+    },
+    "model.llm.layers.1.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335417536,
+      "new": 329543744,
+      "sha256": "22e4494fe54038341d92d0f797b61574fc04b0132145eef21228f227a8aa1e21",
+      "negative_zeros": 23482790
+    },
+    "model.llm.layers.1.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167703080,
+      "new": 164791056,
+      "sha256": "3c71a3eddbd5bb3738ad95ba01a67dd024314b4d264041b37a15727d6181bf3f",
+      "negative_zeros": 11642023
+    },
+    "model.llm.layers.10.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335440384,
+      "new": 329581976,
+      "sha256": "65f5b0580cb8bb83ac581cd3b0c4284af576d224712eae9de66cded3c3a5fdca",
+      "negative_zeros": 23423013
+    },
+    "model.llm.layers.10.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167734184,
+      "new": 164802960,
+      "sha256": "9d9f128c7319a95fbce9956299c960b70980d7f417d8319b372d5ad78e424ffc",
+      "negative_zeros": 11717595
+    },
+    "model.llm.layers.11.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335442056,
+      "new": 329590104,
+      "sha256": "19ac3a35ef6de7f5c3c38d2984169ef82bc9d4bd2a283ed7b36b9bd901eb4264",
+      "negative_zeros": 23392359
+    },
+    "model.llm.layers.11.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167761408,
+      "new": 164790640,
+      "sha256": "98e5e7009e99860eb1fae508e158d553cfec9139de9b0f8d84cf54027ed5ba55",
+      "negative_zeros": 11875468
+    },
+    "model.llm.layers.12.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335412368,
+      "new": 329592160,
+      "sha256": "7bf91401c57191ffa21cd74f3c2110166fbddcba5b0f185b8697c4fc4adfb41c",
+      "negative_zeros": 23272405
+    },
+    "model.llm.layers.12.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167736808,
+      "new": 164802472,
+      "sha256": "fc30f5c69ea5cebde42816150969434d5217869b1d016c1469b7fe328cf763a5",
+      "negative_zeros": 11729944
+    },
+    "model.llm.layers.13.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335427080,
+      "new": 329603688,
+      "sha256": "77fd4b06137c422442a2e1e6062eae14fc61efd8dff34a9afd15bc4f9a8bad60",
+      "negative_zeros": 23279455
+    },
+    "model.llm.layers.13.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167741392,
+      "new": 164805064,
+      "sha256": "f692fc2a695645fdf5150e8da96a0b0b325be370dba5d5aabb0c4ffb915967da",
+      "negative_zeros": 11742898
+    },
+    "model.llm.layers.14.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335438112,
+      "new": 329605800,
+      "sha256": "6266c5a3ea986fb711cb5c6b6fcab374f07eb82bb49017b61af5042af68a1f75",
+      "negative_zeros": 23315041
+    },
+    "model.llm.layers.14.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167757768,
+      "new": 164797888,
+      "sha256": "f546b0770840402794177273dad3fd9ce9bd24011afc2d250165fa4fc72593d8",
+      "negative_zeros": 11829661
+    },
+    "model.llm.layers.15.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335449616,
+      "new": 329612032,
+      "sha256": "cf25e7aab9cfd81f549c31d741a4dc6720afe75f88778edcff0d6d49e487f5e1",
+      "negative_zeros": 23339911
+    },
+    "model.llm.layers.15.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167777400,
+      "new": 164780152,
+      "sha256": "38345d8b5fb850822477dd63fa24325a533cb6bed66453f6ef2926894ebe3ffe",
+      "negative_zeros": 11984668
+    },
+    "model.llm.layers.16.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335475808,
+      "new": 329596408,
+      "sha256": "d82ceefdc8ac3af60cf0625eb5029a8751292fcdf6ed61468ca129eb7dac907f",
+      "negative_zeros": 23505007
+    },
+    "model.llm.layers.16.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167799504,
+      "new": 164724536,
+      "sha256": "3c83f2f691dc0c916b1eadb67bea14c43fb52aec83e3d2cb94f9d55cade06ef7",
+      "negative_zeros": 12292429
+    },
+    "model.llm.layers.17.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335475776,
+      "new": 329602000,
+      "sha256": "01461a9288eeeeda5c462e96e2b58cf82b3a7a57a7d9b01ab579bafabc2bbbe7",
+      "negative_zeros": 23481026
+    },
+    "model.llm.layers.17.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167809128,
+      "new": 164661824,
+      "sha256": "91807d9d437efd99bae37c4d26fe66e8293c0658436f9c7775f3d9e5b14c67cc",
+      "negative_zeros": 12583300
+    },
+    "model.llm.layers.18.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335443576,
+      "new": 329636064,
+      "sha256": "35daed4c16a643148f044e195099540a55ad9fb4defd7fa0597f6aa81c9ff2d6",
+      "negative_zeros": 23213777
+    },
+    "model.llm.layers.18.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167757744,
+      "new": 164834648,
+      "sha256": "5e5486936ae82acda37f21027f30c33439283a7642a2f98c2a16b426758f47ca",
+      "negative_zeros": 11687259
+    },
+    "model.llm.layers.19.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335438184,
+      "new": 329642728,
+      "sha256": "f70f31537e7feda40b102f31eec8dd4b7d0baa073e098b4f2440c99db13f8791",
+      "negative_zeros": 23163655
+    },
+    "model.llm.layers.19.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167755744,
+      "new": 164837416,
+      "sha256": "e36569b08abf016f67b2e2b63f4437630b0528c005295467e03a3f5e7f0fc8c5",
+      "negative_zeros": 11662609
+    },
+    "model.llm.layers.2.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335455984,
+      "new": 329539368,
+      "sha256": "cc15af4e93daae15eda48d70c730f16ea4a376f6ff42e2d029a2dfe7ef7c14ba",
+      "negative_zeros": 23648572
+    },
+    "model.llm.layers.2.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167703752,
+      "new": 164792792,
+      "sha256": "8fceec998fe4638707ba47c9dfb9dfb8f06edd2cfc0b29502b0dc4cfd8c4bd55",
+      "negative_zeros": 11638078
+    },
+    "model.llm.layers.3.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335455376,
+      "new": 329544024,
+      "sha256": "f36f077f85de21718561f4e23f146a61c1946a0123a84f4192a1d728c4843856",
+      "negative_zeros": 23623180
+    },
+    "model.llm.layers.3.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167703560,
+      "new": 164794208,
+      "sha256": "ec72cd99806871dc46016eea844b4f64d4a12abe90e51fb862efa32b26eb3ee7",
+      "negative_zeros": 11624723
+    },
+    "model.llm.layers.4.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335445864,
+      "new": 329550384,
+      "sha256": "83bf7fd8ed2ba8ec2cfefa48d9fb81b359eae417f4cfd07b67fc75fcc9ae83a9",
+      "negative_zeros": 23567683
+    },
+    "model.llm.layers.4.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167703752,
+      "new": 164795504,
+      "sha256": "863e66e5b1e2450bc21fa3133aa7982402643cbca2ab81fadecbac96c430a21b",
+      "negative_zeros": 11628999
+    },
+    "model.llm.layers.5.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335425224,
+      "new": 329547712,
+      "sha256": "347f5669cebacd2eb858399ffbcf336b5d5079c3c8e0e924728d5649b5462aff",
+      "negative_zeros": 23496358
+    },
+    "model.llm.layers.5.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167715432,
+      "new": 164792144,
+      "sha256": "6f5431f1d704c85c9fe33165d810945d4b3fb54553656365c580c1b97df18c01",
+      "negative_zeros": 11688505
+    },
+    "model.llm.layers.6.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335383016,
+      "new": 329555896,
+      "sha256": "6101d7f1ab775f905ef9eed0c069e199c62a2ca7baab49dab6d0dccaa166aa1a",
+      "negative_zeros": 23295726
+    },
+    "model.llm.layers.6.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167704120,
+      "new": 164793352,
+      "sha256": "65195012cc8045eb96229ae0132c59853dfb47d1949b067d1780748518d46168",
+      "negative_zeros": 11640192
+    },
+    "model.llm.layers.7.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335408848,
+      "new": 329561704,
+      "sha256": "0eea7bf59b81c220ee05e97983ef8b22ed52c1cceb487a49f61a32e915dc39cb",
+      "negative_zeros": 23375343
+    },
+    "model.llm.layers.7.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167706240,
+      "new": 164799896,
+      "sha256": "be863ea09df06a0ef35f4e87dc3bda441ad4b5e76e1fc27ed3c9121b4bd767aa",
+      "negative_zeros": 11618045
+    },
+    "model.llm.layers.8.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335436344,
+      "new": 329570544,
+      "sha256": "701c3d10cb89987a11352885fa69d21d5a638708da5d96aa941a2a53250693b2",
+      "negative_zeros": 23446648
+    },
+    "model.llm.layers.8.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167711512,
+      "new": 164804688,
+      "sha256": "41cfe7d4640b4231d268051df8a7e492adf0585c1ab9547b1b04531617588c53",
+      "negative_zeros": 11622952
+    },
+    "model.llm.layers.9.mlp.experts.w13_weight.nvctx_v1": {
+      "raw": 339738624,
+      "old": 335437488,
+      "new": 329579024,
+      "sha256": "4b84866dd949dc73f40e5f4e2d3903c8376bbafb0527e02464dfcaf3dec09f40",
+      "negative_zeros": 23423233
+    },
+    "model.llm.layers.9.mlp.experts.w2_weight.nvctx_v1": {
+      "raw": 169869312,
+      "old": 167720496,
+      "new": 164809592,
+      "sha256": "c45848cc802e0656c625cf85c88af2f8dbd00219284141e06fd43beb1d531442",
+      "negative_zeros": 11637069
+    }
+  },
+  "shard_sha256": "9b242a81188f0f552625639dec98879a0090a7f9a003141631d3a836aed3fcb3",
+  "shard_bytes": 15544771048,
+  "package_bytes": 15548157542,
+  "tokenizer_bytes": 3386494,
+  "unchanged_tensors": 959,
+  "paired_fp32_logits_sha256": {
+    "PRO4500": "68538b83e50b2df69e032bc05740bd5f019a9dd279f7077905553fe792df3489",
+    "5060Ti": "68538b83e50b2df69e032bc05740bd5f019a9dd279f7077905553fe792df3489",
+    "5070Ti": "68538b83e50b2df69e032bc05740bd5f019a9dd279f7077905553fe792df3489"
+  }
+}

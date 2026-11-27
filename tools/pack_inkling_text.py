@@ -102,7 +102,7 @@ def q8_planes(header, prefix, rows, cols):
 
 def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack_attention: bool = False,
          prepack_scales: bool = False, prepack_embedding: bool = False, prepack_mxfp8: bool = False,
-         prepack_nvfp4: bool = False, contextual_nvfp4: bool = False, compact_controls: bool = False,
+         prepack_nvfp4: bool = False, contextual_nvfp4: bool = False, canonical_nvfp4_zeros: bool = False, compact_controls: bool = False,
          entropy_scales: bool = False, neighbor_scales: bool = False, averaged_scales: bool = False, compact_q8_scales: bool = False, compact_q8_codes: bool = False) -> tuple[int, int]:
     """Publish a complete shard atomically without replacing an existing file."""
     if destination.exists():
@@ -176,15 +176,34 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
                     converted = True
             if not matrices and not converted:
                 raise ValueError("no requested raw Q8 planes to compact; select --prepack-attention or --prepack-head for BF16 input")
-        if prepack_nvfp4 and contextual_nvfp4:
+        nvfp4_inputs = {}
+        if sum((prepack_nvfp4, contextual_nvfp4, canonical_nvfp4_zeros)) > 1:
             raise ValueError("choose one NVFP4 code format")
         for enabled, layers, per_byte, dtype in (
             (prepack_mxfp8, range(20, 24), 1, "F8_E4M3"),
-            (prepack_nvfp4 or contextual_nvfp4, range(20), 2, "U8"),
+            (prepack_nvfp4 or contextual_nvfp4 or canonical_nvfp4_zeros, range(20), 2, "U8"),
         ):
             if not enabled:
                 continue
             for name, shape in expert_weight_shapes(layers, per_byte).items():
+                if canonical_nvfp4_zeros and per_byte == 2:
+                    variants = [(name, None), (name + ".rans_v1", "rans"), (name + ".nvctx_v1", "nvctx")]
+                    present = [(key, codec) for key, codec in variants if key in header]
+                    if len(present) != 1:
+                        raise ValueError(f"missing or conflicting expert weight {name}")
+                    key, codec = present[0]
+                    args = []
+                    if codec is not None:
+                        encoded_shape = header[key].get("shape")
+                        if (not isinstance(encoded_shape, list) or len(encoded_shape) != 1
+                                or type(encoded_shape[0]) is not int or encoded_shape[0] <= 0
+                                or encoded_shape[0] % 8 or encoded_shape[0] >= math.prod(shape)):
+                            raise ValueError(f"invalid packed expert weight {key}")
+                        args = [codec, str(math.prod(shape))]
+                        shape = encoded_shape
+                    nvfp4_inputs[key] = (name + ".nvctx_v1", args)
+                    lossless[key] = (dtype, shape, "nvctx-zero", ".nvctx_v1")
+                    continue
                 if name not in header or name + ".rans_v1" in header or name + ".nvctx_v1" in header:
                     raise ValueError(f"missing or conflicting expert weight {name}")
                 mode, suffix = ("nvctx", ".nvctx_v1") if contextual_nvfp4 and per_byte == 2 else ("rans", ".rans_v1")
@@ -263,7 +282,8 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
                         raise ValueError(f"invalid packed tensor length for {name}")
                     return size
 
-                arguments = [length]
+                output_name, extra = nvfp4_inputs.get(name, (name + suffix, []))
+                arguments = [length, *extra]
                 size = encoded_size(mode, arguments)
                 if (neighbor_scales or averaged_scales) and name in scales:
                     neighbor_args = [length, str(expected_shape[-1])]
@@ -273,9 +293,9 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
                     for codec, extension in predictors:
                         predicted = encoded_size(codec, neighbor_args)
                         if predicted < size:
-                            size, mode, suffix, arguments = predicted, codec, extension, neighbor_args
+                            size, mode, output_name, arguments = predicted, codec, name + extension, neighbor_args
                 if size < end - start:
-                    output_header[name + suffix] = {
+                    output_header[output_name] = {
                         "dtype": "U8", "shape": [size], "data_offsets": [new_end, new_end + size]
                     }
                     spans.append((start, end, ([mode + "-pack", *arguments], size)))
@@ -338,10 +358,11 @@ def main() -> None:
     parser.add_argument("--prepack-mxfp8", action="store_true", help="store MXFP8 expert weights losslessly (requires Cargo)")
     parser.add_argument("--prepack-nvfp4", action="store_true", help="losslessly rANS-code packed NVFP4 expert weights when smaller")
     parser.add_argument("--contextual-nvfp4", action="store_true", help="use block-context rANS for NVFP4 expert weights when smaller")
+    parser.add_argument("--canonical-nvfp4-zeros", action="store_true", help="merge both E2M1 zero encodings in NVFP4 expert rANS planes when it reduces stored bytes")
     args = parser.parse_args()
     try:
         removed, saved = pack(args.source, args.destination, prepack_head=args.prepack_head, prepack_attention=args.prepack_attention,
-                              prepack_scales=args.prepack_scales, prepack_embedding=args.prepack_embedding, prepack_mxfp8=args.prepack_mxfp8, prepack_nvfp4=args.prepack_nvfp4, contextual_nvfp4=args.contextual_nvfp4, compact_controls=args.compact_controls,
+                              prepack_scales=args.prepack_scales, prepack_embedding=args.prepack_embedding, prepack_mxfp8=args.prepack_mxfp8, prepack_nvfp4=args.prepack_nvfp4, contextual_nvfp4=args.contextual_nvfp4, canonical_nvfp4_zeros=args.canonical_nvfp4_zeros, compact_controls=args.compact_controls,
                               entropy_scales=args.entropy_scales, neighbor_scales=args.neighbor_scales, averaged_scales=args.averaged_scales, compact_q8_scales=args.compact_q8_scales, compact_q8_codes=args.compact_q8_codes)
     except (OSError, ValueError, TypeError, KeyError, subprocess.CalledProcessError) as exc:
         parser.exit(1, f"pack failed: {exc}\n")
