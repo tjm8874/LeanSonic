@@ -4909,6 +4909,49 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "requires a CUDA device"]
+    fn packed_expert_restores_bytes_to_both_memory_tiers() -> Result<(), String> {
+        // Cross both the 16 MiB upload boundary and a partial final codec tile.
+        let raw: Vec<u8> = (0..(16 << 20) + 37)
+            .map(|i| {
+                if i % 5 == 0 {
+                    (i ^ (i >> 11) ^ (i >> 20)) as u8
+                } else {
+                    0x38
+                }
+            })
+            .collect();
+        let mut packed = Vec::new();
+        crate::inkling_mxfp8::pack(&raw, &mut packed).map_err(|e| e.to_string())?;
+        let matrix = ExpertMatrix::Packed {
+            bytes: &packed,
+            count: raw.len(),
+        };
+        let ctx = CudaContextHandle::init(0)?;
+        for on_device in [false, true] {
+            let placed = matrix.place(&ctx, on_device)?;
+            assert_eq!(matches!(placed, TierBuf::Vram(_)), on_device);
+            let mut actual = vec![0u8; raw.len()];
+            // Both tier pointers are visible to CUDA; the allocation outlives this readback.
+            unsafe {
+                check_cu(
+                    (ctx.api.cuMemcpyDtoH_v2)(
+                        actual.as_mut_ptr().cast(),
+                        placed.ptr(),
+                        actual.len(),
+                    ),
+                    "cuMemcpyDtoH_v2",
+                )?;
+            }
+            assert!(
+                actual == raw,
+                "packed expert byte mismatch on_device={on_device}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn planar_q8_packs_unaligned_bf16_rows_in_order() {
         let cols = 128;
         let mut bytes = vec![0; 1 + 3 * cols * 2];
