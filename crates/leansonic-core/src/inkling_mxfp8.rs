@@ -359,13 +359,19 @@ pub(crate) fn unpack_class_scale_banks(frame: &[u8], scales: &[u8]) -> Result<Ve
         for &e in &ids {
             class_scales.extend_from_slice(&scales[e * stride..(e + 1) * stride]);
         }
-        let decoded = unpack_four_scale_banks(encoded, class_scales)?;
-        if decoded.len() != ids.len() * stride * 8 {
-            return Err("wrong decoded expert-class extent".into());
-        }
-        for (e, data) in ids.into_iter().zip(decoded.chunks_exact(stride * 8)) {
-            raw[e * stride * 8..(e + 1) * stride * 8].copy_from_slice(data);
-        }
+        let expert_bytes = stride * 8;
+        let matrix = Matrix::parse_four_scale_banks(encoded, ids.len() * expert_bytes, class_scales)?;
+        matrix.for_each_chunk(|mut offset, mut chunk| {
+            while !chunk.is_empty() {
+                let within_expert = offset % expert_bytes;
+                let count = chunk.len().min(expert_bytes - within_expert);
+                let output = ids[offset / expert_bytes] * expert_bytes + within_expert;
+                raw[output..output + count].copy_from_slice(&chunk[..count]);
+                offset += count;
+                chunk = &chunk[count..];
+            }
+            Ok(())
+        })?;
     }
     Ok(raw)
 }
