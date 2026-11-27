@@ -11,7 +11,9 @@ use std::sync::Arc;
 use crate::cuda_ffi::{
     check_cu, CUdeviceptr, CUfunction, CUstream, CudaContextHandle, DeviceBuf, PinnedHostBuf,
 };
-use crate::inkling2_gpu::{repack_bf16_to_planar_q8_64, PlanarQ8Gpu, D, PADDED_VOCAB, VOCAB};
+use crate::inkling2_gpu::{
+    load_native_planar_q8_64, repack_bf16_to_planar_q8_64, PlanarQ8Gpu, D, PADDED_VOCAB, VOCAB,
+};
 use crate::safetensors::MappedSafeTensors;
 
 const B_DRAFT: usize = 8;
@@ -44,13 +46,118 @@ fn bf16_to_f32(b: u16) -> f32 {
     f32::from_bits((b as u32) << 16)
 }
 
-fn concat_slices(slices: &[&[u8]]) -> Vec<u8> {
-    let total: usize = slices.iter().map(|s| s.len()).sum();
-    let mut out = Vec::with_capacity(total);
-    for s in slices {
-        out.extend_from_slice(s);
+/// One drafter projection in kernel ABI row order: the prefix of its prepacked
+/// `{prefix}.q8_64.{codes,scales}` pair, the official BF16 tensors whose rows it
+/// concatenates, and its column count.
+type Projection = (&'static str, &'static [(&'static str, usize)], usize);
+
+/// Per-layer projections of `mtp.safetensors`, as stored by
+/// `tools/pack_inkling_drafter.py`.
+const LAYER_PROJECTIONS: [Projection; 5] = [
+    (
+        "self_attn.qkv_proj",
+        &[
+            ("self_attn.q_proj", 3072),
+            ("self_attn.k_proj", 1024),
+            ("self_attn.v_proj", 1024),
+        ],
+        D,
+    ),
+    (
+        "self_attn.kv_ctx_proj",
+        &[
+            ("self_attn.k_proj_ctx", 1024),
+            ("self_attn.v_proj_ctx", 1024),
+        ],
+        D,
+    ),
+    ("self_attn.o_proj", &[("self_attn.o_proj", D)], 3072),
+    (
+        "mlp.gate_up_proj",
+        &[("mlp.gate_proj", DFF), ("mlp.up_proj", DFF)],
+        D,
+    ),
+    ("mlp.down_proj", &[("mlp.down_proj", D)], DFF),
+];
+
+/// `markov_head.rnn_proj.weight [768, 5120]` splits into an exact FP32 `j01`
+/// (the leading 512 columns) and a Q8_64 `jctx` (the trailing 4,608).
+const RNN_ROWS: usize = 768;
+const RNN_J01_COLS: usize = 512;
+const RNN_JCTX_COLS: usize = 4608;
+
+/// Loads a projection from its prepacked Q8_64 planes when present, otherwise
+/// quantizes the official BF16 rows exactly as before. Both sources yield the
+/// same planes because the packer runs the loader's own quantizer.
+fn load_projection(
+    ctx: &Arc<CudaContextHandle>,
+    st: &MappedSafeTensors,
+    layer_prefix: &str,
+    (packed, parts, cols): Projection,
+) -> Result<PlanarQ8Gpu, String> {
+    let rows = parts.iter().map(|&(_, r)| r).sum();
+    let prefix = format!("{layer_prefix}{packed}");
+    let dense = |name: &str| format!("{layer_prefix}{name}.weight");
+    if let Some(matrix) = load_native_planar_q8_64(ctx, st, &prefix, rows, cols)? {
+        if let Some((name, _)) = parts.iter().find(|(n, _)| st.get(&dense(n)).is_some()) {
+            return Err(format!(
+                "{prefix}: both Q8_64 planes and BF16 {name} present"
+            ));
+        }
+        return Ok(matrix);
     }
-    out
+    let mut bf16 = Vec::with_capacity(rows * cols * 2);
+    for &(name, part_rows) in parts {
+        bf16.extend_from_slice(st.require(&dense(name), "BF16", &[part_rows, cols]).data);
+    }
+    repack_bf16_to_planar_q8_64(ctx, &bf16, rows, cols)
+}
+
+fn bf16_bytes_to_f32(src: &[u16], out: &mut Vec<u8>) {
+    for &u in src {
+        out.extend_from_slice(&bf16_to_f32(u).to_le_bytes());
+    }
+}
+
+/// Returns `(j01 FP32 bytes, jctx Q8_64)` from either the official fused
+/// `rnn_proj.weight` or the prepacked `rnn_proj.j01.weight` + `rnn_proj.jctx` pair.
+fn load_rnn_proj(
+    ctx: &Arc<CudaContextHandle>,
+    st: &MappedSafeTensors,
+) -> Result<(Vec<u8>, PlanarQ8Gpu), String> {
+    const FUSED: &str = "markov_head.rnn_proj.weight";
+    let mut j01 = Vec::with_capacity(RNN_ROWS * RNN_J01_COLS * 4);
+    if let Some(jctx) = load_native_planar_q8_64(
+        ctx,
+        st,
+        "markov_head.rnn_proj.jctx",
+        RNN_ROWS,
+        RNN_JCTX_COLS,
+    )? {
+        if st.get(FUSED).is_some() {
+            return Err(format!("both prepacked rnn_proj.jctx and {FUSED} present"));
+        }
+        let left = st
+            .require(
+                "markov_head.rnn_proj.j01.weight",
+                "BF16",
+                &[RNN_ROWS, RNN_J01_COLS],
+            )
+            .as_u16_slice();
+        bf16_bytes_to_f32(left, &mut j01);
+        return Ok((j01, jctx));
+    }
+    let cols = RNN_J01_COLS + RNN_JCTX_COLS;
+    let rnn = st.require(FUSED, "BF16", &[RNN_ROWS, cols]).as_u16_slice();
+    let mut jctx = Vec::with_capacity(RNN_ROWS * RNN_JCTX_COLS * 2);
+    for row in rnn.chunks_exact(cols) {
+        bf16_bytes_to_f32(&row[..RNN_J01_COLS], &mut j01);
+        for &u in &row[RNN_J01_COLS..] {
+            jctx.extend_from_slice(&u.to_le_bytes());
+        }
+    }
+    let jctx = repack_bf16_to_planar_q8_64(ctx, &jctx, RNN_ROWS, RNN_JCTX_COLS)?;
+    Ok((j01, jctx))
 }
 
 pub struct MtpKernelFns {
@@ -253,41 +360,8 @@ impl DsparkDrafterGpu {
             } else {
                 (LOCAL_RING, LOCAL_RING, LOCAL_WIN)
             };
-            let wq = st
-                .require(&format!("{pfx}self_attn.q_proj.weight"), "BF16", &[3072, D])
-                .data;
-            let wk = st
-                .require(&format!("{pfx}self_attn.k_proj.weight"), "BF16", &[1024, D])
-                .data;
-            let wv = st
-                .require(&format!("{pfx}self_attn.v_proj.weight"), "BF16", &[1024, D])
-                .data;
-            let wkc = st
-                .require(
-                    &format!("{pfx}self_attn.k_proj_ctx.weight"),
-                    "BF16",
-                    &[1024, D],
-                )
-                .data;
-            let wvc = st
-                .require(
-                    &format!("{pfx}self_attn.v_proj_ctx.weight"),
-                    "BF16",
-                    &[1024, D],
-                )
-                .data;
-            let wo = st
-                .require(&format!("{pfx}self_attn.o_proj.weight"), "BF16", &[D, 3072])
-                .data;
-            let wgate = st
-                .require(&format!("{pfx}mlp.gate_proj.weight"), "BF16", &[DFF, D])
-                .data;
-            let wup = st
-                .require(&format!("{pfx}mlp.up_proj.weight"), "BF16", &[DFF, D])
-                .data;
-            let wdown = st
-                .require(&format!("{pfx}mlp.down_proj.weight"), "BF16", &[D, DFF])
-                .data;
+            let [qkv_q8, kvc_q8, wo_q8, gu_q8, down_q8] =
+                LAYER_PROJECTIONS.map(|p| load_projection(ctx, &st, &pfx, p));
 
             layers.push(MtpLayerGpu {
                 attn_norm: DeviceBuf::from_host_bytes(
@@ -324,11 +398,11 @@ impl DsparkDrafterGpu {
                     st.require(&format!("{pfx}self_attn.k_norm_ctx.weight"), "BF16", &[HD])
                         .data,
                 )?,
-                qkv_q8: repack_bf16_to_planar_q8_64(ctx, &concat_slices(&[wq, wk, wv]), 5120, D)?,
-                kvc_q8: repack_bf16_to_planar_q8_64(ctx, &concat_slices(&[wkc, wvc]), 2048, D)?,
-                wo_q8: repack_bf16_to_planar_q8_64(ctx, wo, D, 3072)?,
-                gu_q8: repack_bf16_to_planar_q8_64(ctx, &concat_slices(&[wgate, wup]), 2 * DFF, D)?,
-                down_q8: repack_bf16_to_planar_q8_64(ctx, wdown, D, DFF)?,
+                qkv_q8: qkv_q8?,
+                kvc_q8: kvc_q8?,
+                wo_q8: wo_q8?,
+                gu_q8: gu_q8?,
+                down_q8: down_q8?,
                 kc: DeviceBuf::alloc_zeroed(ctx, kv_rows * 1024 * 2)?,
                 vc: DeviceBuf::alloc_zeroed(ctx, kv_rows * 1024 * 2)?,
                 ring,
@@ -350,25 +424,10 @@ impl DsparkDrafterGpu {
         }
         let d_mask_embed = DeviceBuf::from_host_bytes(ctx, &mask_bytes)?;
 
-        // Split `markov_head.rnn_proj.weight [768, 5120]`:
-        // - `[768, 0..512]` -> `j01` (`f32`)
-        // - `[768, 512..5120]` -> `jctx_q8` (`PlanarQ8Gpu` `768 x 4608`)
-        let rnn_u16 = st
-            .require("markov_head.rnn_proj.weight", "BF16", &[768, 5120])
-            .as_u16_slice();
-        let mut j01_bytes = Vec::with_capacity(768 * 512 * 4);
-        let mut jctx_bf16_bytes = Vec::with_capacity(768 * 4608 * 2);
-        for o in 0..768 {
-            let row = &rnn_u16[o * 5120..(o + 1) * 5120];
-            for &u in &row[..512] {
-                j01_bytes.extend_from_slice(&bf16_to_f32(u).to_le_bytes());
-            }
-            for &u in &row[512..] {
-                jctx_bf16_bytes.extend_from_slice(&u.to_le_bytes());
-            }
-        }
+        // `rnn_proj [768, 5120]` -> exact FP32 `j01` (columns `0..512`) and
+        // Q8_64 `jctx_q8` (`768 x 4608`), from either storage form.
+        let (j01_bytes, jctx_q8) = load_rnn_proj(ctx, &st)?;
         let j01 = DeviceBuf::from_host_bytes(ctx, &j01_bytes)?;
-        let jctx_q8 = repack_bf16_to_planar_q8_64(ctx, &jctx_bf16_bytes, 768, 4608)?;
 
         let jb_u16 = st
             .require("markov_head.rnn_proj.bias", "BF16", &[768])
@@ -1412,5 +1471,23 @@ impl SuffixDrafter {
             }
         }
         Vec::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn projection_table_matches_the_drafter_kernel_shapes() {
+        let shape = |(_, parts, cols): Projection| (parts.iter().map(|p| p.1).sum::<usize>(), cols);
+        let shapes = LAYER_PROJECTIONS.map(shape);
+        assert_eq!(
+            shapes,
+            [(5120, D), (2048, D), (D, 3072), (2 * DFF, D), (D, DFF)]
+        );
+        assert!(LAYER_PROJECTIONS.iter().all(|&(_, _, cols)| cols % 64 == 0));
+        assert_eq!(RNN_J01_COLS + RNN_JCTX_COLS, 5120);
+        assert_eq!(RNN_JCTX_COLS % 64, 0);
     }
 }
