@@ -7,5 +7,8 @@ WikiText-2 rows below use the same release scorer on RTX PRO 4500, FP16 KV and a
 | test | previous compact | 0.0137735 | 0.7519345 (69/353) | 24,289/25,500 | 7.131377 |
 | test | routing-weighted | 0.0081565 | 1.4537516 (36/319) | 24,514/25,500 | 7.084181 |
 | test | fifteen-symbol capped | 0.0081320 | 0.6864531 (23/432) | 24,476/25,500 | 7.085819 |
+| valid | previous compact | 0.0131739 | 0.9835867 (7/467) | 24,341/25,500 | 6.564200 |
+| valid | routing-weighted | 0.0073719 | 1.4013990 (46/379) | 24,559/25,500 | 6.521989 |
+| valid | fifteen-symbol capped | 0.0076511 | 1.9394759 (12/317) | 24,588/25,500 | 6.530274 |
 
 [Build, distribution bytes and weight-file fingerprints](README.md) · [Native scorer output](quality.json).
