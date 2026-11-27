@@ -3,6 +3,7 @@
 #include "llama.h"
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <stdexcept>
 #include <string>
@@ -27,9 +28,17 @@ static std::vector<llama_token> read_ids(const char *path, size_t expected) {
 }
 
 int main(int argc, char **argv) try {
-    if (argc != 4) throw std::runtime_error("usage: benchmark_inkling_bf16 MODEL.gguf PROMPT.ids CONTINUATION.ids");
+    bool report_ids = argc == 5 && std::string(argv[4]) == "--report-ids";
+    if (argc != 4 && !report_ids)
+        throw std::runtime_error("usage: benchmark_inkling_bf16 MODEL.gguf PROMPT.ids CONTINUATION.ids [--report-ids]");
     auto prompt = read_ids(argv[2], 1024), continuation = read_ids(argv[3], 32);
-    ggml_backend_load_all();
+    if (const char *dir = std::getenv("LEANSONIC_LLAMA_BACKEND_DIR")) {
+        ggml_backend_load_all_from_path(dir);
+        if (!ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_GPU))
+            throw std::runtime_error("no GPU backend found in the selected release directory");
+    } else {
+        ggml_backend_load_all();
+    }
     llama_backend_init();
     auto model_params = llama_model_default_params();
     model_params.n_gpu_layers = 99;
@@ -65,9 +74,12 @@ int main(int argc, char **argv) try {
         auto start = Clock::now();
         auto first = eval(prompt.data(), int(prompt.size()), 0);
         auto prefill_end = Clock::now();
+        std::vector<llama_token> predictions;
+        if (report_ids) predictions.reserve(continuation.size());
         int matches = 0;
         auto next = first;
         for (int i = 0; i < int(continuation.size()); ++i) {
+            if (report_ids) predictions.push_back(next);
             matches += next == continuation[i];
             next = eval(&continuation[i], 1, int(prompt.size()) + i);
         }
