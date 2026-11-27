@@ -22,6 +22,7 @@ The layer-0 gate/up projection has 121 compact experts out of 128. Its weight bu
 | GPU | Raw ms | Mixed ms | Raw / mixed |
 | --- | ---: | ---: | ---: |
 | RTX 5060 Ti | 0.922160 | 0.786192 | 1.173× |
+| RTX PRO 4500 | 0.497504 | 0.431632 | 1.153× |
 
 To reproduce, first run the packer as above. In the directory containing its four binary fixtures, build and run the harness using the same engine checkout and an sm_120a GPU.
 
