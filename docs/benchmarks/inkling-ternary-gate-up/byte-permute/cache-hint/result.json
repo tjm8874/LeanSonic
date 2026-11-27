@@ -1,0 +1,682 @@
+{
+  "samples": [
+    {
+      "cycle": 1,
+      "leg": 0,
+      "shape": "dense",
+      "tile": 128,
+      "trial": false,
+      "ms": 1.2413013
+    },
+    {
+      "cycle": 1,
+      "leg": 0,
+      "shape": "dense",
+      "tile": 160,
+      "trial": false,
+      "ms": 1.36452258
+    },
+    {
+      "cycle": 1,
+      "leg": 0,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": false,
+      "ms": 0.12552534
+    },
+    {
+      "cycle": 1,
+      "leg": 0,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": false,
+      "ms": 0.11733466
+    },
+    {
+      "cycle": 1,
+      "leg": 1,
+      "shape": "dense",
+      "tile": 128,
+      "trial": true,
+      "ms": 1.37028265
+    },
+    {
+      "cycle": 1,
+      "leg": 1,
+      "shape": "dense",
+      "tile": 160,
+      "trial": true,
+      "ms": 1.44989872
+    },
+    {
+      "cycle": 1,
+      "leg": 1,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": true,
+      "ms": 0.13269334
+    },
+    {
+      "cycle": 1,
+      "leg": 1,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": true,
+      "ms": 0.11895467
+    },
+    {
+      "cycle": 1,
+      "leg": 2,
+      "shape": "dense",
+      "tile": 128,
+      "trial": true,
+      "ms": 1.37267196
+    },
+    {
+      "cycle": 1,
+      "leg": 2,
+      "shape": "dense",
+      "tile": 160,
+      "trial": true,
+      "ms": 1.44827735
+    },
+    {
+      "cycle": 1,
+      "leg": 2,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": true,
+      "ms": 0.13320534
+    },
+    {
+      "cycle": 1,
+      "leg": 2,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": true,
+      "ms": 0.11946666
+    },
+    {
+      "cycle": 1,
+      "leg": 3,
+      "shape": "dense",
+      "tile": 128,
+      "trial": false,
+      "ms": 1.24552536
+    },
+    {
+      "cycle": 1,
+      "leg": 3,
+      "shape": "dense",
+      "tile": 160,
+      "trial": false,
+      "ms": 1.36388266
+    },
+    {
+      "cycle": 1,
+      "leg": 3,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": false,
+      "ms": 0.12542133
+    },
+    {
+      "cycle": 1,
+      "leg": 3,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": false,
+      "ms": 0.117504
+    },
+    {
+      "cycle": 2,
+      "leg": 0,
+      "shape": "dense",
+      "tile": 128,
+      "trial": true,
+      "ms": 1.37389326
+    },
+    {
+      "cycle": 2,
+      "leg": 0,
+      "shape": "dense",
+      "tile": 160,
+      "trial": true,
+      "ms": 1.4496001
+    },
+    {
+      "cycle": 2,
+      "leg": 0,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": true,
+      "ms": 0.13312
+    },
+    {
+      "cycle": 2,
+      "leg": 0,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": true,
+      "ms": 0.11938133
+    },
+    {
+      "cycle": 2,
+      "leg": 1,
+      "shape": "dense",
+      "tile": 128,
+      "trial": false,
+      "ms": 1.24548268
+    },
+    {
+      "cycle": 2,
+      "leg": 1,
+      "shape": "dense",
+      "tile": 160,
+      "trial": false,
+      "ms": 1.36271608
+    },
+    {
+      "cycle": 2,
+      "leg": 1,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": false,
+      "ms": 0.12590933
+    },
+    {
+      "cycle": 2,
+      "leg": 1,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": false,
+      "ms": 0.11767467
+    },
+    {
+      "cycle": 2,
+      "leg": 2,
+      "shape": "dense",
+      "tile": 128,
+      "trial": false,
+      "ms": 1.24462926
+    },
+    {
+      "cycle": 2,
+      "leg": 2,
+      "shape": "dense",
+      "tile": 160,
+      "trial": false,
+      "ms": 1.36354125
+    },
+    {
+      "cycle": 2,
+      "leg": 2,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": false,
+      "ms": 0.125836
+    },
+    {
+      "cycle": 2,
+      "leg": 2,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": false,
+      "ms": 0.11782667
+    },
+    {
+      "cycle": 2,
+      "leg": 3,
+      "shape": "dense",
+      "tile": 128,
+      "trial": true,
+      "ms": 1.37254393
+    },
+    {
+      "cycle": 2,
+      "leg": 3,
+      "shape": "dense",
+      "tile": 160,
+      "trial": true,
+      "ms": 1.44810665
+    },
+    {
+      "cycle": 2,
+      "leg": 3,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": true,
+      "ms": 0.13316266
+    },
+    {
+      "cycle": 2,
+      "leg": 3,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": true,
+      "ms": 0.11955199
+    },
+    {
+      "cycle": 3,
+      "leg": 0,
+      "shape": "dense",
+      "tile": 128,
+      "trial": false,
+      "ms": 1.24241066
+    },
+    {
+      "cycle": 3,
+      "leg": 0,
+      "shape": "dense",
+      "tile": 160,
+      "trial": false,
+      "ms": 1.36290133
+    },
+    {
+      "cycle": 3,
+      "leg": 0,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": false,
+      "ms": 0.12586667
+    },
+    {
+      "cycle": 3,
+      "leg": 0,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": false,
+      "ms": 0.11784533
+    },
+    {
+      "cycle": 3,
+      "leg": 1,
+      "shape": "dense",
+      "tile": 128,
+      "trial": true,
+      "ms": 1.373824
+    },
+    {
+      "cycle": 3,
+      "leg": 1,
+      "shape": "dense",
+      "tile": 160,
+      "trial": true,
+      "ms": 1.44936669
+    },
+    {
+      "cycle": 3,
+      "leg": 1,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": true,
+      "ms": 0.13318534
+    },
+    {
+      "cycle": 3,
+      "leg": 1,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": true,
+      "ms": 0.11955199
+    },
+    {
+      "cycle": 3,
+      "leg": 2,
+      "shape": "dense",
+      "tile": 128,
+      "trial": true,
+      "ms": 1.37390935
+    },
+    {
+      "cycle": 3,
+      "leg": 2,
+      "shape": "dense",
+      "tile": 160,
+      "trial": true,
+      "ms": 1.44750929
+    },
+    {
+      "cycle": 3,
+      "leg": 2,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": true,
+      "ms": 0.13320534
+    },
+    {
+      "cycle": 3,
+      "leg": 2,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": true,
+      "ms": 0.11963733
+    },
+    {
+      "cycle": 3,
+      "leg": 3,
+      "shape": "dense",
+      "tile": 128,
+      "trial": false,
+      "ms": 1.24637866
+    },
+    {
+      "cycle": 3,
+      "leg": 3,
+      "shape": "dense",
+      "tile": 160,
+      "trial": false,
+      "ms": 1.36435211
+    },
+    {
+      "cycle": 3,
+      "leg": 3,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": false,
+      "ms": 0.12595199
+    },
+    {
+      "cycle": 3,
+      "leg": 3,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": false,
+      "ms": 0.11767467
+    },
+    {
+      "cycle": 4,
+      "leg": 0,
+      "shape": "dense",
+      "tile": 128,
+      "trial": true,
+      "ms": 1.37361062
+    },
+    {
+      "cycle": 4,
+      "leg": 0,
+      "shape": "dense",
+      "tile": 160,
+      "trial": true,
+      "ms": 1.44789326
+    },
+    {
+      "cycle": 4,
+      "leg": 0,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": true,
+      "ms": 0.133376
+    },
+    {
+      "cycle": 4,
+      "leg": 0,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": true,
+      "ms": 0.11938133
+    },
+    {
+      "cycle": 4,
+      "leg": 1,
+      "shape": "dense",
+      "tile": 128,
+      "trial": false,
+      "ms": 1.24497068
+    },
+    {
+      "cycle": 4,
+      "leg": 1,
+      "shape": "dense",
+      "tile": 160,
+      "trial": false,
+      "ms": 1.36230409
+    },
+    {
+      "cycle": 4,
+      "leg": 1,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": false,
+      "ms": 0.125824
+    },
+    {
+      "cycle": 4,
+      "leg": 1,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": false,
+      "ms": 0.11784533
+    },
+    {
+      "cycle": 4,
+      "leg": 2,
+      "shape": "dense",
+      "tile": 128,
+      "trial": false,
+      "ms": 1.24437463
+    },
+    {
+      "cycle": 4,
+      "leg": 2,
+      "shape": "dense",
+      "tile": 160,
+      "trial": false,
+      "ms": 1.36230528
+    },
+    {
+      "cycle": 4,
+      "leg": 2,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": false,
+      "ms": 0.12595199
+    },
+    {
+      "cycle": 4,
+      "leg": 2,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": false,
+      "ms": 0.11784533
+    },
+    {
+      "cycle": 4,
+      "leg": 3,
+      "shape": "dense",
+      "tile": 128,
+      "trial": true,
+      "ms": 1.37250137
+    },
+    {
+      "cycle": 4,
+      "leg": 3,
+      "shape": "dense",
+      "tile": 160,
+      "trial": true,
+      "ms": 1.44857597
+    },
+    {
+      "cycle": 4,
+      "leg": 3,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": true,
+      "ms": 0.13320534
+    },
+    {
+      "cycle": 4,
+      "leg": 3,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": true,
+      "ms": 0.11955199
+    },
+    {
+      "cycle": 5,
+      "leg": 0,
+      "shape": "dense",
+      "tile": 128,
+      "trial": false,
+      "ms": 1.24535465
+    },
+    {
+      "cycle": 5,
+      "leg": 0,
+      "shape": "dense",
+      "tile": 160,
+      "trial": false,
+      "ms": 1.36264527
+    },
+    {
+      "cycle": 5,
+      "leg": 0,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": false,
+      "ms": 0.12603733
+    },
+    {
+      "cycle": 5,
+      "leg": 0,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": false,
+      "ms": 0.11776
+    },
+    {
+      "cycle": 5,
+      "leg": 1,
+      "shape": "dense",
+      "tile": 128,
+      "trial": true,
+      "ms": 1.37398005
+    },
+    {
+      "cycle": 5,
+      "leg": 1,
+      "shape": "dense",
+      "tile": 160,
+      "trial": true,
+      "ms": 1.44750929
+    },
+    {
+      "cycle": 5,
+      "leg": 1,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": true,
+      "ms": 0.13303466
+    },
+    {
+      "cycle": 5,
+      "leg": 1,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": true,
+      "ms": 0.11946666
+    },
+    {
+      "cycle": 5,
+      "leg": 2,
+      "shape": "dense",
+      "tile": 128,
+      "trial": true,
+      "ms": 1.37390935
+    },
+    {
+      "cycle": 5,
+      "leg": 2,
+      "shape": "dense",
+      "tile": 160,
+      "trial": true,
+      "ms": 1.44799995
+    },
+    {
+      "cycle": 5,
+      "leg": 2,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": true,
+      "ms": 0.13320534
+    },
+    {
+      "cycle": 5,
+      "leg": 2,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": true,
+      "ms": 0.11946666
+    },
+    {
+      "cycle": 5,
+      "leg": 3,
+      "shape": "dense",
+      "tile": 128,
+      "trial": false,
+      "ms": 1.24569595
+    },
+    {
+      "cycle": 5,
+      "leg": 3,
+      "shape": "dense",
+      "tile": 160,
+      "trial": false,
+      "ms": 1.36315727
+    },
+    {
+      "cycle": 5,
+      "leg": 3,
+      "shape": "ragged",
+      "tile": 128,
+      "trial": false,
+      "ms": 0.12595199
+    },
+    {
+      "cycle": 5,
+      "leg": 3,
+      "shape": "ragged",
+      "tile": 160,
+      "trial": false,
+      "ms": 0.11784533
+    }
+  ],
+  "summary": {
+    "ragged-128": {
+      "prior_ms": 0.125827597,
+      "trial_ms": 0.133139336,
+      "delta_pct": 5.810918410847488,
+      "interval_ms": [
+        0.007209472000000006,
+        0.007417340999999994
+      ]
+    },
+    "ragged-160": {
+      "prior_ms": 0.117715599,
+      "trial_ms": 0.119441061,
+      "delta_pct": 1.465788743936991,
+      "interval_ms": [
+        0.0016573280000000024,
+        0.0017935959999999973
+      ]
+    },
+    "dense-128": {
+      "prior_ms": 1.244612383,
+      "trial_ms": 1.373112654,
+      "delta_pct": 10.324521333321822,
+      "interval_ms": [
+        0.1281547899999999,
+        0.12899961399999996
+      ]
+    },
+    "dense-160": {
+      "prior_ms": 1.363232792,
+      "trial_ms": 1.448473727,
+      "delta_pct": 6.252852447522406,
+      "interval_ms": [
+        0.08484293099999993,
+        0.08567357000000002
+      ]
+    }
+  }
+}
