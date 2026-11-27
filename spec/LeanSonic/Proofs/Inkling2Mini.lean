@@ -2233,4 +2233,54 @@ def kInk2Bf16GemvRouterB : KernelResourceSpec :=
 
 theorem ink2_bf16_gemv_router_b_valid : ValidSm120Kernel kInk2Bf16GemvRouterB := by decide
 
+/-! ## Speculative-verify launch fusion (#152 P0-B)
+
+Each fused kernel runs the per-element arithmetic of the kernels it replaces in the same order:
+the K/V `short_conv4` pair (`blockIdx.y` picks K or V), router top-8 + active-expert grouping
+(one CTA, groups read from shared memory), and the top-8 combine + MLP `short_conv4`. -/
+
+def kInk2ShortConv4PairB : KernelResourceSpec :=
+  { name := "ink2_short_conv4_pair_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 34          -- aligns to 40 -> 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2RouterTopk8GroupsB : KernelResourceSpec :=
+  { name := "ink2_router_topk8_groups_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 48          -- 12,288 regs/CTA; a single CTA per launch
+    userSmemPerCtaBytes := 784
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeCombineConv4B : KernelResourceSpec :=
+  { name := "ink2_moe_combine_conv4_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 38          -- aligns to 40 -> 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def verifyLaunchFusionSuite : List KernelResourceSpec :=
+  [ kInk2ShortConv4PairB
+  , kInk2RouterTopk8GroupsB
+  , kInk2MoeCombineConv4B ]
+
+theorem verify_launch_fusion_all_kernels_valid :
+    (verifyLaunchFusionSuite.all checkSm120Kernel) = true := by decide
+
 end LeanSonic.Proofs
