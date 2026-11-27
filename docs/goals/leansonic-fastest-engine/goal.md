@@ -34,7 +34,7 @@ LeanSonic（main = `f34a08e` 以降）を、Inkling-2-Mini で次の 3 点を同
   - 5060 Ti の目標は外部の実測が無い推定値。最初に計測して補正する
   - 16GB 機では Spilled の転送（Gen4 x16 / x4）が支配的
   - 48 visit のループで、1-ULP の差が logits に最大 ±4 ほど増幅される
-  - cudaserver には既存の Python サービスがある
+  - cudaserver, cuda01 の既存サービスは開発中は止めておいてよい
   - Gemini が #5 を別ブランチで作業中
   - 凍結コアは変更できない
 - Existing plan facts:
@@ -92,7 +92,7 @@ GoalBuddy の assignee（Scout / Judge / Worker / PM）は役割の種類を表�
 - Rust はサードパーティ依存ゼロ。`clippy -D warnings`、`fmt`、SASS で `STACK: 0`、ホットループの `CALL.REL.NOINC` はゼロ
 - 構造だけの変更は 0-ULP（出力ハッシュを固定）。数値が変わる変更は 100-chunk KLD ゲートで判定し、PR に区分を明記する
 - 計測では `CUDA_VISIBLE_DEVICES=GPU-<UUID>` か `CUDA_DEVICE_ORDER=PCI_BUS_ID` を必ず指定する（cuda01 では既定の順序が nvidia-smi と逆）。計測前に `nvidia-smi --query-compute-apps` で使用状況を確認し、他の計測と GPU を共有しない。GPU ごとに `flock` でロックする
-- cudaserver の既存 Python サービス 2 つは止めない
+- cudaserver, cuda01 の既存サービスは開発中は止めておいてよい
 - 公開 Issue / PR に内部 IP や GPU UUID の実値を書かない
 - 1 回の実験で変えるのは 1 要素だけ。却下した試行も notes に記録する
 - Decode が退行する Prefill 改善は採用しない（Decode Comes First）

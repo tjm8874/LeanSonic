@@ -52,7 +52,7 @@ fn is_qwen38_weights_dir(dir: &Path, model_flag: &str) -> bool {
 }
 
 fn print_help() {
-    println!("LeanSonic v0.6.0 — Lean 4-Verified Blackwell Inference Engine & OpenAI Server");
+    println!("LeanSonic v0.7.0 — Lean 4-Verified Blackwell Inference Engine & OpenAI Server");
     println!();
     println!("USAGE:");
     println!(
