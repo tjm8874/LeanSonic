@@ -9,5 +9,16 @@
     ],
     "scored_cycles": 10,
     "matching_full_decodes": 44
+  },
+  "intel": {
+    "baseline_ms": 84.1802482,
+    "paired_ms": 71.31792325,
+    "elapsed_change_pct": -15.279504664135679,
+    "paired_cycle_bootstrap_95pct": [
+      -15.667802690777133,
+      -14.911946523672182
+    ],
+    "scored_cycles": 10,
+    "matching_full_decodes": 44
   }
 }

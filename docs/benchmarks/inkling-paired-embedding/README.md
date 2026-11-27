@@ -9,8 +9,9 @@ The same Linux release binary calls the baseline function from `00052c8384ac47de
 | CPU | Prior | Interleaved | Elapsed change, 95% paired interval | Complete byte comparisons |
 |---|---:|---:|---:|---:|
 | Ryzen 9 9900X | 56.194 ms | 51.536 ms | −8.29% [−10.06%, −6.06%] | 44/44 |
+| Core i5-14400 | 84.180 ms | 71.318 ms | −15.28% [−15.67%, −14.91%] | 44/44 |
 
-The Ryzen run used normal host scheduling at nice +10, with other GPU work on the machine. Read the [raw Ryzen timings](ryzen.csv) and [summary](stats.json). On the original Linux build, the executable SHA-256 was `8d94959a8573a8c79b981e04e75f44eb78a053eda94728699a94b747bb3c2c81`. The extraction script verifies both model tensor hashes before timing.
+The Ryzen run used normal host scheduling at nice +10, with other GPU work on the machine. Read the [raw Ryzen timings](ryzen.csv), [raw Intel timings](intel.csv) and [summary](stats.json). The Intel run held the benchmark host lock, with the identical executable and tensor digests. On the original Linux build, the executable SHA-256 was `8d94959a8573a8c79b981e04e75f44eb78a053eda94728699a94b747bb3c2c81`. The extraction script verifies both model tensor hashes before timing.
 
 From a fresh checkout of the candidate, set RECIPE to this directory and pass the official checkpoint and a compact shard containing `model.llm.embed.weight.prefix_v1`. Run extraction in an empty scratch directory.
 
