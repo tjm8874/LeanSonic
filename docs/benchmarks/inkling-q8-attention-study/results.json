@@ -65,5 +65,86 @@
       "top1_matches": 24882,
       "top1_agreement": 0.975764705882353
     }
-  }
+  },
+  "v12-dictionary": {
+    "chunks": 100,
+    "context": 512,
+    "rows": 25500,
+    "ppl": 7.072582283191336,
+    "ref_ppl": 7.064408191101908,
+    "mean_kld": 0.003175525720314373,
+    "median_kld": 0.0012816721567639787,
+    "p99_kld": 0.030938605542115,
+    "max_kld": 0.674715904066122,
+    "start_chunk": 0,
+    "max_kld_chunk": 69,
+    "max_kld_position": 353,
+    "ref_floor_targets": 14,
+    "top1_matches": 24879,
+    "top1_agreement": 0.9756470588235294
+  },
+  "selected_simt_rows": {
+    "2/476": {
+      "raw": {
+        "kl": 0.3015341117721403,
+        "target_nll": 1.9286479949951172,
+        "top1_matches": true
+      },
+      "grid": {
+        "kl": 0.00515741865531584,
+        "target_nll": 3.7304515838623047,
+        "top1_matches": true
+      }
+    },
+    "3/264": {
+      "raw": {
+        "kl": 0.22873981501582763,
+        "target_nll": 10.728998184204102,
+        "top1_matches": false
+      },
+      "grid": {
+        "kl": 0.07104452947353371,
+        "target_nll": 9.729902267456055,
+        "top1_matches": true
+      }
+    },
+    "21/313": {
+      "raw": {
+        "kl": 0.2171828895286296,
+        "target_nll": 1.0963115692138672,
+        "top1_matches": true
+      },
+      "grid": {
+        "kl": 0.3144515748524762,
+        "target_nll": 1.1106643676757812,
+        "top1_matches": true
+      }
+    },
+    "29/443": {
+      "raw": {
+        "kl": 0.1935466551641499,
+        "target_nll": 0.15486717224121094,
+        "top1_matches": true
+      },
+      "grid": {
+        "kl": 0.14432421888357105,
+        "target_nll": 0.19157981872558594,
+        "top1_matches": true
+      }
+    },
+    "69/353": {
+      "raw": {
+        "kl": 0.6639923296258949,
+        "target_nll": 0.1369495391845703,
+        "top1_matches": false
+      },
+      "grid": {
+        "kl": 0.01144457181069885,
+        "target_nll": 0.833221435546875,
+        "top1_matches": false
+      }
+    }
+  },
+  "v12_source": "7a02b538048d819fa76d2efb084b734d4c3bf2cb",
+  "v12_cubin_sha256": "8771508cc25cc5896aa0f2456a6260921f85d6d3ab071b8d7c1b8283cd8a087b"
 }
