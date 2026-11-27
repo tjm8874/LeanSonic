@@ -15,6 +15,7 @@ pub mod inkling_embedding;
 pub mod inkling_mxfp8;
 pub mod inkling_q8_scales;
 pub mod inkling_scales;
+mod json_string;
 pub mod kernels;
 pub mod offload;
 pub mod qwen38_gpu;

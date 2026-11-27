@@ -491,80 +491,8 @@ fn parse_u32(b: &[u8], i: usize) -> io::Result<(u32, usize)> {
     Ok((v, j))
 }
 
-fn parse_hex4(b: &[u8], i: usize) -> io::Result<u16> {
-    if i + 4 > b.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "truncated \\u escape",
-        ));
-    }
-    let s = std::str::from_utf8(&b[i..i + 4])
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    u16::from_str_radix(s, 16).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
-}
-
-fn parse_json_str(b: &[u8], mut i: usize) -> io::Result<(String, usize)> {
-    i = skip_ws(b, i);
-    if b.get(i) != Some(&b'"') {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "expected '\"'"));
-    }
-    i += 1;
-    let mut out = String::new();
-    while i < b.len() {
-        match b[i] {
-            b'"' => return Ok((out, i + 1)),
-            b'\\' => {
-                i += 1;
-                if i >= b.len() {
-                    break;
-                }
-                match b[i] {
-                    b'"' => out.push('"'),
-                    b'\\' => out.push('\\'),
-                    b'/' => out.push('/'),
-                    b'b' => out.push('\u{0008}'),
-                    b'f' => out.push('\u{000C}'),
-                    b'n' => out.push('\n'),
-                    b'r' => out.push('\r'),
-                    b't' => out.push('\t'),
-                    b'u' => {
-                        let hi = parse_hex4(b, i + 1)?;
-                        i += 4;
-                        if (0xD800..=0xDBFF).contains(&hi)
-                            && i + 6 < b.len()
-                            && b[i + 1] == b'\\'
-                            && b[i + 2] == b'u'
-                        {
-                            let lo = parse_hex4(b, i + 3)?;
-                            i += 6;
-                            let cp =
-                                0x10000 + (((hi as u32 - 0xD800) << 10) | (lo as u32 - 0xDC00));
-                            if let Some(ch) = char::from_u32(cp) {
-                                out.push(ch);
-                            }
-                        } else if let Some(ch) = char::from_u32(hi as u32) {
-                            out.push(ch);
-                        }
-                    }
-                    other => out.push(other as char),
-                }
-                i += 1;
-            }
-            _ => {
-                let start = i;
-                while i < b.len() && b[i] != b'"' && b[i] != b'\\' {
-                    i += 1;
-                }
-                let seg = std::str::from_utf8(&b[start..i])
-                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-                out.push_str(seg);
-            }
-        }
-    }
-    Err(io::Error::new(
-        io::ErrorKind::InvalidData,
-        "unterminated JSON string",
-    ))
+fn parse_json_str(b: &[u8], i: usize) -> io::Result<(String, usize)> {
+    crate::json_string::quoted(b, skip_ws(b, i))
 }
 
 fn skip_json_val(b: &[u8], mut i: usize) -> io::Result<usize> {
