@@ -5,6 +5,11 @@
 use std::io::{self, Write};
 use std::mem::MaybeUninit;
 
+mod mean_scales;
+mod scale_context;
+pub use mean_scales::pack_mean_scales;
+pub use scale_context::pack_scale_context;
+
 pub const TILE: usize = 128 * 1024;
 const PRECISION: u32 = 12;
 const TOTAL: u32 = 1 << PRECISION;
@@ -97,7 +102,7 @@ fn write_frames(
     raw: &[u8],
     mut output: impl Write,
     mut written: usize,
-    encode: impl Fn(&[u8], &mut [u32; 4], &mut Vec<u8>),
+    mut encode: impl FnMut(&[u8], &mut [u32; 4], &mut Vec<u8>),
 ) -> io::Result<usize> {
     let mut payload = Vec::with_capacity(TILE);
     for tile in raw.chunks(TILE) {
@@ -173,6 +178,7 @@ pub fn pack_nvfp4_context(raw: &[u8], mut output: impl Write) -> io::Result<usiz
 }
 
 pub(crate) struct Matrix<'a> {
+    scale_context: Option<Box<dyn scale_context::ScaleDecoder>>,
     lookup: Vec<[u32; 4096]>,
     frames: Vec<&'a [u8]>,
     count: usize,
@@ -231,13 +237,19 @@ impl<'a> Matrix<'a> {
             return Err("invalid MXFP8 tensor padding".into());
         }
         Ok(Self {
+            scale_context: None,
             lookup,
             frames,
             count,
         })
     }
 
-    fn decode_tile(&self, frame: &[u8], dst: &mut [MaybeUninit<u8>]) -> Result<(), String> {
+    fn decode_tile(
+        &self,
+        first: usize,
+        frame: &[u8],
+        dst: &mut [MaybeUninit<u8>],
+    ) -> Result<(), String> {
         let (words, bytes) = frame.split_at(16);
         let mut states = [0u32; 4];
         for (x, &word) in states.iter_mut().zip(words.as_chunks::<4>().0) {
@@ -245,6 +257,9 @@ impl<'a> Matrix<'a> {
             if !(LOWER..LOWER * 256).contains(x) {
                 return Err("invalid MXFP8 rANS state".into());
             }
+        }
+        if let Some(context) = &self.scale_context {
+            return context.decode(&self.lookup, bytes, states, first, dst);
         }
         if self.lookup.len() == NVFP4_CONTEXTS {
             return self.decode_nvfp4(bytes, states, dst);
@@ -371,10 +386,14 @@ impl<'a> Matrix<'a> {
         let group = frames.len().div_ceil(threads);
         std::thread::scope(|scope| {
             let mut workers = Vec::new();
-            for (s, d) in frames.chunks(group).zip(dst.chunks_mut(group * TILE)) {
+            for (part, (s, d)) in frames
+                .chunks(group)
+                .zip(dst.chunks_mut(group * TILE))
+                .enumerate()
+            {
                 workers.push(scope.spawn(move || {
-                    for (&f, out) in s.iter().zip(d.chunks_mut(TILE)) {
-                        self.decode_tile(f, out)?;
+                    for (i, (&f, out)) in s.iter().zip(d.chunks_mut(TILE)).enumerate() {
+                        self.decode_tile(offset + (part * group + i) * TILE, f, out)?;
                     }
                     Ok::<_, String>(())
                 }));

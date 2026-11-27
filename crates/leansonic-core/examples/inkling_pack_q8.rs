@@ -5,7 +5,50 @@ use std::io::{self, Read, Write};
 
 fn main() -> io::Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if let [mode, size, width] = args.as_slice() {
+        if matches!(
+            mode.as_str(),
+            "neighbor-size" | "neighbor-pack" | "mean8-size" | "mean8-pack"
+        ) {
+            let n: usize = size.parse().map_err(io::Error::other)?;
+            let width = width.parse().map_err(io::Error::other)?;
+            if n > 128 * 2304 * 144 {
+                return Err(io::Error::other("invalid scale matrix size"));
+            }
+            let mut raw = vec![0; n];
+            io::stdin().lock().read_exact(&mut raw)?;
+            let sizing = mode.ends_with("-size");
+            let mut stdout = io::BufWriter::new(io::stdout().lock());
+            let mut sink = io::sink();
+            let dst: &mut dyn Write = if sizing { &mut sink } else { &mut stdout };
+            let bytes = if mode.starts_with("mean8-") {
+                leansonic_core::inkling_mxfp8::pack_mean_scales(&raw, width, dst)?
+            } else {
+                leansonic_core::inkling_mxfp8::pack_scale_context(&raw, width, dst)?
+            };
+            if sizing {
+                writeln!(stdout, "{bytes}")?;
+            }
+            stdout.flush()?;
+            return Ok(());
+        }
+    }
     if let [mode, size] = args.as_slice() {
+        if matches!(mode.as_str(), "bf16planes-size" | "bf16planes-pack") {
+            let n: usize = size.parse().map_err(io::Error::other)?;
+            if n > 128 * 2304 * 2 {
+                return Err(io::Error::other("unexpected router/controller length"));
+            }
+            let mut raw = vec![0; n];
+            io::stdin().lock().read_exact(&mut raw)?;
+            let frame = leansonic_core::inkling_bf16_planes::pack(&raw)?;
+            if mode == "bf16planes-size" {
+                println!("{}", frame.len());
+            } else {
+                io::stdout().lock().write_all(&frame)?;
+            }
+            return Ok(());
+        }
         if matches!(mode.as_str(), "q8dict-size" | "q8dict-pack") {
             let n: usize = size.parse().map_err(io::Error::other)?;
             if n > 200_058 * 36 * 4 {

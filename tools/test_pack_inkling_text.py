@@ -212,6 +212,52 @@ class PackInklingTextTest(unittest.TestCase):
                 self.assertEqual(new["mx.b"]["dtype"], dtype)
                 self.assertEqual(payload[540:], bytes(range(256)) + b"TAIL")
 
+    def test_bf16_controls_preserve_raw_and_use_planes_when_smaller(self):
+        shapes = {"router": [32, 128], "tiny": [1, 32]}
+        raw = b"EEHH" + bytes([0x91, 0x3f]) * 4096 + bytes(range(64))
+        header = {
+            "model.llm.embed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [0, 2]},
+            "model.llm.unembed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [2, 4]},
+            "router": {"dtype": "BF16", "shape": shapes["router"], "data_offsets": [4, 8196]},
+            "tiny": {"dtype": "BF16", "shape": shapes["tiny"], "data_offsets": [8196, len(raw)]}}
+        with tempfile.TemporaryDirectory() as tmp, patch("pack_inkling_text.control_weight_shapes", return_value=shapes):
+            src, dst = Path(tmp)/"input", Path(tmp)/"output"
+            encoded = json.dumps(header).encode()
+            src.write_bytes(struct.pack("<Q", len(encoded)) + encoded + raw)
+            pack(src, dst, compact_controls=True)
+            with dst.open("rb") as f:
+                out = json.loads(f.read(struct.unpack("<Q", f.read(8))[0]))
+                data = f.read()
+            self.assertIn("router.bf16planes_v1", out)
+            lo, hi = out["tiny"]["data_offsets"]
+            self.assertEqual(data[lo:hi], bytes(range(64)))
+
+    def test_neighbor_scales_choose_by_measured_bytes(self):
+        planes = [("neighbor", bytes((col % 8) * 9 for _ in range(2048) for col in range(72))),
+                  ("flat", bytes(72 * 128)), ("raw", bytes(range(72)))]
+        blob = bytearray(b"EEHH")
+        header = {"model.llm.embed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [0, 2]},
+                  "model.llm.unembed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [2, 4]}}
+        shapes = {}
+        for name, values in planes:
+            rows = len(values) // 72
+            shapes[name] = ("U8", [1, rows, 72])
+            header[name] = {"dtype": "U8", "shape": [1, rows, 72],
+                            "data_offsets": [len(blob), len(blob) + len(values)]}
+            blob.extend(values)
+        with tempfile.TemporaryDirectory() as tmp, patch("pack_inkling_text.expert_scale_tensors", return_value=shapes):
+            src, dst = Path(tmp)/"input", Path(tmp)/"output"
+            encoded = json.dumps(header).encode()
+            src.write_bytes(struct.pack("<Q", len(encoded)) + encoded + blob)
+            pack(src, dst, neighbor_scales=True)
+            with dst.open("rb") as f:
+                out = json.loads(f.read(struct.unpack("<Q", f.read(8))[0]))
+                data = f.read()
+            self.assertIn("neighbor.neighbor_v1", out)
+            self.assertIn("flat.rans_v1", out)
+            lo, hi = out["raw"]["data_offsets"]
+            self.assertEqual(data[lo:hi], bytes(range(72)))
+
     def test_contextual_nvfp4_encodes_only_profitable_expert_planes(self):
         large = bytes([0x80]) * 65536
         small = bytes(range(256))

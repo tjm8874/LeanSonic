@@ -30,6 +30,17 @@ def attention_matrices():
     return matrices
 
 
+def control_weight_shapes():
+    shapes = {f"model.llm.layers.{layer}.mlp.gate.weight": [128, 2304] for layer in range(24)}
+    for layer in range(6, 18):
+        for name in ("attn", "k", "v", "mlp"):
+            prefix = f"model.llm.layers.{layer}.controllers.{name}."
+            shapes[prefix + "down_weight"] = [64, 4608]
+            for suffix in ("gain_weight", "forget_weight"):
+                shapes[prefix + suffix] = [2304, 64]
+    return shapes
+
+
 def expert_scale_tensors():
     tensors = {}
     for layer in range(24):
@@ -91,8 +102,8 @@ def q8_planes(header, prefix, rows, cols):
 
 def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack_attention: bool = False,
          prepack_scales: bool = False, prepack_embedding: bool = False, prepack_mxfp8: bool = False,
-         prepack_nvfp4: bool = False, contextual_nvfp4: bool = False,
-         entropy_scales: bool = False, compact_q8_scales: bool = False, compact_q8_codes: bool = False) -> tuple[int, int]:
+         prepack_nvfp4: bool = False, contextual_nvfp4: bool = False, compact_controls: bool = False,
+         entropy_scales: bool = False, neighbor_scales: bool = False, averaged_scales: bool = False, compact_q8_scales: bool = False, compact_q8_codes: bool = False) -> tuple[int, int]:
     """Publish a complete shard atomically without replacing an existing file."""
     if destination.exists():
         raise FileExistsError(f"destination exists: {destination}")
@@ -135,14 +146,19 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
             if any(prefix + key in header for key in native_suffixes):
                 raise ValueError(f"input contains conflicting native tensors for {name}")
 
-        if prepack_scales and entropy_scales:
+        if sum((prepack_scales, entropy_scales, neighbor_scales, averaged_scales)) > 1:
             raise ValueError("choose one expert scale format")
-        scales = expert_scale_tensors() if prepack_scales or entropy_scales else {}
+        scales = expert_scale_tensors() if prepack_scales or entropy_scales or neighbor_scales or averaged_scales else {}
         for name in scales:
-            if name not in header or name + ".range_v1" in header or name + ".rans_v1" in header:
+            if name not in header or any(name + suffix in header for suffix in (".range_v1", ".rans_v1", ".neighbor_v1", ".mean8_v1")):
                 raise ValueError(f"missing or conflicting source expert scales for {name}")
-        scale_mode, scale_suffix = ("rans", ".rans_v1") if entropy_scales else ("scale", ".range_v1")
+        scale_mode, scale_suffix = ("rans", ".rans_v1") if (entropy_scales or neighbor_scales or averaged_scales) else ("scale", ".range_v1")
         lossless = {name: (dtype, shape, scale_mode, scale_suffix) for name, (dtype, shape) in scales.items()}
+        if compact_controls:
+            for name, shape in control_weight_shapes().items():
+                if name not in header or name + ".bf16planes_v1" in header:
+                    raise ValueError(f"missing or conflicting control weight {name}")
+                lossless[name] = ("BF16", shape, "bf16planes", ".bf16planes_v1")
         if compact_q8_scales or compact_q8_codes:
             native = {**attention_matrices(), head_name: (201_024, 200_058, 2304, head_prefix)}
             converted = False
@@ -237,18 +253,32 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
                 expected_dtype, expected_shape, mode, suffix = lossless[name]
                 if info["dtype"] != expected_dtype or shape != expected_shape:
                     raise ValueError(f"unexpected dimensions or dtype for {name}")
-                src.seek(8 + header_len + start)
                 length = str(end - start)
-                result = subprocess.run([packer, mode + "-size", length], stdin=src,
-                                        stdout=subprocess.PIPE, text=True, check=True)
-                size = int(result.stdout)
-                if size <= 0 or size % 8:
-                    raise ValueError(f"invalid packed tensor length for {name}")
+                def encoded_size(codec, arguments):
+                    src.seek(8 + header_len + start)
+                    result = subprocess.run([packer, codec + "-size", *arguments], stdin=src,
+                                            stdout=subprocess.PIPE, text=True, check=True)
+                    size = int(result.stdout)
+                    if size <= 0 or size % 8:
+                        raise ValueError(f"invalid packed tensor length for {name}")
+                    return size
+
+                arguments = [length]
+                size = encoded_size(mode, arguments)
+                if (neighbor_scales or averaged_scales) and name in scales:
+                    neighbor_args = [length, str(expected_shape[-1])]
+                    predictors = [("neighbor", ".neighbor_v1")]
+                    if averaged_scales:
+                        predictors.append(("mean8", ".mean8_v1"))
+                    for codec, extension in predictors:
+                        predicted = encoded_size(codec, neighbor_args)
+                        if predicted < size:
+                            size, mode, suffix, arguments = predicted, codec, extension, neighbor_args
                 if size < end - start:
                     output_header[name + suffix] = {
                         "dtype": "U8", "shape": [size], "data_offsets": [new_end, new_end + size]
                     }
-                    spans.append((start, end, ([mode + "-pack", length], size)))
+                    spans.append((start, end, ([mode + "-pack", *arguments], size)))
                     new_end += size
                     continue
             output_header[name] = {**info, "data_offsets": [new_end, new_end + end - start]}
@@ -296,9 +326,12 @@ def main() -> None:
     parser.add_argument("destination", type=Path, help="new text-only safetensors shard")
     parser.add_argument("--prepack-head", action="store_true", help="store LeanSonic native output-head weights (requires Cargo)")
     parser.add_argument("--prepack-attention", action="store_true", help="store native Q8_64 attention projections (requires Cargo)")
+    parser.add_argument("--compact-controls", action="store_true", help="losslessly entropy-code router and controller BF16 planes when smaller")
     parser.add_argument("--compact-q8-scales", action="store_true", help="losslessly dictionary-code native Q8_64 scales where smaller")
     parser.add_argument("--compact-q8-codes", action="store_true", help="store Q8 code planes with lossless rANS where smaller")
     scale_group = parser.add_mutually_exclusive_group()
+    scale_group.add_argument("--averaged-scales", action="store_true", help="also try lossless eight-neighbor mean coding on each expert scale plane")
+    scale_group.add_argument("--neighbor-scales", action="store_true", help="choose the smallest of raw, byte rANS, and row-neighbor rANS per expert scale tensor")
     scale_group.add_argument("--entropy-scales", action="store_true", help="store MoE expert scales with lossless byte rANS")
     scale_group.add_argument("--prepack-scales", action="store_true", help="store lossless packed MoE expert scales (requires Cargo)")
     parser.add_argument("--prepack-embedding", action="store_true", help="store the BF16 input embedding losslessly (requires Cargo)")
@@ -308,8 +341,8 @@ def main() -> None:
     args = parser.parse_args()
     try:
         removed, saved = pack(args.source, args.destination, prepack_head=args.prepack_head, prepack_attention=args.prepack_attention,
-                              prepack_scales=args.prepack_scales, prepack_embedding=args.prepack_embedding, prepack_mxfp8=args.prepack_mxfp8, prepack_nvfp4=args.prepack_nvfp4, contextual_nvfp4=args.contextual_nvfp4,
-                              entropy_scales=args.entropy_scales, compact_q8_scales=args.compact_q8_scales, compact_q8_codes=args.compact_q8_codes)
+                              prepack_scales=args.prepack_scales, prepack_embedding=args.prepack_embedding, prepack_mxfp8=args.prepack_mxfp8, prepack_nvfp4=args.prepack_nvfp4, contextual_nvfp4=args.contextual_nvfp4, compact_controls=args.compact_controls,
+                              entropy_scales=args.entropy_scales, neighbor_scales=args.neighbor_scales, averaged_scales=args.averaged_scales, compact_q8_scales=args.compact_q8_scales, compact_q8_codes=args.compact_q8_codes)
     except (OSError, ValueError, TypeError, KeyError, subprocess.CalledProcessError) as exc:
         parser.exit(1, f"pack failed: {exc}\n")
     print(f"Omitted {removed} vision tensors. Saved {saved:,} bytes.")
