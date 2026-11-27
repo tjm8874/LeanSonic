@@ -46,6 +46,27 @@ def read_header(file):
     return metadata, top, 8 + n
 
 
+def validate_retained(header):
+    shapes = {
+        "fuse_weight": [4, 4],
+        "mask_embed": [2304],
+        "norm.weight": [2304],
+        "markov_head.dflare_norm.weight": [2304],
+        "markov_head.rnn_proj.bias": [768],
+        "markov_head.markov_w1.weight": [201024, 256],
+        "markov_head.hidden_out.weight": [2304, 256],
+        "markov_head.hidden_out.bias": [2304],
+    }
+    for layer in range(3):
+        for name in ("input_layernorm", "post_attention_layernorm", "dflare_norm"):
+            shapes[f"layers.{layer}.{name}.weight"] = [2304]
+        for name in ("q_norm", "k_norm", "k_norm_ctx"):
+            shapes[f"layers.{layer}.self_attn.{name}.weight"] = [128]
+    for name, shape in shapes.items():
+        if header.get(name, {}).get("shape") != shape:
+            raise ValueError(f"missing or invalid retained tensor {name}")
+
+
 def copy_bytes(src, out, count):
     while count:
         data = src.read(min(count, 4 << 20))
@@ -61,6 +82,7 @@ def pack(source, destination, packer):
     with source.open("rb") as src, tempfile.TemporaryDirectory(dir=destination.parent) as temp:
         work = Path(temp)
         metadata, header, base = read_header(src)
+        validate_retained(header)
         segments = {}
         consumed = set()
 
