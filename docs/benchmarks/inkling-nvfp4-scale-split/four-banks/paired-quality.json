@@ -1,0 +1,19 @@
+{
+  "test": {
+    "chunks": 100,
+    "context": 512,
+    "rows": 25500,
+    "ppl": 7.079443865107838,
+    "ref_ppl": 7.064408191101908,
+    "mean_kld": 0.007681729926712017,
+    "median_kld": 0.0034751689258115254,
+    "p99_kld": 0.06765488813335377,
+    "max_kld": 1.5215774503553174,
+    "start_chunk": 0,
+    "max_kld_chunk": 36,
+    "max_kld_position": 319,
+    "ref_floor_targets": 14,
+    "top1_matches": 24542,
+    "top1_agreement": 0.9624313725490196
+  }
+}
