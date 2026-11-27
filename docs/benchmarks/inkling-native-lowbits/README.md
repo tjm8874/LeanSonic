@@ -23,6 +23,19 @@ For the same corpus oracles, compact LeanSonic used RTX PRO 4500 and the origina
 | test | 0.0137735 | 0.7519345 | 24,289/25,500 | 7.131377 |
 | valid | 0.0131739 | 0.9835867 | 24,341/25,500 | 6.564200 |
 
+## Fixed-token replay
+
+Five mirrored ABBA/BAAB cycles, ten fresh processes per engine, five requests per process, first excluded. Context 8,192, 1,024 fixed prompt IDs and 32 forced decode steps, one sequence, FP16 KV, no speculation. NVML samples the process during load and inference at about 4 ms intervals. Each row is a warm mean over 40 requests.
+
+| Pair | Runtime | Prefill ms (tok/s) | Decode 32 ms (tok/s) | Peak GPU bytes |
+|---|---|---:|---:|---:|
+| IQ3 | Compact LeanSonic | 89.770 (11,407.0) | 155.449 (205.86) | 18,251,513,856 |
+| IQ3 | Original llama.cpp | 442.906 (2,312.0) | 380.059 (84.20) | 15,187,574,784 |
+| IQ1 | Compact LeanSonic | 89.695 (11,416.5) | 155.442 (205.87) | 18,232,639,488 |
+| IQ1 | Original llama.cpp | 446.080 (2,295.6) | 361.137 (88.61) | 11,301,552,128 |
+
+The latency pairs ran on RTX PRO 5000 72 GB. Exact-token replay keeps decoder history fixed across different predictions. Compact LeanSonic matched all 32 forced inputs, and each native GGUF matched 30. The IQ3 pair uses 13,626,745,974 versus 11,663,309,504 distributed bytes, and the IQ1 pair uses 13,626,745,974 versus 7,764,291,776 bytes. The original runtimes used less peak GPU memory in both pairs. [Individual requests](requests.csv) · [Speed ratios, paired cycle intervals and matches](timing-pairs.json).
+
 The native corpus scorer requested 99 GPU layers. Its default corpus log reports CUDA and batch dimensions but omits the actual layer count. The matched latency driver separately checks full offload for each native process.
 
 ## Reproduce
