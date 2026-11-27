@@ -9414,6 +9414,27 @@ __device__ __forceinline__ void cp_async16_cg(void* smem_dst, const void* gmem_s
     asm volatile("cp.async.cg.shared.global [%0], [%1], 16;\n" :: "r"(smem_u32_ptr(smem_dst)), "l"(gmem_src) : "memory");
 }
 
+__device__ __forceinline__ uint64_t make_l2_evict_first_policy() {
+    uint64_t policy;
+    asm("createpolicy.fractional.L2::evict_first.b64 %0, 1.0;\n" : "=l"(policy));
+    return policy;
+}
+
+__device__ __forceinline__ void cp_async16_cg_evict_last_tile(
+    void* smem_dst,
+    const void* gmem_src,
+    bool is_last_tile,
+    uint64_t evict_policy) {
+    const uint32_t sa = smem_u32_ptr(smem_dst);
+    if (is_last_tile) {
+        asm volatile(
+            "cp.async.cg.shared.global.L2::cache_hint [%0], [%1], 16, %2;\n"
+            :: "r"(sa), "l"(gmem_src), "l"(evict_policy) : "memory");
+    } else {
+        asm volatile("cp.async.cg.shared.global [%0], [%1], 16;\n" :: "r"(sa), "l"(gmem_src) : "memory");
+    }
+}
+
 __device__ __forceinline__ void cp_async4_ca(void* smem_dst, const void* gmem_src) {
     asm volatile("cp.async.ca.shared.global [%0], [%1], 4;\n" :: "r"(smem_u32_ptr(smem_dst)), "l"(gmem_src) : "memory");
 }
@@ -10282,13 +10303,16 @@ __device__ __forceinline__ unsigned ternary_nibbles(unsigned half) {
 }
 
 template <bool Ternary>
-__device__ __forceinline__ void stage_nvfp4_weight(uint4* shared, const uint4* weights, size_t group) {
+__device__ __forceinline__ void stage_nvfp4_weight(
+    uint4* shared, const uint4* weights, size_t group, bool is_last_tile, uint64_t evict_pol) {
     if constexpr (Ternary) {
+        (void)is_last_tile;
+        (void)evict_pol;
         const uint2 codes = reinterpret_cast<const uint2*>(weights)[group];
         *shared = make_uint4(ternary_nibbles(codes.x & 0xffffu), ternary_nibbles(codes.x >> 16),
                              ternary_nibbles(codes.y & 0xffffu), ternary_nibbles(codes.y >> 16));
     } else {
-        cp_async16_cg(shared, weights + group);
+        cp_async16_cg_evict_last_tile(shared, weights + group, is_last_tile, evict_pol);
     }
 }
 
@@ -10373,10 +10397,14 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
     const size_t src_tok_xr = sorted_base + static_cast<size_t>(min(xr, live - 1));
     const int xid = tid - 256;
     const size_t seq_tok_xid = sorted_base + static_cast<size_t>(min(max(0, xid), live - 1));
+    const bool is_last_tile = !Ternary && (first + 128 >= count);
+    const uint64_t evict_pol = Ternary ? 0ull : make_l2_evict_first_policy();
 
     auto issue_stage = [&](int st, int ks64) {
-        stage_nvfp4_weight<Ternary>(&s->sm_w[st][wr_r][wq2 ^ ((wr_r >> 2) & 1)],
-                                    weight_data, grow_wr * kWRowU128 + ks64 * 2 + wq2);
+        stage_nvfp4_weight<Ternary>(
+            &s->sm_w[st][wr_r][wq2 ^ ((wr_r >> 2) & 1)],
+            weight_data, grow_wr * kWRowU128 + ks64 * 2 + wq2,
+            is_last_tile, evict_pol);
         cp_async16_cg_pred(
             &s->sm_x[st][xr][xq4 ^ ((xr >> 1) & 3)],
             x_codes_u128 + src_tok_xr * kXRowU128 + ks64 * 4 + xq4,
@@ -10744,10 +10772,14 @@ __device__ __forceinline__ void grouped_nvfp4_tc_t160_impl(
 
     const int xid = tid - 192; // 0..159 for `192 <= tid < 352`
     const size_t seq_tok_xid = sorted_base + static_cast<size_t>(min(max(0, xid), live - 1));
+    const bool is_last_tile = !Ternary && (first + 160 >= count);
+    const uint64_t evict_pol = Ternary ? 0ull : make_l2_evict_first_policy();
 
     auto issue_stage = [&](int st, int ks64) {
-        stage_nvfp4_weight<Ternary>(&s->sm_w[st][wr_r][wq2 ^ ((wr_r >> 2) & 1)],
-                                    weight_data, grow_wr * kWRowU128 + ks64 * 2 + wq2);
+        stage_nvfp4_weight<Ternary>(
+            &s->sm_w[st][wr_r][wq2 ^ ((wr_r >> 2) & 1)],
+            weight_data, grow_wr * kWRowU128 + ks64 * 2 + wq2,
+            is_last_tile, evict_pol);
         #pragma unroll
         for (int p = 0; p < 2; ++p) {
             const int lin = p * 384 + tid; // 0..639 (`160` tokens x `4` uint4s)
@@ -10772,13 +10804,20 @@ __device__ __forceinline__ void grouped_nvfp4_tc_t160_impl(
     };
 
     float acc[2][10][4] = {};
+    auto finite_packed_scale = [&](unsigned index) {
+        return sanitize_ue4m3x4(expert_scale_word<true, 6, 64>(weight_scales_u32, index));
+    };
+    auto shared_scale = [&](int stage, int row) {
+        const uint32_t word = s->sm_wsc[stage][row];
+        if constexpr (PackedScales) return word;
+        return sanitize_ue4m3x4(word);
+    };
+
     issue_stage(0, 0);
     issue_stage(1, 1);
     if constexpr (PackedScales) {
         if (tid < 192) {
-            s->sm_wsc[0][tid] = expert_scale_word<true, 6, 64>(
-                weight_scales_u32,
-                static_cast<unsigned>(grow_sc_tid192 * kWScRowU32 + 0));
+            s->sm_wsc[0][tid] = finite_packed_scale(static_cast<unsigned>(grow_sc_tid192 * kWScRowU32 + 0));
         }
     }
 
@@ -10799,9 +10838,7 @@ __device__ __forceinline__ void grouped_nvfp4_tc_t160_impl(
         uint32_t next_wsc = 0u;
         if constexpr (PackedScales) {
             if ((ks64 + 1 < kStages64) && tid < 192) {
-                next_wsc = expert_scale_word<true, 6, 64>(
-                    weight_scales_u32,
-                    static_cast<unsigned>(grow_sc_tid192 * kWScRowU32 + (ks64 + 1)));
+                next_wsc = finite_packed_scale(static_cast<unsigned>(grow_sc_tid192 * kWScRowU32 + (ks64 + 1)));
             }
         }
 
@@ -10827,13 +10864,13 @@ __device__ __forceinline__ void grouped_nvfp4_tc_t160_impl(
                 wa[rm][1] = interleave_nvfp4_sub_sel(w1_lo[sub01], w1_lo[sub01 + 1], prmt_sel);
                 wa[rm][2] = interleave_nvfp4_sub_sel(w0_hi[sub01], w0_hi[sub01 + 1], prmt_sel);
                 wa[rm][3] = interleave_nvfp4_sub_sel(w1_hi[sub01], w1_hi[sub01 + 1], prmt_sel);
-                wsfa[rm] = sanitize_ue4m3x4(s->sm_wsc[st][wr * 32 + rm * 16 + sfa_row]);
+                wsfa[rm] = shared_scale(st, wr * 32 + rm * 16 + sfa_row);
                 w0_lo_sw[rm] = w0_lo;
                 w0_hi_sw[rm] = w0_hi;
                 w1_lo_sw[rm] = w1_lo;
                 w1_hi_sw[rm] = w1_hi;
-                sfa_r0_sw[rm] = sanitize_ue4m3x4(s->sm_wsc[st][r0]);
-                sfa_r1_sw[rm] = sanitize_ue4m3x4(s->sm_wsc[st][r1]);
+                sfa_r0_sw[rm] = shared_scale(st, r0);
+                sfa_r1_sw[rm] = shared_scale(st, r1);
             }
 
             #pragma unroll
@@ -11018,15 +11055,15 @@ extern "C" __global__ __launch_bounds__(384, 1) void ink2_moe_ternary_tc_down_t1
 }
 
 // 18.4 Native Block-32 `MXFP8` (`UE8M0 + E4M3`) Activation Quantizer + `64x64` `mxf8f6f4` Grouped MoE
-// Grid: `(cols / 128, n_rows)`, Block: `32` (`1` warp = `128` elements = `4` `MXFP8` blocks of 32!)
+// Grid: `(n_rows, cols / 128)`, Block: `32` (`1` warp = `128` elements = `4` `MXFP8` blocks of 32; `n_rows` in `gridDim.x` supports `>= 65536`!)
 extern "C" __global__ void ink2_quant_mxfp8_b(
     const float4* __restrict__ x4_base,       // [n_rows, cols / 4]
     uint4* __restrict__ out_fp8_u128,         // [n_rows, cols / 16]
     uint32_t* __restrict__ out_ue8m0_u32,     // [n_rows, cols / 128]
     int32_t cols) {
     pdl_wait();
-    const int blk128 = blockIdx.x;
-    const int row = blockIdx.y;
+    const int row = blockIdx.x;
+    const int blk128 = blockIdx.y;
     const int lane = threadIdx.x & 31;
     const int sub32 = lane >> 3;     // 0..3
     const int sub_lane = lane & 7;   // 0..7
@@ -11157,6 +11194,8 @@ __device__ __forceinline__ void grouped_mxfp8_tc_impl(
 
     uint4 weight_table;
     if constexpr (Indexed) weight_table = w_u128[0];
+    const bool is_last_tile = (first + 128 >= count);
+    const uint64_t evict_pol = make_l2_evict_first_policy();
 
     auto issue_stage = [&](int st, int kt) {
         #pragma unroll
@@ -11174,7 +11213,7 @@ __device__ __forceinline__ void grouped_mxfp8_tc_impl(
             if constexpr (Indexed) {
                 s->smem_b[st][r][q] = load_indexed_mxfp8(w_u128, weight_table, weight_index);
             } else {
-                cp_async16_cg(&s->smem_b[st][r][q], w_u128 + weight_index);
+                cp_async16_cg_evict_last_tile(&s->smem_b[st][r][q], w_u128 + weight_index, is_last_tile, evict_pol);
             }
         }
         if (tid < 128) {
@@ -11495,6 +11534,8 @@ __device__ __forceinline__ void grouped_mxfp8_tc_t160_impl(
 
     uint4 weight_table;
     if constexpr (Indexed) weight_table = w_u128[0];
+    const bool is_last_tile = (first + 160 >= count);
+    const uint64_t evict_pol = make_l2_evict_first_policy();
 
     auto issue_stage = [&](int st, int kt) {
         #pragma unroll
@@ -11513,7 +11554,7 @@ __device__ __forceinline__ void grouped_mxfp8_tc_t160_impl(
                 if constexpr (Indexed) {
                     s->smem_b[st][r][q] = load_indexed_mxfp8(w_u128, weight_table, weight_index);
                 } else {
-                    cp_async16_cg(&s->smem_b[st][r][q], w_u128 + weight_index);
+                    cp_async16_cg_evict_last_tile(&s->smem_b[st][r][q], w_u128 + weight_index, is_last_tile, evict_pol);
                 }
             }
         }
@@ -12344,6 +12385,423 @@ extern "C" __global__ __launch_bounds__(384, 1) void ink2_flash_attn_tc_split_b_
     flash_attn_tc_q8_b_impl<true, true>(
         qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_i8_raw, v_cache_i8_raw,
         k_scale, v_scale, pos_ptr, kv_cap, is_global, B, nullptr, nullptr, out_part_o_f16x2, out_part_ml);
+}
+
+// `v0.9.0` (`#152` P0-C): L2-Cooperative `80`-Query Global Split-KV Tensor Core FlashAttention
+// (`Grid: (ceil(B/80), 8, G_b)` so all `52` query CTAs of each `(kvh, split)` = `13.4 MB << 64/96 MiB L2` march in lockstep!)
+struct alignas(16) FlashSplit80Meta {
+    const float* qrgs_base;
+    const uint32_t* rel_proj_bf16;
+    const uint16_t* k_cache;
+    const uint16_t* v_cache;
+    uint32_t* out_part_o;
+    float2* out_part_ml;
+    int32_t qrgs_stride;
+    int32_t base_pos;
+    int32_t q_cta;
+    int32_t q_live;
+    int32_t B;
+    int32_t k_first;
+    int32_t k_end;
+    int32_t pad;
+}; // 80 B
+
+struct alignas(16) FlashAttnGlobalSplitSmem80 {
+    FlashKvBuffer<false> kv;    // 34,816 B (`FP16` 2-stage KV buffer)
+    uint4 qf_all[8][480];       // 61,440 B (all `8` `Q` slices staged in SMEM)
+    uint16_t sm_band[112][16];  //  3,584 B (only touched on the `<1%` near tiles where `d < 1024`)
+    FlashSplit80Meta meta;      //     80 B (all pointers & loop bounds in SMEM -> `0` spills!)
+}; // Total = 99,920 B <= 101,376 B (`99 KiB`, `cp.async.cg` bypasses L1!)
+
+static_assert(sizeof(FlashAttnGlobalSplitSmem80) == 99920, "FlashAttnGlobalSplitSmem80 size mismatch");
+
+extern "C" __global__ __launch_bounds__(480, 1) void ink2_flash_attn_tc_split80_b(
+    const float* __restrict__ qrgs_base,
+    int32_t qrgs_stride,
+    const uint32_t* __restrict__ rel_proj_bf16,
+    const uint16_t* __restrict__ k_cache_fp16,
+    const uint16_t* __restrict__ v_cache_fp16,
+    const int32_t* __restrict__ pos_ptr,
+    int32_t B,
+    uint32_t* __restrict__ out_part_o_f16x2,
+    float2* __restrict__ out_part_ml) {
+    pdl_wait();
+    extern __shared__ __align__(16) uint8_t dyn_flash80_smem[];
+    FlashAttnGlobalSplitSmem80* f_sm = reinterpret_cast<FlashAttnGlobalSplitSmem80*>(dyn_flash80_smem);
+    auto& sm_kv = f_sm->kv;
+
+    const int q_cta_init = static_cast<int>(gridDim.x - 1u - blockIdx.x) * 80;
+    if (q_cta_init >= B) return;
+    const int q_live_init = min(80, B - q_cta_init);
+
+    const int tid = threadIdx.x; // 0..479
+    float m0, m1, l0, l1;
+    {
+        const int base_pos_init = *pos_ptr;
+        const int pos_q_max = base_pos_init + q_cta_init + q_live_init - 1;
+        const int split_idx = static_cast<int>(blockIdx.z);
+        const int n_splits = static_cast<int>(gridDim.z);
+        const int n_tiles32 = (base_pos_init + B + 31) >> 5;
+        const int t0 = (n_tiles32 * split_idx) / n_splits;
+        const int t1 = (n_tiles32 * (split_idx + 1)) / n_splits;
+        const int k_first_init = t0 * 32;
+        const int k_end_init = min(pos_q_max + 1, t1 * 32);
+        if (tid == 0) {
+            f_sm->meta.qrgs_base = qrgs_base;
+            f_sm->meta.rel_proj_bf16 = rel_proj_bf16;
+            f_sm->meta.k_cache = k_cache_fp16;
+            f_sm->meta.v_cache = v_cache_fp16;
+            f_sm->meta.out_part_o = out_part_o_f16x2;
+            f_sm->meta.out_part_ml = out_part_ml;
+            f_sm->meta.qrgs_stride = qrgs_stride;
+            f_sm->meta.base_pos = base_pos_init;
+            f_sm->meta.q_cta = q_cta_init;
+            f_sm->meta.q_live = q_live_init;
+            f_sm->meta.B = B;
+            f_sm->meta.k_first = k_first_init;
+            f_sm->meta.k_end = k_end_init;
+        }
+
+        const int w = tid >> 5;
+        const int lane = tid & 31;
+        const int gqa = w / 5;
+        const int wq = w - gqa * 5;
+        const int h = static_cast<int>(blockIdx.y) * 3 + gqa;
+        const int g = lane >> 2;
+        const int t = lane & 3;
+        const int qr0 = wq * 16 + g;
+        const int qr1 = qr0 + 8;
+        const bool vq0 = qr0 < q_live_init;
+        const bool vq1 = qr1 < q_live_init;
+
+        const float* qa_ptr = qrgs_base + static_cast<size_t>(q_cta_init + (vq0 ? qr0 : 0)) * qrgs_stride + h * kHd;
+        const float* qb_ptr = qrgs_base + static_cast<size_t>(q_cta_init + (vq1 ? qr1 : 0)) * qrgs_stride + h * kHd;
+        #pragma unroll
+        for (int kk = 0; kk < 8; ++kk) {
+            const int c0 = kk * 16 + 2 * t;
+            const int c1 = c0 + 8;
+            f_sm->qf_all[kk][tid] = make_uint4(
+                vq0 ? pack_f16x2_rn(qa_ptr[c0], qa_ptr[c0 + 1]) : 0u,
+                vq1 ? pack_f16x2_rn(qb_ptr[c0], qb_ptr[c0 + 1]) : 0u,
+                vq0 ? pack_f16x2_rn(qa_ptr[c1], qa_ptr[c1 + 1]) : 0u,
+                vq1 ? pack_f16x2_rn(qb_ptr[c1], qb_ptr[c1 + 1]) : 0u);
+        }
+
+        const bool include_sink = (blockIdx.z == 0u);
+        m0 = (include_sink && vq0) ? qrgs_base[static_cast<size_t>(q_cta_init + qr0) * qrgs_stride + 6528 + h] : -1e30f;
+        m1 = (include_sink && vq1) ? qrgs_base[static_cast<size_t>(q_cta_init + qr1) * qrgs_stride + 6528 + h] : -1e30f;
+        l0 = (include_sink && vq0 && t == 0) ? 1.0f : 0.0f;
+        l1 = (include_sink && vq1 && t == 0) ? 1.0f : 0.0f;
+    }
+    float o_acc[16][4] = {};
+
+    auto issue_kv_tile = [&](int st, int k0) {
+        const int kvh = static_cast<int>(blockIdx.y);
+        const int kf = f_sm->meta.k_first;
+        const int ke = f_sm->meta.k_end;
+        const uint16_t* kc_ptr = f_sm->meta.k_cache;
+        const uint16_t* vc_ptr = f_sm->meta.v_cache;
+        #pragma unroll
+        for (int p = 0; p < 3; ++p) {
+            const int idx = p * 480 + tid;
+            if (idx < 1024) {
+                const bool is_v = idx >= 512;
+                const int rem = is_v ? (idx - 512) : idx;
+                const int kc = rem >> 4;
+                const int c8 = (rem & 15) * 8;
+                const int pos_k = k0 + kc;
+                const bool ok = (pos_k >= kf) && (pos_k < ke);
+                const int slot_row = ok ? pos_k : 0;
+                const uint16_t* src = (is_v ? vc_ptr : kc_ptr)
+                    + static_cast<size_t>(slot_row) * 1024u + kvh * 128 + c8;
+                uint16_t* dst = is_v ? &sm_kv.st[st].v[kc][c8] : &sm_kv.st[st].k[kc][c8];
+                cp_async16_cg_pred(dst, src, ok);
+            }
+        }
+        cp_async_commit_grp();
+    };
+
+    __syncthreads();
+    if (f_sm->meta.k_first < f_sm->meta.k_end) {
+        issue_kv_tile((f_sm->meta.k_first >> 5) & 1, f_sm->meta.k_first);
+    }
+
+    #pragma unroll 1
+    for (int k_base = f_sm->meta.k_first; k_base < f_sm->meta.k_end; k_base += 32) {
+        const int st_idx = (k_base >> 5) & 1;
+        const int ke = f_sm->meta.k_end;
+        const bool has_next = (k_base + 32) < ke;
+        if (has_next) {
+            issue_kv_tile(st_idx ^ 1, k_base + 32);
+        }
+
+        const int q_base_pos = f_sm->meta.base_pos + f_sm->meta.q_cta;
+        const int pos_q_max = q_base_pos + f_sm->meta.q_live - 1;
+        const bool has_rel = ((q_base_pos - (k_base + 31)) < kExtent) && ((pos_q_max - k_base) >= 0);
+        if (has_rel) {
+            const int d0 = q_base_pos - k_base - 31;
+            const uint32_t* rproj = f_sm->meta.rel_proj_bf16;
+            #pragma unroll
+            for (int p = 0; p < 4; ++p) {
+                const int idx = p * 480 + tid;
+                if (idx < 112 * 16) {
+                    const int br = idx >> 4;
+                    const int ri = idx & 15;
+                    const int d = d0 + br;
+                    uint16_t hbits = 0u;
+                    if (d >= 0 && d < kExtent) {
+                        const uint32_t pair32 = rproj[ri * 512 + (d >> 1)];
+                        const uint16_t bf16_u16 = static_cast<uint16_t>((d & 1) ? (pair32 >> 16) : (pair32 & 0xFFFFu));
+                        hbits = f32_to_fp16_bits(bf16_to_f32(bf16_u16));
+                    }
+                    f_sm->sm_band[br][ri] = hbits;
+                }
+            }
+        }
+
+        if (has_next) {
+            cp_async_wait_grp<1>();
+        } else {
+            cp_async_wait_grp<0>();
+        }
+        __syncthreads();
+
+        const FlashKvStageF16& cur_kv = sm_kv.st[st_idx];
+        const int lane = tid & 31;
+        const int w = tid >> 5;
+        const int wq = w - (w / 5) * 5;
+        const bool active = (k_base <= q_base_pos + wq * 16 + 15);
+        float s[4][4] = {};
+        if (active) {
+            #pragma unroll 2
+            for (int kk = 0; kk < 8; ++kk) {
+                const uint4 qft = f_sm->qf_all[kk][tid];
+                #pragma unroll
+                for (int n = 0; n < 4; n += 2) {
+                    unsigned b0, b1, b2, b3;
+                    ldsm_x4_b16(
+                        b0, b1, b2, b3,
+                        &cur_kv.k[n * 8 + (lane & 7) + ((lane >> 4) << 3)][kk * 16 + ((lane >> 3) & 1) * 8]);
+                    mma_f16_m16n8k16(s[n][0], s[n][1], s[n][2], s[n][3], qft.x, qft.y, qft.z, qft.w, b0, b1);
+                    mma_f16_m16n8k16(s[n + 1][0], s[n + 1][1], s[n + 1][2], s[n + 1][3], qft.x, qft.y, qft.z, qft.w, b2, b3);
+                }
+            }
+        }
+
+        // Cold near-band `rel_proj` (`<1%` of Global KV tiles at 128K): CTA-uniform barrier reuses dead `cur_kv.k` (`8,192 B`) for `sm_gx` (`3,840 B`)!
+        if (has_rel) {
+            __syncthreads();
+            if (active) {
+                const int g = lane >> 2;
+                const int t = lane & 3;
+                if ((q_base_pos + wq * 16 - (k_base + 31)) < kExtent) {
+                    const int h = static_cast<int>(blockIdx.y) * 3 + (w / 5);
+                    const int q_live_cur = f_sm->meta.q_live;
+                    const int qr0 = wq * 16 + g;
+                    const int qr1 = qr0 + 8;
+                    const bool vq0 = qr0 < q_live_cur;
+                    const bool vq1 = qr1 < q_live_cur;
+                    const int qs = f_sm->meta.qrgs_stride;
+                    const float* ra_ptr = f_sm->meta.qrgs_base + static_cast<size_t>(f_sm->meta.q_cta + (vq0 ? qr0 : 0)) * qs + 3072 + h * kRel + 2 * t;
+                    const float* rb_ptr = f_sm->meta.qrgs_base + static_cast<size_t>(f_sm->meta.q_cta + (vq1 ? qr1 : 0)) * qs + 3072 + h * kRel + 2 * t;
+                    const uint4 rfu = make_uint4(
+                        vq0 ? pack_f16x2_rn(ra_ptr[0], ra_ptr[1]) : 0u,
+                        vq1 ? pack_f16x2_rn(rb_ptr[0], rb_ptr[1]) : 0u,
+                        vq0 ? pack_f16x2_rn(ra_ptr[8], ra_ptr[9]) : 0u,
+                        vq1 ? pack_f16x2_rn(rb_ptr[8], rb_ptr[9]) : 0u);
+                    float (*sm_gx)[8][8] = reinterpret_cast<float(*)[8][8]>(&sm_kv.st[st_idx].k[0][0]);
+                    #pragma unroll 1
+                    for (int nt = 0; nt < 6; ++nt) {
+                        unsigned b0, b1;
+                        ldsm_x2_b16(b0, b1, &f_sm->sm_band[wq * 16 + nt * 8 + (lane & 7)][((lane >> 3) & 1) * 8]);
+                        float g0 = 0.0f, g1 = 0.0f, g2 = 0.0f, g3 = 0.0f;
+                        mma_f16_m16n8k16(g0, g1, g2, g3, rfu.x, rfu.y, rfu.z, rfu.w, b0, b1);
+                        sm_gx[w][g][2 * t] = g0;
+                        sm_gx[w][g][2 * t + 1] = g1;
+                        __syncwarp();
+                        #pragma unroll
+                        for (int n = 0; n < 4; ++n) {
+                            #pragma unroll
+                            for (int c = 0; c < 2; ++c) {
+                                const int col = g + 31 - (n * 8 + 2 * t + c);
+                                if ((col >> 3) == nt) {
+                                    s[n][c] = __fmaf_rn(s[n][c], 0.08838834764831845f, sm_gx[w][g][col & 7]);
+                                }
+                            }
+                        }
+                        __syncwarp();
+                        sm_gx[w][g][2 * t] = g2;
+                        sm_gx[w][g][2 * t + 1] = g3;
+                        __syncwarp();
+                        #pragma unroll
+                        for (int n = 0; n < 4; ++n) {
+                            #pragma unroll
+                            for (int c = 0; c < 2; ++c) {
+                                const int col = (g + 8) + 31 - (n * 8 + 2 * t + c);
+                                if ((col >> 3) == nt) {
+                                    s[n][2 + c] = __fmaf_rn(s[n][2 + c], 0.08838834764831845f, sm_gx[w][g][col & 7]);
+                                }
+                            }
+                        }
+                        __syncwarp();
+                    }
+                } else {
+                    #pragma unroll
+                    for (int n = 0; n < 4; ++n) {
+                        #pragma unroll
+                        for (int e = 0; e < 4; ++e) {
+                            s[n][e] *= 0.08838834764831845f;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (active) {
+            const int g = lane >> 2;
+            const int t = lane & 3;
+            const int qr0 = wq * 16 + g;
+            const int qr1 = qr0 + 8;
+            const int q_live_cur = f_sm->meta.q_live;
+            const bool vq0 = qr0 < q_live_cur;
+            const bool vq1 = qr1 < q_live_cur;
+            const int pos_q0 = q_base_pos + qr0;
+            const int pos_q1 = q_base_pos + qr1;
+
+            uint32_t valid_bits = 0u;
+            float tmax0 = m0;
+            float tmax1 = m1;
+            #pragma unroll
+            for (int n = 0; n < 4; ++n) {
+                #pragma unroll
+                for (int c = 0; c < 2; ++c) {
+                    const int pos_k = k_base + n * 8 + 2 * t + c;
+                    if (!has_rel) {
+                        s[n][c] *= 0.08838834764831845f;
+                        s[n][2 + c] *= 0.08838834764831845f;
+                    }
+                    const bool v0 = vq0 && (pos_k < ke) && (pos_k <= pos_q0);
+                    if (v0) {
+                        valid_bits |= (1u << (n * 4 + c));
+                        tmax0 = fmaxf(tmax0, s[n][c]);
+                    }
+                    const bool v1 = vq1 && (pos_k < ke) && (pos_k <= pos_q1);
+                    if (v1) {
+                        valid_bits |= (1u << (n * 4 + 2 + c));
+                        tmax1 = fmaxf(tmax1, s[n][2 + c]);
+                    }
+                }
+            }
+
+            tmax0 = fmaxf(tmax0, __shfl_xor_sync(0xFFFFFFFFu, tmax0, 1));
+            tmax0 = fmaxf(tmax0, __shfl_xor_sync(0xFFFFFFFFu, tmax0, 2));
+            tmax1 = fmaxf(tmax1, __shfl_xor_sync(0xFFFFFFFFu, tmax1, 1));
+            tmax1 = fmaxf(tmax1, __shfl_xor_sync(0xFFFFFFFFu, tmax1, 2));
+
+            if (tmax0 > m0) {
+                const float alpha0 = ptx_exp(m0 - tmax0);
+                l0 *= alpha0;
+                #pragma unroll
+                for (int nd = 0; nd < 16; ++nd) {
+                    o_acc[nd][0] *= alpha0;
+                    o_acc[nd][1] *= alpha0;
+                }
+                m0 = tmax0;
+            }
+            if (tmax1 > m1) {
+                const float alpha1 = ptx_exp(m1 - tmax1);
+                l1 *= alpha1;
+                #pragma unroll
+                for (int nd = 0; nd < 16; ++nd) {
+                    o_acc[nd][2] *= alpha1;
+                    o_acc[nd][3] *= alpha1;
+                }
+                m1 = tmax1;
+            }
+
+            #pragma unroll
+            for (int j = 0; j < 2; ++j) {
+                const int n0 = 2 * j;
+                const int n1 = n0 + 1;
+                const float p00 = (valid_bits & (1u << (n0 * 4 + 0))) ? ptx_exp(s[n0][0] - m0) : 0.0f;
+                const float p01 = (valid_bits & (1u << (n0 * 4 + 1))) ? ptx_exp(s[n0][1] - m0) : 0.0f;
+                const float p02 = (valid_bits & (1u << (n0 * 4 + 2))) ? ptx_exp(s[n0][2] - m1) : 0.0f;
+                const float p03 = (valid_bits & (1u << (n0 * 4 + 3))) ? ptx_exp(s[n0][3] - m1) : 0.0f;
+                l0 += p00 + p01;
+                l1 += p02 + p03;
+                const unsigned pf0 = pack_f16x2_rn(p00, p01);
+                const unsigned pf1 = pack_f16x2_rn(p02, p03);
+
+                const float p10 = (valid_bits & (1u << (n1 * 4 + 0))) ? ptx_exp(s[n1][0] - m0) : 0.0f;
+                const float p11 = (valid_bits & (1u << (n1 * 4 + 1))) ? ptx_exp(s[n1][1] - m0) : 0.0f;
+                const float p12 = (valid_bits & (1u << (n1 * 4 + 2))) ? ptx_exp(s[n1][2] - m1) : 0.0f;
+                const float p13 = (valid_bits & (1u << (n1 * 4 + 3))) ? ptx_exp(s[n1][3] - m1) : 0.0f;
+                l0 += p10 + p11;
+                l1 += p12 + p13;
+                const unsigned pf2 = pack_f16x2_rn(p10, p11);
+                const unsigned pf3 = pack_f16x2_rn(p12, p13);
+
+                #pragma unroll
+                for (int nd = 0; nd < 16; nd += 2) {
+                    unsigned b0, b1, b2, b3;
+                    ldsm_x4_trans_b16(
+                        b0, b1, b2, b3,
+                        &cur_kv.v[j * 16 + (lane & 15)][nd * 8 + (lane >> 4) * 8]);
+                    mma_f16_m16n8k16(
+                        o_acc[nd][0], o_acc[nd][1], o_acc[nd][2], o_acc[nd][3],
+                        pf0, pf1, pf2, pf3, b0, b1);
+                    mma_f16_m16n8k16(
+                        o_acc[nd + 1][0], o_acc[nd + 1][1], o_acc[nd + 1][2], o_acc[nd + 1][3],
+                        pf0, pf1, pf2, pf3, b2, b3);
+                }
+            }
+        }
+        __syncthreads();
+    }
+
+    l0 += __shfl_xor_sync(0xFFFFFFFFu, l0, 1);
+    l0 += __shfl_xor_sync(0xFFFFFFFFu, l0, 2);
+    l1 += __shfl_xor_sync(0xFFFFFFFFu, l1, 1);
+    l1 += __shfl_xor_sync(0xFFFFFFFFu, l1, 2);
+
+    const int ep_w = tid >> 5;
+    const int ep_lane = tid & 31;
+    const int ep_gqa = ep_w / 5;
+    const int ep_wq = ep_w - ep_gqa * 5;
+    const int ep_h = static_cast<int>(blockIdx.y) * 3 + ep_gqa;
+    const int ep_g = ep_lane >> 2;
+    const int ep_t = ep_lane & 3;
+    const int ep_qr0 = ep_wq * 16 + ep_g;
+    const int ep_qr1 = ep_qr0 + 8;
+    const int ep_q_cta = f_sm->meta.q_cta;
+    const int ep_q_live = f_sm->meta.q_live;
+    const size_t split_base = static_cast<size_t>(blockIdx.z) * static_cast<size_t>(f_sm->meta.B);
+    uint32_t* ep_part_o = f_sm->meta.out_part_o;
+    float2* ep_part_ml = f_sm->meta.out_part_ml;
+    if (ep_qr0 < ep_q_live) {
+        const float inv_split_l0 = (l0 > 0.0f) ? ptx_rcp(l0) : 0.0f;
+        const size_t qh0 = (split_base + static_cast<size_t>(ep_q_cta + ep_qr0)) * 24u + ep_h;
+        uint32_t* dst0 = ep_part_o + qh0 * 64u;
+        #pragma unroll
+        for (int nd = 0; nd < 16; ++nd) {
+            dst0[nd * 4 + ep_t] = pack_f16x2_rn(o_acc[nd][0] * inv_split_l0, o_acc[nd][1] * inv_split_l0);
+        }
+        if (ep_t == 0) {
+            ep_part_ml[qh0] = make_float2(m0, l0);
+        }
+    }
+    if (ep_qr1 < ep_q_live) {
+        const float inv_split_l1 = (l1 > 0.0f) ? ptx_rcp(l1) : 0.0f;
+        const size_t qh1 = (split_base + static_cast<size_t>(ep_q_cta + ep_qr1)) * 24u + ep_h;
+        uint32_t* dst1 = ep_part_o + qh1 * 64u;
+        #pragma unroll
+        for (int nd = 0; nd < 16; ++nd) {
+            dst1[nd * 4 + ep_t] = pack_f16x2_rn(o_acc[nd][2] * inv_split_l1, o_acc[nd][3] * inv_split_l1);
+        }
+        if (ep_t == 0) {
+            ep_part_ml[qh1] = make_float2(m1, l1);
+        }
+    }
 }
 
 // Online-Softmax Combine + Sigmoid Gate + `Q8_64` Quantizer (`Grid: (24, B)`, `Block: 64` = `2` warps, `1` warp per `64`-dim half!)

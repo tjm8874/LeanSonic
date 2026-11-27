@@ -2407,4 +2407,45 @@ def cycle10DecodeBreakthroughSuite : List KernelResourceSpec :=
 theorem cycle10_decode_breakthrough_all_kernels_valid :
     (cycle10DecodeBreakthroughSuite.all checkSm120Kernel) = true := by decide
 
+-- ============================================================================
+-- Cycle 11 (`v0.9.0` P0-C): Wide-Chunk Resident Prefill (`4096 / 8192`) + L2-Cooperative `split80_b`
+-- ============================================================================
+
+/-- `expert_map_offset(expert, occurrence)` in `kernels/inkling2_sm120.cu`. -/
+def expertMapOffset (expert occurrence : Nat) : Nat :=
+  ((occurrence / 64) * 128 + expert) * 64 + (occurrence % 64)
+
+/-- For every power-of-two chunk width `capacity ∈ {64, 128, 256, 512, 1024, 2048, 4096, 8192}`
+    and `long_splits ∈ {3, 5, 6}`, every routed occurrence `0 <= occ < capacity` on any expert
+    `0 <= e < 128` maps strictly inside the `128 * capacity` paged occurrence table, the resized
+    SWA KV ring `1024 + capacity` preserves all `1024` active SWA keys, and `part_o + part_ml`
+    (`long_splits * 1584 * capacity` dwords) fits inside the `9832 * capacity` reused prefill scratch. -/
+def checkWidePrefillChunk (capacity : Nat) : Bool :=
+  capacity % 64 == 0 &&
+  capacity >= 64 &&
+  expertMapOffset 127 (capacity - 1) < 128 * capacity &&
+  (1024 + capacity) - capacity >= 1024 &&
+  6 * 1584 * capacity <= 9832 * capacity
+
+theorem cycle11_wide_prefill_chunks_safe :
+    ([64, 128, 256, 512, 1024, 2048, 4096, 8192].all checkWidePrefillChunk) = true := by decide
+
+def kInk2FlashAttnTcSplit80B : KernelResourceSpec :=
+  { name := "ink2_flash_attn_tc_split80_b"
+    threadsPerCta := 480
+    rawRegsPerThread := 128         -- 480 * 128 = 61,440 <= 65,536 regs/SM (`15` warps/CTA, `80` queries/KV load!)
+    userSmemPerCtaBytes := 99920    -- 99,920 + 1,024 sys = 100,944 B <= 100 KiB carveout (`cp.async.cg` bypasses L1!)
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 28
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def cycle11PrefillKernelSuite : List KernelResourceSpec :=
+  [ kInk2FlashAttnTcSplit80B ]
+
+theorem cycle11_prefill_kernels_all_valid :
+    (cycle11PrefillKernelSuite.all checkSm120Kernel) = true := by decide
+
 end LeanSonic.Proofs
