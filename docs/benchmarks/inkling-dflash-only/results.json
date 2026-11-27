@@ -1,0 +1,190 @@
+{
+  "gpu": "NVIDIA RTX PRO 4500 Blackwell, 595.99.02, 200.00 W",
+  "target_bytes": 11663036518,
+  "dflash_bytes": 989975616,
+  "mtp_bytes": 635801416,
+  "digests": {
+    "303": [
+      "dd8e2af70527b4495df3b3d7a21a625da67206b2649d5d4630effc83b081d971  prior",
+      "7d3d1416baeaefcb71c4cbefab686def0a46ca1b44a4b7a8630d56e56518e8e6  engine.cubin",
+      "222a148bcfb0a488c808d0bab5e67d65b6fc8e335853719691f80c01d1f95d59  df2.cubin",
+      "1b19227c88ba9836ce3ac16017f9a71b5fea1c439f0b400e37d60f23639e0103  prompt.ids",
+      "217980ab00d116693fa5946df7bbfd967caf5fac1f529afd541fbd470ddb54ee  /models/basalt-inkling2-prefill-opt-20261121/Inkling-2-Mini-DFlash2/model.safetensors",
+      "7c3b651317f01f73bcf4e1dceba66ef8b7e1a1eac6bc171e882e690a4b10a1d2  /models/inkling2-mini-cuda01-20261121/sglang/model/mtp.safetensors"
+    ],
+    "308": [
+      "6da68b6bdcace87ca510c66f8a2c687565ae6c2506572517ad65698447b250c1  author",
+      "7d3d1416baeaefcb71c4cbefab686def0a46ca1b44a4b7a8630d56e56518e8e6  engine.cubin",
+      "5cef0d197392d39a4927f5e6da2a0689df7674d9fec237432d84780255b12d7a  df2.cubin",
+      "1b19227c88ba9836ce3ac16017f9a71b5fea1c439f0b400e37d60f23639e0103  prompt.ids",
+      "217980ab00d116693fa5946df7bbfd967caf5fac1f529afd541fbd470ddb54ee  /models/basalt-inkling2-prefill-opt-20261121/Inkling-2-Mini-DFlash2/model.safetensors",
+      "7c3b651317f01f73bcf4e1dceba66ef8b7e1a1eac6bc171e882e690a4b10a1d2  /models/inkling2-mini-cuda01-20261121/sglang/model/mtp.safetensors"
+    ]
+  },
+  "arms": {
+    "spec0-64": {
+      "status": 0,
+      "ids_and_tail_sha256": "e209bb1c6df9d37c4c39815c82517e689df560c6002040098a64f67f93a07521",
+      "tail": 12,
+      "output": [
+        "load_ms=8704.163 has_df2=false",
+        "rep=0 prefill_ms=45.121 decode_ms=373.790 draft=0 accept=0 steps=0 copied=0",
+        "rep=1 prefill_ms=45.243 decode_ms=374.842 draft=0 accept=0 steps=0 copied=0"
+      ],
+      "peak": {
+        "peak_bytes": 17039360000,
+        "polls": 2257,
+        "positive_polls": 2253
+      }
+    },
+    "prior-only-64": {
+      "status": 1,
+      "error": "missing drafter tap storage"
+    },
+    "prior-both-64": {
+      "status": 0,
+      "ids_and_tail_sha256": "e209bb1c6df9d37c4c39815c82517e689df560c6002040098a64f67f93a07521",
+      "tail": 12,
+      "output": [
+        "load_ms=9104.830 has_df2=true",
+        "rep=0 prefill_ms=46.097 decode_ms=256.735 draft=51 accept=43 steps=21 copied=0",
+        "rep=1 prefill_ms=46.190 decode_ms=258.244 draft=51 accept=43 steps=21 copied=0"
+      ],
+      "peak": {
+        "peak_bytes": 18522046464,
+        "polls": 2296,
+        "positive_polls": 2293
+      },
+      "four_tap_sha256": [
+        "627528d0be530631255230a994988e6c6b688f93c645f2d32de798d7d8a710a4",
+        "2f2c67691139b889fc1874b62eb014c3f162b6e3a85499f1491c94be98b91e2d",
+        "b07a08739684b18b06c501b7540ce35dd3abe33411b7b72e7d2ca78c5c2489e6",
+        "94f4ef0f7d98bdc5931700f4e692a6a77b3b48809d55cddadff245824c697273"
+      ]
+    },
+    "spec0-4096": {
+      "status": 0,
+      "ids_and_tail_sha256": "7e4bdfe02f95e5b8f4654b5ae9ef2a722a6eb75dfe304539db94fcc484587b55",
+      "tail": 12,
+      "output": [
+        "load_ms=8548.551 has_df2=false",
+        "rep=0 prefill_ms=395.881 decode_ms=396.764 draft=0 accept=0 steps=0 copied=0",
+        "rep=1 prefill_ms=404.549 decode_ms=396.707 draft=0 accept=0 steps=0 copied=0"
+      ],
+      "peak": {
+        "peak_bytes": 17039360000,
+        "polls": 2397,
+        "positive_polls": 2394
+      }
+    },
+    "prior-only-4096": {
+      "status": 1,
+      "error": "missing drafter tap storage"
+    },
+    "prior-both-4096": {
+      "status": 0,
+      "ids_and_tail_sha256": "7e4bdfe02f95e5b8f4654b5ae9ef2a722a6eb75dfe304539db94fcc484587b55",
+      "tail": 12,
+      "output": [
+        "load_ms=9061.266 has_df2=true",
+        "rep=0 prefill_ms=431.933 decode_ms=213.637 draft=58 accept=53 steps=11 copied=0",
+        "rep=1 prefill_ms=440.701 decode_ms=213.908 draft=58 accept=53 steps=11 copied=0"
+      ],
+      "peak": {
+        "peak_bytes": 18522046464,
+        "polls": 2555,
+        "positive_polls": 2552
+      },
+      "four_tap_sha256": [
+        "97fea669a0a770fb7870e1c079d170ca449a205ac2810acb982d9b13d2a678ee",
+        "1a4f6aa14c5870a5936bec58848fd27e2290b8781a68fae6f7a4bcdac8a718c6",
+        "10126b0628c2331b601ff90135bc9996baa6c45cd230aa19655a70c8217f746c",
+        "b3de9431fa8b4ae53c17ae3dc9e5ef3c744a263a1210b03abe78b6fcddafb5c2"
+      ]
+    },
+    "author-only-64": {
+      "status": 0,
+      "ids_and_tail_sha256": "e209bb1c6df9d37c4c39815c82517e689df560c6002040098a64f67f93a07521",
+      "tail": 12,
+      "output": [
+        "load_ms=10456.969 has_df2=true",
+        "rep=0 prefill_ms=45.592 decode_ms=248.139 draft=50 accept=43 steps=21 copied=0",
+        "rep=1 prefill_ms=45.600 decode_ms=248.807 draft=50 accept=43 steps=21 copied=0"
+      ],
+      "peak": {
+        "peak_bytes": 17951621120,
+        "polls": 2471,
+        "positive_polls": 2468
+      },
+      "four_tap_sha256": [
+        "627528d0be530631255230a994988e6c6b688f93c645f2d32de798d7d8a710a4",
+        "2f2c67691139b889fc1874b62eb014c3f162b6e3a85499f1491c94be98b91e2d",
+        "b07a08739684b18b06c501b7540ce35dd3abe33411b7b72e7d2ca78c5c2489e6",
+        "94f4ef0f7d98bdc5931700f4e692a6a77b3b48809d55cddadff245824c697273"
+      ]
+    },
+    "author-both-64": {
+      "status": 0,
+      "ids_and_tail_sha256": "e209bb1c6df9d37c4c39815c82517e689df560c6002040098a64f67f93a07521",
+      "tail": 12,
+      "output": [
+        "load_ms=10975.722 has_df2=true",
+        "rep=0 prefill_ms=45.940 decode_ms=249.083 draft=50 accept=43 steps=21 copied=0",
+        "rep=1 prefill_ms=45.888 decode_ms=249.611 draft=50 accept=43 steps=21 copied=0"
+      ],
+      "peak": {
+        "peak_bytes": 18494783488,
+        "polls": 2623,
+        "positive_polls": 2621
+      },
+      "four_tap_sha256": [
+        "627528d0be530631255230a994988e6c6b688f93c645f2d32de798d7d8a710a4",
+        "2f2c67691139b889fc1874b62eb014c3f162b6e3a85499f1491c94be98b91e2d",
+        "b07a08739684b18b06c501b7540ce35dd3abe33411b7b72e7d2ca78c5c2489e6",
+        "94f4ef0f7d98bdc5931700f4e692a6a77b3b48809d55cddadff245824c697273"
+      ]
+    },
+    "author-only-4096": {
+      "status": 0,
+      "ids_and_tail_sha256": "7e4bdfe02f95e5b8f4654b5ae9ef2a722a6eb75dfe304539db94fcc484587b55",
+      "tail": 12,
+      "output": [
+        "load_ms=9838.418 has_df2=true",
+        "rep=0 prefill_ms=405.372 decode_ms=209.342 draft=58 accept=53 steps=11 copied=0",
+        "rep=1 prefill_ms=413.365 decode_ms=209.634 draft=58 accept=53 steps=11 copied=0"
+      ],
+      "peak": {
+        "peak_bytes": 17951621120,
+        "polls": 2654,
+        "positive_polls": 2652
+      },
+      "four_tap_sha256": [
+        "97fea669a0a770fb7870e1c079d170ca449a205ac2810acb982d9b13d2a678ee",
+        "1a4f6aa14c5870a5936bec58848fd27e2290b8781a68fae6f7a4bcdac8a718c6",
+        "10126b0628c2331b601ff90135bc9996baa6c45cd230aa19655a70c8217f746c",
+        "b3de9431fa8b4ae53c17ae3dc9e5ef3c744a263a1210b03abe78b6fcddafb5c2"
+      ]
+    },
+    "author-both-4096": {
+      "status": 0,
+      "ids_and_tail_sha256": "7e4bdfe02f95e5b8f4654b5ae9ef2a722a6eb75dfe304539db94fcc484587b55",
+      "tail": 12,
+      "output": [
+        "load_ms=9284.964 has_df2=true",
+        "rep=0 prefill_ms=424.424 decode_ms=209.954 draft=58 accept=53 steps=11 copied=0",
+        "rep=1 prefill_ms=432.417 decode_ms=210.160 draft=58 accept=53 steps=11 copied=0"
+      ],
+      "peak": {
+        "peak_bytes": 18494783488,
+        "polls": 2636,
+        "positive_polls": 2634
+      },
+      "four_tap_sha256": [
+        "97fea669a0a770fb7870e1c079d170ca449a205ac2810acb982d9b13d2a678ee",
+        "1a4f6aa14c5870a5936bec58848fd27e2290b8781a68fae6f7a4bcdac8a718c6",
+        "10126b0628c2331b601ff90135bc9996baa6c45cd230aa19655a70c8217f746c",
+        "b3de9431fa8b4ae53c17ae3dc9e5ef3c744a263a1210b03abe78b6fcddafb5c2"
+      ]
+    }
+  }
+}
