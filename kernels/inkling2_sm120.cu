@@ -14104,7 +14104,7 @@ __device__ __forceinline__ void gqa_attn_g1_q8_decode_body(
                 const float m_new = (dot > m_w[hh]) ? dot : m_w[hh];
                 const float alpha = ptx_exp(m_w[hh] - m_new);
                 const float p = ptx_exp(dot - m_new);
-                l_w[hh] = l_w[hh] * alpha + p;
+                l_w[hh] = __fmaf_rn(l_w[hh], alpha, p);
                 m_w[hh] = m_new;
                 // Match the FP16 per-head fallback: round p*v before fusing the rescaled state.
                 o[hh][0] = __fmaf_rn(o[hh][0], alpha, __fmul_rn(p, v0));
