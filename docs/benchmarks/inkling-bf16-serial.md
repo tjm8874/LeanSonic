@@ -12,6 +12,17 @@ Using the same grouping did not reduce V13's aggregate test divergence. The maxi
 
 A trace build of the V13 engine reported `offset=0 len=256` then `offset=256 len=1`. It produced the same complete one-chunk metrics as the unmodified engine. The public generator independently checks the observed positions and batch sizes of the first BF16 chunk after successful decode. Its canonical control reproduced all 4,080 rows of the first 16 chunks byte-for-byte, including all vocabulary entries and IDs. Its separately generated serial control reproduced the first 255 rows of the 100-chunk serial reference byte-for-byte. See [builds, hashes and full numeric results](inkling-bf16-serial.json).
 
+## The same engine row against both oracles
+
+We also dumped the full V13 logit vector once per selected position through the normal greedy CLI. The raw output SHA-256 per position is in the JSON. At test 69/353 V13 predicts the observed WikiText target, and matching the schedule changes the BF16 top token to that same target. The KL remains above 0.5. At 80/452 V13 and canonical BF16 predict the observed target, while serial BF16 predicts a different token.
+
+| Split and position | WikiText target | V13 top | Canonical BF16 top | Serial BF16 top | KL vs canonical | KL vs serial |
+|---|---:|---:|---:|---:|---:|---:|
+| test 29/443 | 149918 | 149918 | 149918 | 149918 | 0.175476 | 0.061269 |
+| test 69/353 | 1057 | 1057 | 2952 | 1057 | 0.680977 | 0.517345 |
+| test 80/452 | 197045 | 197045 | 197045 | 196977 | 0.031250 | 0.827418 |
+| valid 46/379 | 220 | 17 | 170558 | 170558 | 0.352436 | 0.483306 |
+
 ## Reproduce on Linux
 
 Use the [pinned model, corpus and llama.cpp revision](../inkling-reference.md). Set `GGUF`, `WIKITEXT_DIR`, `LLAMA_SRC`, `LLAMA_BUILD`, `LEANSONIC_SRC`, and `COMPACT` to their local paths. Rebuild the llama-perplexity executable and its implementation library in the same build directory. Select a GPU with enough VRAM for the official BF16 model. Each 100-chunk encoded reference occupies 10,203,366,820 bytes.
@@ -37,4 +48,11 @@ for split in test valid; do
         LEANSONIC_KV=fp16 "$CLI" eval-kld --weights "$COMPACT" --ref "$reference" --chunks 100
     done
 done
+```
+
+To reproduce individual positions with NumPy, score both references against the same engine dump:
+
+```bash
+python3 "$LEANSONIC_SRC/tools/compare_inkling_oracle_rows.py" --cli "$CLI" --weights "$COMPACT" \
+    --canonical test.canonical.kld --serial test.serial.kld --row 69/353 --row 80/452 --row 29/443
 ```
