@@ -12398,3 +12398,21 @@ extern "C" __global__ void ink2_depth_mix_multi_ctrl_norm_bf16_b(
         __syncthreads();
     }
 }
+
+// Experimental lossless device representation of low-alphabet E4M3 expert weights.
+// Each block expands part of one expert and preserves the original byte-addressed layout.
+extern "C" __global__ void ink2_expand_mxfp8_indices(
+    const unsigned char* __restrict__ plane, ushort4* __restrict__ output,
+    const int* __restrict__ selected, unsigned vectors_per_expert) {
+    __shared__ unsigned short pair[256];
+    const unsigned lane = threadIdx.x;
+    pair[lane] = plane[lane & 15] | (unsigned(plane[lane >> 4]) << 8);
+    __syncthreads();
+    const unsigned expert = selected ? unsigned(selected[blockIdx.y]) : blockIdx.y;
+    const unsigned offset = expert * vectors_per_expert;
+    const uchar4* indices = reinterpret_cast<const uchar4*>(plane + 16);
+    for (unsigned i = blockIdx.x * blockDim.x + lane; i < vectors_per_expert; i += blockDim.x * gridDim.x) {
+        const uchar4 v = indices[offset + i];
+        output[offset + i] = make_ushort4(pair[v.x], pair[v.y], pair[v.z], pair[v.w]);
+    }
+}

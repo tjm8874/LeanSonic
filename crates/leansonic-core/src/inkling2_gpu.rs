@@ -550,6 +550,7 @@ struct KernelFns {
     q8_tc_qkv3_gemm_b: Option<CUfunction>,
     quant_nvfp4_2term_b: Option<CUfunction>,
     gather_nvfp4_sorted_b: Option<CUfunction>,
+    expand_mxfp8_indices: Option<CUfunction>,
     quant_mxfp8_b: Option<CUfunction>,
     flash_attn_tc_q8_b: Option<CUfunction>,
     flash_attn_tc_q8_b_i8: Option<CUfunction>,
@@ -769,6 +770,7 @@ pub struct Inkling2GpuEngine {
     d_all_msg_queries: DeviceBuf,
     layers: Vec<LayerGpu>,
     expert_weights: Vec<[TierBuf; 2]>,
+    device_codebook_scratch: Option<DeviceBuf>,
     slots: Vec<SlotStateGpu>,
     conv_history: DeviceBuf,
     /// Number of independent sequences with their own state (`LEANSONIC_SEQS`, default 1).
@@ -1105,6 +1107,45 @@ impl<'a> ExpertMatrix<'a> {
             Self::Packed { count, .. } => *count,
         }
     }
+    // A standard byte-rANS frame lists exactly the symbols its decoder may emit.
+    // Store the lookup table and the two indices per byte together, aligned to 16 bytes.
+    fn device_codebook(self) -> Result<Vec<u8>, String> {
+        let Self::Packed {
+            bytes,
+            count,
+            contextual: false,
+        } = self
+        else {
+            return Err("device codebooks require rANS MXFP8 frames".into());
+        };
+        let matrix = crate::inkling_mxfp8::Matrix::parse(bytes, count)?;
+        let mut result = Vec::with_capacity(16 + count / 2);
+        let mut index = [0u8; 256];
+        for (symbol, freq) in bytes[..512].chunks_exact(2).enumerate() {
+            if freq != [0, 0] {
+                if result.len() == 16 {
+                    return Err("MXFP8 frame exceeds the 16-symbol device codebook limit".into());
+                }
+                index[symbol] = result.len() as u8;
+                result.push(symbol as u8);
+            }
+        }
+        result.resize(16, 0);
+        matrix.for_each_chunk(|_, tile| {
+            let (pairs, tail) = tile.as_chunks::<2>();
+            if !tail.is_empty() {
+                return Err("unaligned MXFP8 device codebook tile".into());
+            }
+            result.extend(
+                pairs
+                    .iter()
+                    .map(|&[a, b]| index[a as usize] | (index[b as usize] << 4)),
+            );
+            Ok(())
+        })?;
+        Ok(result)
+    }
+
     fn place(self, ctx: &Arc<CudaContextHandle>, on_device: bool) -> Result<TierBuf, String> {
         match self {
             Self::Raw(bytes) => {
@@ -1965,6 +2006,33 @@ impl Inkling2GpuEngine {
         let d_ms_j = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 4)?;
         let d_ms_runs = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 16)?;
         let d_ms_tokens = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 4)?;
+        let mut device_codebooks = Vec::new();
+        let device_codebook_scratch = if std::env::var("LEANSONIC_MXFP8_DEVICE_U4").as_deref()
+            == Ok("1")
+        {
+            if fns.expand_mxfp8_indices.is_none() {
+                return Err("missing ink2_expand_mxfp8_indices in the selected CUDA module".into());
+            }
+            for &[up, down] in &expert_views[NVFP4_LAYERS..] {
+                device_codebooks.push([up.device_codebook()?, down.device_codebook()?]);
+            }
+            let largest = expert_views[NVFP4_LAYERS..]
+                .iter()
+                .flatten()
+                .map(ExpertMatrix::len)
+                .max()
+                .ok_or("missing MXFP8 layers")?;
+            for (views, packed) in expert_views[NVFP4_LAYERS..]
+                .iter_mut()
+                .zip(&device_codebooks)
+            {
+                *views = [ExpertMatrix::Raw(&packed[0]), ExpertMatrix::Raw(&packed[1])];
+            }
+            Some(DeviceBuf::alloc_zeroed(&ctx, largest)?)
+        } else {
+            None
+        };
+
         let mut eng = Self {
             d_token_in: DeviceBuf::alloc_zeroed(&ctx, 4)?,
             d_prefill_tokens: DeviceBuf::alloc_zeroed(&ctx, max_ctx * 4)?,
@@ -2059,6 +2127,7 @@ impl Inkling2GpuEngine {
             layers,
             slots,
             expert_weights: Vec::with_capacity(N_LAYER),
+            device_codebook_scratch,
             resident_expert_layers: 0,
             spilled_expert_layers: 0,
             max_ctx,
@@ -2235,6 +2304,7 @@ impl Inkling2GpuEngine {
             st.discard_resident_pages();
         }
 
+        drop(device_codebooks);
         eng.stage_host_up = eng.select_host_up_staging()?;
         if eng.stage_host_up {
             eprintln!("[LeanSonic GPU] Staging selected host-backed NVFP4 gate/up weights");
@@ -2658,6 +2728,7 @@ impl Inkling2GpuEngine {
             q8_tc_qkv3_gemm_b,
             quant_nvfp4_2term_b: get_fn("ink2_quant_nvfp4_2term_b").ok(),
             gather_nvfp4_sorted_b: get_fn("ink2_gather_nvfp4_sorted_b").ok(),
+            expand_mxfp8_indices: get_fn("ink2_expand_mxfp8_indices").ok(),
             quant_mxfp8_b: get_fn("ink2_quant_mxfp8_b").ok(),
             flash_attn_tc_q8_b,
             flash_attn_tc_q8_b_i8,
@@ -2775,6 +2846,40 @@ impl Inkling2GpuEngine {
         params: &mut [*mut c_void],
     ) -> Result<(), String> {
         self.launch_smem(stream, func, grid, block, 0, params)
+    }
+
+    // Uses the ordinary stream ordering at both scratch reuse boundaries. The next
+    // projection can overwrite the buffer after its preceding consumer completes.
+    fn mxfp8_weight_ptr(
+        &self,
+        stream: CUstream,
+        weight: &TierBuf,
+        expert_bytes: usize,
+        selected: bool,
+    ) -> Result<CUdeviceptr, String> {
+        let Some(scratch) = &self.device_codebook_scratch else {
+            return Ok(weight.ptr());
+        };
+        let mut src = weight.ptr();
+        let mut dst = scratch.ptr;
+        let mut ids = if selected { self.d_sel_ids.ptr } else { 0 };
+        let mut words = (expert_bytes / 8) as u32;
+        let mut args = [
+            (&mut src as *mut _) as *mut c_void,
+            (&mut dst as *mut _) as *mut c_void,
+            (&mut ids as *mut _) as *mut c_void,
+            (&mut words as *mut _) as *mut c_void,
+        ];
+        self.launch(
+            stream,
+            self.fns
+                .expand_mxfp8_indices
+                .ok_or("missing device codebook kernel")?,
+            (64, if selected { TOP_K } else { N_EXP } as u32),
+            256,
+            &mut args,
+        )?;
+        Ok(dst)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -4331,7 +4436,7 @@ impl Inkling2GpuEngine {
                 }
             }
             ExpertScales::Mxfp8 { s13, s2 } => {
-                let mut pw13 = w13.ptr();
+                let mut pw13 = self.mxfp8_weight_ptr(stream, w13, 2 * FF * D, true)?;
                 let mut ps13 = s13.buffer.ptr;
                 let mut px = self.d_mlp_h.ptr;
                 let mut pids = self.d_sel_ids.ptr;
@@ -4351,7 +4456,7 @@ impl Inkling2GpuEngine {
                     &mut up_args,
                 )?;
 
-                let mut pw2 = w2.ptr();
+                let mut pw2 = self.mxfp8_weight_ptr(stream, w2, FF * D, true)?;
                 let mut ps2 = s2.buffer.ptr;
                 let mut pwts = self.d_sel_wts.ptr;
                 let allow_xw = self.moe_down_xw == 2
@@ -8075,7 +8180,7 @@ impl Inkling2GpuEngine {
                         ];
                         self.launch(stream, f_qm, ((D / 128) as u32, b_u32), 32, &mut q_args)?;
                     }
-                    let mut pw13 = w13.ptr();
+                    let mut pw13 = self.mxfp8_weight_ptr(stream, w13, 2 * FF * D, false)?;
                     let mut ps13 = s13.buffer.ptr;
                     let mut pxq = self.prefill.d_b_act_codes.ptr;
                     let mut pxs = self.prefill.d_b_act_scales.ptr;
@@ -8123,7 +8228,7 @@ impl Inkling2GpuEngine {
                             &mut q_args,
                         )?;
                     }
-                    let mut pw2 = w2.ptr();
+                    let mut pw2 = self.mxfp8_weight_ptr(stream, w2, FF * D, false)?;
                     let mut ps2 = s2.buffer.ptr;
                     let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
                     let mut dn_args: [*mut c_void; 7] = [
@@ -8150,7 +8255,7 @@ impl Inkling2GpuEngine {
                     s2.kernels.mxfp8_verify_down,
                 ) {
                     let max_active = (b_len * TOP_K).min(N_EXP) as u32;
-                    let mut pw13 = w13.ptr();
+                    let mut pw13 = self.mxfp8_weight_ptr(stream, w13, 2 * FF * D, false)?;
                     let mut ps13 = s13.buffer.ptr;
                     let mut px = self.prefill.layer_workspace.mlp_hidden;
                     let mut pact_exps = self.d_b_active_exps.ptr;
@@ -8170,7 +8275,7 @@ impl Inkling2GpuEngine {
                     ];
                     self.launch(stream, f_vup, (288, max_active), 256, &mut up_args)?;
 
-                    let mut pw2 = w2.ptr();
+                    let mut pw2 = self.mxfp8_weight_ptr(stream, w2, FF * D, false)?;
                     let mut ps2 = s2.buffer.ptr;
                     let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
                     let mut dn_args: [*mut c_void; 7] = [
@@ -8184,7 +8289,7 @@ impl Inkling2GpuEngine {
                     ];
                     self.launch(stream, f_vdn, (288, max_active), 256, &mut dn_args)?;
                 } else {
-                    let mut pw13 = w13.ptr();
+                    let mut pw13 = self.mxfp8_weight_ptr(stream, w13, 2 * FF * D, false)?;
                     let mut ps13 = s13.buffer.ptr;
                     let mut px = self.prefill.layer_workspace.mlp_hidden;
                     let mut pcnt = self.d_b_exp_counts.ptr;
@@ -8208,7 +8313,7 @@ impl Inkling2GpuEngine {
                         &mut up_args,
                     )?;
 
-                    let mut pw2 = w2.ptr();
+                    let mut pw2 = self.mxfp8_weight_ptr(stream, w2, FF * D, false)?;
                     let mut ps2 = s2.buffer.ptr;
                     let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
                     let mut dn_args: [*mut c_void; 6] = [
