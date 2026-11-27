@@ -1,0 +1,449 @@
+{
+  "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell, 595.99.02",
+  "selection": [
+    [
+      "test",
+      2,
+      478
+    ],
+    [
+      "test",
+      36,
+      375
+    ],
+    [
+      "test",
+      81,
+      291
+    ],
+    [
+      "test",
+      98,
+      465
+    ],
+    [
+      "test",
+      5,
+      342
+    ],
+    [
+      "test",
+      23,
+      330
+    ],
+    [
+      "valid",
+      85,
+      317
+    ]
+  ],
+  "source": "a1592f3d3faeb3e75f9e73cb3c89165692414d4a",
+  "digests": {
+    "subset.kld": "fdd3e0054a08bca50faf1bc33f86054a7ece8ac5e1426114ecda2b7e01d196f6",
+    "cli": "48bceb76e4c0a855dbcc31d386ecf51e3c85f170fac4bc06434a558224a349d6",
+    "legacy.cubin": "96a69b306d4c5c92bf25e9c68aafdebb559fe2c1b2a995fb54d396ac4d09ddfc",
+    "candidate.cubin": "eccdd6d460d19d404cbf9fb19c4273dc021d00c2e63ebdd7ee24772044dfb04e"
+  },
+  "packages": {
+    "927": {
+      "files": {
+        "model-00001-of-00001.safetensors": {
+          "bytes": 11657547776,
+          "sha256": "7adea5710e56bbdf7ac2ff668b06b6230d839ccf2830532fd2895095ddd18a06"
+        },
+        "tiktoken/tokenizer.model": {
+          "bytes": 3386494,
+          "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+        }
+      },
+      "package_bytes": 11660934270
+    },
+    "931": {
+      "files": {
+        "model-00001-of-00001.safetensors": {
+          "bytes": 11659321976,
+          "sha256": "ef17570d4c6824f61317ec4307771beb9bea81c0ad32291e4a9f20e3f888bfb8"
+        },
+        "tiktoken/tokenizer.model": {
+          "bytes": 3386494,
+          "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+        }
+      },
+      "package_bytes": 11662708470
+    }
+  },
+  "arms": {
+    "927-current": {
+      "mixed_planes": 16,
+      "selected": [
+        {
+          "split": "test",
+          "chunk": 2,
+          "position": 478,
+          "target": 44259,
+          "prediction": 44259,
+          "kl": 1.525412366738,
+          "agrees": true,
+          "fingerprint": "953345875326c7a5"
+        },
+        {
+          "split": "test",
+          "chunk": 36,
+          "position": 375,
+          "target": 12,
+          "prediction": 220,
+          "kl": 2.259930164469,
+          "agrees": false,
+          "fingerprint": "955cbafbe5540808"
+        },
+        {
+          "split": "test",
+          "chunk": 81,
+          "position": 291,
+          "target": 197045,
+          "prediction": 196977,
+          "kl": 1.535650023396,
+          "agrees": false,
+          "fingerprint": "2297be7ffed47ece"
+        },
+        {
+          "split": "test",
+          "chunk": 98,
+          "position": 465,
+          "target": 152134,
+          "prediction": 157728,
+          "kl": 2.514592358272,
+          "agrees": false,
+          "fingerprint": "ca148fd8f776bc38"
+        },
+        {
+          "split": "test",
+          "chunk": 5,
+          "position": 342,
+          "target": 68080,
+          "prediction": 68358,
+          "kl": 0.997489628459,
+          "agrees": false,
+          "fingerprint": "48e79e65c674c60d"
+        },
+        {
+          "split": "test",
+          "chunk": 23,
+          "position": 330,
+          "target": 20,
+          "prediction": 21,
+          "kl": 1.383126467104,
+          "agrees": false,
+          "fingerprint": "288e3b9274bd0075"
+        },
+        {
+          "split": "valid",
+          "chunk": 85,
+          "position": 317,
+          "target": 196977,
+          "prediction": 196977,
+          "kl": 2.475258599236,
+          "agrees": false,
+          "fingerprint": "1d2b60a250526c9c"
+        }
+      ],
+      "full_subset": {
+        "chunks": 7,
+        "context": 512,
+        "rows": 1785,
+        "ppl": 7.016078253886368,
+        "ref_ppl": 6.92510364115204,
+        "mean_kld": 0.024033610508952963,
+        "median_kld": 0.0068712934890712285,
+        "p99_kld": 0.21237072412914176,
+        "max_kld": 2.5145923582722363,
+        "start_chunk": 0,
+        "max_kld_chunk": 3,
+        "max_kld_position": 465,
+        "ref_floor_targets": 1,
+        "top1_matches": 1674,
+        "top1_agreement": 0.9378151260504202
+      },
+      "rows_sha256": "dd5e020ef5fc8c1501a16e1569bb3e565a3aae58b269223177b64046431b442c"
+    },
+    "931-current": {
+      "mixed_planes": 16,
+      "selected": [
+        {
+          "split": "test",
+          "chunk": 2,
+          "position": 478,
+          "target": 44259,
+          "prediction": 39618,
+          "kl": 3.573212867704,
+          "agrees": false,
+          "fingerprint": "33234fa1fadf1ff6"
+        },
+        {
+          "split": "test",
+          "chunk": 36,
+          "position": 375,
+          "target": 12,
+          "prediction": 220,
+          "kl": 2.077237846571,
+          "agrees": false,
+          "fingerprint": "50e26dfcf12cd3b1"
+        },
+        {
+          "split": "test",
+          "chunk": 81,
+          "position": 291,
+          "target": 197045,
+          "prediction": 196977,
+          "kl": 1.548244256691,
+          "agrees": false,
+          "fingerprint": "1c22c46cb6fd1b92"
+        },
+        {
+          "split": "test",
+          "chunk": 98,
+          "position": 465,
+          "target": 152134,
+          "prediction": 157728,
+          "kl": 2.64570155133,
+          "agrees": false,
+          "fingerprint": "aaa9c2c8d7830533"
+        },
+        {
+          "split": "test",
+          "chunk": 5,
+          "position": 342,
+          "target": 68080,
+          "prediction": 68358,
+          "kl": 0.889339277298,
+          "agrees": false,
+          "fingerprint": "4cdde2649c4391e9"
+        },
+        {
+          "split": "test",
+          "chunk": 23,
+          "position": 330,
+          "target": 20,
+          "prediction": 21,
+          "kl": 1.380740740752,
+          "agrees": false,
+          "fingerprint": "67d862f21a50cd43"
+        },
+        {
+          "split": "valid",
+          "chunk": 85,
+          "position": 317,
+          "target": 196977,
+          "prediction": 196977,
+          "kl": 2.417673537445,
+          "agrees": false,
+          "fingerprint": "7eb81b32550090bc"
+        }
+      ],
+      "full_subset": {
+        "chunks": 7,
+        "context": 512,
+        "rows": 1785,
+        "ppl": 7.006663924563335,
+        "ref_ppl": 6.92510364115204,
+        "mean_kld": 0.02510812339593926,
+        "median_kld": 0.0070368774690232755,
+        "p99_kld": 0.24618487886638754,
+        "max_kld": 3.5732128677035844,
+        "start_chunk": 0,
+        "max_kld_chunk": 0,
+        "max_kld_position": 478,
+        "ref_floor_targets": 1,
+        "top1_matches": 1679,
+        "top1_agreement": 0.9406162464985994
+      },
+      "rows_sha256": "68ed6537453aa4da652091b0fdab97577ede1bf191796229d2a7d6b23592d1f2"
+    },
+    "931-legacy": {
+      "mixed_planes": 16,
+      "selected": [
+        {
+          "split": "test",
+          "chunk": 2,
+          "position": 478,
+          "target": 44259,
+          "prediction": 39618,
+          "kl": 3.969963414894,
+          "agrees": false,
+          "fingerprint": "bb6700aa78fe5385"
+        },
+        {
+          "split": "test",
+          "chunk": 36,
+          "position": 375,
+          "target": 12,
+          "prediction": 220,
+          "kl": 3.079024524118,
+          "agrees": false,
+          "fingerprint": "9116c75a0e754454"
+        },
+        {
+          "split": "test",
+          "chunk": 81,
+          "position": 291,
+          "target": 197045,
+          "prediction": 196977,
+          "kl": 1.529870338909,
+          "agrees": false,
+          "fingerprint": "86a6bcbf591b8711"
+        },
+        {
+          "split": "test",
+          "chunk": 98,
+          "position": 465,
+          "target": 152134,
+          "prediction": 152134,
+          "kl": 0.179063532554,
+          "agrees": true,
+          "fingerprint": "6f87b04be6b31715"
+        },
+        {
+          "split": "test",
+          "chunk": 5,
+          "position": 342,
+          "target": 68080,
+          "prediction": 68358,
+          "kl": 0.963961697765,
+          "agrees": false,
+          "fingerprint": "a3dd42d92fa1cac2"
+        },
+        {
+          "split": "test",
+          "chunk": 23,
+          "position": 330,
+          "target": 20,
+          "prediction": 21,
+          "kl": 1.566800551841,
+          "agrees": false,
+          "fingerprint": "03125f729bb18553"
+        },
+        {
+          "split": "valid",
+          "chunk": 85,
+          "position": 317,
+          "target": 196977,
+          "prediction": 196977,
+          "kl": 2.118983428886,
+          "agrees": false,
+          "fingerprint": "7803a0114e91e674"
+        }
+      ],
+      "full_subset": {
+        "chunks": 7,
+        "context": 512,
+        "rows": 1785,
+        "ppl": 7.008570542611097,
+        "ref_ppl": 6.92510364115204,
+        "mean_kld": 0.02450249330046436,
+        "median_kld": 0.007202397615093704,
+        "p99_kld": 0.22345380280640945,
+        "max_kld": 3.9699634148943552,
+        "start_chunk": 0,
+        "max_kld_chunk": 0,
+        "max_kld_position": 478,
+        "ref_floor_targets": 1,
+        "top1_matches": 1675,
+        "top1_agreement": 0.938375350140056
+      },
+      "rows_sha256": "9caeca67bb9899e54610ddb50aa17b08000afe8f7bf8801a263c694a8a4e3e44"
+    },
+    "927-legacy": {
+      "mixed_planes": 16,
+      "selected": [
+        {
+          "split": "test",
+          "chunk": 2,
+          "position": 478,
+          "target": 44259,
+          "prediction": 39618,
+          "kl": 3.640435185142,
+          "agrees": false,
+          "fingerprint": "4b7d3b9bb7181bec"
+        },
+        {
+          "split": "test",
+          "chunk": 36,
+          "position": 375,
+          "target": 12,
+          "prediction": 220,
+          "kl": 2.74605637677,
+          "agrees": false,
+          "fingerprint": "1079c92613179374"
+        },
+        {
+          "split": "test",
+          "chunk": 81,
+          "position": 291,
+          "target": 197045,
+          "prediction": 196977,
+          "kl": 1.347333470603,
+          "agrees": false,
+          "fingerprint": "f99e215de83b9329"
+        },
+        {
+          "split": "test",
+          "chunk": 98,
+          "position": 465,
+          "target": 152134,
+          "prediction": 152134,
+          "kl": 0.241216209639,
+          "agrees": true,
+          "fingerprint": "37eb17c6dd2ecfd2"
+        },
+        {
+          "split": "test",
+          "chunk": 5,
+          "position": 342,
+          "target": 68080,
+          "prediction": 68358,
+          "kl": 1.070802291342,
+          "agrees": false,
+          "fingerprint": "0434d879d6137943"
+        },
+        {
+          "split": "test",
+          "chunk": 23,
+          "position": 330,
+          "target": 20,
+          "prediction": 21,
+          "kl": 1.823065028416,
+          "agrees": false,
+          "fingerprint": "3cca3d4a1a2e3e1d"
+        },
+        {
+          "split": "valid",
+          "chunk": 85,
+          "position": 317,
+          "target": 196977,
+          "prediction": 196977,
+          "kl": 2.279423793025,
+          "agrees": false,
+          "fingerprint": "e4cb249071a89fed"
+        }
+      ],
+      "full_subset": {
+        "chunks": 7,
+        "context": 512,
+        "rows": 1785,
+        "ppl": 7.010803213816293,
+        "ref_ppl": 6.92510364115204,
+        "mean_kld": 0.024020162509637497,
+        "median_kld": 0.007158091745057559,
+        "p99_kld": 0.21327744149868688,
+        "max_kld": 3.6404351851420143,
+        "start_chunk": 0,
+        "max_kld_chunk": 0,
+        "max_kld_position": 478,
+        "ref_floor_targets": 1,
+        "top1_matches": 1669,
+        "top1_agreement": 0.9350140056022409
+      },
+      "rows_sha256": "86a0ca146063e43a03fe0adb464ef5fcb92c1e606704bf1dc7f937f2c1c5ae47"
+    }
+  }
+}

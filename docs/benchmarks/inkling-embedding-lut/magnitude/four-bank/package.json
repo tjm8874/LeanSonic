@@ -1,0 +1,42 @@
+{
+  "package": {
+    "parent_bytes": 13448974014,
+    "package_bytes": 13331932142,
+    "unchanged_payloads": 998,
+    "frame_sha256": "47d81556b9c5bdd68676f959224a9408a11d2b89dc5515342c4b7b870acecd4e",
+    "files": {
+      "model-00001-of-00001.safetensors": {
+        "bytes": 13328545648,
+        "sha256": "e435fc8b7ad2b8159f6878760aae2cbaf6eec3fd524c7f653244e709912216b8"
+      },
+      "tiktoken/tokenizer.model": {
+        "bytes": 3386494,
+        "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+      }
+    }
+  },
+  "parent": {
+    "model-00001-of-00001.safetensors": {
+      "bytes": 13445587520,
+      "sha256": "20058b671e1eea2ffb0c54acbb2f9752f4355afb12d14388433733cae3a2f61e"
+    },
+    "tiktoken/tokenizer.model": {
+      "bytes": 3386494,
+      "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+    }
+  },
+  "input_embedding": {
+    "values": 463159296,
+    "exact": 222538439,
+    "relative_rmse": 0.0027353773710946053,
+    "max_abs": 0.0078125,
+    "decoded_sha256": "1e4bba67f548f48766a59b7b0017b1ba62e8048fd35f7cfad0f0c5342d8b6850"
+  },
+  "bench_executables_and_inputs": {
+    "bench": "a421acc5f2df2a25a23a29981eb71f2d484f3b78834f4f32314884b6be072128",
+    "prompt.ids": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843",
+    "anchor.ids": "424005ba620148c43483b62cced3f11cbc90f3c01cef01cb3abbb03264020e27",
+    "cli": "48bceb76e4c0a855dbcc31d386ecf51e3c85f170fac4bc06434a558224a349d6",
+    "candidate.cubin": "eccdd6d460d19d404cbf9fb19c4273dc021d00c2e63ebdd7ee24772044dfb04e"
+  }
+}

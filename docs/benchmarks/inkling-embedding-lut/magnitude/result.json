@@ -1,0 +1,70 @@
+{
+  "values": 463159296,
+  "sign_bits": 463159296,
+  "estimates": [
+    {
+      "budget": 502000000,
+      "entropy_bytes": 501434508.8372363,
+      "representatives": 452,
+      "exact_magnitudes": 222538439,
+      "relative_rmse": 0.0027353773710946053,
+      "max_abs": 0.0078125
+    },
+    {
+      "budget": 498000000,
+      "entropy_bytes": 497996908.88157576,
+      "representatives": 444,
+      "exact_magnitudes": 215092715,
+      "relative_rmse": 0.0029232026162932905,
+      "max_abs": 0.0078125
+    },
+    {
+      "budget": 490000000,
+      "entropy_bytes": 489360428.6919147,
+      "representatives": 430,
+      "exact_magnitudes": 201875465,
+      "relative_rmse": 0.003398907318939291,
+      "max_abs": 0.0087890625
+    },
+    {
+      "budget": 465000000,
+      "entropy_bytes": 464881305.1687546,
+      "representatives": 353,
+      "exact_magnitudes": 133767498,
+      "relative_rmse": 0.004734585333815128,
+      "max_abs": 0.0107421875
+    },
+    {
+      "budget": 450000000,
+      "entropy_bytes": 449322739.9945552,
+      "representatives": 333,
+      "exact_magnitudes": 112204376,
+      "relative_rmse": 0.005647313964478896,
+      "max_abs": 0.01171875
+    },
+    {
+      "budget": 400000000,
+      "entropy_bytes": 398746247.29503375,
+      "representatives": 208,
+      "exact_magnitudes": 58201716,
+      "relative_rmse": 0.010782342049016654,
+      "max_abs": 0.0234375
+    },
+    {
+      "budget": 350000000,
+      "entropy_bytes": 349720556.77768314,
+      "representatives": 115,
+      "exact_magnitudes": 33729873,
+      "relative_rmse": 0.01895371345143645,
+      "max_abs": 0.046875
+    },
+    {
+      "budget": 260000000,
+      "entropy_bytes": 258465477.0315808,
+      "representatives": 44,
+      "exact_magnitudes": 10748101,
+      "relative_rmse": 0.0568066659025421,
+      "max_abs": 0.140625
+    }
+  ]
+}

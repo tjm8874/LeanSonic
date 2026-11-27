@@ -1,0 +1,154 @@
+{
+  "planes": {
+    "model.llm.layers.15.mlp.experts.w2_weight": {
+      "experts": 128,
+      "restored": 40,
+      "retained": 88,
+      "distinguishable": 128,
+      "weight_bytes": 169869312,
+      "scale_codes": 21233664
+    },
+    "model.llm.layers.13.mlp.experts.w2_weight": {
+      "experts": 128,
+      "restored": 35,
+      "retained": 93,
+      "distinguishable": 128,
+      "weight_bytes": 169869312,
+      "scale_codes": 21233664
+    },
+    "model.llm.layers.11.mlp.experts.w2_weight": {
+      "experts": 128,
+      "restored": 38,
+      "retained": 90,
+      "distinguishable": 128,
+      "weight_bytes": 169869312,
+      "scale_codes": 21233664
+    },
+    "model.llm.layers.9.mlp.experts.w2_weight": {
+      "experts": 128,
+      "restored": 35,
+      "retained": 93,
+      "distinguishable": 128,
+      "weight_bytes": 169869312,
+      "scale_codes": 21233664
+    },
+    "model.llm.layers.8.mlp.experts.w2_weight": {
+      "experts": 128,
+      "restored": 35,
+      "retained": 93,
+      "distinguishable": 128,
+      "weight_bytes": 169869312,
+      "scale_codes": 21233664
+    },
+    "model.llm.layers.10.mlp.experts.w2_weight": {
+      "experts": 128,
+      "restored": 31,
+      "retained": 97,
+      "distinguishable": 128,
+      "weight_bytes": 169869312,
+      "scale_codes": 21233664
+    },
+    "model.llm.layers.16.mlp.experts.w2_weight": {
+      "experts": 128,
+      "restored": 39,
+      "retained": 89,
+      "distinguishable": 128,
+      "weight_bytes": 169869312,
+      "scale_codes": 21233664
+    },
+    "model.llm.layers.7.mlp.experts.w2_weight": {
+      "experts": 128,
+      "restored": 39,
+      "retained": 89,
+      "distinguishable": 128,
+      "weight_bytes": 169869312,
+      "scale_codes": 21233664
+    },
+    "model.llm.layers.12.mlp.experts.w2_weight": {
+      "experts": 128,
+      "restored": 38,
+      "retained": 90,
+      "distinguishable": 128,
+      "weight_bytes": 169869312,
+      "scale_codes": 21233664
+    },
+    "model.llm.layers.14.mlp.experts.w2_weight": {
+      "experts": 128,
+      "restored": 35,
+      "retained": 93,
+      "distinguishable": 128,
+      "weight_bytes": 169869312,
+      "scale_codes": 21233664
+    },
+    "model.llm.layers.6.mlp.experts.w2_weight": {
+      "experts": 128,
+      "restored": 41,
+      "retained": 87,
+      "distinguishable": 128,
+      "weight_bytes": 169869312,
+      "scale_codes": 21233664
+    },
+    "model.llm.layers.1.mlp.experts.w2_weight": {
+      "experts": 128,
+      "restored": 2,
+      "retained": 126,
+      "distinguishable": 128,
+      "weight_bytes": 169869312,
+      "scale_codes": 21233664
+    },
+    "model.llm.layers.18.mlp.experts.w2_weight": {
+      "experts": 128,
+      "restored": 3,
+      "retained": 125,
+      "distinguishable": 128,
+      "weight_bytes": 169869312,
+      "scale_codes": 21233664
+    },
+    "model.llm.layers.0.mlp.experts.w2_weight": {
+      "experts": 128,
+      "restored": 5,
+      "retained": 123,
+      "distinguishable": 128,
+      "weight_bytes": 169869312,
+      "scale_codes": 21233664
+    },
+    "model.llm.layers.19.mlp.experts.w2_weight": {
+      "experts": 128,
+      "restored": 4,
+      "retained": 124,
+      "distinguishable": 128,
+      "weight_bytes": 169869312,
+      "scale_codes": 21233664
+    },
+    "model.llm.layers.5.mlp.experts.w2_weight": {
+      "experts": 128,
+      "restored": 2,
+      "retained": 126,
+      "distinguishable": 128,
+      "weight_bytes": 169869312,
+      "scale_codes": 21233664
+    },
+    "model.llm.layers.2.mlp.experts.w2_weight": {
+      "experts": 128,
+      "restored": 3,
+      "retained": 125,
+      "distinguishable": 128,
+      "weight_bytes": 169869312,
+      "scale_codes": 21233664
+    },
+    "model.llm.layers.4.mlp.experts.w2_weight": {
+      "experts": 128,
+      "restored": 1,
+      "retained": 127,
+      "distinguishable": 128,
+      "weight_bytes": 169869312,
+      "scale_codes": 21233664
+    }
+  },
+  "unchanged_tensors": 963,
+  "changed_tensors": 36,
+  "restored": 426,
+  "weight_bytes": 3057647616,
+  "scale_codes": 382205952,
+  "package_bytes": 8123811998
+}

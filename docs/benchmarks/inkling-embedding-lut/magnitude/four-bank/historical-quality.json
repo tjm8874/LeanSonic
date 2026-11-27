@@ -1,0 +1,86 @@
+{
+  "gpu": "RTX PRO 4500 Blackwell",
+  "package_bytes": 13448974014,
+  "splits": {
+    "test": {
+      "oracle_sha256": "895fac2136c06dce1854568c83eb76a0225a05fab3c37897a12fec1d56949b97",
+      "four_bank": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.079443865107838,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.007681729926712017,
+        "median_kld": 0.0034751689258115254,
+        "p99_kld": 0.06765488813335377,
+        "max_kld": 1.5215774503553174,
+        "start_chunk": 0,
+        "max_kld_chunk": 36,
+        "max_kld_position": 319,
+        "ref_floor_targets": 14,
+        "top1_matches": 24542,
+        "top1_agreement": 0.9624313725490196
+      },
+      "vllm": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.085311500320965,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.010153221489435921,
+        "median_kld": 0.0048853909761577205,
+        "p99_kld": 0.08527947193754257,
+        "max_kld": 3.1885196198287624,
+        "start_chunk": 0,
+        "max_kld_chunk": 23,
+        "max_kld_position": 330,
+        "ref_floor_targets": 14,
+        "top1_matches": 24395,
+        "top1_agreement": 0.9566666666666667,
+        "rows_sha256": "b30b97e66c99aff2b0fb6b6b86b83e79c0a43aca6b337be3a4dbf5a84d8bc15f"
+      }
+    },
+    "valid": {
+      "oracle_sha256": "b3d804824373950c9b6d7cd37e5607d132d2f3caca6f80ffd26739b2776a2ca0",
+      "four_bank": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 6.532433912024505,
+        "ref_ppl": 6.498588819010602,
+        "mean_kld": 0.006886239058780421,
+        "median_kld": 0.0029722807387427552,
+        "p99_kld": 0.06493778621169463,
+        "max_kld": 1.1576402321109072,
+        "start_chunk": 0,
+        "max_kld_chunk": 11,
+        "max_kld_position": 374,
+        "ref_floor_targets": 10,
+        "top1_matches": 24655,
+        "top1_agreement": 0.9668627450980393
+      },
+      "vllm": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 6.533192299690702,
+        "ref_ppl": 6.498588819010602,
+        "mean_kld": 0.00929058518511632,
+        "median_kld": 0.004105230235421087,
+        "p99_kld": 0.08377294926996717,
+        "max_kld": 2.8943274289422294,
+        "start_chunk": 0,
+        "max_kld_chunk": 64,
+        "max_kld_position": 494,
+        "ref_floor_targets": 10,
+        "top1_matches": 24490,
+        "top1_agreement": 0.9603921568627451,
+        "rows_sha256": "29825ba42c425150b74d87cfaaad52efe3076c4f7b1fccf1245f702d2a6582e6"
+      }
+    }
+  },
+  "historical_executables": {
+    "leansonic": "0801d825f4095c8553b4d7f29c1b0d8014c50cb39b8ebd76a7c37e0f44177641",
+    "matched.cubin": "bb9b28575ae507330bb3d10d3235c33524d31b1cb48fbfeda9c6b95ea93d36e6"
+  }
+}

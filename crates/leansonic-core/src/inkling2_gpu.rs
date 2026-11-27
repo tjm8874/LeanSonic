@@ -1690,7 +1690,9 @@ impl Inkling2GpuEngine {
         let st = MappedSafeTensors::open(&st_path)
             .map_err(|e| format!("open {}: {e}", st_path.display()))?;
 
-        use crate::inkling_embedding::{unpack_embedding, unpack_lut8_embedding, unpack_lut8_rans};
+        use crate::inkling_embedding::{
+            unpack_embedding, unpack_lut8_embedding, unpack_lut8_rans, unpack_magnitude_embedding,
+        };
         type EmbeddingDecoder = fn(&[u8], &mut [std::mem::MaybeUninit<u8>]) -> Result<(), String>;
         let load_embedding = |packed: crate::safetensors::TensorView<'_>,
                               decode: EmbeddingDecoder|
@@ -1709,17 +1711,23 @@ impl Inkling2GpuEngine {
             st.get("model.llm.embed.weight.prefix_v1"),
             st.get("model.llm.embed.weight.lut8_v1"),
             st.get("model.llm.embed.weight.lut8_rans_v1"),
+            st.get("model.llm.embed.weight.magnitude_v1"),
         ) {
-            (Some(raw), None, None, None)
+            (Some(raw), None, None, None, None)
                 if raw.dtype == "BF16"
                     && raw.shape == [PADDED_VOCAB, D]
                     && raw.data.len() == PADDED_VOCAB * D * 2 =>
             {
                 PinnedHostBuf::from_bytes(&ctx, raw.data)?
             }
-            (None, Some(packed), None, None) => load_embedding(packed, unpack_embedding)?,
-            (None, None, Some(packed), None) => load_embedding(packed, unpack_lut8_embedding)?,
-            (None, None, None, Some(packed)) => load_embedding(packed, unpack_lut8_rans)?,
+            (None, Some(packed), None, None, None) => load_embedding(packed, unpack_embedding)?,
+            (None, None, Some(packed), None, None) => {
+                load_embedding(packed, unpack_lut8_embedding)?
+            }
+            (None, None, None, Some(packed), None) => load_embedding(packed, unpack_lut8_rans)?,
+            (None, None, None, None, Some(packed)) => {
+                load_embedding(packed, unpack_magnitude_embedding)?
+            }
             _ => return Err("invalid or ambiguous Inkling input embedding".into()),
         };
         let embed = TierBuf::HostPinned(embed);

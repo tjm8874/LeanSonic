@@ -1,0 +1,17 @@
+{
+  "files": {
+    "model-00001-of-00001.safetensors": {
+      "sha256": "fd69ae5cdbdb1eb8835bcbc2eae03493a178193ed0d1d2a6b8494d3e38ac45a8",
+      "bytes": 11484081296
+    },
+    "tiktoken/tokenizer.model": {
+      "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8",
+      "bytes": 3386494
+    }
+  },
+  "package_bytes": 11487467790,
+  "parent_bytes": 11662590054,
+  "changed": 36,
+  "unchanged": 963,
+  "checked_decoded_changed": 9342812160
+}

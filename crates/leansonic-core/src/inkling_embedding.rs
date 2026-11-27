@@ -9,7 +9,9 @@ const TILE: usize = 128 * 1024;
 const COMMON: [u8; 7] = [63, 62, 61, 64, 60, 59, 58];
 
 mod lut;
+mod magnitude;
 pub use lut::{pack_lut8_rans, unpack_lut8_embedding, unpack_lut8_rans};
+pub use magnitude::unpack_magnitude_embedding;
 
 pub fn pack_embedding(
     mut input: impl Read,

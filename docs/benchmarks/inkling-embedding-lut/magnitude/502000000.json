@@ -1,0 +1,12 @@
+{
+  "values": 463159296,
+  "representatives": 452,
+  "secondary_codes": 6405035,
+  "frame_bytes": 501549352,
+  "frame_sha256": "47d81556b9c5bdd68676f959224a9408a11d2b89dc5515342c4b7b870acecd4e",
+  "decode_sha256": "1e4bba67f548f48766a59b7b0017b1ba62e8048fd35f7cfad0f0c5342d8b6850",
+  "rans_bytes": [
+    438929640,
+    4723880
+  ]
+}
