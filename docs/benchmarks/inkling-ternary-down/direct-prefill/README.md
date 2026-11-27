@@ -8,12 +8,16 @@ Five four-leg cycles (ABBA alternating with BAAB), a fresh process per leg. Phas
 
 | GPU | Prompt tokens | Prefill, prior → candidate (ms) | Generation of 64 tokens, prior → candidate (ms) | Decode, prior → candidate (tok/s) |
 |---|---:|---:|---:|---:|
+| PRO5000 | 32 | 39.495 → 30.440 | 277.926 → 278.043 | 230.28 → 230.18 |
+| PRO5000 | 1024 | 98.978 → 91.382 | 439.212 → 439.345 | 145.72 → 145.67 |
+| PRO5000 | 2048 | 151.744 → 144.702 | 466.764 → 466.859 | 137.11 → 137.09 |
 | 5070Ti | 32 | 49.864 → 35.124 | 346.234 → 346.005 | 184.85 → 184.97 |
 | 5070Ti | 1024 | 137.203 → 124.729 | 480.103 → 479.829 | 133.30 → 133.38 |
 | 5070Ti | 2048 | 219.829 → 207.979 | 502.464 → 502.198 | 127.37 → 127.44 |
 
 | GPU | Prior peak (bytes) | Candidate peak (bytes) | Difference (bytes) |
 |---|---:|---:|---:|
+| PRO5000 | 15,202,254,848 | 15,164,506,112 | -37,748,736 |
 | 5070Ti | 15,084,814,336 | 15,103,688,704 | +18,874,368 |
 
 ## Reproduce
