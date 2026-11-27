@@ -25,3 +25,5 @@ python3 tools/inkling_storage_probe/trim_context/repack.py \
 The loader materializes the two streams, scale codes and one decoded CPU weight plane before upload. Resident memory, initialization delay and end-to-end output checks are separate adoption criteria. [All packed file sizes and hashes](storage.json) · [Independent per-plane round trips](planes.json).
 
 [GPU free-generation parity and the 25,500-position BF16 test](runtime.md) were verified with the fully assembled distribution.
+
+[Fresh-process loader time and peak host RSS](load.md) quantify the 8.131 s startup cost.
