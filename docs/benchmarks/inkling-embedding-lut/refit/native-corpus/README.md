@@ -15,3 +15,5 @@ On test, the refit improves mean KL and PPL relative to its parent but raises th
 On validation the refit loses on all four metrics against the parent and uses 663,988 more bytes. The parent and refit both improve all four validation metrics against native IQ3_XXS. Across both splits the bounded parent is the stronger candidate for the matched timing comparison. Keep the refit as a control.
 
 Build the release CLI and sm_120a cubin as in the parent PR. Use one sequence, PDL, PDL_ALL, prefill chunk 512, MXFP8_DEVICE_U4=1 and MXFP8_DIRECT_ALL=1. For each model use `leansonic eval-kld --weights MODEL --ref ORACLE --chunks 100`. For llama.cpp use `llama-perplexity -m GGUF -f CORPUS --kl-divergence --kl-divergence-base ORACLE -c 512 -b 512 -ub 512 -ctk f16 -ctv f16 -ngl 99 -t 8 --no-warmup --chunks 100`. The native scorer requested full GPU offload (-ngl 99); its log records the CUDA backend and effective batch but omits the layer count. [Raw scores and hashes](results.json)
+
+[Matched prefill, decode, distribution bytes and measured peak VRAM on this physical GPU](timing.md).
