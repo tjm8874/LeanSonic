@@ -9,7 +9,7 @@ The same 1,024 input IDs and 32 forced decode steps ran on RTX 5070 Ti (16 GB, d
 
 LeanSonic was 300,130 bytes smaller on disk and used 455,081,984 more peak GPU bytes. Five mirrored cycles, four fresh processes per cycle, five requests per process, first excluded, yielded 40 warm requests per arm. Resampling complete cycles gives prefill speedup 4.468× (95% interval 4.467–4.470), decode 2.286× (2.284–2.288). Both configurations reproduced their own predicted 32-token trace. Forced inputs kept the decode history identical.
 
-On the separate WikiText evaluators, native IQ1_S won all four BF16 quality measures on both splits. For validation, LeanSonic on RTX 5060 Ti measured mean/worst KL 0.2077958/6.5760688, top-1 20,786/25,500 and PPL 7.841980; native on RTX PRO 5000 scored 0.1076170/5.5685180, 22,138 and 7.121110. A paired quality replay is queued on the timed RTX 5070 Ti. The speed and size gains do not meet the equivalent-quality objective. [Corpus and worst prefixes](../../5060Ti/).
+On the separate WikiText evaluators, native IQ1_S won all four BF16 quality measures on both splits. For validation, LeanSonic on RTX 5060 Ti measured mean/worst KL 0.2077958/6.5760688, top-1 20,786/25,500 and PPL 7.841980; native on RTX PRO 5000 scored 0.1076170/5.5685180, 22,138 and 7.121110. On the timed RTX 5070 Ti itself, the native engine also wins all four BF16 metrics on both splits. On validation it scores mean/worst KL 0.107278/5.734114, 22,181 top matches and PPL 7.117940; the LeanSonic scores reproduce those of the 5060 Ti. [Same-card results and replay commands](same-card-quality.md). The speed and size gains do not meet the equivalent-quality objective. [Corpus and worst prefixes](../../5060Ti/).
 
 ## Reproduce
 
