@@ -38,3 +38,5 @@ python3 "$tool/nvfp4_budget/select_cutoffs.py" "$OFFICIAL_SHARD" "$MIDDLE" selec
 ```
 
 Compare the SHA-256 of windows.ids and routes.bin with fixture.window_sha256 and routing.source_sha256 in the receipt. An independent run of the published preprocessing and fitter reproduced windows.ids, routing.json and selection.json byte for byte; selection.json had SHA-256 `4767bbd768f3f83b9da50ab3f4526a41e15a733f899e4eddb862df8018a6ff00`. The evaluation uses separate WikiText-2 test, validation and bilingual fixtures.
+
+[Held-out quality scores and adoption decision](quality.md).
