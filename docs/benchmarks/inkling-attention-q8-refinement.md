@@ -15,6 +15,7 @@ Both builders regenerated all 352 canonical control frames byte for byte. The al
 | Set | Candidate | Mean KL | Worst KL | BF16 top-1 / scored positions | PPL |
 |---|---|---:|---:|---:|---:|
 | test | canonical | 0.00315843 | 0.68097733 | 24865/25500 | 7.072956 |
+| test | refine | 0.00315592 | 1.21701377 | 24901/25500 | 7.073757 |
 | test | rate | 0.00313373 | 0.70959240 | 24915/25500 | 7.071119 |
 | chat | canonical | 0.00264874 | 0.09567916 | 609/613 | 3.736971 |
 | chat | refine | 0.00244614 | 0.08607209 | 606/613 | 3.721961 |
