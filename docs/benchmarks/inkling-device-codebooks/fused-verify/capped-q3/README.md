@@ -14,6 +14,9 @@ Both engines see the same 1,024 README prompt IDs and consume the same 32 contin
 | Device path on PRO 4500 | Mean KL | Worst KL | BF16 top-1 | PPL |
 |---|---:|---:|---:|---:|
 | scratch-free | 0.0081645 | 1.2202775 | 24,500/25,500 | 7.081285 |
+| expansion | 0.0081645 | 1.2202775 | 24,500/25,500 | 7.081285 |
+
+The two device paths returned identical full scorer summaries.
 
 ## Reproduce
 

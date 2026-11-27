@@ -17,7 +17,18 @@ For each completed case on PRO 4500, four prompts (1,024, 1,021, 1,018 and 1,015
 
 | Engine | Scale mode | Direct lookup | Speculative depth |
 |---|---|---:|---:|
-| Pending | — | — | — |
+| integrated | packed | 0 | 0 |
+| integrated | packed | 0 | 3 |
+| integrated | packed | 1 | 0 |
+| integrated | packed | 1 | 3 |
+| integrated | raw | 0 | 0 |
+| integrated | raw | 0 | 3 |
+| integrated | raw | 1 | 0 |
+| integrated | raw | 1 | 3 |
+| main | packed | 0 | 0 |
+| main | packed | 0 | 3 |
+| main | raw | 0 | 0 |
+| main | raw | 0 | 3 |
 
 ## Reproduce
 
