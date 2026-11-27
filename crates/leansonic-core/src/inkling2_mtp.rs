@@ -1413,4 +1413,155 @@ impl SuffixDrafter {
         }
         Vec::new()
     }
+
+    /// Context copy for a neural drafter's round (#177): when the last `min_match` tokens of
+    /// `history + next_tok` occurred earlier, returns the `max_k` tokens that followed their
+    /// most recent earlier occurrence (see `periodic_copy`). Verification keeps the output
+    /// greedy-exact, so a copied run only replaces the drafter pass for that round.
+    pub fn copy_run(history: &[u32], next_tok: u32, min_match: usize, max_k: usize) -> Vec<u32> {
+        let n = history.len() + 1;
+        if min_match == 0 || max_k == 0 || n <= min_match {
+            return Vec::new();
+        }
+        let at = |i: usize| if i + 1 == n { next_tok } else { history[i] };
+        // An occurrence ending at `end` (exclusive) must leave at least one continuation token.
+        for end in (min_match..n).rev() {
+            if (1..=min_match).all(|j| at(end - j) == at(n - j)) {
+                return periodic_copy(end, n, max_k, at);
+            }
+        }
+        Vec::new()
+    }
+}
+
+/// The `max_k` tokens that follow position `end` when the sequence `at(0..n)` keeps
+/// repeating from there: once the copy reaches `n` it continues with its own output (an
+/// overlapping LZ77 copy), so a run of period `n - end` still fills the whole draft.
+fn periodic_copy(end: usize, n: usize, max_k: usize, at: impl Fn(usize) -> u32) -> Vec<u32> {
+    let mut out = Vec::with_capacity(max_k);
+    for i in 0..max_k {
+        let t = if end + i < n {
+            at(end + i)
+        } else {
+            out[i - (n - end)]
+        };
+        out.push(t);
+    }
+    out
+}
+
+/// Incremental index behind `SuffixDrafter::copy_run` for long contexts: maps each
+/// `min_match`-token window of the history to the latest position it ended at, so a round
+/// costs one lookup instead of a scan of the whole context. Returns exactly what
+/// `copy_run` returns for the same arguments.
+pub struct ContextCopyIndex {
+    min_match: usize,
+    indexed: usize,
+    last_end: std::collections::HashMap<u64, usize>,
+}
+
+impl ContextCopyIndex {
+    pub fn new(min_match: usize) -> Self {
+        Self {
+            min_match,
+            indexed: 0,
+            last_end: std::collections::HashMap::new(),
+        }
+    }
+
+    fn key(window: impl Iterator<Item = u32>) -> u64 {
+        // FNV-1a over the token ids; a collision is caught by the comparison in `run`.
+        window.fold(0xcbf2_9ce4_8422_2325, |h, t| {
+            (h ^ u64::from(t)).wrapping_mul(0x0000_0100_0000_01b3)
+        })
+    }
+
+    /// `history` must only grow between calls (prompt, then accepted tokens).
+    pub fn run(&mut self, history: &[u32], next_tok: u32, max_k: usize) -> Vec<u32> {
+        let m = self.min_match;
+        if m == 0 || max_k == 0 || history.len() < m {
+            return Vec::new();
+        }
+        // Windows entirely inside `history` end at `m..=history.len()`; the query window
+        // (ending at `next_tok`) is never indexed, so it cannot match itself.
+        for end in self.indexed.max(m)..=history.len() {
+            self.last_end
+                .insert(Self::key(history[end - m..end].iter().copied()), end);
+        }
+        self.indexed = history.len() + 1;
+        let tail = history[history.len() + 1 - m..].iter().copied();
+        let Some(&end) = self
+            .last_end
+            .get(&Self::key(tail.clone().chain([next_tok])))
+        else {
+            return Vec::new();
+        };
+        if !history[end - m..end]
+            .iter()
+            .copied()
+            .eq(tail.chain([next_tok]))
+        {
+            return Vec::new();
+        }
+        let n = history.len() + 1;
+        periodic_copy(end, n, max_k, |i| {
+            if i + 1 == n {
+                next_tok
+            } else {
+                history[i]
+            }
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn copy_index_matches_the_scan_on_growing_histories() {
+        // Small alphabets make long repeats, short ones and misses all common.
+        let mut x = 0x2545_f491_4f6c_dd1du64;
+        for alphabet in [2u64, 3, 5, 50] {
+            for min_match in [1usize, 2, 4, 8] {
+                let mut hist = Vec::new();
+                let mut idx = ContextCopyIndex::new(min_match);
+                for _ in 0..600 {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    let next = (x % alphabet) as u32;
+                    assert_eq!(
+                        idx.run(&hist, next, 7),
+                        SuffixDrafter::copy_run(&hist, next, min_match, 7),
+                        "alphabet {alphabet} min_match {min_match} len {}",
+                        hist.len()
+                    );
+                    hist.push(next);
+                    // Several accepted tokens can arrive between rounds.
+                    if x.is_multiple_of(3) {
+                        hist.push(((x >> 8) % alphabet) as u32);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn copy_run_continues_the_latest_earlier_occurrence() {
+        let h = [1, 2, 3, 4, 9, 1, 2, 3, 4, 7, 8, 1, 2, 3];
+        assert_eq!(SuffixDrafter::copy_run(&h, 4, 4, 7), [7, 8, 1, 2, 3, 4, 7]);
+        assert_eq!(SuffixDrafter::copy_run(&h, 4, 4, 2), [7, 8]);
+        assert!(SuffixDrafter::copy_run(&h, 5, 4, 7).is_empty());
+        assert!(SuffixDrafter::copy_run(&h, 4, 0, 7).is_empty());
+        assert!(SuffixDrafter::copy_run(&[1, 2], 3, 4, 7).is_empty());
+        // The run being matched never counts as its own earlier occurrence.
+        assert!(SuffixDrafter::copy_run(&[5, 5, 5], 5, 4, 7).is_empty());
+        assert_eq!(SuffixDrafter::copy_run(&[5, 5, 5, 5], 5, 4, 7), [5; 7]);
+        // Period 2: the copy keeps alternating past the current position.
+        assert_eq!(
+            SuffixDrafter::copy_run(&[1, 2, 1], 2, 2, 5),
+            [1, 2, 1, 2, 1]
+        );
+    }
 }
