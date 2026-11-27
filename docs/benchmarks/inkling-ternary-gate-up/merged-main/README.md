@@ -6,6 +6,7 @@ The test repeated the same 1,024-ID fixture four times, reset the engine for eac
 
 | GPU | Peak process bytes, full / two-bit gate/up | SHA-256 of the eight logit vectors |
 |---|---:|---|
+| [PRO4500](PRO4500.json) | 15,531,507,712 / 12,473,860,096 | `1c6ace0d283340ee3ce893a8bdb6a6abca3914d9cc88f599d196082bcf2d85ab` |
 | [5070Ti](5070Ti.json) | 15,497,953,280 / 12,440,305,664 | `1c6ace0d283340ee3ce893a8bdb6a6abca3914d9cc88f599d196082bcf2d85ab` |
 
 ## Reproduce
