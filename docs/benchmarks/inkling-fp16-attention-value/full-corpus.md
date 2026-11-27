@@ -27,3 +27,20 @@ The [scalar check](single-round/scalar.py) compares each FP32 result with an exa
 At the same 1,024 prompt tokens and 32 teacher-forced decode inputs, current and ea3a7cf respectively measured **8,257.00 and 8,256.62 prefill tok/s**, **172.369 and 172.382 decode tok/s**, and **14,784,921,600 bytes** peak on both. Five matched ABBA cycles (20 processes, 40 warm requests per arm) gave candidate/current cycle-bootstrap 95% ratios of 0.99962–1.00025 for prefill and 0.99968–1.00055 for decode. The numerical tradeoff is the adoption question on this GPU. [All per-process timings, predictions, peaks and binary hashes](timing-5070.json).
 
 On the independent PRO 5000 check, the follow-up single-round CUDA branch passes 704 batched-vs-staged and 704 staged-vs-grouped cases. Both dispatches produced zero Q8-code mismatches against the CPU FP64 reference across 202,752 codes each. Their block scale bits also agree with each other on every fixture. The maximum absolute scale error against FP64 was 9.79e-10. [All operator fixtures](single-round/operator-pro5000.csv).
+
+## Single-round model replay
+
+On RTX 5070 Ti, the grouped and fallback single-round implementations reproduce the same score/fingerprint file across all 255 test chunk 2 positions. At position 478 KL is **0.003319562**, versus 6.139566282 for current and 0.035403482 for ea3a7cf. The single-round, ea3a7cf and BF16 top token is 44259.
+
+| Split | Recurrence | Mean KL | Worst KL | BF16 top-1 | PPL | p99 KL |
+|---|---|---:|---:|---:|---:|---:|
+| test | current | 0.0172238 | 6.1395663 | 24,071/25,500 | 7.128123 | 0.1486843 |
+| test | ea3a7cf | 0.0169571 | 2.8585658 | 24,084/25,500 | 7.127375 | 0.1531903 |
+| test | single-round | 0.0169034 | 2.5614264 | 24,073/25,500 | 7.128507 | 0.1492333 |
+| valid | current | 0.0157144 | 2.6382777 | 24,192/25,500 | 6.565670 | 0.1472817 |
+| valid | ea3a7cf | 0.0157347 | 2.5524491 | 24,200/25,500 | 6.566551 | 0.1525733 |
+| valid | single-round | 0.0155615 | 2.4252143 | 24,208/25,500 | 6.565918 | 0.1496439 |
+
+The current and ea3a7cf controls use the PRO 5000 and 5060 Ti full row files above. The new column uses the 5070 Ti. All three score the same underlying model and use the same oracle and scorer settings. See the [row hashes and paired per-position changes](single-round/candidate-5070.json).
+
+The single-round candidate has the lowest mean and worst KL of these three recurrences on both splits. Relative to current it gains 2 test and 16 validation BF16 top tokens. PPL increases by 0.000383 on test and 0.000248 on validation. Relative to ea3a7cf it loses 11 test top matches while gaining 8 on validation. Its new worst test position is chunk 98 position 465. These results motivate testing the single-round implementation as the draft head. A default or release decision also depends on throughput for this specific implementation and its results on other precisions.
