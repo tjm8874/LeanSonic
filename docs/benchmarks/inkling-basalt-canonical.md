@@ -11,6 +11,16 @@ Each GPU first ran Basalt greedily on the 1,024-token README fixture and saved i
 | 5060Ti | LeanSonic | 380.463 / 2,691.5 | 747.828 / 42.79 | 16,554,917,888 | 32/33 |
 | 5060Ti | Basalt | 1283.000 / 798.1 | 781.700 / 40.94 | 15,527,313,408 | 33/33 |
 
+### Paired speed ratios
+
+Basalt elapsed time divided by LeanSonic elapsed time. Brackets show the empirical 95% interval over all 3,125 ordered bootstrap resamples of the five complete cycles. This preserves the process pairing within each cycle and describes run-to-run variation on the tested GPU.
+
+| GPU | Prefill ratio [95% interval] | Decode ratio [95% interval] |
+|---|---:|---:|
+| PRO4500 | 1.041 [1.008, 1.065] | 1.190 [1.186, 1.193] |
+| 5070Ti | 2.805 [2.793, 2.820] | 2.088 [2.084, 2.094] |
+| 5060Ti | 3.372 [3.371, 3.373] | 1.045 [1.042, 1.049] |
+
 LeanSonic uses the canonical 15,548,157,542-byte distribution and Basalt uses its 18,327,104,737-byte text container. The LeanSonic reader/driver used packer revision `a9872cc` with the SM120a PDL kernel from `48b7ec2`, SHA-256 `3714fd830d6cfedbf6954f21cad460489173be36566b0cb4b78173d42da87f0b`. The reported Basalt phase timers are integer milliseconds, and GPU memory is the maximum per-process NVML sample during loading and inference, sampled approximately every 4 ms. The per-GPU predictions check the replay history. Quality against BF16 is measured separately.
 
 ## Reproduce
