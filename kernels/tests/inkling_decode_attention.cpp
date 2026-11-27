@@ -1,7 +1,8 @@
 // Compare the reference attention+Q8 kernel with decode or wide prefill from a candidate cubin.
 // c++ -O2 -I/usr/local/cuda/include kernels/tests/inkling_decode_attention.cpp -lcuda -o parity
-// ./parity reference.cubin candidate.cubin [int8] [prefill]
+// ./parity reference.cubin candidate.cubin [int8] [prefill|g1]
 // `prefill` compares the wide entry point across both cubins, including local-ring wraps.
+// `g1` compares the three-head FP16 decode kernel with the per-head decode kernel.
 // `int8` compares the INT8-KV instantiations (`*_i8`, `LEANSONIC_KV=int8`) on random INT8 KV + scales.
 #include <cuda.h>
 
@@ -44,12 +45,14 @@ static CUdeviceptr cache(std::mt19937& rng, size_t count) {
 
 int main(int argc, char** argv) {
     if (argc < 3 || argc > 5) return 2;
-    bool int8 = false, prefill = false;
+    bool int8 = false, prefill = false, g1 = false;
     for (int i = 3; i < argc; ++i) {
         if (std::strcmp(argv[i], "int8") == 0) int8 = true;
         else if (std::strcmp(argv[i], "prefill") == 0) prefill = true;
+        else if (std::strcmp(argv[i], "g1") == 0) g1 = true;
         else return 2;
     }
+    if (g1 && (int8 || prefill)) return 2;
     check(cuInit(0));
     CUdevice gpu;
     CUcontext ctx;
@@ -62,8 +65,10 @@ int main(int argc, char** argv) {
     check(cuModuleLoad(&modules[1], argv[2]));
     const char* wide = int8 ? "ink2_gqa_rel_sink_attn_q8_b_i8" : "ink2_gqa_rel_sink_attn_q8_b";
     const char* decode = int8 ? "ink2_gqa_rel_sink_attn_q8_decode_i8" : "ink2_gqa_rel_sink_attn_q8_decode";
-    check(cuModuleGetFunction(&kernels[0], modules[0], wide));
-    check(cuModuleGetFunction(&kernels[1], modules[1], prefill ? wide : decode));
+    const char* candidate = prefill ? wide : decode;
+    if (g1) candidate = "ink2_gqa_attn_g1_q8_decode";
+    check(cuModuleGetFunction(&kernels[0], modules[0], g1 ? decode : wide));
+    check(cuModuleGetFunction(&kernels[1], modules[1], candidate));
 
     const int max_ctx = prefill ? 4096 : 131072;
     std::mt19937 rng(41);
@@ -118,7 +123,7 @@ int main(int argc, char** argv) {
                     check(cuMemsetD8(codes[i], i ? 0xaa : 0x55, nc));
                     check(cuMemsetD8(scales[i], i ? 0xaa : 0x55, ns));
                     void* args[]{&q, &qstride, &r, &k, &v, &k_scale, &v_scale, &pos, &cap, &global, &codes[i], &scales[i]};
-                    check(cuLaunchKernel(kernels[i], 24, batch, 1, 256, 1, 1, 0, nullptr, args, nullptr));
+                    check(cuLaunchKernel(kernels[i], g1 && i == 1 ? 8 : 24, batch, 1, 256, 1, 1, 0, nullptr, args, nullptr));
                     check(cuMemcpyDtoH(output[i].data(), codes[i], nc));
                     check(cuMemcpyDtoH(output[i].data() + nc, scales[i], ns));
                 }
