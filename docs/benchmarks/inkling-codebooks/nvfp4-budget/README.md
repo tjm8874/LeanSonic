@@ -25,6 +25,8 @@ On test, the first candidate improves mean KL, top-1 and PPL over compact, but w
 
 The recalibrated model saves 3,093,592 B against compact. It gains 73 matching BF16 predictions on test, but reaches worst KL 1.8988259 at 99/398. Both independently built packages have the same worst position on this split.
 
+Bilingual (first, PRO 5000): mean KL 0.0093348, worst 0.1847861, top-1 599/613, PPL 3.857292.
+
 ## Reproduce
 
 Start from the official Inkling-2-Mini shard and the [middle package](../README.md). Use the same official model and tokenizer digests as the parent experiment. Python 3.11+, NumPy and the repository Rust toolchain are required. Select an absent output directory for each build. The saved cutoff files reconstruct each model without repeating calibration.
