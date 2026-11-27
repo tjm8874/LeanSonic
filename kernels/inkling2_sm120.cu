@@ -4171,9 +4171,23 @@ INK2_SCALE_KERNEL(ink2_moe_mxfp8_grouped_up_situ, (
             const unsigned scale_start = row_idx * 18u;
 
             float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
-            for (int u16 = lane; u16 < 144; u16 += 32) {
-                const uint4 p = r_u128[u16];
-                const float es = load_e8m0_scale<PackedScales>(s13_u32, scale_start, u16);
+            // Issue the row's 4-5 weight loads before the first FMA (same accumulation order).
+            uint4 pw[5];
+            float pes[5];
+            #pragma unroll
+            for (int i = 0; i < 5; ++i) {
+                const int u16 = lane + 32 * i;
+                if (u16 < 144) {
+                    pw[i] = r_u128[u16];
+                    pes[i] = load_e8m0_scale<PackedScales>(s13_u32, scale_start, u16);
+                }
+            }
+            #pragma unroll
+            for (int i = 0; i < 5; ++i) {
+                const int u16 = lane + 32 * i;
+                if (u16 >= 144) break;
+                const uint4 p = pw[i];
+                const float es = pes[i];
                 if (tile_t > 0) a0 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_x4[0] + u16), es, a0);
                 if (tile_t > 1) a1 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_x4[1] + u16), es, a1);
                 if (tile_t > 2) a2 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_x4[2] + u16), es, a2);
@@ -4246,10 +4260,23 @@ INK2_SCALE_KERNEL(ink2_moe_mxfp8_grouped_down, (
 
             float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
             float a4 = 0.0f, a5 = 0.0f, a6 = 0.0f, a7 = 0.0f;
-
-            for (int u16 = lane; u16 < 72; u16 += 32) {
-                const uint4 p = r_u128[u16];
-                const float es = load_e8m0_scale<PackedScales>(s2_u32, scale_start, u16);
+            // Issue the row's 2-3 weight loads before the first FMA (same accumulation order).
+            uint4 pw[3];
+            float pes[3];
+            #pragma unroll
+            for (int i = 0; i < 3; ++i) {
+                const int u16 = lane + 32 * i;
+                if (u16 < 72) {
+                    pw[i] = r_u128[u16];
+                    pes[i] = load_e8m0_scale<PackedScales>(s2_u32, scale_start, u16);
+                }
+            }
+            #pragma unroll
+            for (int i = 0; i < 3; ++i) {
+                const int u16 = lane + 32 * i;
+                if (u16 >= 72) break;
+                const uint4 p = pw[i];
+                const float es = pes[i];
                 if (tile_t > 0) a0 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_a4[0] + u16), es, a0);
                 if (tile_t > 1) a1 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_a4[1] + u16), es, a1);
                 if (tile_t > 2) a2 = __fmaf_rn(dot_mxfp8_u128_exact<kPlaneStride>(p, smem_a4[2] + u16), es, a2);
