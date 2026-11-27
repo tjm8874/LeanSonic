@@ -133,6 +133,8 @@ The command prints JSON with model and reference perplexity, mean/median/p99/max
 
 Inkling chooses its prefill chunk at load time from 64, 128, 256, 512 and 1024 tokens. It widens the chunk when scratch space and the local KV rings fit alongside the expert matrices selected for GPU memory. The startup log reports the selected width. Set `LEANSONIC_PREFILL_CHUNK=64` to use the smallest scratch allocation, or set it to one of the larger widths to cap automatic selection. External cubins without wide grouping use 64.
 
+For Inkling-2-Mini on Blackwell, set `LEANSONIC_GPU_SCALES=packed` to keep eligible expert scale planes compressed in VRAM. This works with the official checkpoint and with a shard produced by `--prepack-scales`. The MoE kernels reconstruct the original scale bytes as they read them. Each plane falls back to raw storage if its values exceed the supported range. A cubin without the packed-scale kernels uses raw storage throughout. The default is `raw`. On a 16 GB card, the loader can use the released memory for a wider prompt chunk and additional resident weights. Benchmark your prompt and completion lengths together when choosing a chunk cap.
+
 #### Prepare a smaller text-only Inkling checkpoint
 
 For a text-only deployment, omit the vision tower and keep the language tensors at their original precision. The converter needs Python 3.9+ and about 19 GB of free disk space for the output.
@@ -151,8 +153,6 @@ Add `--prepack-head` to the packing command to save another 436,576,496 bytes wi
 To prepack the 176 attention projections as well, run the same command with `--prepack-head --prepack-attention`. The official text shard then occupies 17,847,272,800 bytes. If the head is already packed, pass that shard as the source and use `--prepack-attention` alone. Both options require Cargo while building the package.
 
 Add `--prepack-scales` to store the 48 expert scale tensors losslessly. With all three packing flags, the official text shard occupies 17,240,610,424 bytes. You can also run `--prepack-scales` on the head-and-attention package. The loader restores the original scale bytes in 1 MiB tiles before inference. This option reduces on-disk size and requires a reader that supports the packed scales.
-
-For Inkling-2-Mini on Blackwell, set `LEANSONIC_GPU_SCALES=packed` to keep eligible expert scale planes compressed in VRAM. This works with the official checkpoint and with a shard produced by `--prepack-scales`. The MoE kernels reconstruct the original scale bytes as they read them. Each plane falls back to raw storage if its values exceed the supported range. A cubin without the packed-scale kernels uses raw storage throughout. The default is `raw`. On a 16 GB card, the loader can use the released memory for a wider prompt chunk and additional resident weights. Benchmark your prompt and completion lengths together when choosing a chunk cap.
 
 ### 2. Query the OpenAI-Compatible Server (`GET /v1/models`, `POST /v1/chat/completions`, SSE)
 
