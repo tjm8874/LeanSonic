@@ -6482,31 +6482,31 @@ impl Inkling2GpuEngine {
                     zero_streak = 0;
                 }
             }
-            let keep = accepted + 1; // `1 <= keep <= b_len`
-
+            // With a stop policy the scalar path leaves its terminal token
+            // unconsumed, both for EOS and for the output-length limit.
+            let verified = accepted + 1;
+            let hit_stop = Some(verify_in[accepted]) == stop_tok;
+            let terminal = stop_tok.is_some() && (hit_stop || verified == rem_steps);
+            let keep = verified - usize::from(terminal);
+            // A verify round starts with a non-stop token and rem_steps >= 2.
+            debug_assert!(keep > 0);
             if keep < b_len {
                 self.rewind_speculative(keep, b_len)?;
             }
             self.enqueue_drafter_context(keep)?;
 
-            let mut hit_stop = false;
-            for &accepted_tok in &verify_in[..keep] {
-                if Some(accepted_tok) == stop_tok {
-                    cur_tok = accepted_tok;
-                    hit_stop = true;
-                    break;
-                }
-                if out_ids.len() < n_gen {
-                    out_ids.push(accepted_tok);
-                    on_token(accepted_tok);
-                    if track_hist {
-                        full_hist.push(accepted_tok);
-                    }
+            let emitted = verified - usize::from(hit_stop);
+            for &token in &verify_in[..emitted] {
+                out_ids.push(token);
+                on_token(token);
+                if track_hist {
+                    full_hist.push(token);
                 }
             }
-            last_verify_row = Some(accepted);
-            steps_done += keep;
-            if hit_stop || (stop_tok.is_some() && out_ids.len() >= n_gen) {
+            last_verify_row = Some(keep - 1);
+            steps_done += emitted;
+            if terminal {
+                cur_tok = verify_in[accepted];
                 break;
             }
             cur_tok = preds[accepted];
