@@ -11,7 +11,11 @@ In the 11,487,467,790-byte [571-expert package](https://github.com/tjm8874/LeanS
 
 Each row is one process, with one excluded warmup followed by four requests using 1,024 fixed input IDs and 32 forced decode steps. Both arms on each GPU predicted the same 32 IDs on all five requests. Both GPUs saved 654,311,424 peak process GPU bytes in this pilot. The 5060 Ti measurements use the first implementation, the 5070 Ti uses 5b91ec4 with the revised host packer. The pilot does not establish a throughput ranking. The receipts include the inputs’ digests, all predicted IDs, host peak RSS and the sampled GPU peaks. [RTX 5060 Ti](5060ti.json) · [RTX 5070 Ti](5070ti.json).
 
-On the 5060 Ti pilot, the two formats produced identical per-row full-vocabulary FP32 logit fingerprints, top tokens, NLL and KL on 1,530 positions with Tensor Core prefill enabled. With it disabled the fallback matched for all 255 positions of the first chunk. The six diagnostic chunks are intentionally difficult and have a separate [selection record and observer methodology](https://github.com/tjm8874/LeanSonic/tree/c2b7174/docs/benchmarks/inkling-g1-parity).
+On both the 5060 Ti pilot and the committed source on 5070 Ti, the two formats produced identical per-row full-vocabulary FP32 logit fingerprints, top tokens, NLL and KL on 1,530 positions with Tensor Core prefill enabled. With it disabled the fallback matched for all 255 positions of the first chunk. The six diagnostic chunks are intentionally difficult and have a separate [selection record and observer methodology](https://github.com/tjm8874/LeanSonic/tree/c2b7174/docs/benchmarks/inkling-g1-parity).
+
+## Materialization cost on RTX PRO 4500
+
+With device scratch for generic readers, an earlier single-process experiment reproduced the 32 reference predictions on RTX PRO 4500. Expanding the entire layer before grouped Tensor Core prefill lowered throughput from 8,285.7 to 7,911.8 tok/s. Reading the packed tiles directly measured 8,299.2 vs 8,360.4 tok/s for that session’s raw control, and decode measured 165.49 vs 164.44 tok/s. The device-scratch variant saved 314,572,800 peak GPU bytes. These observations led to the direct Tensor Core path and the mapped host buffer for generic readers in the current candidate. [Expand then prefill](4500-expand.json) · [Direct prefill](4500-direct.json).
 
 ## Reproduction
 
