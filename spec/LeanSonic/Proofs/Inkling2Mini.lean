@@ -1761,4 +1761,57 @@ theorem pdl_two_stage_order_safety
     k1_exit < k3_start :=
   Nat.lt_of_lt_of_le (Nat.lt_of_le_of_lt h_wait h_order) h_kick
 
+/-! ### Multi-sequence decode rounds (#107): row-independent instantiations
+
+Each row of a round carries `{pos, seq}` and addresses its own sequence's KV / history at a fixed
+per-sequence stride; the arithmetic per row is the single-sequence kernels' (same resources or
+fewer registers). -/
+
+def kInk2PrepQkvAndCacheMs : KernelResourceSpec :=
+  { name := "ink2_prep_qkv_and_cache_ms"
+    threadsPerCta := 256
+    rawRegsPerThread := 28          -- 7,168 regs/CTA; 6 CTAs = 43,008 <= 65,536
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2GqaAttnSplitDecMs : KernelResourceSpec :=
+  { kInk2GqaAttnSplitDec with name := "ink2_gqa_attn_split_dec_ms" }   -- 64 regs, 14,976 B
+
+def kInk2GqaAttnSplitI8Ms : KernelResourceSpec :=
+  { kInk2GqaAttnSplitI8 with name := "ink2_gqa_attn_split_i8_ms" }     -- 64 regs, 14,976 B
+
+def kInk2GqaAttnCombineQ8DynMs : KernelResourceSpec :=
+  { kInk2GqaAttnCombineQ8Dyn with name := "ink2_gqa_attn_combine_q8_dyn_ms" }  -- 38 <= 40 regs
+
+def kInk2ShortConv4Ms : KernelResourceSpec :=
+  { name := "ink2_short_conv4_ms"
+    threadsPerCta := 256
+    rawRegsPerThread := 32          -- 8,192 regs/CTA; 6 CTAs = 49,152 <= 65,536
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2ShortConv4SaveMs : KernelResourceSpec :=
+  { kInk2ShortConv4Ms with name := "ink2_short_conv4_save_ms" }        -- 30 <= 32 regs
+
+def multiSeqRoundKernelSuite : List KernelResourceSpec :=
+  [ kInk2PrepQkvAndCacheMs
+  , kInk2GqaAttnSplitDecMs
+  , kInk2GqaAttnSplitI8Ms
+  , kInk2GqaAttnCombineQ8DynMs
+  , kInk2ShortConv4Ms
+  , kInk2ShortConv4SaveMs ]
+
+theorem multiseq_round_all_kernels_valid :
+    (multiSeqRoundKernelSuite.all checkSm120Kernel) = true := by decide
+
 end LeanSonic.Proofs
