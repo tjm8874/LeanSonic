@@ -40,6 +40,7 @@ pub struct MtpKernelFns {
     pub rmsnorm_quant_q8_64_b: CUfunction,
     pub quant_q8_64_b: CUfunction,
     pub q8_dp4a_gemm_b: CUfunction,
+    pub q8_dp4a_gemm_b8_fast: Option<CUfunction>,
     pub q8_dp4a_gemv: CUfunction,
     pub q8_dp4a_gemm_ktiled: CUfunction,
     pub tapmix: CUfunction,
@@ -636,6 +637,24 @@ impl DsparkDrafterGpu {
             (&mut ys as *mut _) as *mut c_void,
         ];
         let gx = (rows as u32).div_ceil(16);
+        if w.cols <= 3072 && b_len <= 8 {
+            if let Some(f_b8) = self.fns.q8_dp4a_gemm_b8_fast {
+                let mut sc = 0.0f32;
+                let mut args10: [*mut c_void; 10] = [
+                    (&mut pw as *mut _) as *mut c_void,
+                    (&mut pws as *mut _) as *mut c_void,
+                    (&mut px as *mut _) as *mut c_void,
+                    (&mut pxs as *mut _) as *mut c_void,
+                    (&mut py as *mut _) as *mut c_void,
+                    (&mut r as *mut _) as *mut c_void,
+                    (&mut c as *mut _) as *mut c_void,
+                    (&mut bi as *mut _) as *mut c_void,
+                    (&mut ys as *mut _) as *mut c_void,
+                    (&mut sc as *mut _) as *mut c_void,
+                ];
+                return self.launch(stream, f_b8, (gx, 1), 256, &mut args10);
+            }
+        }
         self.launch(
             stream,
             self.fns.q8_dp4a_gemm_ktiled,
@@ -904,7 +923,11 @@ impl DsparkDrafterGpu {
                 (&mut sc as *mut _) as *mut c_void,
             ];
             let gx = (VOCAB as u32).div_ceil(16);
-            self.launch(stream, self.fns.q8_dp4a_gemm_b, (gx, 1), 256, &mut args)?;
+            let f_unembed = self
+                .fns
+                .q8_dp4a_gemm_b8_fast
+                .unwrap_or(self.fns.q8_dp4a_gemm_b);
+            self.launch(stream, f_unembed, (gx, 1), 256, &mut args)?;
         }
 
         let a3 = self.alpha[3];

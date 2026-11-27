@@ -28,6 +28,51 @@ pub const CU_MEMHOSTALLOC_DEVICEMAP: c_uint = 0x02;
 pub const CU_STREAM_NON_BLOCKING: c_uint = 0x01;
 pub const CU_EVENT_DISABLE_TIMING: c_uint = 0x02;
 pub const CU_STREAM_CAPTURE_MODE_GLOBAL: c_int = 0;
+pub const CU_LAUNCH_ATTRIBUTE_PROGRAMMATIC_STREAM_SERIALIZATION: c_int = 6;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union CUlaunchAttributeValue {
+    pub programmatic_stream_serialization_allowed: c_int,
+    pub raw: [u64; 8],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct CUlaunchAttribute {
+    pub id: c_int,
+    pub pad: [u8; 4],
+    pub value: CUlaunchAttributeValue,
+}
+
+impl CUlaunchAttribute {
+    #[inline]
+    pub fn programmatic_stream_serialization() -> Self {
+        let mut val = CUlaunchAttributeValue { raw: [0; 8] };
+        val.programmatic_stream_serialization_allowed = 1;
+        Self {
+            id: CU_LAUNCH_ATTRIBUTE_PROGRAMMATIC_STREAM_SERIALIZATION,
+            pad: [0; 4],
+            value: val,
+        }
+    }
+}
+
+#[repr(C)]
+pub struct CUlaunchConfig {
+    pub gridDimX: c_uint,
+    pub gridDimY: c_uint,
+    pub gridDimZ: c_uint,
+    pub blockDimX: c_uint,
+    pub blockDimY: c_uint,
+    pub blockDimZ: c_uint,
+    pub sharedMemBytes: c_uint,
+    pub _pad0: c_uint,
+    pub hStream: CUstream,
+    pub attrs: *mut CUlaunchAttribute,
+    pub numAttrs: c_uint,
+    pub _pad1: c_uint,
+}
 
 #[cfg(unix)]
 unsafe extern "C" {
@@ -137,6 +182,14 @@ pub struct CudaApi {
         *mut *mut c_void,
         *mut *mut c_void,
     ) -> CUresult,
+    pub cuLaunchKernelEx: Option<
+        unsafe extern "C" fn(
+            *const CUlaunchConfig,
+            CUfunction,
+            *mut *mut c_void,
+            *mut *mut c_void,
+        ) -> CUresult,
+    >,
     pub cuStreamCreate: unsafe extern "C" fn(*mut CUstream, c_uint) -> CUresult,
     pub cuStreamSynchronize: unsafe extern "C" fn(CUstream) -> CUresult,
     pub cuEventCreate: unsafe extern "C" fn(*mut CUevent, c_uint) -> CUresult,
@@ -212,6 +265,7 @@ impl CudaContextHandle {
                 cuModuleGetFunction: load_sym(lib, "cuModuleGetFunction")?,
                 cuFuncSetAttribute: load_sym(lib, "cuFuncSetAttribute")?,
                 cuLaunchKernel: load_sym(lib, "cuLaunchKernel")?,
+                cuLaunchKernelEx: load_sym(lib, "cuLaunchKernelEx").ok(),
                 cuStreamCreate: load_sym(lib, "cuStreamCreate")?,
                 cuStreamSynchronize: load_sym(lib, "cuStreamSynchronize")?,
                 cuEventCreate: load_sym(lib, "cuEventCreate")?,
@@ -802,5 +856,22 @@ mod context_tests {
         drop(buffer);
         assert_eq!(current()?, outer.ctx);
         Ok(())
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn pdl_launch_abi_matches_cuda_header_layout() {
+        assert_eq!(core::mem::size_of::<CUlaunchAttribute>(), 72);
+        assert_eq!(core::mem::align_of::<CUlaunchAttribute>(), 8);
+        assert_eq!(core::mem::offset_of!(CUlaunchAttribute, id), 0);
+        assert_eq!(core::mem::offset_of!(CUlaunchAttribute, value), 8);
+        assert_eq!(core::mem::size_of::<CUlaunchConfig>(), 56);
+        assert_eq!(core::mem::align_of::<CUlaunchConfig>(), 8);
+        assert_eq!(core::mem::offset_of!(CUlaunchConfig, gridDimX), 0);
+        assert_eq!(core::mem::offset_of!(CUlaunchConfig, blockDimX), 12);
+        assert_eq!(core::mem::offset_of!(CUlaunchConfig, sharedMemBytes), 24);
+        assert_eq!(core::mem::offset_of!(CUlaunchConfig, hStream), 32);
+        assert_eq!(core::mem::offset_of!(CUlaunchConfig, attrs), 40);
+        assert_eq!(core::mem::offset_of!(CUlaunchConfig, numAttrs), 48);
     }
 }
