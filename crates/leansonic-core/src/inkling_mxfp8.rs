@@ -220,6 +220,11 @@ pub fn unpack_nvfp4_trim_context(data: &[u8], count: usize) -> Result<Vec<u8>, S
     unpack_codes(Matrix::parse_nvfp4_trim(data, count)?, count)
 }
 
+/// Decode the existing eight-column mean-context scale frame for offline packing.
+pub fn unpack_mean8_scale_codes(data: &[u8], count: usize) -> Result<Vec<u8>, String> {
+    unpack_codes(Matrix::parse_scales(data, count, 8)?, count)
+}
+
 fn unpack_codes(matrix: Matrix<'_>, count: usize) -> Result<Vec<u8>, String> {
     let mut raw = Vec::with_capacity(count);
     matrix.for_each_chunk(|_, tile| {
