@@ -55,6 +55,7 @@ A 32-ID prefix, FP16 KV, PDL, no speculation. Five mirrored cycles (ten fresh pr
 
 | GPU | Split | Mean KL | Worst KL | Top-1 matches | PPL | BF16 PPL | Worst chunk, position |
 |---|---|---:|---:|---:|---:|---:|---|
+| PRO5000 | test | 0.0031584260 | 0.6809773323 | 24,865/25,500 | 7.07295554 | 7.06440819 | 69, 353 |
 | 5070Ti | test | 0.0031584260 | 0.6809773323 | 24,865/25,500 | 7.07295554 | 7.06440819 | 69, 353 |
 
 [Individual timing runs, predictions, input hashes and corpus metrics](inkling-zero-measurements.json).
