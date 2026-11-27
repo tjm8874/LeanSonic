@@ -6,6 +6,8 @@ The control host at `5f1c7ff` and candidate at `6544318` both used the same nati
 
 | GPU | Prefix tokens | Control decode 64 (ms) | Candidate (ms) | Candidate minus control (ms, 95% interval) |
 |---|---:|---:|---:|---:|
+| 5060Ti | 32 | 1266.579 | 1265.349 | -1.230 [-1.319, -1.117] |
+| 5060Ti | 1024 | 1294.905 | 1293.629 | -1.276 [-1.361, -1.186] |
 | PRO4500 | 32 | 390.066 | 388.792 | -1.273 [-1.381, -1.174] |
 | PRO4500 | 1024 | 401.718 | 400.476 | -1.242 [-1.339, -1.138] |
 
