@@ -720,6 +720,10 @@ pub struct Inkling2GpuEngine {
     /// `LEANSONIC_ATTN_SPLIT_DECODE`, defaults to `attn_split_g`). Decode and verify always share
     /// it, so `--spec 0` and `--spec K` stay token-identical; prefill chunks keep `attn_split_g`.
     attn_split_g_decode: usize,
+    /// Decode / verify split count of the 4 full-attention (global) layers
+    /// (`LEANSONIC_ATTN_SPLIT_DECODE_GLOBAL`, default `max(attn_split_g_decode, 32)`): their
+    /// single row scans the whole context, and 8 x 16 CTAs leave most SMs idle at 32K-128K.
+    attn_split_g_decode_global: usize,
     d_dec_part_ml: DeviceBuf,
     d_dec_part_o: DeviceBuf,
     d_wo_out: DeviceBuf,
@@ -1113,6 +1117,17 @@ impl Inkling2GpuEngine {
         } else {
             0
         };
+        let attn_split_g_decode_global = if attn_split_g > 0 {
+            std::env::var("LEANSONIC_ATTN_SPLIT_DECODE_GLOBAL")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .filter(|&g| g > 0)
+                .unwrap_or(attn_split_g_decode.max(32))
+                .min(64)
+        } else {
+            0
+        };
+        let dec_split_max = attn_split_g_decode.max(attn_split_g_decode_global);
         let st_path = model_dir.join("model-00001-of-00001.safetensors");
         let st = MappedSafeTensors::open(&st_path)
             .map_err(|e| format!("open {}: {e}", st_path.display()))?;
@@ -1713,13 +1728,14 @@ impl Inkling2GpuEngine {
             d_attn_out: DeviceBuf::alloc_zeroed(&ctx, 3072 * 4)?,
             attn_split_g,
             attn_split_g_decode,
+            attn_split_g_decode_global,
             d_dec_part_ml: DeviceBuf::alloc_zeroed(
                 &ctx,
-                (MAX_SPEC_TOKENS * N_HEAD * attn_split_g_decode * 2 * 4).max(4),
+                (MAX_SPEC_TOKENS * N_HEAD * dec_split_max * 2 * 4).max(4),
             )?,
             d_dec_part_o: DeviceBuf::alloc_zeroed(
                 &ctx,
-                (MAX_SPEC_TOKENS * N_HEAD * attn_split_g_decode * HD * 4).max(4),
+                (MAX_SPEC_TOKENS * N_HEAD * dec_split_max * HD * 4).max(4),
             )?,
             d_wo_out: DeviceBuf::alloc_zeroed(&ctx, D * 4)?,
             d_mlp_h: DeviceBuf::alloc_zeroed(&ctx, D * 4)?,
@@ -2645,10 +2661,16 @@ impl Inkling2GpuEngine {
         let mut ppos = self.d_pos.ptr;
         let mut cap = kv_cap;
         let mut ig = is_global;
-        // Decode / verify rows may use their own split count (see `attn_split_g_decode`).
-        let decode_rows = b_len <= MAX_SPEC_TOKENS && self.attn_split_g_decode != self.attn_split_g;
-        let g_split = if decode_rows {
+        // Decode / verify rows may use their own split count (see `attn_split_g_decode` and
+        // `attn_split_g_decode_global`); decode and verify always agree, so spec 0 == spec K.
+        let g_dec = if is_global != 0 {
+            self.attn_split_g_decode_global
+        } else {
             self.attn_split_g_decode
+        };
+        let decode_rows = b_len <= MAX_SPEC_TOKENS && g_dec != self.attn_split_g;
+        let g_split = if decode_rows {
+            g_dec
         } else {
             self.attn_split_g
         };
