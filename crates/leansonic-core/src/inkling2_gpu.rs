@@ -666,6 +666,7 @@ impl LayerWorkspace {
 // also accommodates every page of the expert occurrence tables.
 struct PrefillBuffers {
     capacity: usize,
+    allocated_bytes: usize,
     bytes_per_row: usize,
     d_taps: Option<DeviceBuf>,
     d_attn_part_ml: DeviceBuf,
@@ -751,6 +752,7 @@ impl PrefillBuffers {
             layer_workspace: LayerWorkspace::new(allocate(capacity * TOP_K * D * 4)?, capacity),
             d_b_act_codes: allocate(capacity * (TOP_K * FF).max(3 * N_HEAD * HD))?,
             d_b_act_scales: allocate(capacity * (TOP_K * (FF / 16)).max(3 * N_HEAD * HD / 64) * 4)?,
+            allocated_bytes: bytes,
             bytes_per_row: (bytes
                 - fixed_part_bytes
                 - msg_rows.saturating_sub(4 * capacity) * D * 4)
@@ -2213,12 +2215,13 @@ impl Inkling2GpuEngine {
                     if extra > headroom {
                         continue;
                     }
-                    // On full-VRAM cards (`all_experts_resident` with no explicit override), defer
-                    // widening until a >64-token prompt actually arrives, saving 400–800 MiB VRAM on short runs!
-                    // #107: a multi-sequence engine cannot widen later (that reallocates every
-                    // sequence's rings), so it takes the same width now. Prompts then split into
-                    // the same chunks as on a single-sequence engine, keeping prefill bit-identical.
-                    if explicit_chunk.is_none() && eng.n_seqs == 1 {
+                    // Lazy growth has to hold both workspaces and both sets of
+                    // sliding-window rings. If that peak would no longer fit
+                    // after uploading the experts, widen first and verify placement.
+                    if explicit_chunk.is_none()
+                        && eng.n_seqs == 1
+                        && eng.prefill_resize_bytes(width) <= headroom
+                    {
                         eng.max_prefill_chunk = width;
                         break;
                     }
@@ -2473,6 +2476,25 @@ impl Inkling2GpuEngine {
             }
         }
         Ok(())
+    }
+
+    fn prefill_resize_bytes(&self, capacity: usize) -> usize {
+        // For a single sequence the split-KV workspace is fixed or linear.
+        // This upper bound also covers the minimum-sized controller buffers.
+        let workspace = self.prefill.allocated_bytes
+            + (capacity - self.prefill.capacity) * self.prefill.bytes_per_row;
+        let cap = self.max_ctx.min(EXTENT + capacity);
+        let rings: usize = self
+            .slots
+            .iter()
+            .filter(|slot| !slot.is_global && slot.kv_cap != cap)
+            .map(|slot| {
+                let bytes_per_token =
+                    (slot.seq_kv_bytes + slot.seq_scale_bytes) as usize / slot.kv_cap;
+                2 * cap * bytes_per_token
+            })
+            .sum();
+        workspace + rings
     }
 
     fn resize_prefill(&mut self, capacity: usize) -> Result<(), String> {
