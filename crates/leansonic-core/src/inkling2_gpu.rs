@@ -363,13 +363,17 @@ struct ExpertKernels {
     mixed_up: Option<CUfunction>,
     ternary_up: Option<CUfunction>,
     ternary_down: Option<CUfunction>,
+    mixed_even_down: Option<CUfunction>,
     ternary_down_conv: Option<CUfunction>,
+    mixed_even_down_conv: Option<CUfunction>,
     ternary_tc_up: Option<CUfunction>,
     mixed_even_tc_up: Option<CUfunction>,
     ternary_tc_up_t160: Option<CUfunction>,
     mixed_even_tc_up_t160: Option<CUfunction>,
     ternary_tc_down: Option<CUfunction>,
+    mixed_even_tc_down: Option<CUfunction>,
     ternary_tc_down_t160: Option<CUfunction>,
+    mixed_even_tc_down_t160: Option<CUfunction>,
     mxfp8_up_situ: CUfunction,
     mxfp8_up_situ_u4: Option<CUfunction>,
     mxfp8_down: CUfunction,
@@ -592,7 +596,7 @@ struct KernelFns {
     quant_nvfp4_2term_b: Option<CUfunction>,
     gather_nvfp4_sorted_b: Option<CUfunction>,
     expand_mxfp8_indices: Option<CUfunction>,
-    expand_mixed_up: Option<CUfunction>,
+    expand_mixed_expert: Option<CUfunction>,
     expand_ternary_nibbles: Option<CUfunction>,
     quant_mxfp8_b: Option<CUfunction>,
     flash_attn_tc_q8_b: Option<CUfunction>,
@@ -832,8 +836,8 @@ pub struct Inkling2GpuEngine {
     d_all_msg_queries: DeviceBuf,
     layers: Vec<LayerGpu>,
     expert_weights: Vec<[TierBuf; 2]>,
-    mixed_up_ptrs: Vec<CUdeviceptr>,
-    mixed_up_scratch: Option<PinnedHostBuf>,
+    mixed_weight_ptrs: Vec<CUdeviceptr>,
+    mixed_expert_scratch: Option<PinnedHostBuf>,
     ternary_up_scratch: Option<DeviceBuf>,
     ternary_down_scratch: Option<DeviceBuf>,
     device_codebook_scratch: Option<DeviceBuf>,
@@ -1377,7 +1381,7 @@ impl<'a> ExpertMatrix<'a> {
         Ok(result)
     }
 
-    fn place_mixed_even_up(
+    fn place_mixed_even(
         self,
         ctx: &Arc<CudaContextHandle>,
     ) -> Result<Option<(TierBuf, bool)>, String> {
@@ -2551,8 +2555,8 @@ impl Inkling2GpuEngine {
             direct_device_tc,
             direct_device_up: direct_all
                 || (device_u4 && std::env::var("LEANSONIC_MXFP8_LOOKUP_UP").as_deref() == Ok("1")),
-            mixed_up_ptrs: Vec::new(),
-            mixed_up_scratch: None,
+            mixed_weight_ptrs: Vec::new(),
+            mixed_expert_scratch: None,
             ternary_up_scratch,
             ternary_down_scratch,
             device_codebook_scratch,
@@ -2755,15 +2759,16 @@ impl Inkling2GpuEngine {
         // before copying the larger expert matrices into VRAM or pinned host memory.
         st.discard_resident_pages();
         let mixed_up = std::env::var("LEANSONIC_MIXED_EVEN_UP").as_deref() == Ok("1");
-        if mixed_up
+        let mixed_down = std::env::var("LEANSONIC_MIXED_EVEN_DOWN").as_deref() == Ok("1");
+        if (mixed_up || mixed_down)
             && (eng.n_seqs != 1
-                || eng.ternary_up_scratch.is_some()
-                || eng.fns.expand_mixed_up.is_none())
+                || eng.fns.expand_mixed_expert.is_none()
+                || (mixed_up && eng.ternary_up_scratch.is_some())
+                || (mixed_down && eng.ternary_down_scratch.is_some()))
         {
-            return Err(
-                "mixed-even pilot requires one sequence and the matched expansion module".into(),
-            );
+            return Err("mixed-even experts require one sequence, matching kernels, and exclusive packing of each weight plane".into());
         }
+        let mut mixed_scratch_bytes = 0;
         let mut mixed_layers = 0;
         for ([mut up, down], [up_on_device, down_on_device]) in
             expert_views.into_iter().zip(resident)
@@ -2774,21 +2779,22 @@ impl Inkling2GpuEngine {
                     *ternary = false;
                 }
             }
-            let compact = if mixed_up && up_on_device {
-                up.place_mixed_even_up(&eng.ctx)?
-            } else {
-                None
-            };
-            let up_buffer = match compact {
-                Some((buffer, compact)) => {
-                    if compact {
-                        eng.mixed_up_ptrs.push(buffer.ptr());
+            let mut place = |view: ExpertMatrix<'_>, resident, mixed| -> Result<TierBuf, String> {
+                if resident && mixed {
+                    if let Some((buf, compact)) = view.place_mixed_even(&eng.ctx)? {
+                        if compact {
+                            mixed_scratch_bytes = mixed_scratch_bytes.max(view.len());
+                            eng.mixed_weight_ptrs.push(buf.ptr());
+                        }
+                        return Ok(buf);
                     }
-                    buffer
                 }
-                None => up.place(&eng.ctx, up_on_device)?,
+                view.place(&eng.ctx, resident)
             };
-            let pair = [up_buffer, down.place(&eng.ctx, down_on_device)?];
+            let pair = [
+                place(up, up_on_device, mixed_up)?,
+                place(down, down_on_device, mixed_down)?,
+            ];
             match &pair {
                 [TierBuf::Vram(_), TierBuf::Vram(_)] => eng.resident_expert_layers += 1,
                 [TierBuf::HostPinned(_), TierBuf::HostPinned(_)] => eng.spilled_expert_layers += 1,
@@ -2801,13 +2807,13 @@ impl Inkling2GpuEngine {
             st.discard_resident_pages();
         }
 
-        if !eng.mixed_up_ptrs.is_empty() {
-            // Generic CUDA readers expand into a shared mapped host buffer on the same stream.
-            // Direct gate/up kernels only read the compact device weights.
-            eng.mixed_up_scratch = Some(PinnedHostBuf::alloc_uninit(&eng.ctx, N_EXP * D * FF)?);
+        if mixed_scratch_bytes > 0 {
+            // Generic readers on the same stream share space for the largest packed projection.
+            eng.mixed_expert_scratch =
+                Some(PinnedHostBuf::alloc_uninit(&eng.ctx, mixed_scratch_bytes)?);
             eprintln!(
-                "[LeanSonic GPU] mixed-even up planes {}",
-                eng.mixed_up_ptrs.len()
+                "[LeanSonic GPU] mixed-even expert planes {}, mapped scratch {mixed_scratch_bytes} bytes",
+                eng.mixed_weight_ptrs.len()
             );
         }
         drop(device_codebooks);
@@ -3123,7 +3129,9 @@ impl Inkling2GpuEngine {
                 mixed_up: load("mixed_even_dp4a_up_half_q8").ok(),
                 ternary_up: load("ternary_dp4a_up_half_q8").ok(),
                 ternary_down: load("ternary_dp4a_down_xw").ok(),
+                mixed_even_down: load("mixed_even_dp4a_down_xw").ok(),
                 ternary_down_conv: load("ternary_dp4a_down_xw_conv").ok(),
+                mixed_even_down_conv: load("mixed_even_dp4a_down_xw_conv").ok(),
                 ternary_tc_up: set_dyn_smem(load("ternary_tc_up_situ").ok(), 62_976)?,
                 mixed_even_tc_up: set_dyn_smem(load("mixed_even_tc_up_situ").ok(), 62_976)?,
                 ternary_tc_up_t160: set_dyn_smem(load("ternary_tc_up_situ_t160").ok(), 58_112)?,
@@ -3132,7 +3140,12 @@ impl Inkling2GpuEngine {
                     58_112,
                 )?,
                 ternary_tc_down: set_dyn_smem(load("ternary_tc_down").ok(), 62_976)?,
+                mixed_even_tc_down: set_dyn_smem(load("mixed_even_tc_down").ok(), 62_976)?,
                 ternary_tc_down_t160: set_dyn_smem(load("ternary_tc_down_t160").ok(), 58_112)?,
+                mixed_even_tc_down_t160: set_dyn_smem(
+                    load("mixed_even_tc_down_t160").ok(),
+                    58_112,
+                )?,
                 nvfp4_dp4a_down_xw_conv: load("nvfp4_dp4a_down_xw_conv").ok(),
                 mxfp8_up_situ: load("mxfp8_up_situ")?,
                 mxfp8_up_situ_u4: load("mxfp8_up_situ_u4").ok(),
@@ -3292,7 +3305,7 @@ impl Inkling2GpuEngine {
             q8_tc_qkv3_gemm_b,
             quant_nvfp4_2term_b: get_fn("ink2_quant_nvfp4_2term_b").ok(),
             gather_nvfp4_sorted_b: get_fn("ink2_gather_nvfp4_sorted_b").ok(),
-            expand_mixed_up: get_fn("ink2_expand_mixed_up").ok(),
+            expand_mixed_expert: get_fn("ink2_expand_mixed_expert").ok(),
             expand_ternary_nibbles: get_fn("ink2_expand_ternary_nibbles").ok(),
             expand_mxfp8_indices: get_fn("ink2_expand_mxfp8_indices").ok(),
             quant_mxfp8_b: get_fn("ink2_quant_mxfp8_b").ok(),
@@ -3481,7 +3494,42 @@ impl Inkling2GpuEngine {
         Ok(dst)
     }
 
+    fn expand_mixed_weight(
+        &self,
+        stream: CUstream,
+        weight: &TierBuf,
+        mut cells: u32,
+    ) -> Result<CUdeviceptr, String> {
+        let mut src = weight.ptr();
+        let scratch = self
+            .mixed_expert_scratch
+            .as_ref()
+            .ok_or("missing mixed-even scratch")?;
+        if cells as usize * N_EXP * 16 > scratch.byte_len {
+            return Err("mixed-even expansion exceeds mapped scratch".into());
+        }
+        let mut dst = scratch.dev_ptr;
+        let mut args = [
+            (&mut src as *mut _) as *mut c_void,
+            (&mut dst as *mut _) as *mut c_void,
+            (&mut cells as *mut _) as *mut c_void,
+        ];
+        self.launch(
+            stream,
+            self.fns
+                .expand_mixed_expert
+                .ok_or("missing mixed-even expansion")?,
+            (128, N_EXP as u32),
+            256,
+            &mut args,
+        )?;
+        Ok(dst)
+    }
+
     fn raw_nvfp4_down(&self, stream: CUstream, weight: &TierBuf) -> Result<CUdeviceptr, String> {
+        if self.mixed_weight_ptrs.contains(&weight.ptr()) {
+            return self.expand_mixed_weight(stream, weight, (D * FF / 32) as u32);
+        }
         self.expand_nvfp4(
             stream,
             weight,
@@ -3491,27 +3539,8 @@ impl Inkling2GpuEngine {
     }
 
     fn raw_nvfp4_up(&self, stream: CUstream, weight: &TierBuf) -> Result<CUdeviceptr, String> {
-        if self.mixed_up_ptrs.contains(&weight.ptr()) {
-            let mut src = weight.ptr();
-            let mut dst = self
-                .mixed_up_scratch
-                .as_ref()
-                .ok_or("missing mixed-even scratch")?
-                .dev_ptr;
-            let mut args = [
-                (&mut src as *mut _) as *mut c_void,
-                (&mut dst as *mut _) as *mut c_void,
-            ];
-            self.launch(
-                stream,
-                self.fns
-                    .expand_mixed_up
-                    .ok_or("missing mixed-even expansion")?,
-                (128, N_EXP as u32),
-                256,
-                &mut args,
-            )?;
-            return Ok(dst);
+        if self.mixed_weight_ptrs.contains(&weight.ptr()) {
+            return self.expand_mixed_weight(stream, weight, (D * FF / 16) as u32);
         }
         let scratch = self
             .ternary_up_scratch
@@ -4171,7 +4200,7 @@ impl Inkling2GpuEngine {
         use_staging: bool,
     ) -> Result<bool, String> {
         let ternary = self.ternary_up_scratch.is_some() && matches!(w13, TierBuf::Vram(_));
-        let mixed = self.mixed_up_ptrs.contains(&w13.ptr());
+        let mixed = self.mixed_weight_ptrs.contains(&w13.ptr());
         let fused = if mixed {
             s13.kernels.mixed_up
         } else if ternary {
@@ -5178,12 +5207,16 @@ impl Inkling2GpuEngine {
                     let allow_xw = self.moe_down_xw == 2
                         || (self.moe_down_xw == 1 && matches!(w2, TierBuf::Vram(_)));
                     let ternary = self.ternary_down_scratch.is_some();
-                    let xw = if ternary {
+                    let xw = if self.mixed_weight_ptrs.contains(&w2.ptr()) {
+                        s2.kernels.mixed_even_down
+                    } else if ternary {
                         s2.kernels.ternary_down
                     } else {
                         s2.kernels.nvfp4_dp4a_down_xw
                     };
-                    let conv = if ternary {
+                    let conv = if self.mixed_weight_ptrs.contains(&w2.ptr()) {
+                        s2.kernels.mixed_even_down_conv
+                    } else if ternary {
                         s2.kernels.ternary_down_conv
                     } else {
                         s2.kernels.nvfp4_dp4a_down_xw_conv
@@ -9158,7 +9191,7 @@ impl Inkling2GpuEngine {
                             exp_begin = exp_end;
                         }
                     } else {
-                        let direct = if self.mixed_up_ptrs.contains(&w13.ptr()) {
+                        let direct = if self.mixed_weight_ptrs.contains(&w13.ptr()) {
                             if nvfp4_tile_toks == 160 {
                                 s13.kernels.mixed_even_tc_up_t160
                             } else {
@@ -9287,7 +9320,13 @@ impl Inkling2GpuEngine {
                             exp_begin = exp_end;
                         }
                     } else {
-                        let direct = if self.ternary_down_scratch.is_none() {
+                        let direct = if self.mixed_weight_ptrs.contains(&w2.ptr()) {
+                            if nvfp4_tile_toks == 160 {
+                                s2.kernels.mixed_even_tc_down_t160
+                            } else {
+                                s2.kernels.mixed_even_tc_down
+                            }
+                        } else if self.ternary_down_scratch.is_none() {
                             None
                         } else if nvfp4_tile_toks == 160 {
                             s2.kernels.ternary_tc_down_t160

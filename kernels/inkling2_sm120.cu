@@ -2882,7 +2882,7 @@ INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_down, (
 // fold is the same `__fmaf_rn` chain over `k = 0..7`, so `moe_out` is bit-identical to
 // `ink2_moe_nvfp4_dp4a_down`. The 8 independent expert rows per CTA (vs. 8 sequential rows per
 // warp) give 8x the warps and loads in flight; the activations stay in registers (no smem copy).
-template<bool PackedScales, class Weight> __device__ __forceinline__ void ink2_moe_nvfp4_dp4a_down_xw_impl(
+template<bool PackedScales, class Weight, bool MixedEven = false> __device__ __forceinline__ void ink2_moe_nvfp4_dp4a_down_xw_impl(
     const Weight* __restrict__ weights, const uint32_t* __restrict__ s2_u32, const float* __restrict__ a2,
     const uint4* __restrict__ act_q8_u128, const float* __restrict__ act_sc16,
     const int32_t* __restrict__ sel_ids, const float* __restrict__ sel_wts, float* __restrict__ moe_out);
@@ -2900,6 +2900,13 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_down_xw_packed_scales(
     // Executes `pdl_wait()` inside `_impl` after prefetching `w2` weights.
     ink2_moe_nvfp4_dp4a_down_xw_impl<true>(w2_u128, s2_u32, a2, act_q8_u128, act_sc16, sel_ids, sel_wts, moe_out);
 }
+extern "C" __global__ void ink2_moe_mixed_even_dp4a_down_xw_packed_scales(
+    const uint4* __restrict__ w2_u128, const uint32_t* __restrict__ s2_u32, const float* __restrict__ a2,
+    const uint4* __restrict__ act_q8_u128, const float* __restrict__ act_sc16,
+    const int32_t* __restrict__ sel_ids, const float* __restrict__ sel_wts, float* __restrict__ moe_out) {
+    // Executes `pdl_wait()` inside `_impl` after prefetching `w2` weights.
+    ink2_moe_nvfp4_dp4a_down_xw_impl<true, uint4, true>(w2_u128, s2_u32, a2, act_q8_u128, act_sc16, sel_ids, sel_wts, moe_out);
+}
 // Two bits per resident ternary weight (00 = 0, 01 = +6, 11 = -6).
 // The shared implementation executes pdl_wait() after immutable weight prefetch.
 extern "C" __global__ void ink2_moe_ternary_dp4a_down_xw_packed_scales(
@@ -2911,7 +2918,7 @@ extern "C" __global__ void ink2_moe_ternary_dp4a_down_xw_packed_scales(
 }
 
 
-template<bool PackedScales, class Weight> __device__ __forceinline__ void ink2_moe_nvfp4_dp4a_down_xw_impl(
+template<bool PackedScales, class Weight, bool MixedEven> __device__ __forceinline__ void ink2_moe_nvfp4_dp4a_down_xw_impl(
     const Weight* __restrict__ weights,     // [128, 2304, 36]
     const uint32_t* __restrict__ s2_u32,   // [128, 2304, 18]
     const float* __restrict__ a2,          // [128]
@@ -2932,18 +2939,36 @@ template<bool PackedScales, class Weight> __device__ __forceinline__ void ink2_m
     const int row0 = blockIdx.x * kRows;
     const bool tail = lane < 4;
 
+    const Weight* expert_weights = nullptr;
+    const unsigned* compact_plane = nullptr;
+    if constexpr (MixedEven) {
+        const unsigned* frame = reinterpret_cast<const unsigned*>(weights);
+        const unsigned descriptor = frame[ex];
+        const unsigned* plane = frame + (descriptor & 0x7fffffffu);
+        expert_weights = reinterpret_cast<const Weight*>(plane);
+        if (descriptor >> 31) compact_plane = plane;
+    } else {
+        expert_weights = weights + static_cast<size_t>(ex) * kD * 36u;
+    }
+    auto load_cell = [&](unsigned index) -> Weight {
+        if constexpr (MixedEven) {
+            if (compact_plane) return load_mixed_even_cell(compact_plane, index);
+        }
+        return expert_weights[index];
+    };
+
     Weight pk_a[kRows], pk_b[kRows];
     uint32_t sc_a[kRows], sc_b[kRows];
     #pragma unroll
     for (int r = 0; r < kRows; ++r) {
         const size_t r_idx = static_cast<size_t>(ex) * kD + (row0 + r);
-        const Weight* row = weights + r_idx * 36u;
+        const unsigned first_cell = (row0 + r) * 36u;
         const size_t sc_start = r_idx * 18u;
-        pk_a[r] = row[lane];
+        pk_a[r] = load_cell(first_cell + lane);
         sc_a[r] = expert_scale_word<PackedScales, 6, 64>(s2_u32, sc_start + (lane >> 1));
         if (tail) {
             const int u16_b = lane + 32;
-            pk_b[r] = row[u16_b];
+            pk_b[r] = load_cell(first_cell + u16_b);
             sc_b[r] = expert_scale_word<PackedScales, 6, 64>(s2_u32, sc_start + (u16_b >> 1));
         } else {
             pk_b[r] = {};
@@ -8695,7 +8720,7 @@ extern "C" __global__ void ink2_wo_conv4_save_c3072(
 
 // Fused Expert-Parallel NVFP4 MoE Down + `mlp_sconv` + Residual Add (`Grid: 1152`, `Block: 256`, `64 B` SMEM):
 // Eliminates `mlp_sconv` (`-44` launches/tok) and `d_moe_y` DRAM round-trips (`0-ULP` exact).
-template<bool PackedScales, class Weight> __device__ __forceinline__ void ink2_moe_nvfp4_dp4a_down_xw_conv_impl(
+template<bool PackedScales, class Weight, bool MixedEven = false> __device__ __forceinline__ void ink2_moe_nvfp4_dp4a_down_xw_conv_impl(
     const Weight* __restrict__ weights, const uint32_t* __restrict__ s2_u32, const float* __restrict__ a2,
     const uint4* __restrict__ act_q8_u128, const float* __restrict__ act_sc16,
     const int32_t* __restrict__ sel_ids, const float* __restrict__ sel_wts,
@@ -8716,6 +8741,14 @@ extern "C" __global__ __launch_bounds__(256, 5) void ink2_moe_nvfp4_dp4a_down_xw
     // Executes `pdl_wait()` inside `_impl` after prefetching `w2` weights.
     ink2_moe_nvfp4_dp4a_down_xw_conv_impl<true>(w2_u128, s2_u32, a2, act_q8_u128, act_sc16, sel_ids, sel_wts, w_conv4, hist3, cur_inout);
 }
+extern "C" __global__ __launch_bounds__(256, 5) void ink2_moe_mixed_even_dp4a_down_xw_conv_packed_scales(
+    const uint4* __restrict__ w2_u128, const uint32_t* __restrict__ s2_u32, const float* __restrict__ a2,
+    const uint4* __restrict__ act_q8_u128, const float* __restrict__ act_sc16,
+    const int32_t* __restrict__ sel_ids, const float* __restrict__ sel_wts,
+    const float4* __restrict__ w_conv4, float* __restrict__ hist3, float* __restrict__ cur_inout) {
+    // Executes `pdl_wait()` inside `_impl` after prefetching `w2` weights.
+    ink2_moe_nvfp4_dp4a_down_xw_conv_impl<true, uint4, true>(w2_u128, s2_u32, a2, act_q8_u128, act_sc16, sel_ids, sel_wts, w_conv4, hist3, cur_inout);
+}
 extern "C" __global__ __launch_bounds__(256, 5) void ink2_moe_ternary_dp4a_down_xw_conv_packed_scales(
     const uint2* __restrict__ w2_u128, const uint32_t* __restrict__ s2_u32, const float* __restrict__ a2,
     const uint4* __restrict__ act_q8_u128, const float* __restrict__ act_sc16,
@@ -8724,7 +8757,7 @@ extern "C" __global__ __launch_bounds__(256, 5) void ink2_moe_ternary_dp4a_down_
     // Executes `pdl_wait()` inside `_impl` after prefetching `w2` weights.
     ink2_moe_nvfp4_dp4a_down_xw_conv_impl<true>(w2_u128, s2_u32, a2, act_q8_u128, act_sc16, sel_ids, sel_wts, w_conv4, hist3, cur_inout);
 }
-template<bool PackedScales, class Weight> __device__ __forceinline__ void ink2_moe_nvfp4_dp4a_down_xw_conv_impl(
+template<bool PackedScales, class Weight, bool MixedEven> __device__ __forceinline__ void ink2_moe_nvfp4_dp4a_down_xw_conv_impl(
     const Weight* __restrict__ weights,     // [128, 2304, 36]
     const uint32_t* __restrict__ s2_u32,   // [128, 2304, 18]
     const float* __restrict__ a2,          // [128]
@@ -8745,18 +8778,36 @@ template<bool PackedScales, class Weight> __device__ __forceinline__ void ink2_m
     const int row0 = blockIdx.x * kRows;
     const bool tail = lane < 4;
 
+    const Weight* expert_weights = nullptr;
+    const unsigned* compact_plane = nullptr;
+    if constexpr (MixedEven) {
+        const unsigned* frame = reinterpret_cast<const unsigned*>(weights);
+        const unsigned descriptor = frame[ex];
+        const unsigned* plane = frame + (descriptor & 0x7fffffffu);
+        expert_weights = reinterpret_cast<const Weight*>(plane);
+        if (descriptor >> 31) compact_plane = plane;
+    } else {
+        expert_weights = weights + static_cast<size_t>(ex) * kD * 36u;
+    }
+    auto load_cell = [&](unsigned index) -> Weight {
+        if constexpr (MixedEven) {
+            if (compact_plane) return load_mixed_even_cell(compact_plane, index);
+        }
+        return expert_weights[index];
+    };
+
     Weight pk_a[kRows], pk_b[kRows];
     uint32_t sc_a[kRows], sc_b[kRows];
     #pragma unroll
     for (int r = 0; r < kRows; ++r) {
         const size_t r_idx = static_cast<size_t>(ex) * kD + (row0 + r);
-        const Weight* row_u128 = weights + r_idx * 36u;
+        const unsigned first_cell = (row0 + r) * 36u;
         const size_t sc_start = r_idx * 18u;
-        pk_a[r] = row_u128[lane];
+        pk_a[r] = load_cell(first_cell + lane);
         sc_a[r] = expert_scale_word<PackedScales, 6, 64>(s2_u32, sc_start + (lane >> 1));
         if (tail) {
             const int u16_b = lane + 32;
-            pk_b[r] = row_u128[u16_b];
+            pk_b[r] = load_cell(first_cell + u16_b);
             sc_b[r] = expert_scale_word<PackedScales, 6, 64>(s2_u32, sc_start + (u16_b >> 1));
         } else {
             pk_b[r] = {};
@@ -10816,6 +10867,23 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_ternary_tc_down_pa
         w2_u128, s2_u32, a2, act_codes_u128, act_sc_u64, act_gs,
         exp_counts, exp_pairs, exp_begin, exp_end, pair_y_f16);
 }
+extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mixed_even_tc_down_packed_scales(
+    const uint4* __restrict__ w2_u128,
+    const uint32_t* __restrict__ s2_u32,
+    const float* __restrict__ a2,
+    const uint4* __restrict__ act_codes_u128,
+    const uint2* __restrict__ act_sc_u64,
+    const float* __restrict__ act_gs,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_pairs,
+    int32_t exp_begin,
+    int32_t exp_end,
+    void* __restrict__ pair_y_f16) {
+    pdl_wait();
+    grouped_nvfp4_tc_impl<false, true, false, true>(
+        w2_u128, s2_u32, a2, act_codes_u128, act_sc_u64, act_gs,
+        exp_counts, exp_pairs, exp_begin, exp_end, pair_y_f16);
+}
 
 // V13 (`#79`): `TileTokens = 160` (`192 weight rows x 160 tokens`, 3-Stage `57,608` B `<= 64 KiB` SMEM, `Block = 384`!)
 // Eliminates `TileTokens = 128` boundary splitting at `B = 2048` (`mean = 128, std = 11` -> `99.6%` of experts fit in `1` tile!)
@@ -11244,6 +11312,23 @@ extern "C" __global__ __launch_bounds__(384, 1) void ink2_moe_ternary_tc_down_t1
     void* __restrict__ pair_y_f16) {
     pdl_wait();
     grouped_nvfp4_tc_t160_impl<false, true, true>(
+        w2_u128, s2_u32, a2, act_codes_u128, act_sc_u64, act_gs,
+        exp_counts, exp_pairs, exp_begin, exp_end, pair_y_f16);
+}
+extern "C" __global__ __launch_bounds__(384, 1) void ink2_moe_mixed_even_tc_down_t160_packed_scales(
+    const uint4* __restrict__ w2_u128,
+    const uint32_t* __restrict__ s2_u32,
+    const float* __restrict__ a2,
+    const uint4* __restrict__ act_codes_u128,
+    const uint2* __restrict__ act_sc_u64,
+    const float* __restrict__ act_gs,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_pairs,
+    int32_t exp_begin,
+    int32_t exp_end,
+    void* __restrict__ pair_y_f16) {
+    pdl_wait();
+    grouped_nvfp4_tc_t160_impl<false, true, false, true>(
         w2_u128, s2_u32, a2, act_codes_u128, act_sc_u64, act_gs,
         exp_counts, exp_pairs, exp_begin, exp_end, pair_y_f16);
 }
@@ -15323,8 +15408,7 @@ extern "C" __global__ __launch_bounds__(256, 6) void ink2_argmax_par_and_inc_pos
     }
 }
 
-extern "C" __global__ void ink2_expand_mixed_up(const unsigned* frame, uint4* raw) {
-    constexpr unsigned cells = 2304u * 2304u / 32u;
+extern "C" __global__ void ink2_expand_mixed_expert(const unsigned* frame, uint4* raw, unsigned cells) {
     const unsigned expert = blockIdx.y;
     const unsigned descriptor = frame[expert];
     const unsigned* data = frame + (descriptor & 0x7fffffffu);

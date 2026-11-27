@@ -1,0 +1,82 @@
+{
+  "gpu": "NVIDIA GeForce RTX 5060 Ti, 595.99.02, 180.00 W",
+  "source": "bd048b80a4af885dd15faac570b77d56ba5a0a23",
+  "splits": {
+    "test": {
+      "native": {
+        "mean_kl": 0.028168,
+        "worst_kl": 4.297287,
+        "ppl": 7.197528,
+        "top1_pct": 92.686,
+        "matches": 23635
+      },
+      "lean": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.128123421246044,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.01722382971701655,
+        "median_kld": 0.007870187806128703,
+        "p99_kld": 0.14868429813484524,
+        "max_kld": 6.1395662820723125,
+        "start_chunk": 0,
+        "max_kld_chunk": 2,
+        "max_kld_position": 478,
+        "ref_floor_targets": 14,
+        "top1_matches": 24071,
+        "top1_agreement": 0.9439607843137255
+      },
+      "native_stdout_sha256": "cc2af518cb6daccb465c6ee9d2e2b37a8983afef3f1bc4352fe2e5c19c59052f",
+      "lean_rows_sha256": "c937c689ee909fa0756ef216bfffa4e6d235e9f1812c950017f34c478433f9d5",
+      "oracle_sha256": "895fac2136c06dce1854568c83eb76a0225a05fab3c37897a12fec1d56949b97"
+    },
+    "valid": {
+      "native": {
+        "mean_kl": 0.025355,
+        "worst_kl": 3.385214,
+        "ppl": 6.610591,
+        "top1_pct": 93.475,
+        "matches": 23836
+      },
+      "lean": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 6.565670166178593,
+        "ref_ppl": 6.498588819010602,
+        "mean_kld": 0.015714403495723606,
+        "median_kld": 0.00674056402783569,
+        "p99_kld": 0.14728166119804237,
+        "max_kld": 2.63827770139034,
+        "start_chunk": 0,
+        "max_kld_chunk": 85,
+        "max_kld_position": 317,
+        "ref_floor_targets": 10,
+        "top1_matches": 24192,
+        "top1_agreement": 0.9487058823529412
+      },
+      "native_stdout_sha256": "52d8c67966297be0dbda592641e23b217b58b1d443741302099845e6a0e14b90",
+      "lean_rows_sha256": "f241787d87f5599bc502b8818dd379864f905f42952f2cbbdfcfb8afb7c26753",
+      "oracle_sha256": "b3d804824373950c9b6d7cd37e5607d132d2f3caca6f80ffd26739b2776a2ca0"
+    }
+  },
+  "llama_version": "version: 1.0.0-dev (build 12588, commit 883286076)\nbuilt with GNU 11.4.0 for Linux x86_64 (Compiled by the Unsloth team)",
+  "lean_model": {
+    "model-00001-of-00001.safetensors": {
+      "sha256": "fd69ae5cdbdb1eb8835bcbc2eae03493a178193ed0d1d2a6b8494d3e38ac45a8",
+      "bytes": 11484081296
+    },
+    "tiktoken/tokenizer.model": {
+      "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8",
+      "bytes": 3386494
+    }
+  },
+  "native_model": {
+    "filename": "Inkling-2-Mini-UD-IQ3_XXS.gguf",
+    "bytes": 11663309504,
+    "sha256": "bd7ef0865adf119b5183e45e741c629bafa649769b33b5ebf689bb4bcc4690d6"
+  },
+  "scorer_sha256": "28a00a68fd037e42cd262c6a9196b61bf8c521d2c4bdbcc8ee71712463986081",
+  "cubin_sha256": "eccdd6d460d19d404cbf9fb19c4273dc021d00c2e63ebdd7ee24772044dfb04e"
+}
