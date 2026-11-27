@@ -5134,7 +5134,92 @@
       }
     },
     "wiki_gpu": "PRO 5000",
-    "fixed_rows": {},
+    "fixed_rows": {
+      "test": [
+        {
+          "chunk": 29,
+          "position": 443,
+          "target": 149918,
+          "engine_logits_sha256": "ec5bb11b2c51d152fbcfd023ce67dcc4bdfe6280d2124c0471ccd7567939450b",
+          "canonical": {
+            "kl": 0.1768657612732908,
+            "reference_top": 149918,
+            "engine_top": 149918
+          },
+          "serial": {
+            "kl": 0.06235726901700074,
+            "reference_top": 149918,
+            "engine_top": 149918
+          }
+        },
+        {
+          "chunk": 69,
+          "position": 353,
+          "target": 1057,
+          "engine_logits_sha256": "6f2ba2a01811b197d70ee201fdc4e2316ebce2754e4f27b23d239ee6ac58dc07",
+          "canonical": {
+            "kl": 0.7095924615749547,
+            "reference_top": 2952,
+            "engine_top": 1057
+          },
+          "serial": {
+            "kl": 0.5442377847091842,
+            "reference_top": 1057,
+            "engine_top": 1057
+          }
+        },
+        {
+          "chunk": 80,
+          "position": 452,
+          "target": 197045,
+          "engine_logits_sha256": "718ae688933e61ee62855ffbbefcbdec37389d584b4555b6579d9d8d23205aad",
+          "canonical": {
+            "kl": 0.09536496417078225,
+            "reference_top": 197045,
+            "engine_top": 197045
+          },
+          "serial": {
+            "kl": 0.156085186394829,
+            "reference_top": 196977,
+            "engine_top": 197045
+          }
+        }
+      ],
+      "valid": [
+        {
+          "chunk": 30,
+          "position": 331,
+          "target": 20,
+          "engine_logits_sha256": "9ed06aee23f38b6f0cc31faa3efadb2363749637599931a2d11623fbd42891b0",
+          "canonical": {
+            "kl": 0.07425663600220525,
+            "reference_top": 18,
+            "engine_top": 18
+          },
+          "serial": {
+            "kl": 0.1286056283267026,
+            "reference_top": 18,
+            "engine_top": 18
+          }
+        },
+        {
+          "chunk": 46,
+          "position": 379,
+          "target": 220,
+          "engine_logits_sha256": "ea368c653d5b23d5193875c972b56d10881a501f70e89d6548f4816eb8e339b8",
+          "canonical": {
+            "kl": 0.05938606754028733,
+            "reference_top": 170558,
+            "engine_top": 170558
+          },
+          "serial": {
+            "kl": 0.10873737878709769,
+            "reference_top": 170558,
+            "engine_top": 170558
+          }
+        }
+      ]
+    },
     "post_hoc_test_36_319": {
       "parent": {
         "chunk": 36,

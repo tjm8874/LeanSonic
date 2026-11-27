@@ -42,10 +42,15 @@ Canonical and serial BF16 scores use the exact same engine logit vector at each 
 | test | 29 / 443 | refine | 0.149895 | 0.047226 | 149918 / 149918 / 149918 |
 | test | 69 / 353 | refine | 0.016224 | 0.001586 | 1057 / 2952 / 1057 |
 | test | 80 / 452 | refine | 0.005418 | 0.424950 | 197045 / 197045 / 196977 |
+| test | 29 / 443 | rate | 0.176866 | 0.062357 | 149918 / 149918 / 149918 |
+| test | 69 / 353 | rate | 0.709592 | 0.544238 | 1057 / 2952 / 1057 |
+| test | 80 / 452 | rate | 0.095365 | 0.156085 | 197045 / 197045 / 196977 |
 | valid | 30 / 331 | canonical | 0.272334 | 0.515020 | 20 / 18 / 18 |
 | valid | 46 / 379 | canonical | 0.352436 | 0.483306 | 17 / 170558 / 170558 |
 | valid | 30 / 331 | refine | 0.085468 | 0.201413 | 20 / 18 / 18 |
 | valid | 46 / 379 | refine | 0.032844 | 0.004860 | 170558 / 170558 / 170558 |
+| valid | 30 / 331 | rate | 0.074257 | 0.128606 | 18 / 18 / 18 |
+| valid | 46 / 379 | rate | 0.059386 | 0.108737 | 170558 / 170558 / 170558 |
 
 [Reference schedules, same-row replay and score definitions](inkling-bf16-serial.md).
 
