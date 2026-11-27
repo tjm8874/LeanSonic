@@ -1,0 +1,82 @@
+{
+  "gpu": "NVIDIA GeForce RTX 5060 Ti, 595.99.02",
+  "source": "ea3a7cf957817b7a4669a463df6f56b670ccbe4d",
+  "binaries": {
+    "main.cubin": "c3f1a3c452bb1a8a40fc51e6b01c08638e7344e323c8c41a74326a0374e78988",
+    "integrated.cubin": "af2a5ac38a0e1b54ad03a2649121e2ecfa6f3631fc538910fed1882838ba2867",
+    "parity": "ab6e8e3cf90694a3951766da9a599f3c2e1fa3a79d374dcb3a656c7c0fc2af2f",
+    "attention": "cb95ea1c2f26d45d4e0678378de1a0276db7e5fb94a9f6322c4ad6cc7148e485"
+  },
+  "audits": {
+    "main": "pass",
+    "integrated": "pass"
+  },
+  "parity": {
+    "per-head": "704 cases matched (all Q8 codes and FP32 scales)",
+    "g1": "704 cases matched (all Q8 codes and FP32 scales)"
+  },
+  "scores": {
+    "check-g1": {
+      "row_sha256": "5a29eb3dd5a4a6d361cc278cd8b2cc2d01ac1b9c2e3c1b56c9a8bcf0bfc62a49",
+      "summary": {
+        "chunks": 1,
+        "context": 512,
+        "rows": 255,
+        "ppl": 5.263299955533854,
+        "ref_ppl": 5.0966631044596955,
+        "mean_kld": 0.020050877821444758,
+        "median_kld": 0.007551086162660467,
+        "p99_kld": 0.28528872421697504,
+        "max_kld": 0.5507353484213182,
+        "start_chunk": 2,
+        "max_kld_chunk": 2,
+        "max_kld_position": 477,
+        "ref_floor_targets": 0,
+        "top1_matches": 242,
+        "top1_agreement": 0.9490196078431372
+      },
+      "top": 44259,
+      "kl": 0.035403481976,
+      "bf16_agrees": true
+    },
+    "check-fallback": {
+      "row_sha256": "5a29eb3dd5a4a6d361cc278cd8b2cc2d01ac1b9c2e3c1b56c9a8bcf0bfc62a49",
+      "summary": {
+        "chunks": 1,
+        "context": 512,
+        "rows": 255,
+        "ppl": 5.263299955533854,
+        "ref_ppl": 5.0966631044596955,
+        "mean_kld": 0.020050877821444758,
+        "median_kld": 0.007551086162660467,
+        "p99_kld": 0.28528872421697504,
+        "max_kld": 0.5507353484213182,
+        "start_chunk": 2,
+        "max_kld_chunk": 2,
+        "max_kld_position": 477,
+        "ref_floor_targets": 0,
+        "top1_matches": 242,
+        "top1_agreement": 0.9490196078431372
+      },
+      "top": 44259,
+      "kl": 0.035403481976,
+      "bf16_agrees": true
+    }
+  },
+  "fp64": {
+    "g1": {
+      "fixtures": 66,
+      "codes_checked": 202752,
+      "code_mismatches": 2,
+      "max_scale_abs": 9.78993808763e-10,
+      "max_dequant_rmse": 0.000894470175543
+    },
+    "fallback": {
+      "fixtures": 66,
+      "codes_checked": 202752,
+      "code_mismatches": 2,
+      "max_scale_abs": 9.78993808763e-10,
+      "max_dequant_rmse": 0.000894470175543
+    }
+  }
+}
