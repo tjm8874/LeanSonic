@@ -20,7 +20,9 @@ use crate::cuda_ffi::{
     CUlaunchConfig, CUmodule, CUstream, CapturedGraphExec, CudaContextHandle, DeviceBuf,
     PinnedHostBuf, CU_EVENT_DISABLE_TIMING,
 };
-use crate::inkling2_mtp::{DsparkDrafterGpu, MtpKernelFns, SuffixDrafter};
+use crate::inkling2_mtp::{
+    spec_copy_match, ContextCopyIndex, DsparkDrafterGpu, MtpKernelFns, SuffixDrafter,
+};
 use crate::safetensors::MappedSafeTensors;
 
 const CUDA_KERNEL_SRC: &str = include_str!("../../../kernels/inkling2_sm120.cu");
@@ -176,6 +178,31 @@ fn load_output_head(
             "invalid Inkling output head: expected the BF16 weight or both native Q8_64 planes"
                 .into(),
         ),
+    }
+}
+
+/// Loads a prepacked `{prefix}.q8_64.codes` / `{prefix}.q8_64.scales` pair (raw or
+/// entropy-coded planes) straight into a planar Q8_64 matrix. `Ok(None)` means
+/// neither plane is present so the caller falls back to its BF16 source; a lone
+/// or mis-shaped plane is an error.
+pub(crate) fn load_native_planar_q8_64(
+    ctx: &Arc<CudaContextHandle>,
+    st: &MappedSafeTensors,
+    prefix: &str,
+    rows: usize,
+    cols: usize,
+) -> Result<Option<PlanarQ8Gpu>, String> {
+    let codes = NativeQ8Codes::lookup(st, &format!("{prefix}.q8_64.codes"), rows, cols)?;
+    let scales = native_q8_scales(st, &format!("{prefix}.q8_64.scales"), rows, cols)?;
+    match (codes, scales) {
+        (None, None) => Ok(None),
+        (Some(c), Some(s)) => {
+            let matrix = allocate_planar_q8(ctx, rows, cols)?;
+            c.upload(&matrix.codes, 0)?;
+            matrix.scales64.copy_from_host_bytes(&s)?;
+            Ok(Some(matrix))
+        }
+        _ => Err(format!("{prefix}: incomplete native Q8_64 pair")),
     }
 }
 
@@ -926,6 +953,8 @@ pub struct Inkling2GpuEngine {
     pub spec_k: usize,
     pub spec_drafted_total: usize,
     pub spec_accepted_total: usize,
+    /// Verify rounds whose draft was a context copy (`LEANSONIC_SPEC_COPY`).
+    pub spec_copy_rounds: usize,
     pub spec_verify_steps: usize,
     host_pos: usize,
     decode_graph: Option<CapturedGraphExec>,
@@ -943,7 +972,7 @@ fn bf16_to_f32(b: u16) -> f32 {
     f32::from_bits((b as u32) << 16)
 }
 
-fn read_control_weight<'a>(
+pub(crate) fn read_bf16_weight<'a>(
     st: &'a MappedSafeTensors,
     name: &str,
     shape: &[usize],
@@ -958,9 +987,7 @@ fn read_control_weight<'a>(
                 .map(std::borrow::Cow::Owned)
                 .map_err(|e| format!("{name}: {e}"))
         }
-        _ => Err(format!(
-            "missing, ambiguous or invalid control weight {name}"
-        )),
+        _ => Err(format!("missing, ambiguous or invalid BF16 weight {name}")),
     }
 }
 
@@ -1979,7 +2006,7 @@ impl Inkling2GpuEngine {
             // Keep tiny router (`128 x 2304 = 576 KB`) in exact BF16 to prevent top-8 router tie flips!
             let router_w = DeviceBuf::from_host_bytes(
                 &ctx,
-                &read_control_weight(&st, &format!("{pfx}mlp.gate.weight"), &[N_EXP, D])?,
+                &read_bf16_weight(&st, &format!("{pfx}mlp.gate.weight"), &[N_EXP, D])?,
             )?;
             let router_bias = DeviceBuf::from_host_bytes(
                 &ctx,
@@ -1990,9 +2017,9 @@ impl Inkling2GpuEngine {
             let ctrl_slices = |cname: &str| {
                 let prefix = format!("{pfx}controllers.{cname}.");
                 Ok::<_, String>([
-                    read_control_weight(&st, &format!("{prefix}down_weight"), &[RANK, 2 * D])?,
-                    read_control_weight(&st, &format!("{prefix}gain_weight"), &[D, RANK])?,
-                    read_control_weight(&st, &format!("{prefix}forget_weight"), &[D, RANK])?,
+                    read_bf16_weight(&st, &format!("{prefix}down_weight"), &[RANK, 2 * D])?,
+                    read_bf16_weight(&st, &format!("{prefix}gain_weight"), &[D, RANK])?,
+                    read_bf16_weight(&st, &format!("{prefix}forget_weight"), &[D, RANK])?,
                 ])
             };
 
@@ -2315,6 +2342,7 @@ impl Inkling2GpuEngine {
             spec_k,
             spec_drafted_total: 0,
             spec_accepted_total: 0,
+            spec_copy_rounds: 0,
             spec_verify_steps: 0,
             ctx,
             fns,
@@ -3073,6 +3101,7 @@ impl Inkling2GpuEngine {
         self.host_pos = 0;
         self.spec_drafted_total = 0;
         self.spec_accepted_total = 0;
+        self.spec_copy_rounds = 0;
         self.spec_verify_steps = 0;
         if let Some(ref mut d) = self.drafter {
             d.reset();
@@ -6283,7 +6312,18 @@ impl Inkling2GpuEngine {
         }
 
         // Speculative Decoding (`DSpark` `mtp.safetensors` GPU Drafter or `SuffixDrafter` fallback)
-        let mut full_hist: Vec<u32> = if self.drafter.is_none() {
+        // Context copy (#177): with the neural drafter loaded, a round whose last
+        // `spec_copy_match()` tokens already occurred in the prompt or output proposes the
+        // tokens that followed them instead of running the drafter. Verification keeps the
+        // output greedy-exact.
+        let copy_match = if self.drafter.is_some() {
+            spec_copy_match()
+        } else {
+            0
+        };
+        let mut copy_index = ContextCopyIndex::new(copy_match);
+        let track_hist = self.drafter.is_none() || copy_match > 0;
+        let mut full_hist: Vec<u32> = if track_hist {
             let mut h = Vec::with_capacity(prompt_tokens.len() + n_gen + 8);
             h.extend_from_slice(prompt_tokens);
             h
@@ -6365,6 +6405,7 @@ impl Inkling2GpuEngine {
         const PAUSE_AFTER: usize = 4;
         let pause_enabled = std::env::var("LEANSONIC_SPEC_PAUSE").map_or(true, |v| v != "0");
         let (mut zero_streak, mut pause_left, mut pause_len) = (0usize, 0usize, 8usize);
+        let mut last_verify_row = None;
         while steps_done < n_gen {
             if Some(cur_tok) == stop_tok {
                 break;
@@ -6383,8 +6424,16 @@ impl Inkling2GpuEngine {
 
             let paused = pause_left > 0;
             pause_left = pause_left.saturating_sub(1);
+            let copied = if max_draft == 0 || paused {
+                Vec::new()
+            } else {
+                copy_index.run(&full_hist, cur_tok, max_draft)
+            };
             let drafts = if max_draft == 0 || paused {
                 Vec::new()
+            } else if !copied.is_empty() {
+                self.spec_copy_rounds += 1;
+                copied
             } else if let Some(ref mut d) = self.drafter {
                 d.draft_tokens(
                     self.ctx.compute_stream,
@@ -6409,7 +6458,7 @@ impl Inkling2GpuEngine {
                 }
                 out_ids.push(cur_tok);
                 on_token(cur_tok);
-                if self.drafter.is_none() {
+                if track_hist {
                     full_hist.push(cur_tok);
                 }
                 steps_done += 1;
@@ -6417,6 +6466,7 @@ impl Inkling2GpuEngine {
                     break;
                 }
                 cur_tok = self.forward_greedy_token(cur_tok)?;
+                last_verify_row = None;
                 continue;
             }
 
@@ -6453,33 +6503,51 @@ impl Inkling2GpuEngine {
                     zero_streak = 0;
                 }
             }
-            let keep = accepted + 1; // `1 <= keep <= b_len`
-
+            // With a stop policy the scalar path leaves its terminal token
+            // unconsumed, both for EOS and for the output-length limit.
+            let verified = accepted + 1;
+            let hit_stop = Some(verify_in[accepted]) == stop_tok;
+            let terminal = stop_tok.is_some() && (hit_stop || verified == rem_steps);
+            let keep = verified - usize::from(terminal);
+            // A verify round starts with a non-stop token and rem_steps >= 2.
+            debug_assert!(keep > 0);
             if keep < b_len {
                 self.rewind_speculative(keep, b_len)?;
             }
             self.enqueue_drafter_context(keep)?;
 
-            let mut hit_stop = false;
-            for &accepted_tok in &verify_in[..keep] {
-                if Some(accepted_tok) == stop_tok {
-                    cur_tok = accepted_tok;
-                    hit_stop = true;
-                    break;
-                }
-                if out_ids.len() < n_gen {
-                    out_ids.push(accepted_tok);
-                    on_token(accepted_tok);
-                    if self.drafter.is_none() {
-                        full_hist.push(accepted_tok);
-                    }
+            let emitted = verified - usize::from(hit_stop);
+            for &token in &verify_in[..emitted] {
+                out_ids.push(token);
+                on_token(token);
+                if track_hist {
+                    full_hist.push(token);
                 }
             }
-            steps_done += keep;
-            if hit_stop || (stop_tok.is_some() && out_ids.len() >= n_gen) {
+            last_verify_row = Some(keep - 1);
+            steps_done += emitted;
+            if terminal {
+                cur_tok = verify_in[accepted];
                 break;
             }
             cur_tok = preds[accepted];
+        }
+
+        // A verify batch writes all rows into d_spec_logits. Preserve the
+        // last committed row once so read_last_logits() observes it even
+        // after a rejected draft or an EOS exit. Scalar steps write d_logits.
+        if let Some(row) = last_verify_row {
+            unsafe {
+                check_cu(
+                    (self.ctx.api.cuMemcpyDtoDAsync_v2)(
+                        self.d_logits.ptr,
+                        self.d_spec_logits.ptr + (row * VOCAB * 4) as u64,
+                        VOCAB * 4,
+                        self.ctx.compute_stream,
+                    ),
+                    "copy committed speculative logits",
+                )?;
+            }
         }
 
         Ok((out_ids, cur_tok))

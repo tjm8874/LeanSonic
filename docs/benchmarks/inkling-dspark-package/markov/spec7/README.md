@@ -1,0 +1,49 @@
+# Speculative decoding with a losslessly compressed BF16 Markov head
+
+Both arms use the same fixed seven-level target, tokenizer, spec7 loader, cubin, and compressed Q8 drafter projections. The control sidecar stores its Markov head as BF16 (361,641,136 bytes total). The candidate stores the same head in two compressed byte planes (333,208,152 bytes). Including the target and tokenizer, the respective totals are 11,971,005,038 and 11,942,572,054 bytes.
+
+Each board runs five cycles with four fresh processes per cycle, alternating ABBA and BAAB. Each process runs code, JSON, and Japanese fixtures twice with a reset before every request. Timing uses the second pass. A 4 ms NVML sampler observes process memory throughout startup and generation. Loader-reported startup uses the operating system’s existing file cache. All runs must activate DSpark with FP16 KV and 24/24 resident expert layers.
+
+## 5060Ti
+
+Values are control → candidate. Decode uses 128 generated tokens per request. The interval is the paired, five-cycle bootstrap for candidate minus control decode time in milliseconds.
+
+| Fixture | Input tokens | Accepted / proposed | Prefill ms | Decode tok/s | Decode difference, 95% interval (ms) |
+|---|---:|---:|---:|---:|---:|
+| q00_code_merge | 29 | 97/142 | 64.182 → 64.179 | 148.19 → 148.17 | +0.16 [-0.01, +0.37] |
+| q11_json_schema | 32 | 99/159 | 76.954 → 76.941 | 141.60 → 141.56 | +0.30 [+0.00, +0.47] |
+| ja_reasoning | 49 | 59/113 | 89.346 → 89.291 | 106.62 → 106.62 | +0.07 [-0.40, +0.54] |
+
+Peak observed process VRAM was 15,447,621,632 → 15,447,621,632 bytes. Mean loader-reported startup was 18.693 → 18.443 seconds (paired difference -0.250 seconds, 95% interval [-1.100, +0.283]). All 120 requests agreed per fixture on generated IDs, next token, the FP32 hash returned by read_last_logits(), and proposed/accepted/verification counts. Batched verification writes to a separate logits buffer. The hash alone therefore cannot establish terminal-distribution equality when the last step was batched. These signatures also match [the official-sidecar replay on the RTX 5070 Ti](https://github.com/tjm8874/LeanSonic/blob/cdb13cda66cc3494f20356e8a20b1c7c88e03baf/docs/benchmarks/inkling-dspark-package/entropy/spec7/5070Ti-verified.json). Per-round proposal sequences were recorded separately for the earlier three-arm replay.
+
+[Individual timings, generated IDs, hashes, loader reports and paired statistics](5060Ti-verified.json).
+
+## PRO5000
+
+Values are control → candidate. Decode uses 128 generated tokens per request. The interval is the paired, five-cycle bootstrap for candidate minus control decode time in milliseconds.
+
+| Fixture | Input tokens | Accepted / proposed | Prefill ms | Decode tok/s | Decode difference, 95% interval (ms) |
+|---|---:|---:|---:|---:|---:|
+| q00_code_merge | 29 | 97/142 | 25.700 → 25.704 | 342.51 → 342.46 | +0.05 [-0.10, +0.31] |
+| q11_json_schema | 32 | 99/159 | 33.059 → 33.053 | 331.59 → 331.58 | +0.02 [-0.12, +0.21] |
+| ja_reasoning | 49 | 59/113 | 37.919 → 37.915 | 237.86 → 237.88 | -0.03 [-0.30, +0.29] |
+
+Peak observed process VRAM was 15,768,485,888 → 15,768,485,888 bytes. Mean loader-reported startup was 8.181 → 8.318 seconds (paired difference +0.137 seconds, 95% interval [-0.194, +0.592]). All 120 requests agreed per fixture on generated IDs, next token, the FP32 hash returned by read_last_logits(), and proposed/accepted/verification counts. Batched verification writes to a separate logits buffer. The hash alone therefore cannot establish terminal-distribution equality when the last step was batched. These signatures also match [the official-sidecar replay on the RTX 5070 Ti](https://github.com/tjm8874/LeanSonic/blob/cdb13cda66cc3494f20356e8a20b1c7c88e03baf/docs/benchmarks/inkling-dspark-package/entropy/spec7/5070Ti-verified.json). Per-round proposal sequences were recorded separately for the earlier three-arm replay.
+
+[Individual timings, generated IDs, hashes, loader reports and paired statistics](PRO5000-verified.json).
+
+## Reproduction
+
+Build [the integrated benchmark revision](https://github.com/tjm8874/LeanSonic/commit/8c1488fdb97b3f5c8ce0c7602a5168cbb45db954) with the example below. The [packing recipe](../) produces the candidate. Give both model directories the same target shard and tokenizer, and put the corresponding sidecar in each as mtp.safetensors. Use the three adjacent input ID files in the working directory. Set CUDA_VISIBLE_DEVICES to the chosen card’s UUID for the NVML sampler.
+
+```sh
+cp "$RECIPE/bench.rs" crates/leansonic-core/examples/dspark_three.rs
+cargo build --release -p leansonic-core --example dspark_three
+cp target/release/examples/dspark_three "$RECIPE/bench"
+nvcc -Ikernels -arch=sm_120a -std=c++17 -O3 --cubin kernels/inkling2_sm120.cu -o "$RECIPE/engine.cubin"
+cd "$RECIPE"
+export LEANSONIC_KV=fp16 LEANSONIC_PDL=1 LEANSONIC_PDL_ALL=1 LEANSONIC_SEQS=1
+export LEANSONIC_MXFP8_DEVICE_U4=1 LEANSONIC_MXFP8_DIRECT_ALL=1 LEANSONIC_CUBIN_PATH="$PWD/engine.cubin"
+python3 leg.py first-control "$CONTROL_MODEL_DIR"
+python3 leg.py first-candidate "$CANDIDATE_MODEL_DIR"
+```

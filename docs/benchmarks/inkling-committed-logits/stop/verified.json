@@ -1,0 +1,787 @@
+{
+  "source": {
+    "before": "1e6585e35f4f45ad45999410d252aa2b36a47bf2",
+    "after": "ace18b3567d29203df7998344c431e145dce2bf8"
+  },
+  "gpu": "RTX 5070 Ti",
+  "digests": "85f2b87e019deec552d81e41fd48c76edcdab597f1457b2b34655cb5207d0b9f  before\nf9d860ab7ffcc67e179054d5a35bc01824db34b1236269c66b661d0da98b359a  after\nbb9b28575ae507330bb3d10d3235c33524d31b1cb48fbfeda9c6b95ea93d36e6  engine.cubin\n0627e567fd57588242a4edea03ffc99d7d5072ca10b5185271142afa2d40cd3a  ja_end.ids\n465a367a342052201858f02c6fd7d2259d0248d0c05c22bd133830112154aa1b  ja_reasoning.ids\nbfe3ba10db63ffc303e75f6e6bc9d141eb84a5e053edc142adeb5f9e2e891c7a  q00_code_merge.ids\nf959bdab27c52924cd0d8f1aefee0b1fee7fa248ce5df14371dda87f8d33d3b0  q11_json_schema.ids\n9ee5e3d53f2516ad454e2ffaf15836ac649223e60787f6457d1926ad407ff4c3  readme1024.ids\n",
+  "results": {
+    "scalar": {
+      "immediate": {
+        "returned": 90,
+        "argmax": 90,
+        "rounds": 0,
+        "accepted": 0,
+        "ids": [],
+        "resume": [
+          198,
+          220,
+          196980
+        ],
+        "terminal_sha": "ba45b246d541fb89dede4b5a89e9359ddb49de687cbc161266a8cc49f4a48eb1",
+        "resume_sha": "c80212d7a225c83969718ce16fd154b525a57f643f5c920eb394380f79127eb6"
+      },
+      "first-draft": {
+        "returned": 198,
+        "argmax": 198,
+        "rounds": 0,
+        "accepted": 0,
+        "ids": [
+          90
+        ],
+        "resume": [
+          220,
+          196980,
+          3
+        ],
+        "terminal_sha": "34993512fc4e7a25328d0688b5906000ae8bf0b4ac98680a1cd0ce4620dfa622",
+        "resume_sha": "246647734fa04fe274be3bdacd4dd54a5383f950c9bf22895d1a25550b5b2f3a"
+      },
+      "mid-draft": {
+        "returned": 220,
+        "argmax": 220,
+        "rounds": 0,
+        "accepted": 0,
+        "ids": [
+          90,
+          198
+        ],
+        "resume": [
+          196980,
+          3,
+          31065
+        ],
+        "terminal_sha": "ba36f5f6353964568b430f77a439463ff50d50213b230f4c6f52325782f3bd17",
+        "resume_sha": "0f5368bc3f9652878336782208b31fb5799d99f5631298d2822120d759820e9a"
+      },
+      "eos": {
+        "returned": 200006,
+        "argmax": 200006,
+        "rounds": 0,
+        "accepted": 0,
+        "ids": [
+          9120,
+          6433,
+          20731,
+          6433,
+          11484,
+          6084,
+          20774,
+          2369,
+          10535,
+          2348,
+          11089,
+          78634,
+          6434,
+          68014,
+          16,
+          24729,
+          21588,
+          6647,
+          9120,
+          198,
+          17,
+          24729,
+          21588,
+          6647,
+          20731,
+          198,
+          18,
+          24729,
+          21588,
+          6647,
+          11484,
+          198,
+          19,
+          24729,
+          21588,
+          6647,
+          9120,
+          198,
+          145038,
+          68014,
+          18,
+          6079,
+          10074,
+          74563,
+          11732,
+          2348,
+          6079,
+          18311,
+          5931,
+          17560,
+          142321,
+          6434,
+          198,
+          68084,
+          159931,
+          220,
+          18,
+          196977,
+          220,
+          19,
+          220,
+          11732,
+          2348,
+          220,
+          17,
+          68014,
+          11732,
+          2348,
+          17,
+          6085,
+          20731,
+          6082,
+          107983,
+          6433,
+          68084,
+          24729,
+          21588,
+          6085,
+          20731,
+          77122,
+          6434,
+          200010
+        ],
+        "resume": [
+          200006,
+          199999,
+          68014
+        ],
+        "terminal_sha": "f3523901a386c7113252d05a7e72a361123b2579c5134903128da06c0c25fa12",
+        "resume_sha": "1a3262135f4d0ec0614fe96a3ac37fb4672e0e8a542eff244ad605c0191083f8"
+      },
+      "near-eos": {
+        "returned": 200006,
+        "argmax": 200006,
+        "rounds": 0,
+        "accepted": 0,
+        "ids": [
+          77122,
+          6434,
+          200010
+        ],
+        "resume": [
+          200006,
+          199999,
+          68014
+        ],
+        "terminal_sha": "4a9e443d7faaab3cd7e3db3e86c0d90767fc227127adb6ce30924ceb188d7d70",
+        "resume_sha": "6e17eeeddf6095b70f15e8c855afb544eed1b3224f3e309f090dcb5edfee06ef"
+      },
+      "cap1": {
+        "returned": 90,
+        "argmax": 90,
+        "rounds": 0,
+        "accepted": 0,
+        "ids": [
+          90
+        ],
+        "resume": [
+          198,
+          220,
+          196980
+        ],
+        "terminal_sha": "ba45b246d541fb89dede4b5a89e9359ddb49de687cbc161266a8cc49f4a48eb1",
+        "resume_sha": "c80212d7a225c83969718ce16fd154b525a57f643f5c920eb394380f79127eb6"
+      },
+      "cap2": {
+        "returned": 198,
+        "argmax": 198,
+        "rounds": 0,
+        "accepted": 0,
+        "ids": [
+          90,
+          198
+        ],
+        "resume": [
+          220,
+          196980,
+          3
+        ],
+        "terminal_sha": "34993512fc4e7a25328d0688b5906000ae8bf0b4ac98680a1cd0ce4620dfa622",
+        "resume_sha": "246647734fa04fe274be3bdacd4dd54a5383f950c9bf22895d1a25550b5b2f3a"
+      },
+      "cap3": {
+        "returned": 220,
+        "argmax": 220,
+        "rounds": 0,
+        "accepted": 0,
+        "ids": [
+          90,
+          198,
+          220
+        ],
+        "resume": [
+          196980,
+          3,
+          31065
+        ],
+        "terminal_sha": "ba36f5f6353964568b430f77a439463ff50d50213b230f4c6f52325782f3bd17",
+        "resume_sha": "0f5368bc3f9652878336782208b31fb5799d99f5631298d2822120d759820e9a"
+      },
+      "cap7": {
+        "returned": 1,
+        "argmax": 1,
+        "rounds": 0,
+        "accepted": 0,
+        "ids": [
+          90,
+          198,
+          220,
+          196980,
+          3,
+          31065,
+          1
+        ],
+        "resume": [
+          25,
+          196980,
+          1080
+        ],
+        "terminal_sha": "8f15aa14101f88b36631872fa2959d11b743e1f53f33cadc74c517ebaf7df012",
+        "resume_sha": "eaf5034d0b2c724baa0484b049f26f9e12f194318f448583cc65c221cbbfc94a"
+      },
+      "fixed": {
+        "returned": 25,
+        "argmax": 25,
+        "rounds": 0,
+        "accepted": 0,
+        "ids": [
+          90,
+          198,
+          220,
+          196980,
+          3,
+          31065,
+          1
+        ],
+        "resume": [
+          196980,
+          1080,
+          25
+        ],
+        "terminal_sha": "86175b82dc8f97b328feeef8d3c63a2f5dd0d613c73232a826ce11f68ead4135",
+        "resume_sha": "40cb81528ea5411cdd3bc4a2acc73599fa2079af4bdefe806ff0f70f135b1507"
+      }
+    },
+    "before": {
+      "immediate": {
+        "returned": 90,
+        "argmax": 90,
+        "rounds": 0,
+        "accepted": 0,
+        "ids": [],
+        "resume": [
+          198,
+          220,
+          196980
+        ],
+        "terminal_sha": "ba45b246d541fb89dede4b5a89e9359ddb49de687cbc161266a8cc49f4a48eb1",
+        "resume_sha": "c80212d7a225c83969718ce16fd154b525a57f643f5c920eb394380f79127eb6"
+      },
+      "first-draft": {
+        "returned": 198,
+        "argmax": 220,
+        "rounds": 1,
+        "accepted": 1,
+        "ids": [
+          90
+        ],
+        "resume": [
+          220,
+          196980,
+          3
+        ],
+        "terminal_sha": "ba36f5f6353964568b430f77a439463ff50d50213b230f4c6f52325782f3bd17",
+        "resume_sha": "a13937524089f071accf393e8440438b982cb7320a2ee5a83495512bed105f23"
+      },
+      "mid-draft": {
+        "returned": 220,
+        "argmax": 196980,
+        "rounds": 1,
+        "accepted": 2,
+        "ids": [
+          90,
+          198
+        ],
+        "resume": [
+          196980,
+          3,
+          31065
+        ],
+        "terminal_sha": "c80212d7a225c83969718ce16fd154b525a57f643f5c920eb394380f79127eb6",
+        "resume_sha": "1598f473a5293990e79faf54311eb6525cf9e873e3eef2aa0dbe5334bc57aeaf"
+      },
+      "eos": {
+        "returned": 200006,
+        "argmax": 200006,
+        "rounds": 27,
+        "accepted": 36,
+        "ids": [
+          9120,
+          6433,
+          20731,
+          6433,
+          11484,
+          6084,
+          20774,
+          2369,
+          10535,
+          2348,
+          11089,
+          78634,
+          6434,
+          68014,
+          16,
+          24729,
+          21588,
+          6647,
+          9120,
+          198,
+          17,
+          24729,
+          21588,
+          6647,
+          20731,
+          198,
+          18,
+          24729,
+          21588,
+          6647,
+          11484,
+          198,
+          19,
+          24729,
+          21588,
+          6647,
+          9120,
+          198,
+          145038,
+          68014,
+          18,
+          6079,
+          10074,
+          74563,
+          11732,
+          2348,
+          6079,
+          18311,
+          5931,
+          17560,
+          142321,
+          6434,
+          198,
+          68084,
+          159931,
+          220,
+          18,
+          196977,
+          220,
+          19,
+          220,
+          11732,
+          2348,
+          220,
+          17,
+          68014,
+          11732,
+          2348,
+          17,
+          6085,
+          20731,
+          6082,
+          107983,
+          6433,
+          68084,
+          24729,
+          21588,
+          6085,
+          20731,
+          77122,
+          6434,
+          200010
+        ],
+        "resume": [
+          199999,
+          68014,
+          9120
+        ],
+        "terminal_sha": "95ceab7a37521225f9502b2af3c70980267d8c399216c0b1abf7db34f477751f",
+        "resume_sha": "e3b1dbfdba37469dbe8c7fb2b3194363efec67765600db256c280df8ff8c2c2a"
+      },
+      "near-eos": {
+        "returned": 200006,
+        "argmax": 200006,
+        "rounds": 1,
+        "accepted": 3,
+        "ids": [
+          77122,
+          6434,
+          200010
+        ],
+        "resume": [
+          199999,
+          68014,
+          9120
+        ],
+        "terminal_sha": "3f4a39cc01c93ab4bb007ec93ce6aa8cd185ec98c2b5b9464256af783247c8fa",
+        "resume_sha": "1156a3a7297ff3a6f25225916627ba5126e3d8a63be0cce1a8bf9917cc377a4c"
+      },
+      "cap1": {
+        "returned": 90,
+        "argmax": 90,
+        "rounds": 0,
+        "accepted": 0,
+        "ids": [
+          90
+        ],
+        "resume": [
+          198,
+          220,
+          196980
+        ],
+        "terminal_sha": "ba45b246d541fb89dede4b5a89e9359ddb49de687cbc161266a8cc49f4a48eb1",
+        "resume_sha": "c80212d7a225c83969718ce16fd154b525a57f643f5c920eb394380f79127eb6"
+      },
+      "cap2": {
+        "returned": 90,
+        "argmax": 220,
+        "rounds": 1,
+        "accepted": 1,
+        "ids": [
+          90,
+          198
+        ],
+        "resume": [
+          198,
+          220,
+          196980
+        ],
+        "terminal_sha": "ba36f5f6353964568b430f77a439463ff50d50213b230f4c6f52325782f3bd17",
+        "resume_sha": "eea269e6d602fd56f1896097be9fd019acf2dd86f6ff1c2af7389333a574e94e"
+      },
+      "cap3": {
+        "returned": 90,
+        "argmax": 196980,
+        "rounds": 1,
+        "accepted": 2,
+        "ids": [
+          90,
+          198,
+          220
+        ],
+        "resume": [
+          198,
+          149862,
+          196980
+        ],
+        "terminal_sha": "c80212d7a225c83969718ce16fd154b525a57f643f5c920eb394380f79127eb6",
+        "resume_sha": "e9bf3326002506c5275b61941f24af2d0040167c1dc6c58d5d8f162d3bb132a1"
+      },
+      "cap7": {
+        "returned": 3,
+        "argmax": 25,
+        "rounds": 2,
+        "accepted": 5,
+        "ids": [
+          90,
+          198,
+          220,
+          196980,
+          3,
+          31065,
+          1
+        ],
+        "resume": [
+          25,
+          196980,
+          1080
+        ],
+        "terminal_sha": "86175b82dc8f97b328feeef8d3c63a2f5dd0d613c73232a826ce11f68ead4135",
+        "resume_sha": "38c99bd69e749041cdd5a85c90fbb985d0cf454400bcee44847a772938730c00"
+      },
+      "fixed": {
+        "returned": 25,
+        "argmax": 25,
+        "rounds": 2,
+        "accepted": 5,
+        "ids": [
+          90,
+          198,
+          220,
+          196980,
+          3,
+          31065,
+          1
+        ],
+        "resume": [
+          196980,
+          1080,
+          25
+        ],
+        "terminal_sha": "86175b82dc8f97b328feeef8d3c63a2f5dd0d613c73232a826ce11f68ead4135",
+        "resume_sha": "40cb81528ea5411cdd3bc4a2acc73599fa2079af4bdefe806ff0f70f135b1507"
+      }
+    },
+    "after": {
+      "immediate": {
+        "returned": 90,
+        "argmax": 90,
+        "rounds": 0,
+        "accepted": 0,
+        "ids": [],
+        "resume": [
+          198,
+          220,
+          196980
+        ],
+        "terminal_sha": "ba45b246d541fb89dede4b5a89e9359ddb49de687cbc161266a8cc49f4a48eb1",
+        "resume_sha": "c80212d7a225c83969718ce16fd154b525a57f643f5c920eb394380f79127eb6"
+      },
+      "first-draft": {
+        "returned": 198,
+        "argmax": 198,
+        "rounds": 1,
+        "accepted": 1,
+        "ids": [
+          90
+        ],
+        "resume": [
+          220,
+          196980,
+          3
+        ],
+        "terminal_sha": "34993512fc4e7a25328d0688b5906000ae8bf0b4ac98680a1cd0ce4620dfa622",
+        "resume_sha": "246647734fa04fe274be3bdacd4dd54a5383f950c9bf22895d1a25550b5b2f3a"
+      },
+      "mid-draft": {
+        "returned": 220,
+        "argmax": 220,
+        "rounds": 1,
+        "accepted": 2,
+        "ids": [
+          90,
+          198
+        ],
+        "resume": [
+          196980,
+          3,
+          31065
+        ],
+        "terminal_sha": "ba36f5f6353964568b430f77a439463ff50d50213b230f4c6f52325782f3bd17",
+        "resume_sha": "0f5368bc3f9652878336782208b31fb5799d99f5631298d2822120d759820e9a"
+      },
+      "eos": {
+        "returned": 200006,
+        "argmax": 200006,
+        "rounds": 27,
+        "accepted": 36,
+        "ids": [
+          9120,
+          6433,
+          20731,
+          6433,
+          11484,
+          6084,
+          20774,
+          2369,
+          10535,
+          2348,
+          11089,
+          78634,
+          6434,
+          68014,
+          16,
+          24729,
+          21588,
+          6647,
+          9120,
+          198,
+          17,
+          24729,
+          21588,
+          6647,
+          20731,
+          198,
+          18,
+          24729,
+          21588,
+          6647,
+          11484,
+          198,
+          19,
+          24729,
+          21588,
+          6647,
+          9120,
+          198,
+          145038,
+          68014,
+          18,
+          6079,
+          10074,
+          74563,
+          11732,
+          2348,
+          6079,
+          18311,
+          5931,
+          17560,
+          142321,
+          6434,
+          198,
+          68084,
+          159931,
+          220,
+          18,
+          196977,
+          220,
+          19,
+          220,
+          11732,
+          2348,
+          220,
+          17,
+          68014,
+          11732,
+          2348,
+          17,
+          6085,
+          20731,
+          6082,
+          107983,
+          6433,
+          68084,
+          24729,
+          21588,
+          6085,
+          20731,
+          77122,
+          6434,
+          200010
+        ],
+        "resume": [
+          200006,
+          199999,
+          68014
+        ],
+        "terminal_sha": "f3523901a386c7113252d05a7e72a361123b2579c5134903128da06c0c25fa12",
+        "resume_sha": "1a3262135f4d0ec0614fe96a3ac37fb4672e0e8a542eff244ad605c0191083f8"
+      },
+      "near-eos": {
+        "returned": 200006,
+        "argmax": 200006,
+        "rounds": 1,
+        "accepted": 3,
+        "ids": [
+          77122,
+          6434,
+          200010
+        ],
+        "resume": [
+          200006,
+          199999,
+          68014
+        ],
+        "terminal_sha": "4a9e443d7faaab3cd7e3db3e86c0d90767fc227127adb6ce30924ceb188d7d70",
+        "resume_sha": "6e17eeeddf6095b70f15e8c855afb544eed1b3224f3e309f090dcb5edfee06ef"
+      },
+      "cap1": {
+        "returned": 90,
+        "argmax": 90,
+        "rounds": 0,
+        "accepted": 0,
+        "ids": [
+          90
+        ],
+        "resume": [
+          198,
+          220,
+          196980
+        ],
+        "terminal_sha": "ba45b246d541fb89dede4b5a89e9359ddb49de687cbc161266a8cc49f4a48eb1",
+        "resume_sha": "c80212d7a225c83969718ce16fd154b525a57f643f5c920eb394380f79127eb6"
+      },
+      "cap2": {
+        "returned": 198,
+        "argmax": 198,
+        "rounds": 1,
+        "accepted": 1,
+        "ids": [
+          90,
+          198
+        ],
+        "resume": [
+          220,
+          196980,
+          3
+        ],
+        "terminal_sha": "34993512fc4e7a25328d0688b5906000ae8bf0b4ac98680a1cd0ce4620dfa622",
+        "resume_sha": "246647734fa04fe274be3bdacd4dd54a5383f950c9bf22895d1a25550b5b2f3a"
+      },
+      "cap3": {
+        "returned": 220,
+        "argmax": 220,
+        "rounds": 1,
+        "accepted": 2,
+        "ids": [
+          90,
+          198,
+          220
+        ],
+        "resume": [
+          196980,
+          3,
+          31065
+        ],
+        "terminal_sha": "ba36f5f6353964568b430f77a439463ff50d50213b230f4c6f52325782f3bd17",
+        "resume_sha": "0f5368bc3f9652878336782208b31fb5799d99f5631298d2822120d759820e9a"
+      },
+      "cap7": {
+        "returned": 1,
+        "argmax": 1,
+        "rounds": 2,
+        "accepted": 5,
+        "ids": [
+          90,
+          198,
+          220,
+          196980,
+          3,
+          31065,
+          1
+        ],
+        "resume": [
+          25,
+          196980,
+          1080
+        ],
+        "terminal_sha": "8f15aa14101f88b36631872fa2959d11b743e1f53f33cadc74c517ebaf7df012",
+        "resume_sha": "eaf5034d0b2c724baa0484b049f26f9e12f194318f448583cc65c221cbbfc94a"
+      },
+      "fixed": {
+        "returned": 25,
+        "argmax": 25,
+        "rounds": 2,
+        "accepted": 5,
+        "ids": [
+          90,
+          198,
+          220,
+          196980,
+          3,
+          31065,
+          1
+        ],
+        "resume": [
+          196980,
+          1080,
+          25
+        ],
+        "terminal_sha": "86175b82dc8f97b328feeef8d3c63a2f5dd0d613c73232a826ce11f68ead4135",
+        "resume_sha": "40cb81528ea5411cdd3bc4a2acc73599fa2079af4bdefe806ff0f70f135b1507"
+      }
+    }
+  }
+}
