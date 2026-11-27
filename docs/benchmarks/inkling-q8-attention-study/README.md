@@ -25,3 +25,23 @@ target/release/leansonic eval-kld --weights "$CANDIDATE" --ref "$BF16_KLD" --chu
 ```
 
 The default V12 build at `7a02b538` was also tested on PRO 5000. Use the same build commands at that revision, with FP16 KV and default Tensor Core prefill. The immutable stock dictionary gave mean KL 0.003175526 and max KL 0.674716. The grid candidate gave 0.003140554 and 0.564691, respectively. Top-1 matches increased from 24,879 to 24,910. PPL increased from 7.072582 to 7.072916. Both V12 runs missed the project quality targets.
+
+## Output-projection ablation
+
+To separate the 24 attention output projections (`wo_ud.weight`) from the other 152 matrices, run the following after preparing the grid candidate. The source and candidate must have the same raw native Q8 safetensors layout. The script copies the code and scale spans of the selected matrices into two fresh checkpoint copies. Each output package has the stock layout and byte count.
+
+```bash
+mkdir "$SPLIT"
+python3 split.py "$NATIVE" "$CANDIDATE" "$SPLIT"
+```
+
+With the V12 CLI, evaluate `$NATIVE`, `$SPLIT/wo_only`, `$SPLIT/except_wo` and `$CANDIDATE` with `--start-chunk 69 --chunks 1` and `--start-chunk 21 --chunks 1`. The 255 scored positions per chunk give the following maxima. The maximum at chunk 69 moves from position 353 to 395 in both partial changes. The full grid restores 353 as the maximum. Each change alone reduces the chunk-69 maximum more than applying both groups together.
+
+| V12 weight set | Max KL in chunk 21 | Max KL in chunk 69 |
+| --- | ---: | ---: |
+| Stock | 0.349781 | 0.674716 |
+| Only 24 output projections | 0.297260 | 0.052427 |
+| Other 152 attention matrices | 0.136736 | 0.062796 |
+| All 176 | 0.120252 | 0.564691 |
+
+See `split-chunks.json` for the per-chunk scores and positions. These two chunks were selected from earlier runs; the full 100-chunk result determines whether the improvement generalizes.
