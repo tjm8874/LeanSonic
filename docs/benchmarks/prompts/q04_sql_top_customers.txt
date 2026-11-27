@@ -1,0 +1,1 @@
+Give me a SQL query that finds the top 3 customers by total order value per month.

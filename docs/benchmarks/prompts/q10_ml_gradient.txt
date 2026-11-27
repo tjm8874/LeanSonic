@@ -1,0 +1,1 @@
+Explain gradient descent with a simple numeric example.
