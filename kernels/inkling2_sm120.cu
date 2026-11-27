@@ -14106,10 +14106,11 @@ __device__ __forceinline__ void gqa_attn_g1_q8_decode_body(
                 const float p = ptx_exp(dot - m_new);
                 l_w[hh] = l_w[hh] * alpha + p;
                 m_w[hh] = m_new;
-                o[hh][0] = o[hh][0] * alpha + p * v0;
-                o[hh][1] = o[hh][1] * alpha + p * v1;
-                o[hh][2] = o[hh][2] * alpha + p * v2;
-                o[hh][3] = o[hh][3] * alpha + p * v3;
+                // Match the FP16 per-head fallback: round p*v before fusing the rescaled state.
+                o[hh][0] = __fmaf_rn(o[hh][0], alpha, __fmul_rn(p, v0));
+                o[hh][1] = __fmaf_rn(o[hh][1], alpha, __fmul_rn(p, v1));
+                o[hh][2] = __fmaf_rn(o[hh][2], alpha, __fmul_rn(p, v2));
+                o[hh][3] = __fmaf_rn(o[hh][3], alpha, __fmul_rn(p, v3));
             }
             wk = nwk; wv = nwv;
             j = jn;
