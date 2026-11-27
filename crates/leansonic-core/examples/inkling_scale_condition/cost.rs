@@ -12,7 +12,7 @@ fn cost_differences(tables: &[u8]) -> Result<Vec<i16>, &'static str> {
         .map(|f| (-f64::from(f).max(0.5).log2() * 256.).round() as i16)
         .collect::<Vec<_>>();
     let mut costs = Vec::with_capacity(2 * n);
-    for pair in tables.chunks_exact(4 * n) {
+    for pair in tables.as_chunks::<{ 4 * CONTEXTS * SYMBOLS }>().0 {
         let (low, high) = pair.split_at(2 * n);
         for (&a, &b) in low.as_chunks::<2>().0.iter().zip(high.as_chunks::<2>().0) {
             let get = |bytes| {
@@ -93,5 +93,44 @@ mod tests {
         assert_eq!(boundary(&costs, 64, 70, 68), 65);
         assert_eq!(boundary(&costs, 70, 127, 80), 80);
         assert_eq!(boundary(&costs, 0, 0, 0), 0);
+    }
+    #[test]
+    fn learns_expert_specific_splits_and_preserves_weight_bytes() {
+        use leansonic_core::inkling_mxfp8::{pack_four_scale_boundaries, unpack_four_scale_banks};
+        let mut raw = Vec::new();
+        let mut scales = Vec::new();
+        let mut cuts = [0; 384];
+        for expert in 0..128 {
+            cuts[expert] = 64;
+            cuts[128 + expert] = 32;
+            cuts[256 + expert] = 96;
+            let shift = if expert % 2 == 0 { 4 } else { -4 };
+            for scale in 0..128 {
+                scales.push(scale as u8);
+                let symbol = if scale < 32 + shift {
+                    0x77
+                } else if scale < 64 {
+                    0x22
+                } else if scale < 96 + shift {
+                    0xff
+                } else {
+                    0x44
+                };
+                raw.extend([symbol; 8]);
+            }
+        }
+        let mut initial = Vec::new();
+        pack_four_scale_boundaries(&raw, scales.clone(), &cuts, &mut initial).unwrap();
+        let fitted = fit(&raw, &scales, &initial).unwrap();
+        assert_eq!(fitted[..128], cuts[..128]);
+        for expert in 0..128 {
+            let delta = if expert % 2 == 0 { 4 } else { -4 };
+            assert_eq!(i32::from(fitted[128 + expert]), 32 + delta);
+            assert_eq!(i32::from(fitted[256 + expert]), 96 + delta);
+        }
+        let mut output = Vec::new();
+        pack_four_scale_boundaries(&raw, scales.clone(), &fitted, &mut output).unwrap();
+        assert!(output.len() < initial.len());
+        assert_eq!(unpack_four_scale_banks(&output, scales).unwrap(), raw);
     }
 }
