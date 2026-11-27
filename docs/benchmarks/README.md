@@ -29,6 +29,7 @@ leansonic bench-matrix --merge results_cuda01.json results_cudaserver.json
 | `--ctx` | 20480 | `LEANSONIC_CTX` |
 | `--quick` | — | N=1 にし、16K を省く（動作確認用） |
 | `--long` | — | 128K のセル（`prefill_128k` / `long_128k_decode`）も計測する |
+| `--c64` | — | `c64_total` を計測する（`multiseq` で 64 系列を共有ラウンドで decode） |
 | `--wide-prompts` | — | ディレクトリ内の `*.txt`（`bench --tokens chat:@file` でチェックポイントの tokenizer を通す）と `*.ids` を DSpark で 1 本ずつ計測し、`spec_wide` / `spec_accept_wide` を記録する（例: `docs/benchmarks/prompts`） |
 | `--kld` | — | BF16 参照ファイル（`.kld`）を指定すると、GPU ごとに `eval-kld` を 1 回実行して `kld_mean` を埋める（決定的なので N=1）。max / Top-1 / PPL も JSON の `kld` に記録する |
 | `--require-idle` | — | 他のプロセスが GPU を使っていたら中止する |
@@ -60,4 +61,4 @@ leansonic bench-matrix --merge results_cuda01.json results_cudaserver.json
 | `prefill_128k` / `long_128k_decode` | `--long` 指定時のみ。`synth:131072`、`--spec 0 --gen 128`、`LEANSONIC_CTX=131584` |
 | `spec_wide` / `spec_accept_wide` | `--wide-prompts` 指定時のみ。全プロンプトの `--spec 7 --gen 256` の平均 tok/s と平均受理率（目標なし、RECORDED）。3 本だけの `spec_avg` は生成文の違いで ±10% 程度振れるので、傾向はこちらで見る |
 | `kld_mean` | `--kld <ref.kld>` 指定時のみ。`eval-kld`（100 chunk × 512、teacher forcing）の平均 KLD |
-| `c64_total` | 未実装（現状は UNMEASURED。T010 で追加する） |
+| `c64_total` | `--c64` 指定時のみ。`multiseq --seqs 64 --round 64 --gen 64 --no-check`（`synth:400` を末尾 3s トークンずつ削った 64 本、`LEANSONIC_CTX=4096`）。64 行の decode ラウンドを 63 回実行した合計 tok/s。各系列の出力は単独 decode と bit 一致する（#107、`multiseq` の検査モードで確認） |

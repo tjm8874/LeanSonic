@@ -625,6 +625,8 @@ struct Opts {
     ctx: usize,
     quick: bool,
     long: bool,
+    /// `--c64`: 64 independent sequences decoded in shared rounds (`multiseq`, #107).
+    c64: bool,
     /// `--kld <ref.kld>`: run `eval-kld` once per GPU for the `kld_mean` cell.
     kld_ref: Option<PathBuf>,
     spec_prompts: Option<PathBuf>,
@@ -646,6 +648,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         ctx: 20480,
         quick: false,
         long: false,
+        c64: false,
         kld_ref: None,
         spec_prompts: None,
         wide_prompts: None,
@@ -671,6 +674,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--ctx" => o.ctx = val(&mut i, "--ctx")?.parse().map_err(|_| "bad --ctx")?,
             "--quick" => o.quick = true,
             "--long" => o.long = true,
+            "--c64" => o.c64 = true,
             "--kld" => o.kld_ref = Some(PathBuf::from(val(&mut i, "--kld")?)),
             "--require-idle" => o.require_idle = true,
             "--wide-prompts" => {
@@ -732,6 +736,15 @@ fn probes(o: &Opts) -> Vec<Probe> {
             spec: 0,
             gen: 128,
             ctx: None,
+        });
+    }
+    if o.c64 {
+        v.push(Probe {
+            id: "c64",
+            tokens: "synth:400".into(),
+            spec: 0,
+            gen: 64,
+            ctx: Some(4096),
         });
     }
     if o.long && !o.quick {
@@ -824,6 +837,57 @@ fn run_probe(o: &Opts, gpu: usize, p: &Probe) -> ProbeSamples {
         ..Default::default()
     };
     for _ in 0..o.n {
+        if p.id == "c64" {
+            // 64 sequences, one batched decode round per step; the total decode rate is the
+            // sample (`gen_tok_s`). LEANSONIC_SEQS is set by `multiseq` itself.
+            let out = Command::new(&o.bin)
+                .args([
+                    "multiseq",
+                    "--weights",
+                    &o.weights,
+                    "--tokens",
+                    &p.tokens,
+                    "--seqs",
+                    "64",
+                    "--round",
+                    "64",
+                    "--gen",
+                    &p.gen.to_string(),
+                    "--no-check",
+                ])
+                .env("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
+                .env("CUDA_VISIBLE_DEVICES", gpu.to_string())
+                .env("LEANSONIC_CTX", p.ctx.unwrap_or(o.ctx).to_string())
+                .output();
+            match out {
+                Ok(out) => {
+                    let text = format!(
+                        "{}{}",
+                        String::from_utf8_lossy(&out.stdout),
+                        String::from_utf8_lossy(&out.stderr)
+                    );
+                    let total = text
+                        .lines()
+                        .find(|l| l.starts_with("batched rounds:"))
+                        .and_then(|l| num_before(l, "tok/s total"));
+                    match (out.status.success(), total) {
+                        (true, Some(t)) => s.runs.push(BenchRun {
+                            gen_tok_s: Some(t),
+                            ..Default::default()
+                        }),
+                        _ => s.errors.push(
+                            text.lines()
+                                .find(|l| l.contains("ERROR"))
+                                .unwrap_or("multiseq failed")
+                                .to_string(),
+                        ),
+                    }
+                }
+                Err(e) => s.errors.push(format!("spawn {}: {e}", o.bin.display())),
+            }
+            eprint!(".");
+            continue;
+        }
         let out = Command::new(&o.bin)
             .args([
                 "bench",
@@ -998,7 +1062,12 @@ const CELLS: &[(&str, &str, bool, Extract)] = &[
         true,
         |m| wide_mean(m, |r| r.spec_acc_pct),
     ),
-    ("c64_total", "C=64 aggregate (tok/s)", true, |_| Vec::new()),
+    (
+        "c64_total",
+        "C=64 aggregate decode (tok/s, --c64)",
+        true,
+        |m| col(m, "c64", |r| r.gen_tok_s),
+    ),
     (
         "kld_mean",
         "100-chunk KLD mean (lower=better)",
