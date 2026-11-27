@@ -16,3 +16,14 @@ The control host at `5f1c7ff` and candidate at `6544318` both used the same nati
 For every listed GPU, all emitted IDs and the terminal token matched across builds, repeats, and warmups for each prefix. The hash of the final full FP32 logit row also matched for each prefix. A separate GPU test compares CPU, one-block and tiled argmax over 80 synthetic vocabulary-sized rows, including ties spanning tiles, the last partial tile and all-zero rows. It checks the position after each invocation.
 
 [Source drivers and reproduction](reproduce.md) · [Raw request times including prefill](runs.csv) · [Final-logit hashes, emitted token IDs and paired summaries](traces.json).
+
+## Independent comparison after the decode update
+
+The control at `f556d07` includes the newer decode kernels from #140. The matched candidate at `ac3a6e0` uses the same newly compiled module (SHA-256 `f4842b5358173ed3ae85cd4b4708d5afc9d61f95e1c26b0464ce41378da32f04`). Inputs, five mirrored cycles, per-card token and final-logit checks are as above. These are independent runs with new control and candidate binaries.
+
+| GPU | Prefix tokens | Control decode 64 (ms) | Candidate (ms) | Paired difference (ms, 95% interval) |
+|---|---:|---:|---:|---:|
+| PRO4500 | 32 | 385.307 | 384.193 | -1.114 [-1.196, -1.020] |
+| PRO4500 | 1024 | 428.250 | 427.325 | -0.925 [-1.040, -0.800] |
+
+[Request-level measurements](main-runs.csv) · [Tokens, hashes, prefill and decode summaries](main-traces.json). Reuse the [two-checkout procedure](reproduce.md) with the two source revisions above.
