@@ -4674,12 +4674,11 @@ __device__ __forceinline__ void gqa_rel_sink_attn_q8(
                 }
             }
         }
-        for (; j < n; j += 8) {
-            const int slot_row = is_global ? j : (j % kv_cap);
+        auto attend = [&](int key, int slot_row) {
             const uint64_t* kp = reinterpret_cast<const uint64_t*>(
                 k_cache_fp16 + static_cast<size_t>(slot_row) * 1024u + kvh * 128);
             uint64_t kw = kp[lane];
-            const float dot = score(j, kw);
+            const float dot = score(key, kw);
             float alpha, p;
             advance_softmax(dot, alpha, p);
 
@@ -4687,6 +4686,19 @@ __device__ __forceinline__ void gqa_rel_sink_attn_q8(
                 v_cache_fp16 + static_cast<size_t>(slot_row) * 1024u + kvh * 128);
             uint64_t vw = vp[lane];
             add_value(vw, alpha, p);
+        };
+        if constexpr (PipelineDecode) {
+            for (; j < n; j += 8) attend(j, is_global ? j : j % kv_cap);
+        } else if (is_global || n <= kv_cap) {
+            for (; j < n; j += 8) attend(j, j);
+        } else {
+            // A sliding window spans at most kv_cap rows. Compute its ring
+            // offset once, then each physical row needs at most one wrap.
+            const int offset = first - first % kv_cap;
+            for (; j < n; j += 8) {
+                const int row = j - offset;
+                attend(j, row < kv_cap ? row : row - kv_cap);
+            }
         }
     }
 

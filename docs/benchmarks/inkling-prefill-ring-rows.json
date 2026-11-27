@@ -1,0 +1,712 @@
+{
+  "baseline": "67156f7e5c5c0b47815119cced7c39f227a6824c",
+  "candidate_cu_sha256": "d2828bafb9f0fb82e58f49f870f4cbc5cc03b3a5553a308077efddcb28e8f97d",
+  "workload": "Inkling-2-Mini official weights, README token IDs (1024), 16 greedy tokens, spec 0, FP16 KV, context cap 8192",
+  "method": "5 interleaved ABBA rounds. Fresh CLI process per leg. Times exclude weight loading. Single GPU, CUDA_DEVICE_ORDER=PCI_BUS_ID.",
+  "results": {
+    "pro4500": {
+      "timing": {
+        "prefill_ms": {
+          "baseline_mean": 619.8679999999999,
+          "candidate_mean": 613.637,
+          "paired": {
+            "mean_speedup_pct": 1.0051,
+            "ci95_lo_pct": 0.9628,
+            "ci95_hi_pct": 1.0474,
+            "rounds": 5.0
+          },
+          "rounds": [
+            {
+              "a1_ms": 616.8,
+              "b1_ms": 611.32,
+              "b2_ms": 611.48,
+              "a2_ms": 617.63
+            },
+            {
+              "a1_ms": 618.25,
+              "b1_ms": 612.49,
+              "b2_ms": 612.99,
+              "a2_ms": 619.25
+            },
+            {
+              "a1_ms": 619.58,
+              "b1_ms": 613.53,
+              "b2_ms": 613.53,
+              "a2_ms": 620.7
+            },
+            {
+              "a1_ms": 620.93,
+              "b1_ms": 614.28,
+              "b2_ms": 615.17,
+              "a2_ms": 621.68
+            },
+            {
+              "a1_ms": 621.64,
+              "b1_ms": 615.31,
+              "b2_ms": 616.27,
+              "a2_ms": 622.22
+            }
+          ]
+        },
+        "decode16_ms": {
+          "baseline_mean": 126.175,
+          "candidate_mean": 126.19500000000001,
+          "paired": {
+            "mean_speedup_pct": -0.0159,
+            "ci95_lo_pct": -0.0396,
+            "ci95_hi_pct": 0.0079,
+            "rounds": 5.0
+          },
+          "rounds": [
+            {
+              "a1_ms": 126.0,
+              "b1_ms": 126.11,
+              "b2_ms": 126.08,
+              "a2_ms": 126.11
+            },
+            {
+              "a1_ms": 126.18,
+              "b1_ms": 126.22,
+              "b2_ms": 126.2,
+              "a2_ms": 126.12
+            },
+            {
+              "a1_ms": 126.25,
+              "b1_ms": 126.23,
+              "b2_ms": 126.2,
+              "a2_ms": 126.22
+            },
+            {
+              "a1_ms": 126.24,
+              "b1_ms": 126.25,
+              "b2_ms": 126.17,
+              "a2_ms": 126.23
+            },
+            {
+              "a1_ms": 126.18,
+              "b1_ms": 126.23,
+              "b2_ms": 126.26,
+              "a2_ms": 126.22
+            }
+          ]
+        }
+      },
+      "score_sha256": {
+        "fp16": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce",
+        "int8": "9abf361be93f2cb9447120d7265ca421a05540ba4a8e7bd55ce0b314e0ceb941"
+      },
+      "config": [
+        "VRAM used: 17.01 GiB / 31.37 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 1024"
+      ],
+      "kernel_fp16_1024_at_base_zero": {
+        "local": {
+          "mean_speedup_pct": 6.5051,
+          "ci95_lo_pct": 6.3327,
+          "ci95_hi_pct": 6.6396,
+          "rounds": 5.0
+        },
+        "global": {
+          "mean_speedup_pct": -0.4632,
+          "ci95_lo_pct": -0.8424,
+          "ci95_hi_pct": -0.2369,
+          "rounds": 5.0
+        }
+      },
+      "emitted_token_ids": [
+        145026,
+        220,
+        39446,
+        220,
+        19,
+        154978,
+        152792,
+        189134,
+        149860,
+        185136,
+        198,
+        84375,
+        149859,
+        23033,
+        220,
+        137294
+      ],
+      "parity": {
+        "reg-decode-fp16": "704 cases matched (all Q8 codes and FP32 scales)",
+        "reg-decode-int8": "704 cases matched (all Q8 codes and FP32 scales)",
+        "reg-prefill-fp16": "140 cases matched (all Q8 codes and FP32 scales)",
+        "reg-prefill-int8": "140 cases matched (all Q8 codes and FP32 scales)"
+      },
+      "long_prompt": {
+        "tokens": 4096,
+        "spec_k": 7,
+        "ids_sha256": "0e47b7487a1ba7ba79ec8711f92ad441feb22e2a361ecf072a8228c62a3fac25",
+        "modes": {
+          "fp16": {
+            "forced_eight_fp32_rows_sha256": "e05b07e3fd4d9e3699a4c6f37dcb1fed50642c2abf9b451ac0679ad210cc62f9",
+            "generated_32_ids": [
+              39446,
+              220,
+              19,
+              189134,
+              196976,
+              63,
+              146047,
+              69580,
+              63,
+              11,
+              196997,
+              15,
+              12,
+              146102,
+              47,
+              63,
+              11,
+              196997,
+              50,
+              270,
+              86789,
+              32804,
+              63,
+              11,
+              196997,
+              12,
+              79,
+              63,
+              145031,
+              63,
+              1796,
+              63
+            ]
+          },
+          "int8": {
+            "forced_eight_fp32_rows_sha256": "054c3e9f0107e051517be7ede20d920cdd4cd3ce709911e0703fa0e2ab0965f4",
+            "generated_32_ids": [
+              39446,
+              220,
+              19,
+              189134,
+              196976,
+              63,
+              146047,
+              69580,
+              63,
+              11,
+              196997,
+              15,
+              12,
+              146102,
+              47,
+              63,
+              11,
+              196997,
+              50,
+              270,
+              86789,
+              32804,
+              63,
+              11,
+              196997,
+              12,
+              79,
+              63,
+              145031,
+              63,
+              1796,
+              63
+            ]
+          }
+        }
+      }
+    },
+    "pro5000": {
+      "timing": {
+        "prefill_ms": {
+          "baseline_mean": 448.023,
+          "candidate_mean": 442.256,
+          "paired": {
+            "mean_speedup_pct": 1.2872,
+            "ci95_lo_pct": 1.2717,
+            "ci95_hi_pct": 1.3005,
+            "rounds": 5.0
+          },
+          "rounds": [
+            {
+              "a1_ms": 447.43,
+              "b1_ms": 441.96,
+              "b2_ms": 441.88,
+              "a2_ms": 447.72
+            },
+            {
+              "a1_ms": 447.7,
+              "b1_ms": 442.06,
+              "b2_ms": 441.81,
+              "a2_ms": 447.75
+            },
+            {
+              "a1_ms": 447.94,
+              "b1_ms": 442.3,
+              "b2_ms": 442.21,
+              "a2_ms": 447.99
+            },
+            {
+              "a1_ms": 447.98,
+              "b1_ms": 442.34,
+              "b2_ms": 442.37,
+              "a2_ms": 448.37
+            },
+            {
+              "a1_ms": 448.08,
+              "b1_ms": 442.8,
+              "b2_ms": 442.83,
+              "a2_ms": 449.27
+            }
+          ]
+        },
+        "decode16_ms": {
+          "baseline_mean": 107.06,
+          "candidate_mean": 107.038,
+          "paired": {
+            "mean_speedup_pct": 0.0205,
+            "ci95_lo_pct": 0.0,
+            "ci95_hi_pct": 0.0439,
+            "rounds": 5.0
+          },
+          "rounds": [
+            {
+              "a1_ms": 107.05,
+              "b1_ms": 107.03,
+              "b2_ms": 107.04,
+              "a2_ms": 107.04
+            },
+            {
+              "a1_ms": 107.06,
+              "b1_ms": 107.01,
+              "b2_ms": 107.07,
+              "a2_ms": 107.02
+            },
+            {
+              "a1_ms": 107.03,
+              "b1_ms": 107.05,
+              "b2_ms": 107.07,
+              "a2_ms": 107.08
+            },
+            {
+              "a1_ms": 107.09,
+              "b1_ms": 107.03,
+              "b2_ms": 107.04,
+              "a2_ms": 107.11
+            },
+            {
+              "a1_ms": 107.07,
+              "b1_ms": 107.07,
+              "b2_ms": 106.97,
+              "a2_ms": 107.05
+            }
+          ]
+        }
+      },
+      "score_sha256": {
+        "fp16": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce",
+        "int8": "9abf361be93f2cb9447120d7265ca421a05540ba4a8e7bd55ce0b314e0ceb941"
+      },
+      "config": [
+        "VRAM used: 17.09 GiB / 71.12 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 1024"
+      ],
+      "kernel_fp16_1024_at_base_zero": {
+        "local": {
+          "mean_speedup_pct": 11.0439,
+          "ci95_lo_pct": 10.9858,
+          "ci95_hi_pct": 11.1168,
+          "rounds": 5.0
+        },
+        "global": {
+          "mean_speedup_pct": -0.2692,
+          "ci95_lo_pct": -0.3227,
+          "ci95_hi_pct": -0.2163,
+          "rounds": 5.0
+        }
+      },
+      "emitted_token_ids": [
+        145026,
+        220,
+        39446,
+        220,
+        19,
+        154978,
+        152792,
+        189134,
+        149860,
+        185136,
+        198,
+        84375,
+        149859,
+        23033,
+        220,
+        137294
+      ],
+      "parity": {
+        "reg-decode-fp16": "704 cases matched (all Q8 codes and FP32 scales)",
+        "reg-decode-int8": "704 cases matched (all Q8 codes and FP32 scales)",
+        "reg-prefill-fp16": "140 cases matched (all Q8 codes and FP32 scales)",
+        "reg-prefill-int8": "140 cases matched (all Q8 codes and FP32 scales)"
+      }
+    },
+    "ti5060": {
+      "timing": {
+        "prefill_ms": {
+          "baseline_mean": 1962.141,
+          "candidate_mean": 1942.715,
+          "paired": {
+            "mean_speedup_pct": 0.99,
+            "ci95_lo_pct": 0.9827,
+            "ci95_hi_pct": 0.9974,
+            "rounds": 5.0
+          },
+          "rounds": [
+            {
+              "a1_ms": 1960.64,
+              "b1_ms": 1940.81,
+              "b2_ms": 1941.58,
+              "a2_ms": 1961.03
+            },
+            {
+              "a1_ms": 1961.28,
+              "b1_ms": 1942.1,
+              "b2_ms": 1942.64,
+              "a2_ms": 1962.01
+            },
+            {
+              "a1_ms": 1961.81,
+              "b1_ms": 1942.4,
+              "b2_ms": 1942.77,
+              "a2_ms": 1962.16
+            },
+            {
+              "a1_ms": 1962.15,
+              "b1_ms": 1943.11,
+              "b2_ms": 1943.28,
+              "a2_ms": 1962.69
+            },
+            {
+              "a1_ms": 1964.12,
+              "b1_ms": 1944.22,
+              "b2_ms": 1944.24,
+              "a2_ms": 1963.52
+            }
+          ]
+        },
+        "decode16_ms": {
+          "baseline_mean": 397.472,
+          "candidate_mean": 397.459,
+          "paired": {
+            "mean_speedup_pct": 0.0033,
+            "ci95_lo_pct": -0.0065,
+            "ci95_hi_pct": 0.0123,
+            "rounds": 5.0
+          },
+          "rounds": [
+            {
+              "a1_ms": 397.36,
+              "b1_ms": 397.46,
+              "b2_ms": 397.33,
+              "a2_ms": 397.5
+            },
+            {
+              "a1_ms": 397.54,
+              "b1_ms": 397.43,
+              "b2_ms": 397.4,
+              "a2_ms": 397.43
+            },
+            {
+              "a1_ms": 397.43,
+              "b1_ms": 397.43,
+              "b2_ms": 397.42,
+              "a2_ms": 397.36
+            },
+            {
+              "a1_ms": 397.54,
+              "b1_ms": 397.46,
+              "b2_ms": 397.61,
+              "a2_ms": 397.44
+            },
+            {
+              "a1_ms": 397.59,
+              "b1_ms": 397.53,
+              "b2_ms": 397.52,
+              "a2_ms": 397.53
+            }
+          ]
+        }
+      },
+      "score_sha256": {
+        "fp16": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce",
+        "int8": "9abf361be93f2cb9447120d7265ca421a05540ba4a8e7bd55ce0b314e0ceb941"
+      },
+      "config": [
+        "VRAM used: 15.44 GiB / 15.48 GiB | Resident expert layers: 20/24 (Spilled: 4) | Mixed VRAM/host layers: 4 | Spec: off | KV: fp16 | Prefill chunk: 256"
+      ],
+      "kernel_fp16_1024_at_base_zero": {
+        "local": {
+          "mean_speedup_pct": 11.7016,
+          "ci95_lo_pct": 11.5654,
+          "ci95_hi_pct": 11.9112,
+          "rounds": 5.0
+        },
+        "global": {
+          "mean_speedup_pct": 0.0192,
+          "ci95_lo_pct": -0.0846,
+          "ci95_hi_pct": 0.1754,
+          "rounds": 5.0
+        }
+      },
+      "emitted_token_ids": [
+        145026,
+        220,
+        39446,
+        220,
+        19,
+        154978,
+        152792,
+        189134,
+        149860,
+        185136,
+        198,
+        84375,
+        149859,
+        23033,
+        220,
+        137294
+      ],
+      "parity": {
+        "reg-decode-fp16": "704 cases matched (all Q8 codes and FP32 scales)",
+        "reg-decode-int8": "704 cases matched (all Q8 codes and FP32 scales)",
+        "reg-prefill-fp16": "140 cases matched (all Q8 codes and FP32 scales)",
+        "reg-prefill-int8": "140 cases matched (all Q8 codes and FP32 scales)"
+      },
+      "long_prompt": {
+        "tokens": 4096,
+        "spec_k": 7,
+        "ids_sha256": "0e47b7487a1ba7ba79ec8711f92ad441feb22e2a361ecf072a8228c62a3fac25",
+        "modes": {
+          "fp16": {
+            "forced_eight_fp32_rows_sha256": "e05b07e3fd4d9e3699a4c6f37dcb1fed50642c2abf9b451ac0679ad210cc62f9",
+            "generated_32_ids": [
+              39446,
+              220,
+              19,
+              189134,
+              196976,
+              63,
+              146047,
+              69580,
+              63,
+              11,
+              196997,
+              15,
+              12,
+              146102,
+              47,
+              63,
+              11,
+              196997,
+              50,
+              270,
+              86789,
+              32804,
+              63,
+              11,
+              196997,
+              12,
+              79,
+              63,
+              145031,
+              63,
+              1796,
+              63
+            ]
+          },
+          "int8": {
+            "forced_eight_fp32_rows_sha256": "054c3e9f0107e051517be7ede20d920cdd4cd3ce709911e0703fa0e2ab0965f4",
+            "generated_32_ids": [
+              39446,
+              220,
+              19,
+              189134,
+              196976,
+              63,
+              146047,
+              69580,
+              63,
+              11,
+              196997,
+              15,
+              12,
+              146102,
+              47,
+              63,
+              11,
+              196997,
+              50,
+              270,
+              86789,
+              32804,
+              63,
+              11,
+              196997,
+              12,
+              79,
+              63,
+              145031,
+              63,
+              1796,
+              63
+            ]
+          }
+        }
+      }
+    },
+    "ti5070": {
+      "timing": {
+        "prefill_ms": {
+          "baseline_mean": 799.587,
+          "candidate_mean": 794.831,
+          "paired": {
+            "mean_speedup_pct": 0.5948,
+            "ci95_lo_pct": 0.5667,
+            "ci95_hi_pct": 0.6229,
+            "rounds": 5.0
+          },
+          "rounds": [
+            {
+              "a1_ms": 799.99,
+              "b1_ms": 795.59,
+              "b2_ms": 795.42,
+              "a2_ms": 801.24
+            },
+            {
+              "a1_ms": 799.99,
+              "b1_ms": 795.29,
+              "b2_ms": 795.44,
+              "a2_ms": 800.03
+            },
+            {
+              "a1_ms": 798.96,
+              "b1_ms": 794.18,
+              "b2_ms": 794.9,
+              "a2_ms": 798.82
+            },
+            {
+              "a1_ms": 798.86,
+              "b1_ms": 794.43,
+              "b2_ms": 794.15,
+              "a2_ms": 799.17
+            },
+            {
+              "a1_ms": 799.31,
+              "b1_ms": 794.47,
+              "b2_ms": 794.44,
+              "a2_ms": 799.5
+            }
+          ]
+        },
+        "decode16_ms": {
+          "baseline_mean": 235.904,
+          "candidate_mean": 235.865,
+          "paired": {
+            "mean_speedup_pct": 0.0169,
+            "ci95_lo_pct": -0.0852,
+            "ci95_hi_pct": 0.1145,
+            "rounds": 5.0
+          },
+          "rounds": [
+            {
+              "a1_ms": 237.95,
+              "b1_ms": 237.98,
+              "b2_ms": 237.94,
+              "a2_ms": 238.24
+            },
+            {
+              "a1_ms": 237.36,
+              "b1_ms": 238.0,
+              "b2_ms": 237.93,
+              "a2_ms": 237.74
+            },
+            {
+              "a1_ms": 234.42,
+              "b1_ms": 234.54,
+              "b2_ms": 234.11,
+              "a2_ms": 234.46
+            },
+            {
+              "a1_ms": 234.71,
+              "b1_ms": 234.84,
+              "b2_ms": 234.44,
+              "a2_ms": 234.42
+            },
+            {
+              "a1_ms": 234.65,
+              "b1_ms": 234.37,
+              "b2_ms": 234.5,
+              "a2_ms": 235.09
+            }
+          ]
+        }
+      },
+      "score_sha256": {
+        "fp16": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce",
+        "int8": "9abf361be93f2cb9447120d7265ca421a05540ba4a8e7bd55ce0b314e0ceb941"
+      },
+      "config": [
+        "VRAM used: 15.40 GiB / 15.47 GiB | Resident expert layers: 18/24 (Spilled: 6) | Mixed VRAM/host layers: 6 | Spec: off | KV: fp16 | Prefill chunk: 512"
+      ],
+      "kernel_fp16_1024_at_base_zero": {
+        "local": {
+          "mean_speedup_pct": 4.435,
+          "ci95_lo_pct": 4.2666,
+          "ci95_hi_pct": 4.6234,
+          "rounds": 5.0
+        },
+        "global": {
+          "mean_speedup_pct": 0.1031,
+          "ci95_lo_pct": -0.0492,
+          "ci95_hi_pct": 0.2554,
+          "rounds": 5.0
+        }
+      },
+      "emitted_token_ids": [
+        145026,
+        220,
+        39446,
+        220,
+        19,
+        154978,
+        152792,
+        189134,
+        149860,
+        185136,
+        198,
+        84375,
+        149859,
+        23033,
+        220,
+        137294
+      ],
+      "parity": {
+        "reg-decode-fp16": "704 cases matched (all Q8 codes and FP32 scales)",
+        "reg-decode-int8": "704 cases matched (all Q8 codes and FP32 scales)",
+        "reg-prefill-fp16": "140 cases matched (all Q8 codes and FP32 scales)",
+        "reg-prefill-int8": "140 cases matched (all Q8 codes and FP32 scales)"
+      }
+    }
+  },
+  "prompt_file": "docs/benchmarks/inputs/inkling-readme1024.ids",
+  "cuda_target": "sm_120a, nvcc -O3 --cubin",
+  "artifact_bytes": {
+    "baseline_cubin": 1190464,
+    "candidate_cubin": 1189968
+  },
+  "pro4500_nvrtc_prefill": [
+    "140 cases matched (all Q8 codes and FP32 scales)",
+    "140 cases matched (all Q8 codes and FP32 scales)"
+  ]
+}
