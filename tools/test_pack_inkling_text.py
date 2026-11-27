@@ -188,7 +188,7 @@ class PackInklingTextTest(unittest.TestCase):
                 self.assertFalse(bad.exists())
                 del header["s13" + suffix]
 
-    def test_mxfp8_encoding_is_optional_per_matrix(self):
+    def test_expert_encoding_is_optional_per_matrix(self):
         weights = {"mx.a": [1024], "mx.b": [256]}
         data = b"EEHH" + bytes([63])*1024 + bytes(range(256)) + b"TAIL"
         header = {
@@ -197,18 +197,20 @@ class PackInklingTextTest(unittest.TestCase):
             "mx.a": {"dtype": "F8_E4M3", "shape": [1024], "data_offsets": [4, 1028]},
             "mx.b": {"dtype": "F8_E4M3", "shape": [256], "data_offsets": [1028, 1284]},
             "end": {"dtype": "F32", "shape": [1], "data_offsets": [1284, 1288]}}
-        with tempfile.TemporaryDirectory() as tmp, patch("pack_inkling_text.mxfp8_expert_weights", return_value=weights):
-            src, dst = Path(tmp)/"src", Path(tmp)/"dst"
-            encoded = json.dumps(header).encode()
-            src.write_bytes(struct.pack("<Q",len(encoded)) + encoded + data)
-            pack(src,dst,prepack_mxfp8=True)
-            with dst.open("rb") as f:
-                new = json.loads(f.read(struct.unpack("<Q",f.read(8))[0]))
-                payload = f.read()
-            self.assertNotIn("mx.a", new)
-            self.assertEqual(new["mx.a.rans_v1"]["shape"], [536])
-            self.assertEqual(new["mx.b"]["dtype"], "F8_E4M3")
-            self.assertEqual(payload[540:], bytes(range(256)) + b"TAIL")
+        for option, dtype in [("prepack_mxfp8", "F8_E4M3"), ("prepack_nvfp4", "U8")]:
+            header["mx.a"]["dtype"] = header["mx.b"]["dtype"] = dtype
+            with tempfile.TemporaryDirectory() as tmp, patch("pack_inkling_text.expert_weight_shapes", return_value=weights):
+                src, dst = Path(tmp)/"src", Path(tmp)/"dst"
+                encoded = json.dumps(header).encode()
+                src.write_bytes(struct.pack("<Q",len(encoded)) + encoded + data)
+                pack(src, dst, **{option: True})
+                with dst.open("rb") as f:
+                    new = json.loads(f.read(struct.unpack("<Q",f.read(8))[0]))
+                    payload = f.read()
+                self.assertNotIn("mx.a", new)
+                self.assertEqual(new["mx.a.rans_v1"]["shape"], [536])
+                self.assertEqual(new["mx.b"]["dtype"], dtype)
+                self.assertEqual(payload[540:], bytes(range(256)) + b"TAIL")
 
     def test_q8_dictionary_from_bf16_and_native_are_identical(self):
         name = "projection.weight"

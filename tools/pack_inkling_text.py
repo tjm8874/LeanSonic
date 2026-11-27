@@ -40,12 +40,12 @@ def expert_scale_tensors():
     return tensors
 
 
-def mxfp8_expert_weights():
+def expert_weight_shapes(layers, codes_per_byte):
     tensors = {}
-    for layer in range(20, 24):
+    for layer in layers:
         prefix = f"model.llm.layers.{layer}.mlp.experts."
-        tensors[prefix + "w13_weight"] = [128, 2304, 2304]
-        tensors[prefix + "w2_weight"] = [128, 2304, 1152]
+        tensors[prefix + "w13_weight"] = [128, 2304, 2304 // codes_per_byte]
+        tensors[prefix + "w2_weight"] = [128, 2304, 1152 // codes_per_byte]
     return tensors
 
 
@@ -91,6 +91,7 @@ def q8_planes(header, prefix, rows, cols):
 
 def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack_attention: bool = False,
          prepack_scales: bool = False, prepack_embedding: bool = False, prepack_mxfp8: bool = False,
+         prepack_nvfp4: bool = False,
          entropy_scales: bool = False, compact_q8_scales: bool = False, compact_q8_codes: bool = False) -> tuple[int, int]:
     """Publish a complete shard atomically without replacing an existing file."""
     if destination.exists():
@@ -159,11 +160,16 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
                     converted = True
             if not matrices and not converted:
                 raise ValueError("no requested raw Q8 planes to compact; select --prepack-attention or --prepack-head for BF16 input")
-        if prepack_mxfp8:
-            for name, shape in mxfp8_expert_weights().items():
+        for enabled, layers, per_byte, dtype in (
+            (prepack_mxfp8, range(20, 24), 1, "F8_E4M3"),
+            (prepack_nvfp4, range(20), 2, "U8"),
+        ):
+            if not enabled:
+                continue
+            for name, shape in expert_weight_shapes(layers, per_byte).items():
                 if name not in header or name + ".rans_v1" in header:
-                    raise ValueError(f"missing or conflicting MXFP8 weight {name}")
-                lossless[name] = ("F8_E4M3", shape, "mxfp8", ".rans_v1")
+                    raise ValueError(f"missing or conflicting expert weight {name}")
+                lossless[name] = (dtype, shape, "rans", ".rans_v1")
         if prepack_embedding and packed_embed is None:
             lossless[EMBED_NAME] = ("BF16", EMBED_SHAPE, "embedding", ".prefix_v1")
         packer = build_packer() if matrices or lossless else None
@@ -294,10 +300,11 @@ def main() -> None:
     scale_group.add_argument("--prepack-scales", action="store_true", help="store lossless packed MoE expert scales (requires Cargo)")
     parser.add_argument("--prepack-embedding", action="store_true", help="store the BF16 input embedding losslessly (requires Cargo)")
     parser.add_argument("--prepack-mxfp8", action="store_true", help="store MXFP8 expert weights losslessly (requires Cargo)")
+    parser.add_argument("--prepack-nvfp4", action="store_true", help="losslessly rANS-code packed NVFP4 expert weights when smaller")
     args = parser.parse_args()
     try:
         removed, saved = pack(args.source, args.destination, prepack_head=args.prepack_head, prepack_attention=args.prepack_attention,
-                              prepack_scales=args.prepack_scales, prepack_embedding=args.prepack_embedding, prepack_mxfp8=args.prepack_mxfp8,
+                              prepack_scales=args.prepack_scales, prepack_embedding=args.prepack_embedding, prepack_mxfp8=args.prepack_mxfp8, prepack_nvfp4=args.prepack_nvfp4,
                               entropy_scales=args.entropy_scales, compact_q8_scales=args.compact_q8_scales, compact_q8_codes=args.compact_q8_codes)
     except (OSError, ValueError, TypeError, KeyError, subprocess.CalledProcessError) as exc:
         parser.exit(1, f"pack failed: {exc}\n")
