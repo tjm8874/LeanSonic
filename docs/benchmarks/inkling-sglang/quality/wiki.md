@@ -7,8 +7,13 @@ Every row is a pre-sampling score from the original SGLang model. Each chunk sta
 | test | Canonical LeanSonic | 0.0031584 | 0.6809773 | 24,865 | 7.072956 |
 | test | Original SGLang | 0.0103728 | 3.7027736 | 24,375 | 7.084607 |
 | test | Original llama.cpp Q3_K_XL | 0.0179920 | 6.3689020 | 24,081 | 7.134621 |
+| valid | Canonical LeanSonic | 0.0027607 | 0.3524361 | 24,963 | 6.504621 |
+| valid | Original SGLang | 0.0090103 | 1.0163396 | 24,484 | 6.518670 |
+| valid | Original llama.cpp Q3_K_XL | 0.0167140 | 4.2778210 | 24,179 | 6.565880 |
 
 SGLang's test maximum was at chunk 23, token 330. Its p99 KL was 0.0879798.
+
+SGLang's valid maximum was at chunk 13, token 421. Its p99 KL was 0.0816409.
 
 SGLang uses the pinned original weights and BF16 KV on RTX PRO 5000. The canonical LeanSonic and original Q3 measurements use FP16 KV. Both LeanSonic and SGLang results above apply the identical native scoring code, including its low-probability cutoff. The original GGUF engine used its published batched native evaluator. This instrumentation measures quality. See the [uninstrumented timings](../README.md) for speed and allocation.
 
