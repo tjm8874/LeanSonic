@@ -130,6 +130,7 @@ theorem production_leansonic_kernels_pass_strict :
       cycle8SoloSpecPdlSuite ++ multiSeqRoundKernelSuite ++
       cycle9ConvFuseAndVerifyMoeSuite ++ verifyLaunchFusionSuite ++
       cycle10DecodeBreakthroughSuite ++ cycle11PrefillKernelSuite ++
+      dflash2DrafterKernelSuite ++ cycle12VerifyBreakthroughSuite ++
       cycle3Qwen38KernelSuite).all checkSm120KernelStrict) = true := by decide
 
 -- ============================================================================

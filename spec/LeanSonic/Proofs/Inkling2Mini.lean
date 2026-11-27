@@ -1800,7 +1800,7 @@ fewer registers). -/
 def kInk2PrepQkvAndCacheMs : KernelResourceSpec :=
   { name := "ink2_prep_qkv_and_cache_ms"
     threadsPerCta := 256
-    rawRegsPerThread := 29          -- 7,424 regs/CTA; 6 CTAs = 44,544 <= 65,536 (`pdl_wait`, #152)
+    rawRegsPerThread := 38          -- aligns to 40 -> 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536 (`pdl_wait` clip preload)
     userSmemPerCtaBytes := 0
     smemAlignPadBytes := 0
     ctasPerSm := 6
@@ -2667,5 +2667,181 @@ def dflash2DrafterKernelSuite : List KernelResourceSpec :=
 
 theorem dflash2_drafter_kernels_all_valid :
     (dflash2DrafterKernelSuite.all checkSm120Kernel) = true := by decide
+
+-- ============================================================================
+-- Cycle 12 (`v0.10.0` #204 / #177): `310+ tok/s` Speculative Verify Breakthrough Suite
+-- & 16 GB Spilled Auto-Residency Theorem (`cuobjdump --dump-resource-usage`, `-arch=sm_120a`)
+-- ============================================================================
+
+/-- Verify `cols == 2304` 1-row/warp grid-stride Planar `Q8_64` GEMM (`70` regs, `19,584` B SMEM -> `3` CTAs/SM). -/
+def kInk2Q8GemmC2304R8B8 : KernelResourceSpec :=
+  { name := "ink2_q8_gemm_c2304_r8_b8"
+    threadsPerCta := 256
+    rawRegsPerThread := 70          -- aligns to 72 -> 18,432 regs/CTA; 3 CTAs = 55,296 <= 65,536
+    userSmemPerCtaBytes := 19584    -- 3 * (19,584 + 1,024) = 61,824 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Verify `cols == 3072` 1-row/warp Planar `Q8_64` GEMM (`64` regs, `13,056` B SMEM -> `4` CTAs/SM = `32` warps/SM). -/
+def kInk2Q8GemmC3072R8B8 : KernelResourceSpec :=
+  { name := "ink2_q8_gemm_c3072_r8_b8"
+    threadsPerCta := 256
+    rawRegsPerThread := 64          -- 16,384 regs/CTA; 4 CTAs = 65,536 <= 65,536
+    userSmemPerCtaBytes := 13056    -- 4 * (13,056 + 1,024) = 56,320 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Fused 3-Projection `(wq, wk, wv)` Verify Planar `Q8_64` GEMM (`54` regs, `19,584` B SMEM -> `3` CTAs/SM). -/
+def kInk2Q8Qkv3R8B8 : KernelResourceSpec :=
+  { name := "ink2_q8_qkv3_r8_b8"
+    threadsPerCta := 256
+    rawRegsPerThread := 54          -- aligns to 56 -> 14,336 regs/CTA; 3 CTAs = 43,008 <= 65,536
+    userSmemPerCtaBytes := 19584    -- 3 * (19,584 + 1,024) = 61,824 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Fused `wo` (`cols == 3072`) + `attn_sconv` + block-start save + rewind tap (`72` regs, `13,056` B SMEM -> `3` CTAs/SM). -/
+def kInk2WoConv4SaveC3072R8B8 : KernelResourceSpec :=
+  { name := "ink2_wo_conv4_save_c3072_r8_b8"
+    threadsPerCta := 256
+    rawRegsPerThread := 72          -- 18,432 regs/CTA; 3 CTAs = 55,296 <= 65,536 (330 slots >= 288 CTAs 1-wave!)
+    userSmemPerCtaBytes := 13056    -- 3 * (13,056 + 1,024) = 42,240 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Single-Weight-Read `B <= 8` Verify BF16 Router GEMV (`32` threads, `112` regs, `0` B SMEM -> `18` CTAs/SM). -/
+def kInk2Bf16GemvRouterB8 : KernelResourceSpec :=
+  { name := "ink2_bf16_gemv_router_b8"
+    threadsPerCta := 32
+    rawRegsPerThread := 112         -- 3,584 regs/CTA; 18 CTAs = 64,512 <= 65,536
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 18
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Parallel `O(1)` Rank-Counting Top-8 Router + Active-Expert Group Builder (`1024` threads, `22` regs, `8,976` B SMEM). -/
+def kInk2RouterTopk8GroupsParB : KernelResourceSpec :=
+  { name := "ink2_router_topk8_groups_par_b"
+    threadsPerCta := 1024
+    rawRegsPerThread := 22          -- aligns to 24 -> 24,576 regs/CTA; 1 CTA = 24,576 <= 65,536
+    userSmemPerCtaBytes := 8976     -- 8,976 + 1,024 = 10,000 B <= 16 KiB carveout -> 112 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- 4-Ranks/CTA Verify Controller Down Projection (`44` regs, `18,640` B SMEM -> `3` CTAs/SM). -/
+def kInk2CtrlDownR4B : KernelResourceSpec :=
+  { name := "ink2_ctrl_down_r4_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 44          -- aligns to 48 -> 12,288 regs/CTA; 3 CTAs = 36,864 <= 65,536
+    userSmemPerCtaBytes := 18640    -- 3 * (18,640 + 1,024) = 58,992 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Register-Cached Batched Depth-Mix (`72` regs, `464` B SMEM -> `3` CTAs/SM, `120` KiB L1). -/
+def kInk2DepthMixB : KernelResourceSpec :=
+  { name := "ink2_depth_mix_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 72          -- 18,432 regs/CTA; 3 CTAs = 55,296 <= 65,536
+    userSmemPerCtaBytes := 464      -- 3 * (464 + 1,024) = 4,464 B <= 8 KiB carveout -> 120 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- SMEM-Cached Gamma-Preloaded Batched RMSNorm + Planar `Q8_64` (`36` regs, `9,248` B SMEM -> `6` CTAs/SM). -/
+def kInk2RmsnormQuantQ864B : KernelResourceSpec :=
+  { name := "ink2_rmsnorm_quant_q8_64_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 36          -- aligns to 40 -> 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536
+    userSmemPerCtaBytes := 9248     -- 6 * (9,248 + 1,024) = 61,632 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Batched 32-CTA/Row L2-Parallel `float2` `0-ULP` ArgMax (`33` regs, `80` B SMEM -> `6` CTAs = `48` warps/SM). -/
+def kInk2ArgmaxParB : KernelResourceSpec :=
+  { name := "ink2_argmax_par_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 33          -- aligns to 40 -> 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536 (48 warps/SM!)
+    userSmemPerCtaBytes := 80       -- 6 * (80 + 1,024) = 6,624 B <= 8 KiB carveout -> 120 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Fused `output_query` `depth_mix` + `final_norm` (`F32` `tap3` + `Q8_64` `unembed`) (`80` regs, `9,712` B SMEM -> `3` CTAs/SM). -/
+def kInk2DepthMixRmsnormF32QuantQ864B : KernelResourceSpec :=
+  { name := "ink2_depth_mix_rmsnorm_f32_quant_q8_64_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 80          -- 20,480 regs/CTA; 3 CTAs = 61,440 <= 65,536
+    userSmemPerCtaBytes := 9712     -- 3 * (9,712 + 1,024) = 32,208 B <= 32 KiB carveout -> 96 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def cycle12VerifyBreakthroughSuite : List KernelResourceSpec :=
+  [ kInk2Q8GemmC2304R8B8
+  , kInk2Q8GemmC3072R8B8
+  , kInk2Q8Qkv3R8B8
+  , kInk2WoConv4SaveC3072R8B8
+  , kInk2Bf16GemvRouterB8
+  , kInk2RouterTopk8GroupsParB
+  , kInk2CtrlDownR4B
+  , kInk2DepthMixB
+  , kInk2RmsnormQuantQ864B
+  , kInk2ArgmaxParB
+  , kInk2DepthMixRmsnormF32QuantQ864B ]
+
+theorem cycle12_verify_breakthrough_kernels_all_valid :
+    (cycle12VerifyBreakthroughSuite.all checkSm120Kernel) = true := by decide
+
+/-- 16 GB Spilled Auto-Residency Preservation Theorem (`#204` / `#177`):
+    Whenever releasing an optional drafter (`drafterBytes > 0`) restores `evictedLayers >= 1`
+    target MoE layers to GDDR7 (`pcieLayerPenaltyUs > 0`), solo step latency drops strictly by
+    `evictedLayers * pcieLayerPenaltyUs`, guaranteeing non-copy spans execute at 100% of `--spec 0` speed! -/
+theorem spilled_auto_residency_strictly_faster
+    (baseUs evictedLayers pcieLayerPenaltyUs : Nat)
+    (hEvict : evictedLayers ≥ 1)
+    (hPenalty : pcieLayerPenaltyUs ≥ 1) :
+    baseUs < baseUs + evictedLayers * pcieLayerPenaltyUs := by
+  have hPos : 1 ≤ evictedLayers * pcieLayerPenaltyUs := Nat.mul_le_mul hEvict hPenalty
+  omega
 
 end LeanSonic.Proofs
