@@ -1121,7 +1121,7 @@ impl<'a> ExpertMatrix<'a> {
         let matrix = crate::inkling_mxfp8::Matrix::parse(bytes, count)?;
         let mut result = Vec::with_capacity(16 + count / 2);
         let mut index = [0u8; 256];
-        for (symbol, freq) in bytes[..512].chunks_exact(2).enumerate() {
+        for (symbol, &freq) in bytes[..512].as_chunks::<2>().0.iter().enumerate() {
             if freq != [0, 0] {
                 if result.len() == 16 {
                     return Err("MXFP8 frame exceeds the 16-symbol device codebook limit".into());
