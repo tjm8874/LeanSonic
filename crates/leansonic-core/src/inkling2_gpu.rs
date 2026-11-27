@@ -60,6 +60,10 @@ const SWA_K_OFFSET: usize = QRGS_ROWS; // 6552
 const SWA_V_OFFSET: usize = QRGS_ROWS + N_KV * HD; // 7576
 const SWA_ALL_ROWS: usize = QRGS_ROWS + 2 * N_KV * HD; // 8600
 
+// One (f32 logit, i32 token) per contiguous 2,048-token vocabulary tile.
+const ARGMAX_TILES: usize = VOCAB.div_ceil(2048);
+const _: () = assert!(ARGMAX_TILES <= 256 && (VOCAB * 4) % 8 == 0);
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum BatchHeadMode {
     None,
@@ -473,6 +477,7 @@ struct KernelFns {
     router_gemv_topk8: Option<CUfunction>,
     copy_d: CUfunction,
     argmax_and_inc_pos: CUfunction,
+    argmax_tiles: Option<(CUfunction, CUfunction)>,
     inc_pos: CUfunction,
     // Batched multi-token kernels (up to the selected prefill capacity)
     embed_rmsnorm_b: CUfunction,
@@ -1992,7 +1997,7 @@ impl Inkling2GpuEngine {
             d_sel_wts: DeviceBuf::alloc_zeroed(&ctx, TOP_K * 4)?,
             d_moe_act: DeviceBuf::alloc_zeroed(&ctx, TOP_K * FF * 4)?,
             d_moe_y: DeviceBuf::alloc_zeroed(&ctx, D * 4)?,
-            d_logits: DeviceBuf::alloc_zeroed(&ctx, VOCAB * 4)?,
+            d_logits: DeviceBuf::alloc_zeroed(&ctx, VOCAB * 4 + ARGMAX_TILES * 8)?,
             d_router_done: DeviceBuf::alloc_zeroed(&ctx, 4)?,
             d_act_q8_64: DeviceBuf::alloc_zeroed(&ctx, 3 * 3072)?,
             d_act_sc_64: DeviceBuf::alloc_zeroed(&ctx, 3 * 48 * 4)?,
@@ -2563,6 +2568,9 @@ impl Inkling2GpuEngine {
             router_gemv_topk8: get_fn("ink2_router_gemv_topk8").ok(),
             copy_d: get_fn("ink2_copy_d")?,
             argmax_and_inc_pos: get_fn("ink2_argmax_and_inc_pos")?,
+            argmax_tiles: get_fn("ink2_argmax_partials")
+                .ok()
+                .zip(get_fn("ink2_argmax_finish_and_inc_pos").ok()),
             inc_pos: get_fn("ink2_inc_pos")?,
             embed_rmsnorm_b: get_fn("ink2_embed_rmsnorm_b")?,
             rmsnorm_d_b: get_fn("ink2_rmsnorm_d_b")?,
@@ -4695,12 +4703,35 @@ impl Inkling2GpuEngine {
             let mut pl = self.d_logits.ptr;
             let mut pt = self.d_token_in.ptr;
             let mut pp = self.d_pos.ptr;
-            let mut args: [*mut c_void; 3] = [
-                (&mut pl as *mut _) as *mut c_void,
-                (&mut pt as *mut _) as *mut c_void,
-                (&mut pp as *mut _) as *mut c_void,
-            ];
-            self.launch_pdl(stream, self.fns.argmax_and_inc_pos, (1, 1), 256, &mut args)?;
+            if let Some((partials, finish)) = self.fns.argmax_tiles {
+                let mut scratch = pl + (VOCAB * 4) as u64;
+                let mut count = ARGMAX_TILES as i32;
+                let mut partial_args = [
+                    (&mut pl as *mut CUdeviceptr).cast(),
+                    (&mut scratch as *mut CUdeviceptr).cast(),
+                ];
+                self.launch_pdl(
+                    stream,
+                    partials,
+                    (ARGMAX_TILES as u32, 1),
+                    256,
+                    &mut partial_args,
+                )?;
+                let mut finish_args = [
+                    (&mut scratch as *mut CUdeviceptr).cast(),
+                    (&mut count as *mut i32).cast(),
+                    (&mut pt as *mut CUdeviceptr).cast(),
+                    (&mut pp as *mut CUdeviceptr).cast(),
+                ];
+                self.launch_pdl(stream, finish, (1, 1), 256, &mut finish_args)?;
+            } else {
+                let mut args: [*mut c_void; 3] = [
+                    (&mut pl as *mut _) as *mut c_void,
+                    (&mut pt as *mut _) as *mut c_void,
+                    (&mut pp as *mut _) as *mut c_void,
+                ];
+                self.launch_pdl(stream, self.fns.argmax_and_inc_pos, (1, 1), 256, &mut args)?;
+            }
         }
 
         Ok(())
