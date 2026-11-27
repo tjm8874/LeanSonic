@@ -8,6 +8,10 @@ The input alternates 32 and 1,024 tokens for four passes, resetting the engine b
 
 | GPU | Mode | Resident expert layers | Matching traces |
 |---|---|---:|---:|
+| 5060Ti | byte | 21/24 | 8/8 |
+| 5060Ti | expansion | 24/24 | 8/8 |
+| 5060Ti | legacy | 24/24 | 8/8 |
+| 5060Ti | direct | 24/24 | 8/8 |
 | 5070Ti | byte | 21/24 | 8/8 |
 | 5070Ti | expansion | 24/24 | 8/8 |
 | 5070Ti | legacy | 24/24 | 8/8 |
