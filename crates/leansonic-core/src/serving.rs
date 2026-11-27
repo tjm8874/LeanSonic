@@ -445,45 +445,7 @@ pub fn json_escape(s: &str) -> String {
 }
 
 fn parse_json_quoted_at(src: &str, quote_pos: usize) -> Option<(String, usize)> {
-    let bytes = src.as_bytes();
-    if bytes.get(quote_pos) != Some(&b'"') {
-        return None;
-    }
-    let mut i = quote_pos + 1;
-    let mut out = String::new();
-    while i < bytes.len() {
-        match bytes[i] {
-            b'"' => return Some((out, i + 1)),
-            b'\\' => {
-                i += 1;
-                let esc = *bytes.get(i)?;
-                match esc {
-                    b'"' => out.push('"'),
-                    b'\\' => out.push('\\'),
-                    b'/' => out.push('/'),
-                    b'n' => out.push('\n'),
-                    b'r' => out.push('\r'),
-                    b't' => out.push('\t'),
-                    b'u' if i + 4 < bytes.len() => {
-                        let hex = std::str::from_utf8(&bytes[i + 1..i + 5]).ok()?;
-                        let code = u32::from_str_radix(hex, 16).ok()?;
-                        if let Some(c) = char::from_u32(code) {
-                            out.push(c);
-                        }
-                        i += 4;
-                    }
-                    other => out.push(other as char),
-                }
-            }
-            _ => {
-                let ch = src[i..].chars().next()?;
-                out.push(ch);
-                i += ch.len_utf8() - 1;
-            }
-        }
-        i += 1;
-    }
-    None
+    crate::json_string::quoted(src.as_bytes(), quote_pos).ok()
 }
 
 fn find_json_key_value_start(body: &str, key: &str) -> Option<usize> {
@@ -1017,6 +979,32 @@ pub fn serve_openai_http(host: &str, port: u16, default_model: &str) -> std::io:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn equivalent_json_encodings_preserve_the_prompt() {
+        for (json, expected) in [
+            (
+                r#"{"messages":[{"role":"user","content":"𠮷野家🍵"}]}"#,
+                "𠮷野家🍵",
+            ),
+            (
+                r#"{"messages":[{"role":"user","content":"\ud842\udfb7\u91ce\u5bb6\ud83c\udf75"}]}"#,
+                "𠮷野家🍵",
+            ),
+            (
+                r#"{"prompt":"\ud842\udfb7\u91ce\u5bb6\ud83c\udf75"}"#,
+                "𠮷野家🍵",
+            ),
+            (r#"{"prompt":"\b\f"}"#, "\u{8}\u{c}"),
+        ] {
+            assert_eq!(
+                parse_openai_generation_request(json, "inkling-2-mini")
+                    .unwrap()
+                    .prompt,
+                expected
+            );
+        }
+    }
 
     #[test]
     fn sse_protocol_guard_enforces_lean_automaton_laws() {
