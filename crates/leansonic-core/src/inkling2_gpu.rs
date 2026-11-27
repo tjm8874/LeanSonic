@@ -1109,16 +1109,19 @@ fn extend_expert_placement(
     resident
 }
 
-// A small tail uses scalar kernels when a narrow workspace splits it off.
-// Give it the same arithmetic on wider workspaces, including the single-token shortcut.
+// Keep both sides of a workspace boundary large enough for the Tensor Core kernels.
+// A one-token suffix retains the existing single-token decode shortcut on every workspace.
 fn next_prefill_chunk(remaining: usize, capacity: usize) -> usize {
-    let rows = remaining.min(capacity);
-    let tail = rows % EXPERT_PAGE;
-    if rows > EXPERT_PAGE && (1..TC_MIN_ROWS).contains(&tail) {
-        rows - tail
-    } else {
-        rows
+    if remaining <= capacity {
+        if remaining > EXPERT_PAGE && remaining % EXPERT_PAGE == 1 {
+            return remaining - 1;
+        }
+        return remaining;
     }
+    if (2..TC_MIN_ROWS).contains(&(remaining - capacity)) {
+        return remaining - TC_MIN_ROWS;
+    }
+    capacity
 }
 
 fn known_prompt_limit(tokens: usize) -> usize {
@@ -8049,25 +8052,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn prefill_tail_keeps_its_kernel_family_across_workspace_widths() {
+    fn prefill_boundary_avoids_small_second_batches() {
         for capacity in [64, 128, 256, 512, 1024, 2048] {
-            for length in 1..=2049 {
+            for length in 1..=4097 {
                 let mut left = length;
                 while left > 0 {
                     let take = next_prefill_chunk(left, capacity);
                     assert!((1..=left.min(capacity)).contains(&take));
-                    if take == left {
-                        let tail = length % EXPERT_PAGE;
-                        if (1..TC_MIN_ROWS).contains(&tail) {
-                            assert_eq!(take, tail);
-                        }
-                    } else {
-                        assert!(take.is_multiple_of(EXPERT_PAGE));
+                    if length >= TC_MIN_ROWS && !(take == 1 && length % EXPERT_PAGE == 1) {
+                        assert!(take >= TC_MIN_ROWS);
                     }
                     left -= take;
                 }
             }
         }
+        assert_eq!(next_prefill_chunk(65, 64), 64);
+        assert_eq!(next_prefill_chunk(66, 64), 34);
+        assert_eq!(next_prefill_chunk(66, 128), 66);
+        assert_eq!(next_prefill_chunk(95, 64), 63);
+        assert_eq!(next_prefill_chunk(96, 64), 64);
     }
 
     #[test]
