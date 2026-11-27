@@ -1,0 +1,620 @@
+{
+  "model": "Inkling-2-Mini, single request, FP16 KV, ctx=8192, spec=0, greedy, 1024 README input tokens",
+  "workload_sha256": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843",
+  "continuation17": [
+    145026,
+    220,
+    39446,
+    220,
+    19,
+    154978,
+    152792,
+    189134,
+    149860,
+    185136,
+    198,
+    84375,
+    149859,
+    23033,
+    220,
+    137294,
+    196997
+  ],
+  "main": "b207e5f4c7b7ef4fbc770b64e654427a71841178",
+  "packed": "1c126bcce088463ccd06c60c784d0d35e90b9349",
+  "basalt": "5fe1928dcc82ad62286d2a622bcbb5d85ebfba2b",
+  "lean_shard": {
+    "bytes": 16086645336,
+    "sha256": "94c0a91688cd06b449f10529277c250b640f5accc928a83126c5d0a343dceb99"
+  },
+  "basalt_file_bytes": 19606374154,
+  "method": "5 rounds, each main / packed / Basalt / Basalt / packed / main. Same frozen prompt and continuation. Lean CLI --gen 16, Basalt --max-new 17: first token comes from prefill and Basalt emits one token per decode iteration thereafter. Compared 16 timed decode iterations, not streaming chunks. Native tools self-report phase timings.",
+  "artifacts": {
+    "main-cli": "bac546ca7d503f68d0af08623c918dc803f6cf4be29668b03fb9a902846bb2ab",
+    "main.cubin": "e8f96ee3e73080a9558870cc0f17aa236597d21ff7d023cfb179869c9294efbb",
+    "packed-cli": "481ca934bc1e64934fde3a0e2c7dd7f3fb8082dd4cf26460ef80e3b389190213",
+    "packed.cubin": "eec39c7d9e426633a82823a7797a2e1e61dbd03cba43da51f480d217d9e197c4"
+  },
+  "results": {
+    "pro5000": {
+      "main": {
+        "columns": [
+          "prefill_ms",
+          "decode16_ms",
+          "process_s",
+          "peak_rss_mib"
+        ],
+        "mean": [
+          444.102,
+          107.111,
+          3.28,
+          2940.065625
+        ],
+        "cycles": [
+          [
+            [
+              444.73,
+              107.15,
+              3.32,
+              2939.81640625
+            ],
+            [
+              444.42,
+              107.08,
+              3.28,
+              2939.89453125
+            ]
+          ],
+          [
+            [
+              444.38,
+              107.11,
+              3.27,
+              2940.25390625
+            ],
+            [
+              444.01,
+              107.04,
+              3.27,
+              2939.55078125
+            ]
+          ],
+          [
+            [
+              444.16,
+              107.09,
+              3.26,
+              2940.1796875
+            ],
+            [
+              443.56,
+              107.07,
+              3.28,
+              2940.39453125
+            ]
+          ],
+          [
+            [
+              443.97,
+              107.07,
+              3.27,
+              2939.33984375
+            ],
+            [
+              443.94,
+              107.21,
+              3.28,
+              2939.80859375
+            ]
+          ],
+          [
+            [
+              444.02,
+              107.13,
+              3.29,
+              2940.80078125
+            ],
+            [
+              443.83,
+              107.16,
+              3.28,
+              2940.6171875
+            ]
+          ]
+        ],
+        "lean_placement": [
+          "VRAM used: 17.09 GiB / 71.12 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 1024"
+        ],
+        "time_saved_vs_basalt_95pct": [
+          [
+            -335.614705882353,
+            -333.9843597262952
+          ],
+          [
+            -16.4532608695652,
+            -16.396739130434778
+          ]
+        ]
+      },
+      "packed": {
+        "columns": [
+          "prefill_ms",
+          "decode16_ms",
+          "process_s",
+          "peak_rss_mib"
+        ],
+        "mean": [
+          443.36,
+          107.093,
+          3.387,
+          2948.73984375
+        ],
+        "cycles": [
+          [
+            [
+              444.0,
+              107.1,
+              3.37,
+              2948.390625
+            ],
+            [
+              443.35,
+              107.07,
+              3.36,
+              2948.64453125
+            ]
+          ],
+          [
+            [
+              443.46,
+              107.15,
+              3.42,
+              2948.90234375
+            ],
+            [
+              443.32,
+              107.11,
+              3.37,
+              2948.87890625
+            ]
+          ],
+          [
+            [
+              443.36,
+              107.09,
+              3.37,
+              2948.64453125
+            ],
+            [
+              443.15,
+              107.11,
+              3.4,
+              2948.5859375
+            ]
+          ],
+          [
+            [
+              443.38,
+              107.07,
+              3.37,
+              2949.41796875
+            ],
+            [
+              443.24,
+              107.01,
+              3.39,
+              2948.4375
+            ]
+          ],
+          [
+            [
+              443.31,
+              107.14,
+              3.45,
+              2949.54296875
+            ],
+            [
+              443.03,
+              107.08,
+              3.37,
+              2947.953125
+            ]
+          ]
+        ],
+        "lean_placement": [
+          "VRAM used: 16.69 GiB / 71.12 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 1024"
+        ],
+        "time_saved_vs_basalt_95pct": [
+          [
+            -334.821568627451,
+            -333.26588465298136
+          ],
+          [
+            -16.43152173913045,
+            -16.37391304347824
+          ]
+        ]
+      },
+      "basalt": {
+        "columns": [
+          "prefill_ms",
+          "decode16_ms",
+          "process_s",
+          "peak_rss_mib"
+        ],
+        "mean": [
+          102.1,
+          92.0,
+          4.352,
+          1561.633984375
+        ],
+        "cycles": [
+          [
+            [
+              102.0,
+              92.0,
+              4.37,
+              1561.7421875
+            ],
+            [
+              102.0,
+              92.0,
+              4.33,
+              1561.5
+            ]
+          ],
+          [
+            [
+              102.0,
+              92.0,
+              4.33,
+              1561.53515625
+            ],
+            [
+              102.0,
+              92.0,
+              4.36,
+              1561.4921875
+            ]
+          ],
+          [
+            [
+              102.0,
+              92.0,
+              4.38,
+              1561.765625
+            ],
+            [
+              102.0,
+              92.0,
+              4.33,
+              1561.4921875
+            ]
+          ],
+          [
+            [
+              102.0,
+              92.0,
+              4.35,
+              1561.76171875
+            ],
+            [
+              102.0,
+              92.0,
+              4.35,
+              1561.78515625
+            ]
+          ],
+          [
+            [
+              103.0,
+              92.0,
+              4.34,
+              1561.65234375
+            ],
+            [
+              102.0,
+              92.0,
+              4.38,
+              1561.61328125
+            ]
+          ]
+        ],
+        "lean_placement": []
+      }
+    },
+    "ti5060": {
+      "main": {
+        "columns": [
+          "prefill_ms",
+          "decode16_ms",
+          "process_s",
+          "peak_rss_mib"
+        ],
+        "mean": [
+          1937.548,
+          397.407,
+          7.356,
+          3168.633984375
+        ],
+        "cycles": [
+          [
+            [
+              1935.63,
+              397.35,
+              7.48,
+              3168.9140625
+            ],
+            [
+              1936.9,
+              397.37,
+              7.37,
+              3168.45703125
+            ]
+          ],
+          [
+            [
+              1936.82,
+              397.37,
+              7.37,
+              3168.578125
+            ],
+            [
+              1937.59,
+              397.34,
+              7.41,
+              3168.74609375
+            ]
+          ],
+          [
+            [
+              1937.94,
+              397.42,
+              7.32,
+              3168.7265625
+            ],
+            [
+              1937.78,
+              397.38,
+              7.29,
+              3168.5703125
+            ]
+          ],
+          [
+            [
+              1938.06,
+              397.56,
+              7.4,
+              3168.6875
+            ],
+            [
+              1938.23,
+              397.44,
+              7.29,
+              3168.6796875
+            ]
+          ],
+          [
+            [
+              1938.21,
+              397.42,
+              7.29,
+              3168.35546875
+            ],
+            [
+              1938.32,
+              397.42,
+              7.34,
+              3168.625
+            ]
+          ]
+        ],
+        "lean_placement": [
+          "VRAM used: 15.44 GiB / 15.48 GiB | Resident expert layers: 20/24 (Spilled: 4) | Mixed VRAM/host layers: 4 | Spec: off | KV: fp16 | Prefill chunk: 256"
+        ],
+        "time_saved_vs_basalt_95pct": [
+          [
+            -51.08278119884637,
+            -50.22366992399565
+          ],
+          [
+            -2.1403238242097222,
+            -1.1996434937611378
+          ]
+        ]
+      },
+      "packed": {
+        "columns": [
+          "prefill_ms",
+          "decode16_ms",
+          "process_s",
+          "peak_rss_mib"
+        ],
+        "mean": [
+          1314.819,
+          396.24,
+          6.982,
+          3175.91953125
+        ],
+        "cycles": [
+          [
+            [
+              1313.94,
+              396.3,
+              7.1,
+              3177.1015625
+            ],
+            [
+              1314.33,
+              396.17,
+              6.97,
+              3177.03515625
+            ]
+          ],
+          [
+            [
+              1314.34,
+              396.45,
+              7.03,
+              3177.36328125
+            ],
+            [
+              1314.87,
+              396.22,
+              6.85,
+              3177.015625
+            ]
+          ],
+          [
+            [
+              1315.34,
+              396.27,
+              6.91,
+              3165.88671875
+            ],
+            [
+              1314.84,
+              396.18,
+              7.04,
+              3176.8984375
+            ]
+          ],
+          [
+            [
+              1315.29,
+              396.26,
+              6.96,
+              3176.9453125
+            ],
+            [
+              1315.09,
+              396.17,
+              7.04,
+              3177.03515625
+            ]
+          ],
+          [
+            [
+              1314.93,
+              396.15,
+              7.05,
+              3176.98046875
+            ],
+            [
+              1315.22,
+              396.23,
+              6.87,
+              3176.93359375
+            ]
+          ]
+        ],
+        "lean_placement": [
+          "VRAM used: 15.22 GiB / 15.48 GiB | Resident expert layers: 20/24 (Spilled: 4) | Mixed VRAM/host layers: 4 | Spec: off | KV: fp16 | Prefill chunk: 1024"
+        ],
+        "time_saved_vs_basalt_95pct": [
+          [
+            -2.5146955640446,
+            -1.9477276252520603
+          ],
+          [
+            -1.8293497815471627,
+            -0.903743315508021
+          ]
+        ]
+      },
+      "basalt": {
+        "columns": [
+          "prefill_ms",
+          "decode16_ms",
+          "process_s",
+          "peak_rss_mib"
+        ],
+        "mean": [
+          1285.1,
+          390.6,
+          7.01,
+          6042.730078125
+        ],
+        "cycles": [
+          [
+            [
+              1304.0,
+              388.0,
+              7.11,
+              6042.50390625
+            ],
+            [
+              1283.0,
+              390.0,
+              7.04,
+              6042.7109375
+            ]
+          ],
+          [
+            [
+              1282.0,
+              389.0,
+              7.04,
+              6042.7578125
+            ],
+            [
+              1284.0,
+              393.0,
+              6.94,
+              6042.6015625
+            ]
+          ],
+          [
+            [
+              1283.0,
+              393.0,
+              7.03,
+              6042.83203125
+            ],
+            [
+              1284.0,
+              396.0,
+              7.02,
+              6042.70703125
+            ]
+          ],
+          [
+            [
+              1282.0,
+              389.0,
+              7.0,
+              6042.640625
+            ],
+            [
+              1283.0,
+              389.0,
+              6.95,
+              6042.8046875
+            ]
+          ],
+          [
+            [
+              1283.0,
+              390.0,
+              6.98,
+              6042.90234375
+            ],
+            [
+              1283.0,
+              389.0,
+              6.99,
+              6042.83984375
+            ]
+          ]
+        ],
+        "lean_placement": []
+      }
+    }
+  },
+  "reproduce": {
+    "main_and_packed": "LEANSONIC_CTX=8192 LEANSONIC_KV=fp16 LEANSONIC_CUBIN_PATH=<matching-native-cubin> leansonic bench --weights <entropy-scale-shard-directory> --tokens @docs/benchmarks/inputs/inkling-readme1024.ids --gen 16 --spec 0 --repeat 1. Set LEANSONIC_GPU_SCALES=packed on the #61 branch.",
+    "basalt": "basalt --model Inkling-2-Mini-NVFP4-mxfp8.basalt --tokens-file docs/benchmarks/inputs/inkling-readme1024.ids --gpu 0 --kv fp16 --max-context 8192 --spec 0 --temperature 0 --max-new 17",
+    "basalt_build": "Release, BASALT_MODELS=inkling2, CMAKE_CUDA_ARCHITECTURES=120"
+  },
+  "limits": "These tests exercise a single greedy trajectory. LeanSonic shard size excludes tokenizer and optional DSpark sidecar. Hardware timings are phase-specific and exclude startup."
+}
