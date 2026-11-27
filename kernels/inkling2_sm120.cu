@@ -650,8 +650,8 @@ extern "C" __global__ void ink2_depth_mix_inv(
     const float* __restrict__ queries,    // [n_q, D]
     float* __restrict__ out_mixed,        // [n_q, D] (or `[3, D]` if `broadcast3 == 1`)
     int32_t broadcast3,
-    float* __restrict__ out_inv) {
-    pdl_wait();        // [n_q] (or `[3]` if `broadcast3 == 1`)
+    float* __restrict__ out_inv) {        // [n_q] (or `[3]` if `broadcast3 == 1`)
+    pdl_wait();
     depth_mix_body(blocks_buf, n_blocks, cur_opt, append_cur, queries, out_mixed, broadcast3, out_inv);
 }
 
@@ -753,8 +753,8 @@ extern "C" __global__ void ink2_ctrl_down(
     const float* __restrict__ cur_base,       // [n_ctrls, D]
     const float* __restrict__ msg_base,       // [n_ctrls, D]
     const uint4* __restrict__ down_bf16_u128, // [n_ctrls, 64, 576]
-    float* __restrict__ g_out_base) {
-    pdl_wait();         // [n_ctrls, 64]
+    float* __restrict__ g_out_base) {         // [n_ctrls, 64]
+    pdl_wait();
     __shared__ float smem_red_a[8];
     __shared__ float smem_red_b[8];
     __shared__ float inv_ab[2];
@@ -1127,8 +1127,8 @@ extern "C" __global__ void ink2_gqa_rel_sink_attn(
     const int32_t* __restrict__ pos_ptr,
     int32_t kv_cap,
     int32_t is_global,
-    float* __restrict__ attn_out) {
-    pdl_wait();             // [24, 128]
+    float* __restrict__ attn_out) {             // [24, 128]
+    pdl_wait();
     __shared__ float smem_rel[kExtent];
     __shared__ float smem_q[kHd];
     __shared__ float smem_r[kRel];
@@ -1801,8 +1801,8 @@ INK2_SCALE_KERNEL(ink2_moe_mxfp8_down_xw, (
 extern "C" __global__ void ink2_quant_q8_64(
     const float* __restrict__ x,
     uint32_t* __restrict__ out_q8_u32, // [cols / 4]
-    float* __restrict__ out_sc64) {
-    pdl_wait();    // [cols / 64]
+    float* __restrict__ out_sc64) {    // [cols / 64]
+    pdl_wait();
     __shared__ float smem_max[2];
     __shared__ float smem_inv;
     const int blk = blockIdx.x;
@@ -2902,8 +2902,8 @@ extern "C" __global__ void ink2_embed_rmsnorm_b(
     const uint32_t* __restrict__ embed_bf16_pairs, // [vocab_padded, D / 2]
     const uint32_t* __restrict__ norm_bf16_pairs,  // [D / 2]
     const int32_t* __restrict__ token_buf_ptr,     // [B]
-    float* __restrict__ out_x_base) {
-    pdl_wait();              // [B, D]
+    float* __restrict__ out_x_base) {              // [B, D]
+    pdl_wait();
     __shared__ float smem_red[8];
     const int b = blockIdx.x;
     const int tid = threadIdx.x;
@@ -4274,8 +4274,8 @@ extern "C" __global__ void ink2_router_topk8_b(
     const float* __restrict__ logits128_base, // [B, 128]
     const float* __restrict__ bias128,        // [128]
     int32_t* __restrict__ sel_ids_base,       // [B, 8]
-    float* __restrict__ sel_wts_base) {
-    pdl_wait();       // [B, 8]
+    float* __restrict__ sel_wts_base) {       // [B, 8]
+    pdl_wait();
     __shared__ int smem_ids[8];
     __shared__ float smem_ps[8];
 
@@ -4861,8 +4861,8 @@ extern "C" __global__ void ink2_inc_pos_by(int32_t* __restrict__ pos_ptr, int32_
 // Multi-Token Greedy ArgMax (`Grid (B_out, 1)`, `Block 256`) for Speculative Verification!
 extern "C" __global__ void ink2_argmax_b(
     const float* __restrict__ logits_base, // [B_out, VOCAB]
-    int32_t* __restrict__ out_toks) {
-    pdl_wait();      // [B_out]
+    int32_t* __restrict__ out_toks) {      // [B_out]
+    pdl_wait();
     __shared__ float smem_val[8];
     __shared__ int smem_idx[8];
 
@@ -5119,8 +5119,8 @@ extern "C" __global__ void mtp_copy_anchor(
     const float* __restrict__ taps,   // [4, tap_cap, D]
     int32_t tap_cap,
     int32_t tok_idx,
-    float* __restrict__ anchor_out) {
-    pdl_wait(); // [4, D]
+    float* __restrict__ anchor_out) { // [4, D]
+    pdl_wait();
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     const int j = blockIdx.y; // 0..3
     if (i >= kD) return;
@@ -5166,8 +5166,8 @@ extern "C" __global__ void mtp_init_draft(
     int32_t next_tok,
     float* __restrict__ dr_x,                 // [8, D]
     float* __restrict__ dr_state,             // [256]
-    uint32_t* __restrict__ dr_res) {
-    pdl_wait();          // [16]
+    uint32_t* __restrict__ dr_res) {          // [16]
+    pdl_wait();
     __shared__ float smem_red[8];
     const int tid = threadIdx.x;
     const uint32_t* row = embed_bf16_pairs + static_cast<size_t>(next_tok) * (kD / 2);
@@ -5242,8 +5242,8 @@ extern "C" __global__ void mtp_attn(
     int32_t ring,
     int32_t lo,
     int32_t hi,                               // `p = ctx_end`
-    float* __restrict__ att_out) {
-    pdl_wait();            // [8, 3072]
+    float* __restrict__ att_out) {            // [8, 3072]
+    pdl_wait();
     __shared__ float smem_q[128];
     __shared__ float smem_m[8];
     __shared__ float smem_l[8];
@@ -5355,8 +5355,8 @@ extern "C" __global__ void mtp_attn_split(
     int32_t hi,
     int32_t kps,
     float* __restrict__ part_ml,              // [S, 8, 24, 2]
-    float* __restrict__ part_o) {
-    pdl_wait();             // [S, 8, 24, 128]
+    float* __restrict__ part_o) {             // [S, 8, 24, 128]
+    pdl_wait();
     const int kvh = blockIdx.x;
     const int s = blockIdx.y;
     const int t = threadIdx.x >> 5;
@@ -5447,8 +5447,8 @@ extern "C" __global__ void mtp_attn_merge(
     const float* __restrict__ part_ml,
     const float* __restrict__ part_o,
     int32_t S,
-    float* __restrict__ att_out) {
-    pdl_wait();            // [8, 3072]
+    float* __restrict__ att_out) {            // [8, 3072]
+    pdl_wait();
     const int h = blockIdx.x;
     const int t = blockIdx.y;
     const int d = threadIdx.x;
@@ -5481,8 +5481,8 @@ extern "C" __global__ void mtp_add_inplace(
 
 extern "C" __global__ void mtp_silu_mul(
     const float* __restrict__ gu, // [8, 18432]
-    float* __restrict__ act) {
-    pdl_wait();    // [8, 9216]
+    float* __restrict__ act) {    // [8, 9216]
+    pdl_wait();
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= 8 * 9216) return;
     const int t = i / 9216;
@@ -5495,8 +5495,8 @@ extern "C" __global__ void mtp_silu_mul(
 extern "C" __global__ void mtp_concat_frnn(
     const float* __restrict__ hidden_rows1_7, // [7, 2304]
     const float* __restrict__ frnn,           // [2304]
-    float* __restrict__ x2_out) {
-    pdl_wait();             // [7, 4608]
+    float* __restrict__ x2_out) {             // [7, 4608]
+    pdl_wait();
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= 7 * 4608) return;
     const int t = i / 4608;
@@ -6299,8 +6299,8 @@ extern "C" __global__ void ink2_gqa_attn_combine(
     const float* __restrict__ qrgs_base, // [B, qrgs_stride] (`gate @ 3456`)
     int32_t qrgs_stride,
     int32_t G,
-    float* __restrict__ attn_out_base) {
-    pdl_wait(); // [B, 24, 128]
+    float* __restrict__ attn_out_base) { // [B, 24, 128]
+    pdl_wait();
     const int h = blockIdx.x;
     const int b = blockIdx.y;
     const int dd = threadIdx.x;
@@ -7899,8 +7899,8 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_down_2w(
     const float* __restrict__ act_sc16,    // [8, 72]
     const int32_t* __restrict__ sel_ids,   // [8]
     const float* __restrict__ sel_wts,     // [8]
-    float* __restrict__ moe_out) {
-    pdl_wait();         // [2304]
+    float* __restrict__ moe_out) {         // [2304]
+    pdl_wait();
     __shared__ uint4 smem_aq[8 * 72];      // 9,216 B
     __shared__ float smem_asc[8 * 72];     // 2,304 B
 
@@ -9701,8 +9701,8 @@ extern "C" __global__ void ink2_gather_nvfp4_sorted_b(
     const int32_t* __restrict__ exp_toks,
     uint4* __restrict__ dst_codes_u128,       // [B * 8, 144]
     uint4* __restrict__ dst_sc_u128,          // [B * 8, 18]
-    float* __restrict__ dst_gs) {
-    pdl_wait();             // [B * 8]
+    float* __restrict__ dst_gs) {             // [B * 8]
+    pdl_wait();
     __shared__ int32_t sm_blk_off[129];
     __shared__ int32_t sm_row_off[129];
     __shared__ int32_t sm_toks[128];
@@ -11667,8 +11667,8 @@ extern "C" __global__ void ink2_flash_attn_split_combine_q8_b(
     int32_t B,
     int32_t n_splits,
     uint32_t* __restrict__ out_q8_u32,         // [B, 768]
-    float* __restrict__ out_sc64) {
-    pdl_wait();            // [B, 48]
+    float* __restrict__ out_sc64) {            // [B, 48]
+    pdl_wait();
     const int h = blockIdx.x; // 0..23
     const int b = blockIdx.y; // 0..B-1
     if (h >= 24 || b >= B) return;
@@ -11750,8 +11750,8 @@ extern "C" __global__ void ink2_f32_to_bf16_b(
 extern "C" __global__ void ink2_ctrl_norm_bf16_b(
     const float4* __restrict__ cur4_base,    // [n_ctrls * B, 576]
     const float4* __restrict__ msg4_base,    // [n_ctrls * B, 576]
-    uint4* __restrict__ out_bf16_u128) {
-    pdl_wait();     // [n_ctrls * B, 576]
+    uint4* __restrict__ out_bf16_u128) {     // [n_ctrls * B, 576]
+    pdl_wait();
     __shared__ float4 sm_vec4[576];          // 9,216 B (`6` CTAs/SM = `48` warps/SM preserved!)
     __shared__ float sm_red_a[8];
     __shared__ float sm_red_b[8];
@@ -12290,8 +12290,8 @@ extern "C" __global__ void ink2_depth_mix_multi_ctrl_norm_bf16_b(
     int32_t broadcast3,
     int32_t n_q,
     const float4* __restrict__ msg4_base, // [n_ctrls, B_out, 576]
-    uint4* __restrict__ out_bf16_u128) {
-    pdl_wait();  // [n_ctrls, B_out, 576]
+    uint4* __restrict__ out_bf16_u128) {  // [n_ctrls, B_out, 576]
+    pdl_wait();
     __shared__ float4 sm_vec4[576];       // 9,216 B (`5` CTAs/SM = `40` warps/SM, `64 KiB` L1!)
     __shared__ float smem_sq[6][8];
     __shared__ float smem_dq[3][6][8];
