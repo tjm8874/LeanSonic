@@ -1406,40 +1406,7 @@ impl<'a> ExpertMatrix<'a> {
                     ScaleFormat::FourBanks => Matrix::parse_four_scale_banks(bytes, count, scales)?,
                 };
                 if ternary {
-                    let mut packed = Vec::with_capacity(count / 2);
-                    let table = std::array::from_fn::<_, 256, _>(|b| {
-                        let code = |n| match n {
-                            0 => 0,
-                            7 => 1,
-                            15 => 3,
-                            _ => 0xff,
-                        };
-                        let lo = code(b & 15);
-                        let hi = code(b >> 4);
-                        if lo == 0xff || hi == 0xff {
-                            0xff
-                        } else {
-                            lo | (hi << 2)
-                        }
-                    });
-                    matrix.for_each_chunk(|_, tile| {
-                        let (pairs, tail) = tile.as_chunks::<2>();
-                        if !tail.is_empty() {
-                            return Err("unaligned ternary weight tile".into());
-                        }
-                        for &[a, b] in pairs {
-                            let x = table[usize::from(a)];
-                            let y = table[usize::from(b)];
-                            if x == 255 || y == 255 {
-                                return Err(
-                                    "requested ternary down plane contains a non-ternary weight"
-                                        .into(),
-                                );
-                            }
-                            packed.push(x | (y << 4));
-                        }
-                        Ok(())
-                    })?;
+                    let packed = matrix.pack_ternary_weights()?;
                     return ExpertMatrix::Raw(&packed).place(ctx, on_device);
                 }
                 matrix
@@ -2317,13 +2284,13 @@ impl Inkling2GpuEngine {
             for pair in &mut expert_views[..NVFP4_LAYERS] {
                 match &mut pair[slot] {
                     ExpertMatrix::ScaleSplit {
-                        format: ScaleFormat::Direct,
+                        format: ScaleFormat::Direct | ScaleFormat::FourBanks,
                         ternary,
                         ..
                     } => *ternary = true,
                     _ => {
                         return Err(format!(
-                            "{setting} requires a direct scale-coded NVFP4 model"
+                            "{setting} requires direct or four-bank scale-coded NVFP4 weights"
                         ))
                     }
                 }

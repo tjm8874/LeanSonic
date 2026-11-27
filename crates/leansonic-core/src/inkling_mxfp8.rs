@@ -661,6 +661,42 @@ impl<'a> Matrix<'a> {
         Ok(())
     }
 
+    /// Convert four decoded NVFP4 nibbles to the resident signed two-bit layout.
+    pub(crate) fn pack_ternary_weights(&self) -> Result<Vec<u8>, String> {
+        let mut packed = Vec::with_capacity(self.count / 2);
+        let table = std::array::from_fn::<_, 256, _>(|b| {
+            let code = |n| match n {
+                0 => 0,
+                7 => 1,
+                15 => 3,
+                _ => 0xff,
+            };
+            let lo = code(b & 15);
+            let hi = code(b >> 4);
+            if lo == 0xff || hi == 0xff {
+                0xff
+            } else {
+                lo | (hi << 2)
+            }
+        });
+        self.for_each_chunk(|_, tile| {
+            let (pairs, tail) = tile.as_chunks::<2>();
+            if !tail.is_empty() {
+                return Err("unaligned ternary weight tile".into());
+            }
+            for &[a, b] in pairs {
+                let x = table[usize::from(a)];
+                let y = table[usize::from(b)];
+                if x == 255 || y == 255 {
+                    return Err("requested ternary plane contains a non-ternary weight".into());
+                }
+                packed.push(x | (y << 4));
+            }
+            Ok(())
+        })?;
+        Ok(packed)
+    }
+
     /// Deliver decoded bytes in order while bounding temporary host memory.
     pub(crate) fn for_each_chunk(
         &self,
@@ -735,6 +771,49 @@ mod tests {
         assert!(unpack_scale_direct(&frame[..frame.len() - 8], scales.clone()).is_err());
         frame[17] = 255;
         assert!(unpack_scale_direct(&frame, scales).is_err());
+    }
+
+    #[test]
+    fn ternary_placement_agrees_across_direct_and_four_bank_frames() {
+        let count = TILE + 1024;
+        let scales: Vec<_> = (0..count / 8).map(|i| (i % 128) as u8).collect();
+        let cuts = [64; 128];
+        let mut raw = Vec::with_capacity(count);
+        let mut expected = Vec::with_capacity(count / 2);
+        for i in 0..count / 2 {
+            let mut n = i % 81;
+            let mut nibbles = 0u16;
+            let mut packed = 0u8;
+            for j in 0..4 {
+                let digit = n % 3;
+                n /= 3;
+                nibbles |= [0u16, 7, 15][digit] << (4 * j);
+                packed |= [0u8, 1, 3][digit] << (2 * j);
+            }
+            raw.extend(nibbles.to_le_bytes());
+            expected.push(packed);
+        }
+        for mixed in [false, true] {
+            if mixed {
+                *raw.last_mut().unwrap() = 0x24;
+            }
+            for four_banks in [false, true] {
+                let mut frame = Vec::new();
+                let matrix = if four_banks {
+                    pack_four_scale_banks(&raw, scales.clone(), &cuts, &mut frame).unwrap();
+                    Matrix::parse_four_scale_banks(&frame, count, scales.clone()).unwrap()
+                } else {
+                    pack_scale_direct(&raw, scales.clone(), &cuts, &mut frame).unwrap();
+                    Matrix::parse_scale_direct(&frame, count, scales.clone()).unwrap()
+                };
+                let result = matrix.pack_ternary_weights();
+                if mixed {
+                    assert!(result.unwrap_err().contains("non-ternary weight"));
+                } else {
+                    assert_eq!(result.unwrap(), expected);
+                }
+            }
+        }
     }
 
     #[test]
