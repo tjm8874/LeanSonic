@@ -35,3 +35,16 @@ done
 ```
 
 For full-vocabulary observations, apply `observe_rows.py` to `crates/leansonic-cli/src/eval_kld.rs`, rebuild the release CLI, set the prefill chunk to 512, set `DIAG_ROWS` to a fresh filename per arm, and use `eval-kld --weights "$MODEL" --ref "$SUBSET" --chunks 6`. Repeat with `LEANSONIC_TC_PREFILL=0` and one chunk to exercise the generic reader.
+
+## Paired native comparison on RTX 5070 Ti
+
+Five mirrored cycles used the same 1,024 IDs, 32 teacher-forced decode steps, one sequence, 8,192 context and FP16 KV. Each engine contributed 40 warm requests across ten fresh processes. The GPU peak is the maximum observed NVML process reading including loading. [Inputs, package and executable hashes, request times, predictions and paired confidence intervals](5070ti-native.json.gz).
+
+| Engine | Prefill tok/s | Decode tok/s | Package bytes | Peak process GPU bytes |
+| --- | ---: | ---: | ---: | ---: |
+| LeanSonic | 8,371.41 | 171.98 | 11,487,467,790 | 15,105,785,856 |
+| llama.cpp IQ3_XXS | 1,934.60 | 80.03 | 11,663,309,504 | 15,049,162,752 |
+
+The LeanSonic package counts the weights and tokenizer. The GGUF includes its tokenizer. Timings cover the individual engines at this input shape and do not include process startup.
+
+The 5070 Ti gate/up-only candidate used 56,623,104 more peak GPU bytes than the native IQ3_XXS runtime despite its smaller distribution. The [down-projection extension](https://github.com/tjm8874/LeanSonic/pull/222) addresses this remaining difference. The native binary is Unsloth llama.cpp build 12588, commit 883286076.
