@@ -9635,16 +9635,23 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
     };
 
     float acc[2][8][4] = {};
+    // Packed-scale producers already read through registers. Sanitize once before
+    // sharing each word. Raw-scale producers copy directly to shared memory.
+    auto finite_packed_scale = [&](unsigned index) {
+        return sanitize_ue4m3x4(expert_scale_word<true, 6, 64>(weight_scales_u32, index));
+    };
+    auto shared_scale = [&](int stage, int row) {
+        const uint32_t word = s->sm_wsc[stage][row];
+        if constexpr (PackedScales) return word;
+        return sanitize_ue4m3x4(word);
+    };
+
     issue_stage(0, 0);
     issue_stage(1, 1);
     if constexpr (PackedScales) {
         const int k_init = wq2 * 2;
-        s->sm_wsc[k_init][wr_r] = expert_scale_word<true, 6, 64>(
-            weight_scales_u32,
-            static_cast<unsigned>(grow_sc_wr * kWScRowU32 + k_init));
-        s->sm_wsc[k_init + 1][wr_r] = expert_scale_word<true, 6, 64>(
-            weight_scales_u32,
-            static_cast<unsigned>(grow_sc_wr * kWScRowU32 + k_init + 1));
+        s->sm_wsc[k_init][wr_r] = finite_packed_scale(static_cast<unsigned>(grow_sc_wr * kWScRowU32 + k_init));
+        s->sm_wsc[k_init + 1][wr_r] = finite_packed_scale(static_cast<unsigned>(grow_sc_wr * kWScRowU32 + k_init + 1));
     }
 
     int st = 0;
@@ -9667,14 +9674,10 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
             if (((ks64 & 3) == 3) && (ks64 + 1 < kStages64)) {
                 const int k_next = ks64 + 1 + wq2 * 2;
                 if (k_next < kStages64) {
-                    next_wsc0 = expert_scale_word<true, 6, 64>(
-                        weight_scales_u32,
-                        static_cast<unsigned>(grow_sc_wr * kWScRowU32 + k_next));
+                    next_wsc0 = finite_packed_scale(static_cast<unsigned>(grow_sc_wr * kWScRowU32 + k_next));
                 }
                 if (k_next + 1 < kStages64) {
-                    next_wsc1 = expert_scale_word<true, 6, 64>(
-                        weight_scales_u32,
-                        static_cast<unsigned>(grow_sc_wr * kWScRowU32 + k_next + 1));
+                    next_wsc1 = finite_packed_scale(static_cast<unsigned>(grow_sc_wr * kWScRowU32 + k_next + 1));
                 }
             }
         }
@@ -9702,13 +9705,13 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
                 wa[rm][1] = interleave_nvfp4_sub_sel(w1_lo[sub01], w1_lo[sub01 + 1], prmt_sel);
                 wa[rm][2] = interleave_nvfp4_sub_sel(w0_hi[sub01], w0_hi[sub01 + 1], prmt_sel);
                 wa[rm][3] = interleave_nvfp4_sub_sel(w1_hi[sub01], w1_hi[sub01 + 1], prmt_sel);
-                wsfa[rm] = sanitize_ue4m3x4(s->sm_wsc[wsc_st][wr * 32 + rm * 16 + sfa_row]);
+                wsfa[rm] = shared_scale(wsc_st, wr * 32 + rm * 16 + sfa_row);
                 w0_lo_sw[rm] = w0_lo;
                 w0_hi_sw[rm] = w0_hi;
                 w1_lo_sw[rm] = w1_lo;
                 w1_hi_sw[rm] = w1_hi;
-                sfa_r0_sw[rm] = sanitize_ue4m3x4(s->sm_wsc[wsc_st][r0]);
-                sfa_r1_sw[rm] = sanitize_ue4m3x4(s->sm_wsc[wsc_st][r1]);
+                sfa_r0_sw[rm] = shared_scale(wsc_st, r0);
+                sfa_r1_sw[rm] = shared_scale(wsc_st, r1);
             }
 
             #pragma unroll
