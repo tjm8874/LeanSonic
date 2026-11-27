@@ -8,6 +8,15 @@ The trim distribution totals 13,656,270,126 bytes including tokenizer. Repacking
 
 The same a200846 executable and bc526e3 cubin loaded both candidate formats on PRO 4500. All eight 32/1,024-token prefix requests matched on the 64 generated IDs, next token and final FP32 logit hash. [Per-request evidence](direct-parity.json).
 
+PRO 4500 scored the intermediate trim file against BF16 with FP16 KV and fixed prefill width 512. Both splits use the [recovered control](../quality.md).
+
+| Split | Positions | Mean KL | Worst KL (chunk/position) | BF16 top-1 matches | PPL |
+|---|---:|---:|---:|---:|---:|
+| test | 25,500 | 0.0075593 | 0.5778290 (30/293) | 24,515 | 7.091517 |
+| valid | 25,500 | 0.0069436 | 1.0516098 (76/501) | 24,630 | 6.529624 |
+
+The [predeclared non-regression check](https://github.com/tjm8874/LeanSonic/issues/35#issuecomment-7220164203) failed. Against the original rounding, test worst KL fell from 1.4620404 to 0.5778290 but test PPL rose from 7.083731 to 7.091517 and BF16 top-1 fell by 22. Validation mean KL fell slightly, worst KL rose from 0.7446714 to 1.0516098 and top-1 fell by 15. Keep the previous distribution as the comparison control. The encoder remains an offline experiment.
+
 Use the [recovered-precision assembly](../README.md) to prepare the source directory and selection.json. At integrated commit 8c77955, place encode.rs in crates/leansonic-core/examples/block_sum.rs and run:
 
 ```sh

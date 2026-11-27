@@ -422,7 +422,42 @@
     "adopted_planes": 40,
     "verified_payloads": 999
   },
-  "intermediate_scores": {},
+  "intermediate_scores": {
+    "test": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.091517133714253,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.007559347985701344,
+      "median_kld": 0.0035510072575864436,
+      "p99_kld": 0.06772455566442065,
+      "max_kld": 0.5778290288879249,
+      "start_chunk": 0,
+      "max_kld_chunk": 30,
+      "max_kld_position": 293,
+      "ref_floor_targets": 14,
+      "top1_matches": 24515,
+      "top1_agreement": 0.9613725490196079
+    },
+    "valid": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 6.529623730098542,
+      "ref_ppl": 6.498588819010602,
+      "mean_kld": 0.0069435532714637515,
+      "median_kld": 0.002985200693968888,
+      "p99_kld": 0.06406600552237912,
+      "max_kld": 1.0516097668117101,
+      "start_chunk": 0,
+      "max_kld_chunk": 76,
+      "max_kld_position": 501,
+      "ref_floor_targets": 10,
+      "top1_matches": 24630,
+      "top1_agreement": 0.9658823529411765
+    }
+  },
   "baseline_control": "original encoded frames match for layer 0 down and layer 11 gate/up",
   "map_counts": [
     123028154,
