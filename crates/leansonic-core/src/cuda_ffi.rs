@@ -398,8 +398,15 @@ impl DeviceBuf {
             ptr,
             byte_len,
         };
+        // `cuMemsetD8` on device memory is asynchronous and runs on the legacy stream, which the
+        // engine's non-blocking streams do not wait for: a kernel launched right after the
+        // allocation could otherwise run before the clear and have its output zeroed.
         unsafe {
             check_cu((ctx.api.cuMemsetD8_v2)(ptr, 0, alloc_len), "cuMemsetD8_v2")?;
+            check_cu(
+                (ctx.api.cuStreamSynchronize)(core::ptr::null_mut()),
+                "cuStreamSynchronize(legacy)",
+            )?;
         }
         Ok(buf)
     }
