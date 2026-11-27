@@ -65,6 +65,19 @@ pub enum BatchHeadMode {
     AllHeads,
 }
 
+/// Maximum number of nonempty output tiles across all routed experts.
+/// The first tile of each active expert consumes one routed pair; every
+/// additional tile requires another full tile's worth of pairs.
+fn expert_tile_bound(batch: usize, tile_tokens: usize) -> u32 {
+    let pairs = batch * TOP_K;
+    let active = pairs.min(N_EXP);
+    if batch <= tile_tokens {
+        // Top-k contains distinct experts for each token.
+        return active as u32;
+    }
+    (active + (pairs - active) / tile_tokens) as u32
+}
+
 enum TierBuf {
     Vram(DeviceBuf),
     HostPinned(PinnedHostBuf),
@@ -6838,8 +6851,8 @@ impl Inkling2GpuEngine {
                     }
 
                     // Pre-gather `[b_len, D]` 2-term NVFP4 activations ONCE into contiguous `sorted_base` order inside `pair_output`!
-                    let gather_tiles = (pair_rows.div_ceil(128) + N_EXP) as u32;
-                    let nvfp4_tiles = (pair_rows.div_ceil(nvfp4_tile_toks) + N_EXP) as u32;
+                    let gather_tiles = expert_tile_bound(b_len, 128);
+                    let nvfp4_tiles = expert_tile_bound(b_len, nvfp4_tile_toks);
                     let sorted_codes_ptr = self.prefill.layer_workspace.pair_output.ptr;
                     let sorted_sc_ptr = sorted_codes_ptr + (pair_rows * D) as u64;
                     let sorted_gs_ptr = sorted_sc_ptr + (pair_rows * (D / 8)) as u64;
@@ -7328,7 +7341,7 @@ impl Inkling2GpuEngine {
                         (&mut ppair as *mut _) as *mut c_void,
                         (&mut pact as *mut _) as *mut c_void,
                     ];
-                    let mxfp8_tiles = ((b_len * TOP_K).div_ceil(mxfp8_tile_toks) + N_EXP) as u32;
+                    let mxfp8_tiles = expert_tile_bound(b_len, mxfp8_tile_toks);
                     self.launch_smem(
                         stream,
                         f_up,
@@ -8074,6 +8087,28 @@ impl Inkling2GpuEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn expert_tiles_cover_sparse_and_concentrated_routing() {
+        for tile in [128, 160] {
+            for batch in [
+                1, 2, 8, 16, 31, 32, 127, 128, 129, 159, 160, 161, 512, 2048, 4096,
+            ] {
+                for stride in [0, 1, 7, 8, 31, 64] {
+                    let mut counts = [0usize; N_EXP];
+                    for token in 0..batch {
+                        for route in 0..TOP_K {
+                            counts[(token * stride + route) % N_EXP] += 1;
+                        }
+                    }
+                    let actual: usize = counts.iter().map(|n| n.div_ceil(tile)).sum();
+                    assert!(actual <= expert_tile_bound(batch, tile) as usize);
+                }
+            }
+        }
+        assert_eq!(expert_tile_bound(2, 128), 16);
+        assert_eq!(expert_tile_bound(31, 128), 128);
+    }
 
     #[test]
     fn known_prompt_rounds_up_to_a_supported_workspace() {
