@@ -54,6 +54,8 @@ fn concat_slices(slices: &[&[u8]]) -> Vec<u8> {
 }
 
 pub struct MtpKernelFns {
+    /// Launch drafter kernels with PDL (see `inkling2_gpu::pdl_all_enabled`).
+    pub pdl_all: bool,
     pub rmsnorm_d_b: CUfunction,
     pub rmsnorm_quant_q8_64_b: CUfunction,
     pub quant_q8_64_b: CUfunction,
@@ -646,6 +648,17 @@ impl DsparkDrafterGpu {
         block: u32,
         params: &mut [*mut c_void],
     ) -> Result<(), String> {
+        if self.fns.pdl_all {
+            return crate::inkling2_gpu::launch_pdl_3d(
+                &self.ctx,
+                stream,
+                func,
+                (grid.0, grid.1, 1),
+                block,
+                0,
+                params,
+            );
+        }
         unsafe {
             check_cu(
                 (self.ctx.api.cuLaunchKernel)(
