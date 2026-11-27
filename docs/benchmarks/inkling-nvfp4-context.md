@@ -21,3 +21,5 @@ cargo test --workspace
 ```
 
 The verified shard SHA-256 is `f33ba0663d5c3968d77a0b4fe648627d9dc298d7796863cb1db48e63f104dc92`. Files with the new `.nvctx_v1` suffix require this reader. The option only stores an encoded tensor if the full payload including tables and padding is smaller. Existing raw and byte-coded models remain readable.
+
+Independent repacking on the second host yielded the same production shard hash. On RTX 5070 Ti and RTX 5060 Ti the flat and contextual packages both produced 13,603,944 identical FP32 logit bytes (17 positions × 200,058 entries). The common SHA-256 was `68538b83e50b2df69e032bc05740bd5f019a9dd279f7077905553fe792df3489`. This comparison used the pre-staging binary with only the new reader and FP16 KV.

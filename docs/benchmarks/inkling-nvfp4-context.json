@@ -332,5 +332,167 @@
       "decoder_seconds": 0.506021,
       "sha256": "7bf3a36ed8c8d9decf6789f7aa5e28bd0514d30abc33e7315b7b6002d2c41e94"
     }
-  }
+  },
+  "production_second_host": {
+    "tensors": 999,
+    "exact_context_frames": 40,
+    "shard_sha256": "f33ba0663d5c3968d77a0b4fe648627d9dc298d7796863cb1db48e63f104dc92",
+    "shard_bytes": 15850005248,
+    "tokenizer": 3386494,
+    "package_bytes": 15853391742
+  },
+  "gpu_logits": {
+    "5060Ti": {
+      "forced_positions_plus_prefill": 17,
+      "vocabulary": 200058,
+      "bytes": 13603944,
+      "fp32_sha256": "68538b83e50b2df69e032bc05740bd5f019a9dd279f7077905553fe792df3489"
+    },
+    "5070Ti": {
+      "forced_positions_plus_prefill": 17,
+      "vocabulary": 200058,
+      "bytes": 13603944,
+      "fp32_sha256": "68538b83e50b2df69e032bc05740bd5f019a9dd279f7077905553fe792df3489"
+    }
+  },
+  "load_summary": {
+    "5060Ti": {
+      "cycles": [
+        1,
+        2
+      ],
+      "arms": {
+        "flat": {
+          "load_s": 9.035,
+          "warm_decode64_ms": 1331.50125
+        },
+        "dest": {
+          "load_s": 9.945,
+          "warm_decode64_ms": 1331.55625
+        }
+      }
+    }
+  },
+  "load_runs": [
+    {
+      "gpu": "5060Ti",
+      "cache_resident_fraction": 1.0,
+      "arm": "flat",
+      "cycle": 1,
+      "leg": 0,
+      "shard": 15898104040,
+      "loader_s": 8.98,
+      "decode64_ms": [
+        1331.7,
+        1331.56,
+        1331.51
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+    },
+    {
+      "gpu": "5060Ti",
+      "cache_resident_fraction": 1.0,
+      "arm": "dest",
+      "cycle": 1,
+      "leg": 1,
+      "shard": 15850005248,
+      "loader_s": 9.98,
+      "decode64_ms": [
+        1331.67,
+        1331.39,
+        1331.4
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+    },
+    {
+      "gpu": "5060Ti",
+      "cache_resident_fraction": 1.0,
+      "arm": "dest",
+      "cycle": 1,
+      "leg": 2,
+      "shard": 15850005248,
+      "loader_s": 9.86,
+      "decode64_ms": [
+        1331.73,
+        1331.7,
+        1331.58
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+    },
+    {
+      "gpu": "5060Ti",
+      "cache_resident_fraction": 1.0,
+      "arm": "flat",
+      "cycle": 1,
+      "leg": 3,
+      "shard": 15898104040,
+      "loader_s": 9.25,
+      "decode64_ms": [
+        1331.83,
+        1331.63,
+        1331.58
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+    },
+    {
+      "gpu": "5060Ti",
+      "cache_resident_fraction": 1.0,
+      "arm": "dest",
+      "cycle": 2,
+      "leg": 0,
+      "shard": 15850005248,
+      "loader_s": 9.93,
+      "decode64_ms": [
+        1331.79,
+        1331.77,
+        1331.65
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+    },
+    {
+      "gpu": "5060Ti",
+      "cache_resident_fraction": 1.0,
+      "arm": "flat",
+      "cycle": 2,
+      "leg": 1,
+      "shard": 15898104040,
+      "loader_s": 8.86,
+      "decode64_ms": [
+        1331.56,
+        1331.37,
+        1331.43
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+    },
+    {
+      "gpu": "5060Ti",
+      "cache_resident_fraction": 1.0,
+      "arm": "flat",
+      "cycle": 2,
+      "leg": 2,
+      "shard": 15898104040,
+      "loader_s": 9.05,
+      "decode64_ms": [
+        1331.73,
+        1331.42,
+        1331.51
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+    },
+    {
+      "gpu": "5060Ti",
+      "cache_resident_fraction": 1.0,
+      "arm": "dest",
+      "cycle": 2,
+      "leg": 3,
+      "shard": 15850005248,
+      "loader_s": 10.01,
+      "decode64_ms": [
+        1331.58,
+        1331.42,
+        1331.54
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+    }
+  ]
 }

@@ -212,6 +212,32 @@ class PackInklingTextTest(unittest.TestCase):
                 self.assertEqual(new["mx.b"]["dtype"], dtype)
                 self.assertEqual(payload[540:], bytes(range(256)) + b"TAIL")
 
+    def test_contextual_nvfp4_encodes_only_profitable_expert_planes(self):
+        large = bytes([0x80]) * 65536
+        small = bytes(range(256))
+        raw = b"EEHH" + large + small
+        header = {
+            "model.llm.embed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [0, 2]},
+            "model.llm.unembed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [2, 4]},
+            "nv.large": {"dtype": "U8", "shape": [len(large)], "data_offsets": [4, 4+len(large)]},
+            "nv.small": {"dtype": "U8", "shape": [len(small)], "data_offsets": [4+len(large), len(raw)]},
+        }
+        shapes = {"nv.large": [len(large)], "nv.small": [len(small)]}
+        with tempfile.TemporaryDirectory() as tmp, patch("pack_inkling_text.expert_weight_shapes", return_value=shapes):
+            src, dst = Path(tmp)/"input", Path(tmp)/"output"
+            encoded = json.dumps(header).encode()
+            src.write_bytes(struct.pack("<Q", len(encoded)) + encoded + raw)
+            with self.assertRaisesRegex(ValueError, "choose one NVFP4 code format"):
+                pack(src, dst, prepack_nvfp4=True, contextual_nvfp4=True)
+            pack(src, dst, contextual_nvfp4=True)
+            with dst.open("rb") as f:
+                h = json.loads(f.read(struct.unpack("<Q", f.read(8))[0]))
+                data = f.read()
+            self.assertNotIn("nv.large", h)
+            self.assertLess(h["nv.large.nvctx_v1"]["shape"][0], len(large))
+            lo, hi = h["nv.small"]["data_offsets"]
+            self.assertEqual(data[lo:hi], small)
+
     def test_q8_dictionary_from_bf16_and_native_are_identical(self):
         name = "projection.weight"
         prefix = name + ".q8_64."
