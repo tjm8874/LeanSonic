@@ -132,7 +132,7 @@ pub fn pack_nvfp4_context(raw: &[u8], mut output: impl Write) -> io::Result<usiz
         return Err(io::Error::other("invalid contextual NVFP4 matrix size"));
     }
     let mut hist = vec![[0i64; 256]; NVFP4_CONTEXTS];
-    for block in raw.chunks_exact(8) {
+    for block in raw.as_chunks::<8>().0 {
         let mut prev = 0;
         for (column, &v) in block.iter().enumerate() {
             hist[column * 8 + usize::from(prev)][usize::from(v)] += 1;
@@ -150,9 +150,9 @@ pub fn pack_nvfp4_context(raw: &[u8], mut output: impl Write) -> io::Result<usiz
         output,
         512 * NVFP4_CONTEXTS,
         |tile, states, payload| {
-            for group in tile.chunks_exact(32).rev() {
+            for group in tile.as_chunks::<32>().0.iter().rev() {
                 let mut contexts = [0; 32];
-                for (lane, block) in group.chunks_exact(8).enumerate() {
+                for (lane, block) in group.as_chunks::<8>().0.iter().enumerate() {
                     let mut prev = 0;
                     for (j, &v) in block.iter().enumerate() {
                         contexts[8 * lane + j] = 8 * j + usize::from(prev);
@@ -198,7 +198,7 @@ impl<'a> Matrix<'a> {
             .split_at_checked(tables * 512)
             .ok_or("missing rANS frequency table")?;
         let mut lookup = vec![[0; 4096]; tables];
-        for (table, dst) in header.chunks_exact(512).zip(&mut lookup) {
+        for (table, dst) in header.as_chunks::<512>().0.iter().zip(&mut lookup) {
             let mut pos = 0;
             for (symbol, &f) in table.as_chunks::<2>().0.iter().enumerate() {
                 let freq = u16::from_le_bytes(f) as usize;
@@ -308,7 +308,7 @@ impl<'a> Matrix<'a> {
         dst: &mut [MaybeUninit<u8>],
     ) -> Result<(), String> {
         let mut cursor = 0;
-        for group in dst.chunks_exact_mut(32) {
+        for group in dst.as_chunks_mut::<32>().0 {
             let mut prev = [0u8; 4];
             for column in 0..8 {
                 for (lane, state) in states.iter_mut().enumerate() {
