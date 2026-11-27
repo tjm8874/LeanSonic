@@ -2220,10 +2220,12 @@ impl Inkling2GpuEngine {
                 "HtoD(pos)",
             )?;
         }
-        // Graphs bake the state pointers of the sequence they were captured for.
+        // Graphs bake the state pointers of the sequence they were captured for. Multi-sequence
+        // decoding goes through `decode_round`, so single steps of a switched sequence simply
+        // run without the graph.
         self.decode_graph = None;
         self.prefill_graph = None;
-        if self.enable_cuda_graph {
+        if self.enable_cuda_graph && std::env::var("LEANSONIC_SEQ_GRAPH").is_ok_and(|v| v == "1") {
             let ctx_clone = Arc::clone(&self.ctx);
             let d_graph = CapturedGraphExec::capture(&ctx_clone, |stream| {
                 self.enqueue_step_impl(stream, false)
