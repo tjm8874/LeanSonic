@@ -625,6 +625,7 @@ struct Opts {
     ctx: usize,
     quick: bool,
     long: bool,
+    skip_canary: bool,
     /// `--c64`: 64 independent sequences decoded in shared rounds (`multiseq`, #107).
     c64: bool,
     /// `--kld <ref.kld>`: run `eval-kld` once per GPU for the `kld_mean` cell.
@@ -648,6 +649,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         ctx: 20480,
         quick: false,
         long: false,
+        skip_canary: false,
         c64: false,
         kld_ref: None,
         spec_prompts: None,
@@ -674,6 +676,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--ctx" => o.ctx = val(&mut i, "--ctx")?.parse().map_err(|_| "bad --ctx")?,
             "--quick" => o.quick = true,
             "--long" => o.long = true,
+            "--no-canary" => o.skip_canary = true,
             "--c64" => o.c64 = true,
             "--kld" => o.kld_ref = Some(PathBuf::from(val(&mut i, "--kld")?)),
             "--require-idle" => o.require_idle = true,
@@ -992,6 +995,44 @@ fn run_kld(o: &Opts, gpu: usize, reference: &Path) -> KldRun {
     }
 }
 
+fn run_canary(o: &Opts, gpu: usize) -> (Option<Json>, Option<String>) {
+    let mut cmd = Command::new(&o.bin);
+    cmd.args(["canary", "--weights", &o.weights]);
+    if o.quick {
+        cmd.arg("--short-only");
+    } else if o.long {
+        cmd.arg("--long");
+    }
+    cmd.env("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
+        .env("CUDA_VISIBLE_DEVICES", gpu.to_string());
+    match cmd.output() {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let parsed = stdout
+                .lines()
+                .rev()
+                .find(|l| l.contains("\"canary_pass\""))
+                .and_then(|l| parse_json(l).ok());
+            let pass = parsed
+                .as_ref()
+                .and_then(|j| j.get("canary_pass"))
+                .is_some_and(|v| *v == Json::Bool(true));
+            if out.status.success() && pass {
+                (parsed, None)
+            } else {
+                let msg = stderr
+                    .lines()
+                    .find(|l| l.contains("ERROR") || l.contains("canary failed"))
+                    .unwrap_or("canary check failed")
+                    .to_string();
+                (parsed, Some(msg))
+            }
+        }
+        Err(e) => (None, Some(format!("spawn {}: {e}", o.bin.display()))),
+    }
+}
+
 /// (cell id, label, higher_is_better, extractor over probes)
 type Extract = fn(&BTreeMap<&'static str, ProbeSamples>) -> Vec<f64>;
 
@@ -1248,6 +1289,21 @@ pub fn run(args: &[String]) -> Result<(), String> {
             k
         });
 
+        let canary = if o.skip_canary {
+            None
+        } else {
+            eprint!("[bench-matrix] GPU {idx} canary x1 ");
+            let (cj, cerr) = run_canary(&o, idx);
+            if let Some(ref e) = cerr {
+                eprintln!(" FAIL ({e})");
+                errors.push(Json::Str(format!("canary: {e}")));
+            } else {
+                eprintln!(" PASS");
+            }
+            Some((cj, cerr.is_some()))
+        };
+        let canary_failed = canary.as_ref().is_some_and(|(_, failed)| *failed);
+
         let mut cells = BTreeMap::new();
         for (id, _, hib, f) in CELLS {
             let mut samples = f(&probe_samples);
@@ -1257,7 +1313,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 }
             }
             let target = sku_t.and_then(|t| t.get(id)).and_then(Json::as_f64);
-            let (j, _) = cell_json(&samples, target, *hib);
+            let (mut j, _) = cell_json(&samples, target, *hib);
+            if canary_failed {
+                if let Json::Obj(ref mut m) = j {
+                    if m.get("verdict") == Some(&Json::Str("PASS".into())) {
+                        m.insert("verdict".into(), Json::Str("FAIL".into()));
+                    }
+                }
+            }
             cells.insert(id.to_string(), j);
         }
         let resident = probe_samples
@@ -1304,6 +1367,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
                         ])
                     })
                     .unwrap_or(Json::Null),
+            ),
+            (
+                "canary",
+                canary.and_then(|(cj, _)| cj).unwrap_or(Json::Null),
             ),
             ("inputs", Json::Obj(inputs)),
             ("errors", Json::Arr(errors)),

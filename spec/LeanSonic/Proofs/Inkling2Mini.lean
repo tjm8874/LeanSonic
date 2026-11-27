@@ -860,14 +860,14 @@ def kInk2Q8Dp4aGemv4r : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
-/-- Fused 3-Projection `(Q, K, V)` Planar `Q8_64` `__dp4a` GEMV (`256` threads, `34` regs, `2,448` B SMEM -> `6` CTAs = `48` warps/SM!). -/
+/-- Fused 3-Projection `(Q, K, V)` Planar `Q8_64` `__dp4a` GEMV (`256` threads, `64` regs, `2,448` B SMEM -> `4` CTAs = `32` warps/SM!). -/
 def kInk2Q8Dp4aQkv3Gemv : KernelResourceSpec :=
   { name := "ink2_q8_dp4a_qkv3_gemv"
     threadsPerCta := 256
-    rawRegsPerThread := 34          -- aligns to 40 -> 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536 (48 warps/SM!)
-    userSmemPerCtaBytes := 2448     -- 6 * (2448 + 1024) = 20,832 B <= 32 KiB carveout -> 96 KiB L1!
+    rawRegsPerThread := 64          -- 16,384 regs/CTA; 4 CTAs = 65,536 <= 65,536 (32 warps/SM!)
+    userSmemPerCtaBytes := 2448     -- 4 * (2448 + 1024) = 13,888 B <= 16 KiB carveout -> 112 KiB L1!
     smemAlignPadBytes := 0
-    ctasPerSm := 6
+    ctasPerSm := 4
     clusterCtas := 1
     minRequiredL1KiB := 96
     hasStackSpill := false
@@ -1661,19 +1661,19 @@ def kInk2MoeMxfp8DownXwPackedScales : KernelResourceSpec :=
 def kInk2MoeNvfp4Dp4aUpHalfQ8 : KernelResourceSpec :=
   { name := "ink2_moe_nvfp4_dp4a_up_half_q8"
     threadsPerCta := 512
-    rawRegsPerThread := 38          -- aligns to 40 -> 20,480 regs/CTA; 3 CTAs = 61,440 <= 65,536 (48 warps/SM!)
-    userSmemPerCtaBytes := 64
+    rawRegsPerThread := 62          -- aligns to 64 -> 32,768 regs/CTA; 2 CTAs = 65,536 <= 65,536 (32 warps/SM, 5x LDG.128 hoisted!)
+    userSmemPerCtaBytes := 2944     -- 2 * (2,944 + 1,024) = 7,936 B <= 8 KiB carveout -> 120 KiB L1!
     smemAlignPadBytes := 0
-    ctasPerSm := 3
+    ctasPerSm := 2
     clusterCtas := 1
-    minRequiredL1KiB := 112
+    minRequiredL1KiB := 120
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
 def kInk2MoeNvfp4Dp4aUpHalfQ8PackedScales : KernelResourceSpec :=
   { kInk2MoeNvfp4Dp4aUpHalfQ8 with
     name := "ink2_moe_nvfp4_dp4a_up_half_q8_packed_scales"
-    rawRegsPerThread := 40 }
+    rawRegsPerThread := 61 }
 
 def kInk2GqaAttnCombineQ8Dyn : KernelResourceSpec :=
   { name := "ink2_gqa_attn_combine_q8_dyn"
@@ -1857,5 +1857,330 @@ def multiSeqRoundKernelSuite : List KernelResourceSpec :=
 
 theorem multiseq_round_all_kernels_valid :
     (multiSeqRoundKernelSuite.all checkSm120Kernel) = true := by decide
+
+/-! ## 12. Split-KV FP16 Dynamic-Range Proof, Canary Isolation Proof & `v0.8.0` Kernel Proofs (`#101`, `#104`, `#106`) -/
+
+/-- IEEE-754 binary16 (`FP16`) maximum finite representable integer magnitude (`65,504`). -/
+def fp16MaxFiniteMag : Nat := 65504
+
+/-- Weighted magnitude accumulator `∑ (w_i * v_i)` over `(weight, valueMag)` pairs. -/
+def weightedMagSum : List (Nat × Nat) → Nat
+  | [] => 0
+  | (w, v) :: rest => w * v + weightedMagSum rest
+
+/-- Total non-negative weight `∑ w_i` over `(weight, valueMag)` pairs. -/
+def totalWeight : List (Nat × Nat) → Nat
+  | [] => 0
+  | (w, _) :: rest => w + totalWeight rest
+
+/--
+  Constructive Sequence-Length-Independent Convex-Combination Bound (`#101`):
+  For ANY sequence length `N = wv.length` (without bound!) and any per-token value bound `M`,
+  if every value entry satisfies `v_i ≤ M`, then `∑ (w_i * v_i) ≤ (∑ w_i) * M`.
+  Consequently, dividing `o_split = ∑ w_i v_i` by `l_split ≥ ∑ w_i > 0` BEFORE converting to
+  `FP16` guarantees `|o_split / l_split| ≤ M ≤ 65,504` at EVERY context length (`16K`, `128K`, `1M+`).
+-/
+theorem weighted_mag_sum_le_total_mul_bound (wv : List (Nat × Nat)) (M : Nat)
+    (h_val : ∀ p ∈ wv, p.2 ≤ M) :
+    weightedMagSum wv ≤ totalWeight wv * M := by
+  induction wv with
+  | nil =>
+    simp [weightedMagSum, totalWeight]
+  | cons hd tl ih =>
+    rcases hd with ⟨w, v⟩
+    simp only [weightedMagSum, totalWeight]
+    have hv : v ≤ M := h_val (w, v) (List.Mem.head tl)
+    have htl : ∀ p ∈ tl, p.2 ≤ M := fun p hp => h_val p (List.Mem.tail (w, v) hp)
+    have ih_le := ih htl
+    have h_head : w * v ≤ w * M := Nat.mul_le_mul_left w hv
+    calc
+      w * v + weightedMagSum tl ≤ w * M + totalWeight tl * M := Nat.add_le_add h_head ih_le
+      _ = (w + totalWeight tl) * M := (Nat.add_mul w (totalWeight tl) M).symm
+
+/-- When `totalWeight wv ≤ lSplit` (online-softmax sink + attention denominator `l_split ≥ ∑ p_i`)
+    and `M ≤ fp16MaxFiniteMag`, the normalized partial satisfies `weightedMagSum wv ≤ lSplit * 65,504`
+    for ALL context lengths `wv.length`. -/
+theorem split_kv_normalized_partial_fp16_safe
+    (wv : List (Nat × Nat)) (M lSplit : Nat)
+    (h_val : ∀ p ∈ wv, p.2 ≤ M)
+    (h_m_fp16 : M ≤ fp16MaxFiniteMag)
+    (h_denom : totalWeight wv ≤ lSplit) :
+    weightedMagSum wv ≤ lSplit * fp16MaxFiniteMag := by
+  calc
+    weightedMagSum wv ≤ totalWeight wv * M := weighted_mag_sum_le_total_mul_bound wv M h_val
+    _ ≤ totalWeight wv * fp16MaxFiniteMag := Nat.mul_le_mul_left (totalWeight wv) h_m_fp16
+    _ ≤ lSplit * fp16MaxFiniteMag := Nat.mul_le_mul_right fp16MaxFiniteMag h_denom
+
+/-- Specification of a Split-KV partial-output storage format across `numSplits` splits. -/
+structure SplitKvPartialSpec where
+  seqLenTokens : Nat
+  numSplits : Nat
+  maxValueMag : Nat
+  storesNormalizedByL : Bool
+  deriving Repr, DecidableEq
+
+/-- Worst-case magnitude stored in `part_o` (`FP16`):
+    - Normalized (`o_split / l_split`, `#113` fix): bounded by `maxValueMag` independent of `seqLenTokens`!
+    - Unnormalized (`∑ exp(s_t - m_split) * v_t`, pre-`#113` bug when `s_t == m_split`): grows as
+      `(seqLenTokens / numSplits) * maxValueMag` and overflows `FP16` (`65,504`) at long contexts! -/
+def worstCaseSplitPartialMag (s : SplitKvPartialSpec) : Nat :=
+  if s.storesNormalizedByL then s.maxValueMag
+  else (s.seqLenTokens / s.numSplits) * s.maxValueMag
+
+def checkSplitKvPartialFp16Safe (s : SplitKvPartialSpec) : Bool :=
+  (s.numSplits > 0) && (worstCaseSplitPartialMag s <= fp16MaxFiniteMag)
+
+/-- After V Head-RMSNorm (`dim = 128`), a spike coordinate satisfies `|v_i| ≤ √128 < 12`. -/
+def ink2NormalizedSplitKv128k : SplitKvPartialSpec :=
+  { seqLenTokens := 131072, numSplits := 8, maxValueMag := 12, storesNormalizedByL := true }
+
+def ink2NormalizedSplitKv1M : SplitKvPartialSpec :=
+  { seqLenTokens := 1048576, numSplits := 64, maxValueMag := 12, storesNormalizedByL := true }
+
+def ink2UnnormalizedBug96k : SplitKvPartialSpec :=
+  { seqLenTokens := 98304, numSplits := 8, maxValueMag := 12, storesNormalizedByL := false }
+
+def ink2UnnormalizedBug128k : SplitKvPartialSpec :=
+  { seqLenTokens := 131072, numSplits := 16, maxValueMag := 12, storesNormalizedByL := false }
+
+theorem ink2_split_kv_normalized_safe_128k :
+    checkSplitKvPartialFp16Safe ink2NormalizedSplitKv128k = true := by decide
+
+theorem ink2_split_kv_normalized_safe_1m :
+    checkSplitKvPartialFp16Safe ink2NormalizedSplitKv1M = true := by decide
+
+/-- Formal rejection of the unnormalized `v0.7.0` Split-KV partial representation at `96K` and `128K`! -/
+theorem ink2_split_kv_unnormalized_overflows_96k :
+    checkSplitKvPartialFp16Safe ink2UnnormalizedBug96k = false := by decide
+
+theorem ink2_split_kv_unnormalized_overflows_128k :
+    checkSplitKvPartialFp16Safe ink2UnnormalizedBug128k = false := by decide
+
+/-- Deterministic Canary & Long-Context Needle Gate (`leansonic canary`) specification. -/
+structure CanaryCaseSpec where
+  inputTokens : Nat
+  markerDepthPct : Nat
+  maxNewTokens : Nat
+  allocatedCtx : Nat
+  requiresBeyondSwa1024 : Bool
+  deriving Repr, DecidableEq
+
+def checkCanaryCaseValid (c : CanaryCaseSpec) : Bool :=
+  let markerPos := (c.inputTokens * c.markerDepthPct) / 100
+  let distToEnd := c.inputTokens - markerPos
+  (c.inputTokens >= 16)
+  && (c.inputTokens + c.maxNewTokens <= c.allocatedCtx)
+  && (!c.requiresBeyondSwa1024 || (c.markerDepthPct >= 1 && c.markerDepthPct <= 99 && distToEnd > 1024))
+
+def ink2CanarySuite : List CanaryCaseSpec :=
+  [ { inputTokens := 24,     markerDepthPct := 0,  maxNewTokens := 64,  allocatedCtx := 1024,   requiresBeyondSwa1024 := false }
+  , { inputTokens := 16384,  markerDepthPct := 50, maxNewTokens := 512, allocatedCtx := 16896,  requiresBeyondSwa1024 := true }
+  , { inputTokens := 131072, markerDepthPct := 50, maxNewTokens := 512, allocatedCtx := 131584, requiresBeyondSwa1024 := true }
+  , { inputTokens := 131072, markerDepthPct := 90, maxNewTokens := 512, allocatedCtx := 131584, requiresBeyondSwa1024 := true } ]
+
+/-- Proves all 3 needle canaries (`16K@50%`, `128K@50%`, `128K@90%`) place the verification code strictly
+    outside the `1,024`-token SWA window (`distToEnd = 8,192 / 65,536 / 13,108 > 1,024`), so ONLY
+    functional Global Full-Attention Split-KV visits can retrieve the planted code! -/
+theorem ink2_canary_suite_isolates_global_attention :
+    (ink2CanarySuite.all checkCanaryCaseValid) = true := by decide
+
+/-- Measured `ptxas -arch=sm_120a` `v0.8.0` Solo Decode Fusion & Active-Expert Verify MoE Kernels. -/
+def kInk2KvConv4PrepCache : KernelResourceSpec :=
+  { name := "ink2_kv_conv4_prep_cache"
+    threadsPerCta := 256
+    rawRegsPerThread := 40          -- 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536 (100% 48w/SM!)
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2WoConv4SaveC3072 : KernelResourceSpec :=
+  { name := "ink2_wo_conv4_save_c3072"
+    threadsPerCta := 256
+    rawRegsPerThread := 78          -- aligns to 80 -> 20,480 regs/CTA; 3 CTAs = 61,440 <= 65,536
+    userSmemPerCtaBytes := 3264     -- 3 * (3,264 + 1,024) = 12,864 <= 16 KiB -> 112 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeNvfp4Dp4aDownXwConv : KernelResourceSpec :=
+  { name := "ink2_moe_nvfp4_dp4a_down_xw_conv"
+    threadsPerCta := 256
+    rawRegsPerThread := 55          -- aligns to 56 -> 14,336 regs/CTA; 4 CTAs = 57,344 <= 65,536
+    userSmemPerCtaBytes := 64
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeNvfp4Dp4aDownXwConvPacked : KernelResourceSpec :=
+  { kInk2MoeNvfp4Dp4aDownXwConv with
+    name := "ink2_moe_nvfp4_dp4a_down_xw_conv_packed_scales"
+    rawRegsPerThread := 56 }
+
+def kInk2MoeMxfp8DownXwConv : KernelResourceSpec :=
+  { name := "ink2_moe_mxfp8_down_xw_conv"
+    threadsPerCta := 256
+    rawRegsPerThread := 68          -- aligns to 72 -> 18,432 regs/CTA; 3 CTAs = 55,296 <= 65,536
+    userSmemPerCtaBytes := 64
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeMxfp8DownXwConvPacked : KernelResourceSpec :=
+  { kInk2MoeMxfp8DownXwConv with
+    name := "ink2_moe_mxfp8_down_xw_conv_packed_scales" }
+
+def kInk2BuildExpertGroupsActiveB : KernelResourceSpec :=
+  { name := "ink2_build_expert_groups_active_b"
+    threadsPerCta := 128
+    rawRegsPerThread := 39          -- aligns to 40 -> 5,120 regs/CTA; 4 CTAs = 20,480 <= 65,536
+    userSmemPerCtaBytes := 528
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeNvfp4Dp4aVerifyUpHalfQ8 : KernelResourceSpec :=
+  { name := "ink2_moe_nvfp4_dp4a_verify_up_half_q8"
+    threadsPerCta := 512
+    rawRegsPerThread := 82          -- aligns to 88 -> 45,056 regs/CTA; 1 CTA = 16 warps/SM (2x grouped!)
+    userSmemPerCtaBytes := 544      -- 544 + 1,024 <= 8 KiB carveout -> 120 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeNvfp4Dp4aVerifyUpHalfQ8Packed : KernelResourceSpec :=
+  { kInk2MoeNvfp4Dp4aVerifyUpHalfQ8 with
+    name := "ink2_moe_nvfp4_dp4a_verify_up_half_q8_packed_scales" }
+
+def kInk2MoeNvfp4Dp4aVerifyDown : KernelResourceSpec :=
+  { name := "ink2_moe_nvfp4_dp4a_verify_down"
+    threadsPerCta := 256
+    rawRegsPerThread := 48          -- 12,288 regs/CTA; 5 CTAs = 61,440 <= 65,536 (40 warps/SM = 83.3%!)
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 5
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeNvfp4Dp4aVerifyDownPacked : KernelResourceSpec :=
+  { kInk2MoeNvfp4Dp4aVerifyDown with
+    name := "ink2_moe_nvfp4_dp4a_verify_down_packed_scales" }
+
+def kInk2MoeMxfp8VerifyUpSitu : KernelResourceSpec :=
+  { name := "ink2_moe_mxfp8_verify_up_situ"
+    threadsPerCta := 256
+    rawRegsPerThread := 128         -- 32,768 regs/CTA; 2 CTAs = 65,536 <= 65,536 (2x grouped!)
+    userSmemPerCtaBytes := 288
+    smemAlignPadBytes := 0
+    ctasPerSm := 2
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeMxfp8VerifyUpSituPacked : KernelResourceSpec :=
+  { kInk2MoeMxfp8VerifyUpSitu with
+    name := "ink2_moe_mxfp8_verify_up_situ_packed_scales" }
+
+def kInk2MoeMxfp8VerifyDown : KernelResourceSpec :=
+  { name := "ink2_moe_mxfp8_verify_down"
+    threadsPerCta := 256
+    rawRegsPerThread := 82          -- aligns to 88 -> 22,528 regs/CTA; 2 CTAs = 45,056 <= 65,536
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 2
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeMxfp8VerifyDownPacked : KernelResourceSpec :=
+  { kInk2MoeMxfp8VerifyDown with
+    name := "ink2_moe_mxfp8_verify_down_packed_scales" }
+
+def kInk2RouterGemvTopk8 : KernelResourceSpec :=
+  { name := "ink2_router_gemv_topk8"
+    threadsPerCta := 32
+    rawRegsPerThread := 48          -- 1,536 regs/CTA; 32 CTAs = 49,152 <= 65,536 (32 warps/SM!)
+    userSmemPerCtaBytes := 64       -- 32 * (64 + 1,024) = 34,816 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 32
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2Q8Dp4aGemvC3072R1 : KernelResourceSpec :=
+  { name := "ink2_q8_dp4a_gemv_c3072_r1"
+    threadsPerCta := 256
+    rawRegsPerThread := 40          -- 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536 (48 warps/SM!)
+    userSmemPerCtaBytes := 3264     -- 6 * (3,264 + 1,024) = 25,728 B <= 32 KiB carveout -> 96 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2Q8Dp4aGemvC2304R1 : KernelResourceSpec :=
+  { name := "ink2_q8_dp4a_gemv_c2304_r1"
+    threadsPerCta := 256
+    rawRegsPerThread := 47          -- aligns to 48 -> 12,288 regs/CTA; 5 CTAs = 61,440 <= 65,536 (40 warps/SM!)
+    userSmemPerCtaBytes := 2448     -- 5 * (2,448 + 1,024) = 17,360 B <= 32 KiB carveout -> 96 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 5
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2Q8Dp4aQkv3GemvR1 : KernelResourceSpec :=
+  { kInk2Q8Dp4aGemvC2304R1 with
+    name := "ink2_q8_dp4a_qkv3_gemv_r1"
+    rawRegsPerThread := 48 }
+
+def cycle9ConvFuseAndVerifyMoeSuite : List KernelResourceSpec :=
+  [ kInk2RouterGemvTopk8
+  , kInk2Q8Dp4aGemvC3072R1
+  , kInk2Q8Dp4aGemvC2304R1
+  , kInk2Q8Dp4aQkv3GemvR1
+  , kInk2KvConv4PrepCache
+  , kInk2WoConv4SaveC3072
+  , kInk2MoeNvfp4Dp4aDownXwConv
+  , kInk2MoeNvfp4Dp4aDownXwConvPacked
+  , kInk2MoeMxfp8DownXwConv
+  , kInk2MoeMxfp8DownXwConvPacked
+  , kInk2BuildExpertGroupsActiveB
+  , kInk2MoeNvfp4Dp4aVerifyUpHalfQ8
+  , kInk2MoeNvfp4Dp4aVerifyUpHalfQ8Packed
+  , kInk2MoeNvfp4Dp4aVerifyDown
+  , kInk2MoeNvfp4Dp4aVerifyDownPacked
+  , kInk2MoeMxfp8VerifyUpSitu
+  , kInk2MoeMxfp8VerifyUpSituPacked
+  , kInk2MoeMxfp8VerifyDown
+  , kInk2MoeMxfp8VerifyDownPacked ]
+
+theorem cycle9_conv_fuse_and_verify_moe_all_kernels_valid :
+    (cycle9ConvFuseAndVerifyMoeSuite.all checkSm120Kernel) = true := by decide
 
 end LeanSonic.Proofs

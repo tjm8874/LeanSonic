@@ -1291,6 +1291,123 @@ extern "C" __global__ void ink2_router_topk8(
     }
 }
 
+// Fused 128-CTA BF16 Router GEMV (`[128, 2304]`) + Last-CTA Warp-Butterfly Top-8 (`Grid: 128`, `Block: 32`):
+// Eliminates 48 kernel launches + 48 inter-kernel `ACQBULK` drains per token (`0-ULP` exact)!
+// Each CTA (`1` warp) preloads all 9 BF16 `uint4` weight vectors AND `bias128` before `pdl_wait()`,
+// writes `logits128[row]`, and synchronizes via GPU-scope `fence.acq_rel.gpu` + `atom.global.gpu.add.s32`
+// on self-resetting `done_cnt` (`0 -> 128 -> 0`, CUDA-Graph replay safe!).
+extern "C" __global__ void ink2_router_gemv_topk8(
+    const uint4* __restrict__ w_bf16_u128, // [128, 288]
+    const float* __restrict__ x,           // [2304]
+    float* __restrict__ logits128,         // [128]
+    const float* __restrict__ bias128,     // [128]
+    int32_t* __restrict__ sel_ids,         // [8]
+    float* __restrict__ sel_wts,           // [8]
+    int32_t* __restrict__ done_cnt) {      // [1], zero-initialized & self-resetting
+    __shared__ int smem_ids[8];
+    __shared__ float smem_ps[8];
+
+    const int row = blockIdx.x;            // 0..127
+    const int lane = threadIdx.x & 31;     // 0..31
+    const uint4* w_row = w_bf16_u128 + static_cast<size_t>(row) * 288u;
+
+    constexpr int kIters = 288 / 32;       // 9
+    uint4 w[kIters];
+    #pragma unroll
+    for (int i = 0; i < kIters; ++i) {
+        w[i] = w_row[lane + 32 * i];
+    }
+    const int base = lane * 4;
+    const float4 b4 = reinterpret_cast<const float4*>(bias128)[lane];
+
+    pdl_wait();
+    const float4* x4 = pdl_in(reinterpret_cast<const float4*>(x));
+    float acc = 0.0f;
+    #pragma unroll
+    for (int i = 0; i < kIters; ++i) {
+        const int c8 = lane + 32 * i;
+        acc = accum_bf16_8(acc, w[i], x4[c8 * 2], x4[c8 * 2 + 1]);
+    }
+    acc = warp_sum(acc);
+
+    int is_last = 0;
+    if (lane == 0) {
+        logits128[row] = acc;
+        asm volatile("fence.acq_rel.gpu;" ::: "memory");
+        int prev = 0;
+        asm volatile("atom.global.gpu.add.s32 %0, [%1], 1;"
+                     : "=r"(prev) : "l"(done_cnt) : "memory");
+        if (prev == 127) {
+            is_last = 1;
+        }
+    }
+    is_last = __shfl_sync(0xFFFFFFFFu, is_last, 0);
+    if (!is_last) {
+        return;
+    }
+
+    asm volatile("fence.acq_rel.gpu;" ::: "memory");
+    if (lane == 0) {
+        asm volatile("st.global.wb.s32 [%0], 0;" :: "l"(done_cnt) : "memory");
+    }
+
+    float l0, l1, l2, l3;
+    asm volatile("ld.global.cg.v4.f32 {%0, %1, %2, %3}, [%4];"
+                 : "=f"(l0), "=f"(l1), "=f"(l2), "=f"(l3)
+                 : "l"(logits128 + base)
+                 : "memory");
+
+    float p0 = ptx_sigmoid(l0);
+    float p1 = ptx_sigmoid(l1);
+    float p2 = ptx_sigmoid(l2);
+    float p3 = ptx_sigmoid(l3);
+    float s0 = p0 + b4.x;
+    float s1 = p1 + b4.y;
+    float s2 = p2 + b4.z;
+    float s3 = p3 + b4.w;
+
+    float sum_p = 1e-20f;
+    #pragma unroll
+    for (int k = 0; k < 8; ++k) {
+        float best_s = s0;
+        int best_e = base + 0;
+        float best_p = p0;
+        if (s1 > best_s) { best_s = s1; best_e = base + 1; best_p = p1; }
+        if (s2 > best_s) { best_s = s2; best_e = base + 2; best_p = p2; }
+        if (s3 > best_s) { best_s = s3; best_e = base + 3; best_p = p3; }
+
+        #pragma unroll
+        for (int mask = 16; mask > 0; mask >>= 1) {
+            float os = __shfl_xor_sync(0xFFFFFFFFu, best_s, mask);
+            int oe = __shfl_xor_sync(0xFFFFFFFFu, best_e, mask);
+            float op = __shfl_xor_sync(0xFFFFFFFFu, best_p, mask);
+            if (os > best_s || (os == best_s && oe < best_e)) {
+                best_s = os;
+                best_e = oe;
+                best_p = op;
+            }
+        }
+        int win_e = __shfl_sync(0xFFFFFFFFu, best_e, 0);
+        float win_p = __shfl_sync(0xFFFFFFFFu, best_p, 0);
+        sum_p += win_p;
+        if (lane == 0) {
+            smem_ids[k] = win_e;
+            smem_ps[k] = win_p;
+        }
+        if (win_e == base + 0) s0 = -1e30f;
+        if (win_e == base + 1) s1 = -1e30f;
+        if (win_e == base + 2) s2 = -1e30f;
+        if (win_e == base + 3) s3 = -1e30f;
+    }
+    __syncwarp();
+    if (lane < 8) {
+        float inv = 8.0f * ptx_rcp(sum_p);
+        sel_ids[lane] = smem_ids[lane];
+        sel_wts[lane] = smem_ps[lane] * inv;
+    }
+    pdl_trigger();
+}
+
 // ----------------------------------------------------------------------------
 // 10. Full-GPU NVFP4 (`layers 0..19`) MoE Up+SITU & Down Kernels (`0` scalar LDG8!)
 //     - `ink2_moe_nvfp4_up_situ`: Grid `(1152 / 4 = 288, 8)`, `256` threads (`8` warps)
@@ -1304,6 +1421,12 @@ extern "C" __global__ void ink2_router_topk8(
     template<bool PackedScales> __device__ __forceinline__ void name##_impl params; \
     extern "C" __global__ void name params { name##_impl<false> args; } \
     extern "C" __global__ void name##_packed_scales params { name##_impl<true> args; } \
+    template<bool PackedScales> __device__ __forceinline__ void name##_impl params
+
+#define INK2_SCALE_KERNEL_LB(name, lb_threads, lb_blocks, params, args) \
+    template<bool PackedScales> __device__ __forceinline__ void name##_impl params; \
+    extern "C" __global__ __launch_bounds__(lb_threads, lb_blocks) void name params { name##_impl<false> args; } \
+    extern "C" __global__ __launch_bounds__(lb_threads, lb_blocks) void name##_packed_scales params { name##_impl<true> args; } \
     template<bool PackedScales> __device__ __forceinline__ void name##_impl params
 
 template<bool PackedScales, int Bits, unsigned Base>
@@ -1899,6 +2022,78 @@ extern "C" __global__ void ink2_q8_dp4a_gemv_c3072(
     }
 }
 
+// 1-Row/Warp `c3072` (`Grid: 288`, `Block: 256`, `<= 40` regs -> `6` CTAs/SM = `48` warps/SM):
+// Doubles grid CTAs from `144` to `288` on `wo` (`2304 x 3072`), eliminating `76`-SM Wave-2 starvation
+// on 110-SM RTX PRO 5000 while preserving `0-ULP` bitwise identity!
+extern "C" __global__ __launch_bounds__(256, 6) void ink2_q8_dp4a_gemv_c3072_r1(
+    const uint4* __restrict__ w_q8_u128,   // [rows, 192]
+    const float* __restrict__ w_sc64,      // [rows, 48]
+    const uint4* __restrict__ x_q8_u128,   // [192]
+    const float* __restrict__ x_sc64,      // [48]
+    float* __restrict__ y,                 // [rows]
+    int32_t rows,
+    int32_t cols,
+    float softcap) {
+    constexpr int kCols16 = 3072 / 16;
+    constexpr int kCols64 = 3072 / 64;
+    constexpr int kIters = kCols16 / 32; // 6
+    __shared__ uint4 smem_x[kCols16];
+    __shared__ float smem_xsc[kCols64];
+
+    const int tid = threadIdx.x; // 256
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    (void)cols;
+
+    const int row = blockIdx.x * 8 + warp_id;
+    const bool has_row = (row < rows);
+
+    uint4 w0[kIters];
+    float ws0[kIters];
+    if (has_row) {
+        const uint4* w_r0 = w_q8_u128 + static_cast<size_t>(row) * kCols16;
+        const float* s_r0 = w_sc64 + static_cast<size_t>(row) * kCols64;
+        #pragma unroll
+        for (int i = 0; i < kIters; ++i) {
+            const int c16 = lane + 32 * i;
+            w0[i] = w_r0[c16];
+            ws0[i] = s_r0[c16 >> 2];
+        }
+    }
+
+    pdl_wait();
+    x_q8_u128 = pdl_in(x_q8_u128);
+    x_sc64 = pdl_in(x_sc64);
+
+    if (tid < kCols16) smem_x[tid] = x_q8_u128[tid];
+    if (tid < kCols64) smem_xsc[tid] = x_sc64[tid];
+    __syncthreads();
+
+    float acc0 = 0.0f;
+    if (has_row) {
+        #pragma unroll
+        for (int i = 0; i < kIters; ++i) {
+            const int c16 = lane + 32 * i;
+            uint4 xq = smem_x[c16];
+            float xsc = smem_xsc[c16 >> 2];
+
+            int d0 = __dp4a(static_cast<int>(w0[i].x), static_cast<int>(xq.x), 0);
+            d0 = __dp4a(static_cast<int>(w0[i].y), static_cast<int>(xq.y), d0);
+            d0 = __dp4a(static_cast<int>(w0[i].z), static_cast<int>(xq.z), d0);
+            d0 = __dp4a(static_cast<int>(w0[i].w), static_cast<int>(xq.w), d0);
+            acc0 = __fmaf_rn(static_cast<float>(d0), __fmul_rn(ws0[i], xsc), acc0);
+        }
+        acc0 = warp_sum(acc0);
+    }
+    pdl_trigger();
+    if (has_row && lane == 0) {
+        if (softcap > 0.0f) {
+            acc0 = softcap * ptx_tanh(acc0 * ptx_rcp(softcap));
+        }
+        y[row] = acc0;
+    }
+}
+
 // `ink2_q8_dp4a_gemv` specialised for `cols = 2304` (`wq_all` 8,600 x 2,304 and `unembed` 200,058 x 2,304):
 // Hoists all 4 full + 1 half-warp (`lane < 16`) weight `uint4`s and scales BEFORE `pdl_wait()`,
 // preserving exact per-lane accumulation order (`c16 = lane + 32*i`) and `0-ULP` bitwise identity!
@@ -2017,6 +2212,94 @@ extern "C" __global__ void ink2_q8_dp4a_gemv_c2304(
     }
 }
 
+// 1-Row/Warp `c2304` (`Grid: ceil(rows / 8)`, `Block: 256`, `<= 40` regs -> `6` CTAs/SM = `48` warps/SM):
+// Turns `538`-CTA `wq_all` (`440 + 98` Wave-2 tail starvation at `63` regs) into `1,075` CTAs
+// (`660 + 415` at `6` CTAs/SM on PRO 5000) while preserving exact `0-ULP` identity!
+extern "C" __global__ __launch_bounds__(256, 5) void ink2_q8_dp4a_gemv_c2304_r1(
+    const uint4* __restrict__ w_q8_u128,   // [rows, 144]
+    const float* __restrict__ w_sc64,      // [rows, 36]
+    const uint4* __restrict__ x_q8_u128,   // [144]
+    const float* __restrict__ x_sc64,      // [36]
+    float* __restrict__ y,                 // [rows]
+    int32_t rows,
+    int32_t cols,
+    float softcap) {
+    constexpr int kCols16 = 2304 / 16; // 144 = 4 * 32 + 16
+    constexpr int kCols64 = 2304 / 64; // 36
+    __shared__ uint4 smem_x[kCols16];
+    __shared__ float smem_xsc[kCols64];
+
+    const int tid = threadIdx.x; // 256
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    (void)cols;
+
+    const int row = blockIdx.x * 8 + warp_id;
+    const bool has_row = (row < rows);
+    const bool tail16 = (lane < 16);
+
+    uint4 w0[4];
+    float ws0[4];
+    uint4 w0_4 = make_uint4(0u, 0u, 0u, 0u);
+    float ws0_4 = 0.0f;
+    if (has_row) {
+        const uint4* w_r0 = w_q8_u128 + static_cast<size_t>(row) * kCols16;
+        const float* s_r0 = w_sc64 + static_cast<size_t>(row) * kCols64;
+        #pragma unroll
+        for (int i = 0; i < 4; ++i) {
+            const int c16 = lane + 32 * i;
+            w0[i] = w_r0[c16];
+            ws0[i] = s_r0[c16 >> 2];
+        }
+        if (tail16) {
+            const int c16 = lane + 128;
+            w0_4 = w_r0[c16];
+            ws0_4 = s_r0[c16 >> 2];
+        }
+    }
+
+    pdl_wait();
+    x_q8_u128 = pdl_in(x_q8_u128);
+    x_sc64 = pdl_in(x_sc64);
+
+    if (tid < kCols16) smem_x[tid] = x_q8_u128[tid];
+    if (tid < kCols64) smem_xsc[tid] = x_sc64[tid];
+    __syncthreads();
+
+    float acc0 = 0.0f;
+    if (has_row) {
+        #pragma unroll
+        for (int i = 0; i < 4; ++i) {
+            const int c16 = lane + 32 * i;
+            uint4 xq = smem_x[c16];
+            float xsc = smem_xsc[c16 >> 2];
+            int d0 = __dp4a(static_cast<int>(w0[i].x), static_cast<int>(xq.x), 0);
+            d0 = __dp4a(static_cast<int>(w0[i].y), static_cast<int>(xq.y), d0);
+            d0 = __dp4a(static_cast<int>(w0[i].z), static_cast<int>(xq.z), d0);
+            d0 = __dp4a(static_cast<int>(w0[i].w), static_cast<int>(xq.w), d0);
+            acc0 = __fmaf_rn(static_cast<float>(d0), __fmul_rn(ws0[i], xsc), acc0);
+        }
+        if (tail16) {
+            const int c16 = lane + 128;
+            uint4 xq = smem_x[c16];
+            float xsc = smem_xsc[c16 >> 2];
+            int d0 = __dp4a(static_cast<int>(w0_4.x), static_cast<int>(xq.x), 0);
+            d0 = __dp4a(static_cast<int>(w0_4.y), static_cast<int>(xq.y), d0);
+            d0 = __dp4a(static_cast<int>(w0_4.z), static_cast<int>(xq.z), d0);
+            d0 = __dp4a(static_cast<int>(w0_4.w), static_cast<int>(xq.w), d0);
+            acc0 = __fmaf_rn(static_cast<float>(d0), __fmul_rn(ws0_4, xsc), acc0);
+        }
+        acc0 = warp_sum(acc0);
+    }
+    pdl_trigger();
+    if (has_row && lane == 0) {
+        if (softcap > 0.0f) {
+            acc0 = softcap * ptx_tanh(acc0 * ptx_rcp(softcap));
+        }
+        y[row] = acc0;
+    }
+}
+
 template<bool PackedScales>
 __device__ __forceinline__ float lane_dot_nvfp4_dp4a_u128_row(
     const uint4* __restrict__ row_u128,         // [n_u128] (`16B` = `32` nibbles = `2` blocks of 16!)
@@ -2108,16 +2391,68 @@ INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_up_situ, (
     }
 }
 
+__device__ __forceinline__ float accum_nvfp4_dp4a_u128_step(
+    float acc,
+    uint4 pk16,
+    uint32_t sc4,
+    int u16,
+    const uint4* xq16,
+    const float* xsc16) {
+    int sh = (u16 & 1) * 16;
+    float s0 = __fmul_rn(e4m3_byte_to_f32((sc4 >> sh) & 0xFFu) * 0.5f, xsc16[u16 * 2]);
+    float s1 = __fmul_rn(e4m3_byte_to_f32((sc4 >> (sh + 8)) & 0xFFu) * 0.5f, xsc16[u16 * 2 + 1]);
+    uint4 xq0 = xq16[u16 * 2];
+    uint4 xq1 = xq16[u16 * 2 + 1];
+    int d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x & 0xFFFFu)), static_cast<int>(xq0.x), 0);
+    d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x >> 16)), static_cast<int>(xq0.y), d0);
+    d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.y & 0xFFFFu)), static_cast<int>(xq0.z), d0);
+    d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.y >> 16)), static_cast<int>(xq0.w), d0);
+    int d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.z & 0xFFFFu)), static_cast<int>(xq1.x), 0);
+    d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.z >> 16)), static_cast<int>(xq1.y), d1);
+    d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w & 0xFFFFu)), static_cast<int>(xq1.z), d1);
+    d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w >> 16)), static_cast<int>(xq1.w), d1);
+    return __fmaf_rn(static_cast<float>(d1), s1, __fmaf_rn(static_cast<float>(d0), s0, acc));
+}
+
 template<bool PackedScales, bool TriggerPdl = false>
 __device__ __forceinline__ void nvfp4_half_warp_situ(
     const uint4* weights, const uint32_t* scales, unsigned scale_offset, float alpha,
     const uint4* x_q8_u128, const float* x_sc16, int lane, float* output) {
     const int index = lane & 15;
-    // Reproduce the original XOR-16 addition before reducing within each half.
-    const float lo = lane_dot_nvfp4_dp4a_u128_row<PackedScales>(
-        weights, scales, scale_offset, x_q8_u128, x_sc16, 72, index);
-    const float hi = lane_dot_nvfp4_dp4a_u128_row<PackedScales>(
-        weights, scales, scale_offset, x_q8_u128, x_sc16, 72, index + 16);
+    const bool has4 = (index < 8);
+    const int u0 = index;
+    const int u1 = index + 16;
+    const int u2 = index + 32;
+    const int u3 = index + 48;
+    const int u4 = index + 64;
+
+    // Issue all 5 weight uint4 loads + scale words up front before the first __dp4a,
+    // preserving exact per-half (lo: u0->u2->[u4], hi: u1->u3) 0-ULP accumulation order!
+    const uint4 pk0 = weights[u0];
+    const uint4 pk1 = weights[u1];
+    const uint4 pk2 = weights[u2];
+    const uint4 pk3 = weights[u3];
+    uint4 pk4 = make_uint4(0u, 0u, 0u, 0u);
+    if (has4) {
+        pk4 = weights[u4];
+    }
+    const uint32_t sc0 = expert_scale_word<PackedScales, 6, 64>(scales, scale_offset + (u0 >> 1));
+    const uint32_t sc1 = expert_scale_word<PackedScales, 6, 64>(scales, scale_offset + (u1 >> 1));
+    const uint32_t sc2 = expert_scale_word<PackedScales, 6, 64>(scales, scale_offset + (u2 >> 1));
+    const uint32_t sc3 = expert_scale_word<PackedScales, 6, 64>(scales, scale_offset + (u3 >> 1));
+    uint32_t sc4 = 0u;
+    if (has4) {
+        sc4 = expert_scale_word<PackedScales, 6, 64>(scales, scale_offset + (u4 >> 1));
+    }
+
+    float lo = accum_nvfp4_dp4a_u128_step(0.0f, pk0, sc0, u0, x_q8_u128, x_sc16);
+    lo = accum_nvfp4_dp4a_u128_step(lo, pk2, sc2, u2, x_q8_u128, x_sc16);
+    if (has4) {
+        lo = accum_nvfp4_dp4a_u128_step(lo, pk4, sc4, u4, x_q8_u128, x_sc16);
+    }
+    float hi = accum_nvfp4_dp4a_u128_step(0.0f, pk1, sc1, u1, x_q8_u128, x_sc16);
+    hi = accum_nvfp4_dp4a_u128_step(hi, pk3, sc3, u3, x_q8_u128, x_sc16);
+
     float dot = lo + hi;
     #pragma unroll
     for (int mask = 8; mask; mask >>= 1) {
@@ -2160,9 +2495,10 @@ INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_up_half, (
 }
 
 // Fused 16-Warp Half-Warp NVFP4 Gate/Up + In-Block `Q8_16` Epilogue (`Grid: (72, 8)`, `Block: 512`):
-// Eliminates all 44 `ink2_quant_q8_16_packed` launches/tok + `d_moe_act` DRAM round-trips, and enables
-// direct PDL weight-prefetch overlap from `up_half_q8` into `nvfp4_dp4a_down_xw` (`0-ULP` exact)!
-INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_up_half_q8, (
+// Stages `x_q8_u128`/`x_sc16` (`2,880 B` SMEM, `2 * (2,944 + 1,024) = 7,936 B <= 8 KiB` -> `120 KiB` L1!)
+// concurrently with all 5 `uint4` GDDR7 weight fetches (`pk0..pk4`) + 5 scale words BEFORE `__syncthreads()`,
+// eliminating sequential `__dp4a` load stalls while preserving exact `0-ULP` arithmetic!
+INK2_SCALE_KERNEL_LB(ink2_moe_nvfp4_dp4a_up_half_q8, 512, 2, (
     const uint4* __restrict__ w13_u128,    // [128, 2304, 72]
     const uint32_t* __restrict__ s13_u32,  // [128, 2304, 36]
     const float* __restrict__ a13,         // [128]
@@ -2172,20 +2508,79 @@ INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_up_half_q8, (
     uint32_t* __restrict__ out_q8_u32,     // [8, 288]
     float* __restrict__ out_sc16),         // [8, 72]
     (w13_u128, s13_u32, a13, x_q8_u128, x_sc16, sel_ids, out_q8_u32, out_sc16)) {
-    __shared__ float smem_ch[16];
-    const int warp_id = threadIdx.x >> 5;   // 0..15
-    const int lane = threadIdx.x & 31;      // 0..31
-    const int blk16 = blockIdx.x;           // 0..71
+    __shared__ uint4 smem_xq[144];         // 2,304 B
+    __shared__ float smem_xsc[144];        //   576 B
+    __shared__ float smem_ch[16];          //    64 B -> 2,944 B user SMEM
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;          // 0..15
+    const int lane = tid & 31;             // 0..31
+    const int index = lane & 15;           // 0..15
+    const int blk16 = blockIdx.x;          // 0..71
     const int channel = blk16 * 16 + warp_id;
-    const int k = blockIdx.y;               // 0..7
+    const int k = blockIdx.y;              // 0..7
+    const bool has4 = (index < 8);
+
     pdl_wait();
     x_q8_u128 = pdl_in(x_q8_u128);
     x_sc16 = pdl_in(x_sc16);
     sel_ids = pdl_in(sel_ids);
+
+    if (tid < 144) {
+        smem_xq[tid] = x_q8_u128[tid];
+        smem_xsc[tid] = x_sc16[tid];
+    }
+
     const int ex = sel_ids[k];
+    const float alpha = a13[ex];
     const size_t row = (static_cast<size_t>(ex) * kFf + channel) * 2 + (lane >> 4);
-    nvfp4_half_warp_situ<PackedScales, false>(w13_u128 + row * 72u, s13_u32, row * 36u,
-        a13[ex], x_q8_u128, x_sc16, lane, &smem_ch[warp_id]);
+    const uint4* weights = w13_u128 + row * 72u;
+    const unsigned sc_off = static_cast<unsigned>(row * 36u);
+
+    const int u0 = index;
+    const int u1 = index + 16;
+    const int u2 = index + 32;
+    const int u3 = index + 48;
+    const int u4 = index + 64;
+
+    const uint4 pk0 = weights[u0];
+    const uint4 pk1 = weights[u1];
+    const uint4 pk2 = weights[u2];
+    const uint4 pk3 = weights[u3];
+    uint4 pk4 = make_uint4(0u, 0u, 0u, 0u);
+    if (has4) {
+        pk4 = weights[u4];
+    }
+    const uint32_t sc0 = expert_scale_word<PackedScales, 6, 64>(s13_u32, sc_off + (u0 >> 1));
+    const uint32_t sc1 = expert_scale_word<PackedScales, 6, 64>(s13_u32, sc_off + (u1 >> 1));
+    const uint32_t sc2 = expert_scale_word<PackedScales, 6, 64>(s13_u32, sc_off + (u2 >> 1));
+    const uint32_t sc3 = expert_scale_word<PackedScales, 6, 64>(s13_u32, sc_off + (u3 >> 1));
+    uint32_t sc4 = 0u;
+    if (has4) {
+        sc4 = expert_scale_word<PackedScales, 6, 64>(s13_u32, sc_off + (u4 >> 1));
+    }
+
+    __syncthreads();
+
+    float lo = accum_nvfp4_dp4a_u128_step(0.0f, pk0, sc0, u0, smem_xq, smem_xsc);
+    lo = accum_nvfp4_dp4a_u128_step(lo, pk2, sc2, u2, smem_xq, smem_xsc);
+    if (has4) {
+        lo = accum_nvfp4_dp4a_u128_step(lo, pk4, sc4, u4, smem_xq, smem_xsc);
+    }
+    float hi = accum_nvfp4_dp4a_u128_step(0.0f, pk1, sc1, u1, smem_xq, smem_xsc);
+    hi = accum_nvfp4_dp4a_u128_step(hi, pk3, sc3, u3, smem_xq, smem_xsc);
+
+    float dot = lo + hi;
+    #pragma unroll
+    for (int mask = 8; mask; mask >>= 1) {
+        dot += __shfl_xor_sync(0xffffffffu, dot, mask);
+    }
+    dot *= alpha * (1.0f / 2688.0f);
+    const float u = __shfl_sync(0xffffffffu, dot, 16);
+    if (lane == 0) {
+        const float g = dot;
+        smem_ch[warp_id] =
+            4.0f * ptx_tanh(g * 0.25f) * ptx_sigmoid(g) * 25.0f * ptx_tanh(u * 0.04f);
+    }
     __syncthreads();
     pdl_trigger();
     if (threadIdx.x < 16) {
@@ -2349,7 +2744,6 @@ INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_down_xw, (
     sel_ids = pdl_in(sel_ids);
     sel_wts = pdl_in(sel_wts);
 
-    // `u16 = lane` (all lanes) and `u16 = lane + 32` (lanes 0..3) of the 36 `u128` per row.
     const uint4* aq = act_q8_u128 + k * 72;
     const float* asc = act_sc16 + k * 72;
     const uint4 xa0 = aq[lane * 2];
@@ -7013,7 +7407,8 @@ extern "C" __global__ void ink2_q8_dp4a_gemv_4r(
 
 // Fused 3-Projection `(Q, K, V)` Planar `Q8_64` `__dp4a` GEMV (`cols = kD = 2304`, `Block: 256` = `16` rows/CTA):
 // Collapses `3` separate GEMVs (`wq`, `wk`, `wv`) across `32` `distinct_k_v` visits into `1` `542`-CTA wave!
-extern "C" __global__ void ink2_q8_dp4a_qkv3_gemv(
+// Capped at `<= 64` regs (`4` CTAs/SM = `32` warps/SM, matching `c2304` instead of falling to `3` CTAs/SM at `70` regs).
+extern "C" __global__ __launch_bounds__(256, 4) void ink2_q8_dp4a_qkv3_gemv(
     const uint4* __restrict__ wq_u128,
     const float* __restrict__ wq_sc64,
     int32_t rows_q,
@@ -7164,6 +7559,127 @@ extern "C" __global__ void ink2_q8_dp4a_qkv3_gemv(
     }
 }
 
+// 1-Row/Warp Fused 3-Projection `(Q, K, V)` Planar `Q8_64` `__dp4a` GEMV (`Block: 256` = `8` rows/CTA,
+// `<= 40` regs -> `6` CTAs/SM = `48` warps/SM = `660` CTAs/wave on PRO 5000, `0-ULP` exact!):
+extern "C" __global__ __launch_bounds__(256, 5) void ink2_q8_dp4a_qkv3_gemv_r1(
+    const uint4* __restrict__ wq_u128,
+    const float* __restrict__ wq_sc64,
+    int32_t rows_q,
+    float* __restrict__ y_q,
+    const uint4* __restrict__ wk_u128,
+    const float* __restrict__ wk_sc64,
+    int32_t rows_k,
+    float* __restrict__ y_k,
+    const uint4* __restrict__ wv_u128,
+    const float* __restrict__ wv_sc64,
+    int32_t rows_v,
+    float* __restrict__ y_v,
+    const uint4* __restrict__ x_q8_3_u128, // [3, 144]
+    const float* __restrict__ x_sc64_3) {  // [3, 36]
+    __shared__ uint4 smem_x[144];
+    __shared__ float smem_xsc[36];
+
+    const int cta_q = (rows_q + 7) >> 3;
+    const int cta_k = (rows_k + 7) >> 3;
+    const int bx = blockIdx.x;
+
+    int slot;
+    int cta_local;
+    int rows;
+    const uint4* w_u128;
+    const float* w_sc;
+    float* y;
+    if (bx < cta_q) {
+        slot = 0;
+        cta_local = bx;
+        rows = rows_q;
+        w_u128 = wq_u128;
+        w_sc = wq_sc64;
+        y = y_q;
+    } else if (bx < cta_q + cta_k) {
+        slot = 1;
+        cta_local = bx - cta_q;
+        rows = rows_k;
+        w_u128 = wk_u128;
+        w_sc = wk_sc64;
+        y = y_k;
+    } else {
+        slot = 2;
+        cta_local = bx - cta_q - cta_k;
+        rows = rows_v;
+        w_u128 = wv_u128;
+        w_sc = wv_sc64;
+        y = y_v;
+    }
+
+    const int tid = threadIdx.x; // 0..255
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int row = cta_local * 8 + warp_id;
+    const bool has_row = (row < rows);
+    const bool tail16 = (lane < 16);
+
+    uint4 w0[4];
+    float ws0[4];
+    uint4 w0_4 = make_uint4(0u, 0u, 0u, 0u);
+    float ws0_4 = 0.0f;
+    if (has_row) {
+        const uint4* w_r0 = w_u128 + static_cast<size_t>(row) * 144u;
+        const float* s_r0 = w_sc + static_cast<size_t>(row) * 36u;
+        #pragma unroll
+        for (int i = 0; i < 4; ++i) {
+            const int c16 = lane + 32 * i;
+            w0[i] = w_r0[c16];
+            ws0[i] = s_r0[c16 >> 2];
+        }
+        if (tail16) {
+            const int c16 = lane + 128;
+            w0_4 = w_r0[c16];
+            ws0_4 = s_r0[c16 >> 2];
+        }
+    }
+
+    pdl_wait();
+    x_q8_3_u128 = pdl_in(x_q8_3_u128);
+    x_sc64_3 = pdl_in(x_sc64_3);
+
+    const uint4* x_q8 = x_q8_3_u128 + slot * 144;
+    const float* x_sc = x_sc64_3 + slot * 36;
+    if (tid < 144) smem_x[tid] = x_q8[tid];
+    if (tid < 36) smem_xsc[tid] = x_sc[tid];
+    __syncthreads();
+
+    float acc0 = 0.0f;
+    if (has_row) {
+        #pragma unroll
+        for (int i = 0; i < 4; ++i) {
+            const int c16 = lane + 32 * i;
+            uint4 xq = smem_x[c16];
+            float xsc = smem_xsc[c16 >> 2];
+            int d0 = __dp4a(static_cast<int>(w0[i].x), static_cast<int>(xq.x), 0);
+            d0 = __dp4a(static_cast<int>(w0[i].y), static_cast<int>(xq.y), d0);
+            d0 = __dp4a(static_cast<int>(w0[i].z), static_cast<int>(xq.z), d0);
+            d0 = __dp4a(static_cast<int>(w0[i].w), static_cast<int>(xq.w), d0);
+            acc0 = __fmaf_rn(static_cast<float>(d0), __fmul_rn(ws0[i], xsc), acc0);
+        }
+        if (tail16) {
+            const int c16 = lane + 128;
+            uint4 xq = smem_x[c16];
+            float xsc = smem_xsc[c16 >> 2];
+            int d0 = __dp4a(static_cast<int>(w0_4.x), static_cast<int>(xq.x), 0);
+            d0 = __dp4a(static_cast<int>(w0_4.y), static_cast<int>(xq.y), d0);
+            d0 = __dp4a(static_cast<int>(w0_4.z), static_cast<int>(xq.z), d0);
+            d0 = __dp4a(static_cast<int>(w0_4.w), static_cast<int>(xq.w), d0);
+            acc0 = __fmaf_rn(static_cast<float>(d0), __fmul_rn(ws0_4, xsc), acc0);
+        }
+        acc0 = warp_sum(acc0);
+    }
+    pdl_trigger();
+    if (has_row && lane == 0) {
+        y[row] = acc0;
+    }
+}
+
 // SM-Wave-Balanced 2-Warps/CTA (`Grid: 1152`, `Block: 64`) NVFP4 `__dp4a` MoE Down:
 // Eliminates the `288`-CTA (`240 + 48`) 2-wave stall on 240-SM `RTX PRO 5000` (`5` CTAs/SM co-resident)!
 extern "C" __global__ void ink2_moe_nvfp4_dp4a_down_2w(
@@ -7279,6 +7795,819 @@ extern "C" __global__ void ink2_short_conv4_kv2(
     out[c] = eval_conv4_step(w, h0, h1, h2, x, has_dyn, d, 0, 0.0f);
 }
 
+// ============================================================================
+// 17b. `v0.8.0` Solo Decode `short_conv4` Producer-Consumer Fusions (`#106`)
+//      & Speculative Verify (`1 <= B <= 8`) Active-Expert `0-ULP` MoE (`#104`)
+// ============================================================================
+
+// Fused K+V `short_conv4` + Q/R/K Clip + V RMSNorm + KV Cache Write (`Grid: (5, 1)`, `Block: 256`, `0 B` SMEM):
+// Eliminates `ink2_short_conv4_kv2` (`-48` launches/tok) and `d_k_conv`/`d_v_conv` DRAM round-trips (`0-ULP` exact).
+extern "C" __global__ void ink2_kv_conv4_prep_cache(
+    float* __restrict__ q_buf,                 // [24 * 128]
+    float* __restrict__ r_buf,                 // [24 * 16]
+    const float* __restrict__ k_raw,           // [1024 (+ 32 if global)]
+    const float4* __restrict__ w_k,            // [1024]
+    float* __restrict__ hist_k,                // [1024 * 3]
+    const float* __restrict__ v_raw,           // [1024 (+ 32 if global)]
+    const float4* __restrict__ w_v,            // [1024]
+    float* __restrict__ hist_v,                // [1024 * 3]
+    const uint32_t* __restrict__ q_clip_bf16,  // [24 * 128 / 2]
+    const uint32_t* __restrict__ r_clip_bf16,  // [24 * 16 / 2]
+    uint16_t* __restrict__ k_cache_fp16,       // [kv_cap, 8 * 128]
+    uint16_t* __restrict__ v_cache_fp16,       // [kv_cap, 8 * 128]
+    float* __restrict__ k_scale,               // [kv_cap, 8] INT8 KV scales, or nullptr (FP16)
+    float* __restrict__ v_scale,               // [kv_cap, 8] INT8 KV scales, or nullptr (FP16)
+    const int32_t* __restrict__ pos_ptr,
+    int32_t kv_cap,
+    int32_t is_global) {
+    const int g_warp = blockIdx.x * 8 + (threadIdx.x >> 5);
+    const int lane = threadIdx.x & 31;
+
+    uint32_t cp0 = 0u, cp1 = 0u, rp = 0u;
+    float4 w_conv[4];
+    if (g_warp < 24) {
+        const uint32_t* qc = q_clip_bf16 + g_warp * 64;
+        cp0 = qc[lane * 2];
+        cp1 = qc[lane * 2 + 1];
+        if (lane < 8) {
+            rp = (r_clip_bf16 + g_warp * 8)[lane];
+        }
+    } else if (g_warp < 40) {
+        const bool is_v = (g_warp >= 32);
+        const int h = is_v ? (g_warp - 32) : (g_warp - 24);
+        const float4* wc_base = (is_v ? w_v : w_k) + h * 128 + lane * 4;
+        #pragma unroll
+        for (int j = 0; j < 4; ++j) {
+            w_conv[j] = wc_base[j];
+        }
+    }
+
+    pdl_wait();
+    pdl_trigger();
+    q_buf = pdl_in_mut(q_buf);
+    r_buf = pdl_in_mut(r_buf);
+    k_raw = pdl_in(k_raw);
+    hist_k = pdl_in_mut(hist_k);
+    v_raw = pdl_in(v_raw);
+    hist_v = pdl_in_mut(hist_v);
+    pos_ptr = pdl_in(pos_ptr);
+
+    const int pos = *pos_ptr;
+    const int cache_row = is_global ? pos : (pos % kv_cap);
+
+    float tau = 1.0f;
+    if (is_global) {
+        float ratio = static_cast<float>(pos + 1) * (1.0f / 8192.0f);
+        if (ratio > 1.0f) {
+            tau = 1.0f + 0.1f * ptx_ln(ratio);
+        }
+    }
+
+    if (g_warp < 24) {
+        const int h = g_warp;
+        float* qh = q_buf + h * 128;
+        float qv0 = qh[lane * 4] * bf16_to_f32(static_cast<uint16_t>(cp0 & 0xFFFFu));
+        float qv1 = qh[lane * 4 + 1] * bf16_to_f32(static_cast<uint16_t>(cp0 >> 16));
+        float qv2 = qh[lane * 4 + 2] * bf16_to_f32(static_cast<uint16_t>(cp1 & 0xFFFFu));
+        float qv3 = qh[lane * 4 + 3] * bf16_to_f32(static_cast<uint16_t>(cp1 >> 16));
+        float q_sq = warp_sum(__fadd_rn(
+            __fmaf_rn(qv1, qv1, __fmul_rn(qv0, qv0)),
+            __fmaf_rn(qv3, qv3, __fmul_rn(qv2, qv2))));
+        float q_norm = ptx_sqrt(q_sq) + 1e-6f;
+        float q_f = 22.627416997969522f * ptx_rcp(q_norm);
+        if (q_f > 1.0f) q_f = 1.0f;
+        q_f *= tau;
+        qh[lane * 4] = qv0 * q_f;
+        qh[lane * 4 + 1] = qv1 * q_f;
+        qh[lane * 4 + 2] = qv2 * q_f;
+        qh[lane * 4 + 3] = qv3 * q_f;
+
+        float* rh = r_buf + h * 16;
+        float rv0 = 0.0f, rv1 = 0.0f;
+        if (lane < 8) {
+            rv0 = rh[lane * 2] * bf16_to_f32(static_cast<uint16_t>(rp & 0xFFFFu));
+            rv1 = rh[lane * 2 + 1] * bf16_to_f32(static_cast<uint16_t>(rp >> 16));
+        }
+        float r_sq = warp_sum(__fmaf_rn(rv1, rv1, __fmul_rn(rv0, rv0)));
+        float r_f = 8.0f * ptx_rcp(ptx_sqrt(r_sq) + 1e-6f);
+        if (r_f > 1.0f) r_f = 1.0f;
+        r_f *= tau;
+        if (lane < 8) {
+            rh[lane * 2] = rv0 * r_f;
+            rh[lane * 2 + 1] = rv1 * r_f;
+        }
+    } else if (g_warp < 32) {
+        const int kh = g_warp - 24;
+        const int c_base = kh * 128 + lane * 4;
+        const float4 dk = is_global
+            ? reinterpret_cast<const float4*>(k_raw + 1024)[kh]
+            : make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+        float kv[4];
+        #pragma unroll
+        for (int j = 0; j < 4; ++j) {
+            const int c = c_base + j;
+            const float x = k_raw[c];
+            float* h = hist_k + c * 3;
+            const float h0 = h[0], h1 = h[1], h2 = h[2];
+            h[0] = h1;
+            h[1] = h2;
+            h[2] = x;
+            kv[j] = eval_conv4_step(w_conv[j], h0, h1, h2, x, is_global, dk, 0, 0.0f);
+        }
+        float k_sq = warp_sum(__fadd_rn(
+            __fmaf_rn(kv[1], kv[1], __fmul_rn(kv[0], kv[0])),
+            __fmaf_rn(kv[3], kv[3], __fmul_rn(kv[2], kv[2]))));
+        float k_f = 22.627416997969522f * ptx_rcp(ptx_sqrt(k_sq) + 1e-6f);
+        if (k_f > 1.0f) k_f = 1.0f;
+        kv_store4(k_cache_fp16, k_scale, cache_row, kh, lane,
+                  kv[0] * k_f, kv[1] * k_f, kv[2] * k_f, kv[3] * k_f);
+    } else if (g_warp < 40) {
+        const int vh = g_warp - 32;
+        const int c_base = vh * 128 + lane * 4;
+        const float4 dv = is_global
+            ? reinterpret_cast<const float4*>(v_raw + 1024)[vh]
+            : make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+        float vv[4];
+        #pragma unroll
+        for (int j = 0; j < 4; ++j) {
+            const int c = c_base + j;
+            const float x = v_raw[c];
+            float* h = hist_v + c * 3;
+            const float h0 = h[0], h1 = h[1], h2 = h[2];
+            h[0] = h1;
+            h[1] = h2;
+            h[2] = x;
+            vv[j] = eval_conv4_step(w_conv[j], h0, h1, h2, x, is_global, dv, 0, 0.0f);
+        }
+        float v_sq = warp_sum(__fadd_rn(
+            __fmaf_rn(vv[1], vv[1], __fmul_rn(vv[0], vv[0])),
+            __fmaf_rn(vv[3], vv[3], __fmul_rn(vv[2], vv[2]))));
+        float v_inv = ptx_rsqrt(v_sq * (1.0f / 128.0f) + 1e-6f);
+        kv_store4(v_cache_fp16, v_scale, cache_row, vh, lane,
+                  vv[0] * v_inv, vv[1] * v_inv, vv[2] * v_inv, vv[3] * v_inv);
+    }
+}
+
+// Fused `wo` `c3072` GEMV + `attn_sconv` + Pre-Overwrite Block Save (`Grid: (144, 1)`, `Block: 256`, `3,264 B` SMEM):
+// Eliminates `ink2_short_conv4_save` (`-48` launches/tok) and `d_wo_out` DRAM round-trips (`0-ULP` exact).
+extern "C" __global__ void ink2_wo_conv4_save_c3072(
+    const uint4* __restrict__ w_q8_u128,   // [2304, 192]
+    const float* __restrict__ w_sc64,      // [2304, 48]
+    const uint4* __restrict__ x_q8_u128,   // [192]
+    const float* __restrict__ x_sc64,      // [48]
+    const float4* __restrict__ w_conv4,    // [2304]
+    float* __restrict__ hist3,             // [2304 * 3]
+    float* __restrict__ cur_inout,         // [2304]
+    float* __restrict__ save_prev_out,     // nullable (`d_blocks[blk]` when `is_block_start`)
+    int32_t do_res_add) {
+    constexpr int kCols16 = 3072 / 16;
+    constexpr int kCols64 = 3072 / 64;
+    constexpr int kIters = kCols16 / 32;
+    __shared__ uint4 smem_x[kCols16];
+    __shared__ float smem_xsc[kCols64];
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int row0 = (blockIdx.x * 8 + warp_id) * 2; // 144 * 16 = 2304 exact
+
+    uint4 w0[kIters], w1[kIters];
+    float ws0[kIters], ws1[kIters];
+    const uint4* w_r0 = w_q8_u128 + static_cast<size_t>(row0) * kCols16;
+    const uint4* w_r1 = w_r0 + kCols16;
+    const float* s_r0 = w_sc64 + static_cast<size_t>(row0) * kCols64;
+    const float* s_r1 = s_r0 + kCols64;
+    #pragma unroll
+    for (int i = 0; i < kIters; ++i) {
+        const int c16 = lane + 32 * i;
+        w0[i] = w_r0[c16];
+        w1[i] = w_r1[c16];
+        ws0[i] = s_r0[c16 >> 2];
+        ws1[i] = s_r1[c16 >> 2];
+    }
+    const float4 wc = (lane < 2) ? w_conv4[row0 + lane] : make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+
+    pdl_wait();
+    x_q8_u128 = pdl_in(x_q8_u128);
+    x_sc64 = pdl_in(x_sc64);
+    hist3 = pdl_in_mut(hist3);
+    cur_inout = pdl_in_mut(cur_inout);
+
+    if (tid < kCols16) smem_x[tid] = x_q8_u128[tid];
+    if (tid < kCols64) smem_xsc[tid] = x_sc64[tid];
+    __syncthreads();
+
+    float acc0 = 0.0f;
+    float acc1 = 0.0f;
+    #pragma unroll
+    for (int i = 0; i < kIters; ++i) {
+        const int c16 = lane + 32 * i;
+        uint4 xq = smem_x[c16];
+        float xsc = smem_xsc[c16 >> 2];
+
+        int d0 = __dp4a(static_cast<int>(w0[i].x), static_cast<int>(xq.x), 0);
+        d0 = __dp4a(static_cast<int>(w0[i].y), static_cast<int>(xq.y), d0);
+        d0 = __dp4a(static_cast<int>(w0[i].z), static_cast<int>(xq.z), d0);
+        d0 = __dp4a(static_cast<int>(w0[i].w), static_cast<int>(xq.w), d0);
+        acc0 = __fmaf_rn(static_cast<float>(d0), __fmul_rn(ws0[i], xsc), acc0);
+
+        int d1 = __dp4a(static_cast<int>(w1[i].x), static_cast<int>(xq.x), 0);
+        d1 = __dp4a(static_cast<int>(w1[i].y), static_cast<int>(xq.y), d1);
+        d1 = __dp4a(static_cast<int>(w1[i].z), static_cast<int>(xq.z), d1);
+        d1 = __dp4a(static_cast<int>(w1[i].w), static_cast<int>(xq.w), d1);
+        acc1 = __fmaf_rn(static_cast<float>(d1), __fmul_rn(ws1[i], xsc), acc1);
+    }
+    acc0 = warp_sum(acc0);
+    acc1 = warp_sum(acc1);
+    const float x1 = __shfl_sync(0xffffffffu, acc1, 0);
+    pdl_trigger();
+
+    if (lane < 2) {
+        const int c = row0 + lane;
+        const float x = (lane == 0) ? acc0 : x1;
+        if (save_prev_out != nullptr) {
+            save_prev_out[c] = cur_inout[c];
+        }
+        const float res = do_res_add ? cur_inout[c] : 0.0f;
+        float* h = hist3 + c * 3;
+        const float h0 = h[0], h1 = h[1], h2 = h[2];
+        h[0] = h1;
+        h[1] = h2;
+        h[2] = x;
+        cur_inout[c] = eval_conv4_step(wc, h0, h1, h2, x, 0, make_float4(0.0f, 0.0f, 0.0f, 0.0f), do_res_add, res);
+    }
+}
+
+// Fused Expert-Parallel NVFP4 MoE Down + `mlp_sconv` + Residual Add (`Grid: 1152`, `Block: 256`, `64 B` SMEM):
+// Eliminates `mlp_sconv` (`-44` launches/tok) and `d_moe_y` DRAM round-trips (`0-ULP` exact).
+INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_down_xw_conv, (
+    const uint4* __restrict__ w2_u128,     // [128, 2304, 36]
+    const uint32_t* __restrict__ s2_u32,   // [128, 2304, 18]
+    const float* __restrict__ a2,          // [128]
+    const uint4* __restrict__ act_q8_u128, // [8, 72]
+    const float* __restrict__ act_sc16,    // [8, 72]
+    const int32_t* __restrict__ sel_ids,   // [8]
+    const float* __restrict__ sel_wts,     // [8]
+    const float4* __restrict__ w_conv4,    // [2304]
+    float* __restrict__ hist3,             // [2304 * 3]
+    float* __restrict__ cur_inout),        // [2304]
+    (w2_u128, s2_u32, a2, act_q8_u128, act_sc16, sel_ids, sel_wts, w_conv4, hist3, cur_inout)) {
+    constexpr int kRows = 2;
+    __shared__ float smem_dot[kRows][kTopK];
+
+    const int tid = threadIdx.x;
+    const int k = tid >> 5;
+    const int lane = tid & 31;
+    const int ex = ld_ca_i32(sel_ids + k);
+    const int row0 = blockIdx.x * kRows;
+    const bool tail = lane < 4;
+
+    uint4 pk_a[kRows], pk_b[kRows];
+    uint32_t sc_a[kRows], sc_b[kRows];
+    #pragma unroll
+    for (int r = 0; r < kRows; ++r) {
+        const size_t r_idx = static_cast<size_t>(ex) * kD + (row0 + r);
+        const uint4* row_u128 = w2_u128 + r_idx * 36u;
+        const size_t sc_start = r_idx * 18u;
+        pk_a[r] = row_u128[lane];
+        sc_a[r] = expert_scale_word<PackedScales, 6, 64>(s2_u32, sc_start + (lane >> 1));
+        if (tail) {
+            const int u16_b = lane + 32;
+            pk_b[r] = row_u128[u16_b];
+            sc_b[r] = expert_scale_word<PackedScales, 6, 64>(s2_u32, sc_start + (u16_b >> 1));
+        } else {
+            pk_b[r] = make_uint4(0u, 0u, 0u, 0u);
+            sc_b[r] = 0u;
+        }
+    }
+    const float4 wc = (tid < kRows) ? w_conv4[row0 + tid] : make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+
+    pdl_wait();
+    act_q8_u128 = pdl_in(act_q8_u128);
+    act_sc16 = pdl_in(act_sc16);
+    sel_ids = pdl_in(sel_ids);
+    sel_wts = pdl_in(sel_wts);
+    hist3 = pdl_in_mut(hist3);
+    cur_inout = pdl_in_mut(cur_inout);
+
+    const uint4* aq = act_q8_u128 + k * 72;
+    const float* asc = act_sc16 + k * 72;
+    const uint4 xa0 = aq[lane * 2];
+    const uint4 xa1 = aq[lane * 2 + 1];
+    const float sa0 = asc[lane * 2];
+    const float sa1 = asc[lane * 2 + 1];
+    uint4 xb0 = make_uint4(0u, 0u, 0u, 0u), xb1 = xb0;
+    float sb0 = 0.0f, sb1 = 0.0f;
+    if (tail) {
+        xb0 = aq[(lane + 32) * 2];
+        xb1 = aq[(lane + 32) * 2 + 1];
+        sb0 = asc[(lane + 32) * 2];
+        sb1 = asc[(lane + 32) * 2 + 1];
+    }
+
+    auto step_hoisted = [&](float acc, int u16, const uint4& pk16, uint32_t sc4,
+                            const uint4& xq0, const uint4& xq1, float xs0, float xs1) {
+        int sh = (u16 & 1) * 16;
+        float s0 = __fmul_rn(e4m3_byte_to_f32((sc4 >> sh) & 0xFFu) * 0.5f, xs0);
+        float s1 = __fmul_rn(e4m3_byte_to_f32((sc4 >> (sh + 8)) & 0xFFu) * 0.5f, xs1);
+        int d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x & 0xFFFFu)), static_cast<int>(xq0.x), 0);
+        d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x >> 16)), static_cast<int>(xq0.y), d0);
+        d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.y & 0xFFFFu)), static_cast<int>(xq0.z), d0);
+        d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.y >> 16)), static_cast<int>(xq0.w), d0);
+        int d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.z & 0xFFFFu)), static_cast<int>(xq1.x), 0);
+        d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.z >> 16)), static_cast<int>(xq1.y), d1);
+        d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w & 0xFFFFu)), static_cast<int>(xq1.z), d1);
+        d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w >> 16)), static_cast<int>(xq1.w), d1);
+        return __fmaf_rn(static_cast<float>(d1), s1, __fmaf_rn(static_cast<float>(d0), s0, acc));
+    };
+
+    #pragma unroll
+    for (int r = 0; r < kRows; ++r) {
+        float acc = step_hoisted(0.0f, lane, pk_a[r], sc_a[r], xa0, xa1, sa0, sa1);
+        if (tail) acc = step_hoisted(acc, lane + 32, pk_b[r], sc_b[r], xb0, xb1, sb0, sb1);
+        const float dot = warp_sum(acc);
+        if (lane == 0) smem_dot[r][k] = dot;
+    }
+    __syncthreads();
+    pdl_trigger();
+    if (tid < kRows) {
+        float sum_y = 0.0f;
+        #pragma unroll
+        for (int kk = 0; kk < kTopK; ++kk) {
+            const int e = sel_ids[kk];
+            sum_y = __fmaf_rn(__fmul_rn(smem_dot[tid][kk], a2[e] * (1.0f / 2688.0f)), sel_wts[kk], sum_y);
+        }
+        const int c = row0 + tid;
+        const float res = cur_inout[c];
+        float* h = hist3 + c * 3;
+        const float h0 = h[0], h1 = h[1], h2 = h[2];
+        h[0] = h1;
+        h[1] = h2;
+        h[2] = sum_y;
+        cur_inout[c] = eval_conv4_step(wc, h0, h1, h2, sum_y, 0, make_float4(0.0f, 0.0f, 0.0f, 0.0f), 1, res);
+    }
+}
+
+// Fused Expert-Parallel MXFP8 MoE Down + `mlp_sconv` + Residual Add (`Grid: 1152`, `Block: 256`, `64 B` SMEM):
+// Eliminates `mlp_sconv` (`-4` launches/tok) and `d_moe_y` DRAM round-trips (`0-ULP` exact).
+INK2_SCALE_KERNEL(ink2_moe_mxfp8_down_xw_conv, (
+    const uint4* __restrict__ w2_u128,     // [128, 2304, 72]
+    const uint32_t* __restrict__ s2_u32,   // [128, 2304, 9]
+    const float4* __restrict__ act4,       // [8, 288]
+    const int32_t* __restrict__ sel_ids,   // [8]
+    const float* __restrict__ sel_wts,     // [8]
+    const float4* __restrict__ w_conv4,    // [2304]
+    float* __restrict__ hist3,             // [2304 * 3]
+    float* __restrict__ cur_inout),        // [2304]
+    (w2_u128, s2_u32, act4, sel_ids, sel_wts, w_conv4, hist3, cur_inout)) {
+    constexpr int kRows = 2;
+    __shared__ float smem_dot[kRows][kTopK];
+
+    const int tid = threadIdx.x;
+    const int k = tid >> 5;
+    const int lane = tid & 31;
+    const int ex = ld_ca_i32(sel_ids + k);
+    const int row0 = blockIdx.x * kRows;
+    const bool tail = (lane < 8);
+
+    uint4 wp[kRows][2];
+    uint4 wp_tail[kRows];
+    float esc[kRows][2];
+    float esc_tail[kRows];
+    #pragma unroll
+    for (int r = 0; r < kRows; ++r) {
+        const size_t r_idx = static_cast<size_t>(ex) * kD + (row0 + r);
+        const uint4* row_fp8 = w2_u128 + r_idx * 72u;
+        const unsigned sc_start = static_cast<unsigned>(r_idx * 9u);
+        #pragma unroll
+        for (int it = 0; it < 2; ++it) {
+            const int u16 = lane + 32 * it;
+            wp[r][it] = row_fp8[u16];
+            const int blk32 = u16 >> 1;
+            uint32_t s4 = expert_scale_word<PackedScales, 3, 112>(s2_u32, sc_start + (blk32 >> 2));
+            esc[r][it] = __uint_as_float(((s4 >> ((blk32 & 3) * 8)) & 0xFFu) << 23);
+        }
+        if (tail) {
+            const int u16 = lane + 64;
+            wp_tail[r] = row_fp8[u16];
+            const int blk32 = u16 >> 1;
+            uint32_t s4 = expert_scale_word<PackedScales, 3, 112>(s2_u32, sc_start + (blk32 >> 2));
+            esc_tail[r] = __uint_as_float(((s4 >> ((blk32 & 3) * 8)) & 0xFFu) << 23);
+        }
+    }
+    const float4 wc = (tid < kRows) ? w_conv4[row0 + tid] : make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+
+    pdl_wait();
+    act4 = pdl_in(act4);
+    sel_wts = pdl_in(sel_wts);
+    hist3 = pdl_in_mut(hist3);
+    cur_inout = pdl_in_mut(cur_inout);
+
+    const float4* ak = act4 + k * 288;
+    #pragma unroll
+    for (int r = 0; r < kRows; ++r) {
+        float acc = 0.0f;
+        acc = __fmaf_rn(dot_mxfp8_u128_exact(wp[r][0], ak + lane * 4), esc[r][0], acc);
+        acc = __fmaf_rn(dot_mxfp8_u128_exact(wp[r][1], ak + (lane + 32) * 4), esc[r][1], acc);
+        if (tail) {
+            acc = __fmaf_rn(dot_mxfp8_u128_exact(wp_tail[r], ak + (lane + 64) * 4), esc_tail[r], acc);
+        }
+        const float dot = warp_sum(acc);
+        if (lane == 0) smem_dot[r][k] = dot;
+    }
+    __syncthreads();
+    pdl_trigger();
+    if (tid < kRows) {
+        float sum_y = 0.0f;
+        #pragma unroll
+        for (int kk = 0; kk < kTopK; ++kk) {
+            sum_y = __fmaf_rn(smem_dot[tid][kk], sel_wts[kk], sum_y);
+        }
+        const int c = row0 + tid;
+        const float res = cur_inout[c];
+        float* h = hist3 + c * 3;
+        const float h0 = h[0], h1 = h[1], h2 = h[2];
+        h[0] = h1;
+        h[1] = h2;
+        h[2] = sum_y;
+        cur_inout[c] = eval_conv4_step(wc, h0, h1, h2, sum_y, 0, make_float4(0.0f, 0.0f, 0.0f, 0.0f), 1, res);
+    }
+}
+
+// Active-Expert Grouping + Compaction (`Grid: 1`, `Block: 128`, `1 <= B <= 8`):
+// Builds `exp_counts`/`exp_toks`/`exp_pairs` AND writes compacted active expert IDs into
+// `active_exps[0 .. n_active)` (`-1` for `[n_active .. 127]`) in deterministic ascending order.
+extern "C" __global__ void ink2_build_expert_groups_active_b(
+    const int32_t* __restrict__ sel_ids, // [B * 8]
+    int32_t* __restrict__ exp_counts,    // [128]
+    int32_t* __restrict__ exp_toks,      // [128, 64]
+    int32_t* __restrict__ exp_pairs,     // [128, 64]
+    int32_t* __restrict__ active_exps,   // [128]
+    int32_t B) {
+    __shared__ int32_t smem_sel[128];
+    __shared__ int32_t sm_wcnt[4];
+
+    const int ex = threadIdx.x; // 0..127
+    const int warp = ex >> 5;
+    const int lane = ex & 31;
+    const int total_pairs = B * 8;
+    for (int i = ex; i < total_pairs; i += 128) {
+        smem_sel[i] = sel_ids[i];
+    }
+    __syncthreads();
+
+    int cnt = 0;
+    int32_t* dst_tok = exp_toks + ex * 64;
+    int32_t* dst_pair = exp_pairs + ex * 64;
+    for (int p = 0; p < total_pairs; ++p) {
+        if (smem_sel[p] == ex) {
+            dst_tok[cnt] = p >> 3;
+            dst_pair[cnt] = p;
+            ++cnt;
+        }
+    }
+    exp_counts[ex] = cnt;
+
+    const bool active = (cnt > 0);
+    const unsigned mask = __ballot_sync(0xffffffffu, active);
+    if (lane == 0) {
+        sm_wcnt[warp] = __popc(mask);
+    }
+    __syncthreads();
+
+    int base = 0;
+    #pragma unroll
+    for (int w = 0; w < 4; ++w) {
+        if (w < warp) base += sm_wcnt[w];
+    }
+    const int total_active = sm_wcnt[0] + sm_wcnt[1] + sm_wcnt[2] + sm_wcnt[3];
+    if (active) {
+        const int dst = base + __popc(mask & ((1u << lane) - 1u));
+        active_exps[dst] = ex;
+    }
+    if (total_active + ex < 128) {
+        active_exps[total_active + ex] = -1;
+    }
+}
+
+// Active-Expert Register-Cached Half-Warp NVFP4 Gate/Up + Fused `Q8_16` Epilogue (`1 <= B <= 8`):
+// `Grid: (72, min(128, B * 8))`, `Block: 512` (`2` CTAs/SM = `32` warps/SM, `544 B` SMEM, `120 KiB` L1!).
+// Loads `w13` weights ONCE into registers per active expert and reuses across all `t = 0 .. cnt - 1` tokens,
+// matching `nvfp4_half_warp_situ` + `ink2_quant_q8_16_packed` to `0.0000-ULP`!
+INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_verify_up_half_q8, (
+    const uint4* __restrict__ w13_u128,        // [128, 2304, 72]
+    const uint32_t* __restrict__ s13_u32,      // [128, 2304, 36]
+    const float* __restrict__ a13,             // [128]
+    const uint4* __restrict__ x_q8_u128,       // [B, 144]
+    const float* __restrict__ x_sc16,          // [B, 144]
+    const int32_t* __restrict__ active_exps,   // [128]
+    const int32_t* __restrict__ exp_counts,    // [128]
+    const int32_t* __restrict__ exp_toks,      // [128, 64]
+    const int32_t* __restrict__ exp_pairs,     // [128, 64]
+    uint32_t* __restrict__ out_q8_u32,         // [B * 8, 288]
+    float* __restrict__ out_sc16),             // [B * 8, 72]
+    (w13_u128, s13_u32, a13, x_q8_u128, x_sc16, active_exps, exp_counts, exp_toks, exp_pairs, out_q8_u32, out_sc16)) {
+    const int ex = active_exps[blockIdx.y];
+    if (ex < 0) return;
+    const int cnt = exp_counts[ex];
+    if (cnt <= 0) return;
+
+    __shared__ float smem_ch[8][16];
+    __shared__ int32_t smem_pairs[8];
+
+    const int warp_id = threadIdx.x >> 5;   // 0..15
+    const int lane = threadIdx.x & 31;      // 0..31
+    const int blk16 = blockIdx.x;           // 0..71
+    const int channel = blk16 * 16 + warp_id;
+    const int index = lane & 15;            // 0..15
+    const bool tail8 = (index < 8);
+    const size_t row = (static_cast<size_t>(ex) * kFf + channel) * 2u + (lane >> 4);
+    const uint4* row_u128 = w13_u128 + row * 72u;
+    const unsigned sc_start = static_cast<unsigned>(row * 36u);
+    const float alpha_scaled = a13[ex] * (1.0f / 2688.0f);
+
+    const uint4 pk0 = row_u128[index];
+    const uint4 pk1 = row_u128[index + 16];
+    const uint4 pk2 = row_u128[index + 32];
+    const uint4 pk3 = row_u128[index + 48];
+    const uint4 pk4 = tail8 ? row_u128[index + 64] : make_uint4(0u, 0u, 0u, 0u);
+    const uint32_t sc0 = expert_scale_word<PackedScales, 6, 64>(s13_u32, sc_start + (index >> 1));
+    const uint32_t sc1 = expert_scale_word<PackedScales, 6, 64>(s13_u32, sc_start + ((index + 16) >> 1));
+    const uint32_t sc2 = expert_scale_word<PackedScales, 6, 64>(s13_u32, sc_start + ((index + 32) >> 1));
+    const uint32_t sc3 = expert_scale_word<PackedScales, 6, 64>(s13_u32, sc_start + ((index + 48) >> 1));
+    const uint32_t sc4 = tail8 ? expert_scale_word<PackedScales, 6, 64>(s13_u32, sc_start + ((index + 64) >> 1)) : 0u;
+
+    auto step_u16 = [](float acc, int u16, const uint4& pk16, uint32_t sc_word,
+                       const uint4* xq16, const float* xsc16) {
+        const int sh = (u16 & 1) * 16;
+        const float s0 = __fmul_rn(e4m3_byte_to_f32((sc_word >> sh) & 0xFFu) * 0.5f, xsc16[u16 * 2]);
+        const float s1 = __fmul_rn(e4m3_byte_to_f32((sc_word >> (sh + 8)) & 0xFFu) * 0.5f, xsc16[u16 * 2 + 1]);
+        const uint4 xq0 = xq16[u16 * 2];
+        const uint4 xq1 = xq16[u16 * 2 + 1];
+        int d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x & 0xFFFFu)), static_cast<int>(xq0.x), 0);
+        d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x >> 16)), static_cast<int>(xq0.y), d0);
+        d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.y & 0xFFFFu)), static_cast<int>(xq0.z), d0);
+        d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.y >> 16)), static_cast<int>(xq0.w), d0);
+        int d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.z & 0xFFFFu)), static_cast<int>(xq1.x), 0);
+        d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.z >> 16)), static_cast<int>(xq1.y), d1);
+        d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w & 0xFFFFu)), static_cast<int>(xq1.z), d1);
+        d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w >> 16)), static_cast<int>(xq1.w), d1);
+        return __fmaf_rn(static_cast<float>(d1), s1, __fmaf_rn(static_cast<float>(d0), s0, acc));
+    };
+
+    for (int t_base = 0; t_base < cnt; t_base += 8) {
+        if (t_base > 0) __syncthreads();
+        const int tile_t = min(8, cnt - t_base);
+        if (threadIdx.x < tile_t) {
+            smem_pairs[threadIdx.x] = exp_pairs[ex * 64 + t_base + threadIdx.x];
+        }
+        for (int t = 0; t < tile_t; ++t) {
+            const int tok = exp_toks[ex * 64 + t_base + t];
+            const uint4* xq_tok = x_q8_u128 + static_cast<size_t>(tok) * 144u;
+            const float* xs_tok = x_sc16 + static_cast<size_t>(tok) * 144u;
+
+            float lo = step_u16(0.0f, index, pk0, sc0, xq_tok, xs_tok);
+            lo = step_u16(lo, index + 32, pk2, sc2, xq_tok, xs_tok);
+            if (tail8) {
+                lo = step_u16(lo, index + 64, pk4, sc4, xq_tok, xs_tok);
+            }
+            float hi = step_u16(0.0f, index + 16, pk1, sc1, xq_tok, xs_tok);
+            hi = step_u16(hi, index + 48, pk3, sc3, xq_tok, xs_tok);
+
+            float dot = __fadd_rn(lo, hi);
+            #pragma unroll
+            for (int mask = 8; mask > 0; mask >>= 1) {
+                dot = __fadd_rn(dot, __shfl_xor_sync(0xffffffffu, dot, mask));
+            }
+            dot = __fmul_rn(dot, alpha_scaled);
+            const float u = __shfl_sync(0xffffffffu, dot, 16);
+            if (lane == 0) {
+                const float g = dot;
+                smem_ch[t][warp_id] =
+                    4.0f * ptx_tanh(g * 0.25f) * ptx_sigmoid(g) * 25.0f * ptx_tanh(u * 0.04f);
+            }
+        }
+        __syncthreads();
+
+        if (warp_id < tile_t && lane < 16) {
+            const int pair = smem_pairs[warp_id];
+            const float v = smem_ch[warp_id][lane];
+            float amax = fabsf(v);
+            #pragma unroll
+            for (int mask = 8; mask > 0; mask >>= 1) {
+                amax = fmaxf(amax, __shfl_xor_sync(0x0000FFFFu, amax, mask, 16));
+            }
+            const float sc = amax * (1.0f / 127.0f);
+            const float inv = (amax > 0.0f) ? (127.0f * ptx_rcp(amax)) : 0.0f;
+            int q = __float2int_rn(v * inv);
+            if (q < -127) q = -127;
+            if (q > 127) q = 127;
+            const uint32_t qb = static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q)));
+            const uint32_t p4 = qb
+                | (__shfl_sync(0x0000FFFFu, qb, lane + 1, 16) << 8)
+                | (__shfl_sync(0x0000FFFFu, qb, lane + 2, 16) << 16)
+                | (__shfl_sync(0x0000FFFFu, qb, lane + 3, 16) << 24);
+            if ((lane & 3) == 0) {
+                out_q8_u32[static_cast<size_t>(pair) * 288u + blk16 * 4 + (lane >> 2)] = p4;
+            }
+            if (lane == 0) {
+                out_sc16[static_cast<size_t>(pair) * 72u + blk16] = sc;
+            }
+        }
+    }
+}
+
+// Active-Expert Register-Cached NVFP4 MoE Down (`Grid: (288, min(128, B * 8))`, `Block: 256`, `0 B` SMEM!):
+// `6` CTAs/SM = `48` warps/SM (`100%` occupancy, `120 KiB` L1), `0` barriers, `0.0000-ULP` exact!
+INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_verify_down, (
+    const uint4* __restrict__ w2_u128,         // [128, 2304, 36]
+    const uint32_t* __restrict__ s2_u32,       // [128, 2304, 18]
+    const float* __restrict__ a2,              // [128]
+    const uint4* __restrict__ act_q8_u128,     // [B * 8, 72]
+    const float* __restrict__ act_sc16,        // [B * 8, 72]
+    const int32_t* __restrict__ active_exps,   // [128]
+    const int32_t* __restrict__ exp_counts,    // [128]
+    const int32_t* __restrict__ exp_pairs,     // [128, 64]
+    float* __restrict__ pair_y),               // [B * 8, 2304]
+    (w2_u128, s2_u32, a2, act_q8_u128, act_sc16, active_exps, exp_counts, exp_pairs, pair_y)) {
+    const int ex = active_exps[blockIdx.y];
+    if (ex < 0) return;
+    const int cnt = exp_counts[ex];
+    if (cnt <= 0) return;
+
+    const int warp_id = threadIdx.x >> 5;
+    const int lane = threadIdx.x & 31;
+    const int row = blockIdx.x * 8 + warp_id; // 288 * 8 = 2304 exact
+    const bool tail = (lane < 4);
+    const size_t r_idx = static_cast<size_t>(ex) * kD + row;
+    const uint4* row_u128 = w2_u128 + r_idx * 36u;
+    const size_t sc_start = r_idx * 18u;
+    const float expert_scale = a2[ex] * (1.0f / 2688.0f);
+
+    const uint4 pk_a = row_u128[lane];
+    const uint32_t sc_a = expert_scale_word<PackedScales, 6, 64>(s2_u32, sc_start + (lane >> 1));
+    const uint4 pk_b = tail ? row_u128[lane + 32] : make_uint4(0u, 0u, 0u, 0u);
+    const uint32_t sc_b = tail ? expert_scale_word<PackedScales, 6, 64>(s2_u32, sc_start + ((lane + 32) >> 1)) : 0u;
+
+    auto step_hoisted = [](float acc, int u16, const uint4& pk16, uint32_t sc4,
+                           const uint4* aq, const float* asc) {
+        const int sh = (u16 & 1) * 16;
+        const float s0 = __fmul_rn(e4m3_byte_to_f32((sc4 >> sh) & 0xFFu) * 0.5f, asc[u16 * 2]);
+        const float s1 = __fmul_rn(e4m3_byte_to_f32((sc4 >> (sh + 8)) & 0xFFu) * 0.5f, asc[u16 * 2 + 1]);
+        const uint4 xq0 = aq[u16 * 2];
+        const uint4 xq1 = aq[u16 * 2 + 1];
+        int d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x & 0xFFFFu)), static_cast<int>(xq0.x), 0);
+        d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.x >> 16)), static_cast<int>(xq0.y), d0);
+        d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.y & 0xFFFFu)), static_cast<int>(xq0.z), d0);
+        d0 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.y >> 16)), static_cast<int>(xq0.w), d0);
+        int d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.z & 0xFFFFu)), static_cast<int>(xq1.x), 0);
+        d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.z >> 16)), static_cast<int>(xq1.y), d1);
+        d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w & 0xFFFFu)), static_cast<int>(xq1.z), d1);
+        d1 = __dp4a(static_cast<int>(decode_4x_e2m1_nibbles16_to_2x_s8(pk16.w >> 16)), static_cast<int>(xq1.w), d1);
+        return __fmaf_rn(static_cast<float>(d1), s1, __fmaf_rn(static_cast<float>(d0), s0, acc));
+    };
+
+    for (int t = 0; t < cnt; ++t) {
+        const int pair = exp_pairs[ex * 64 + t];
+        const uint4* aq = act_q8_u128 + static_cast<size_t>(pair) * 72u;
+        const float* asc = act_sc16 + static_cast<size_t>(pair) * 72u;
+        float acc = step_hoisted(0.0f, lane, pk_a, sc_a, aq, asc);
+        if (tail) {
+            acc = step_hoisted(acc, lane + 32, pk_b, sc_b, aq, asc);
+        }
+        const float dot = warp_sum(acc);
+        if (lane == 0) {
+            pair_y[static_cast<size_t>(pair) * kD + row] = __fmul_rn(dot, expert_scale);
+        }
+    }
+}
+
+// Active-Expert Register-Cached MXFP8 Gate/Up + SiTU (`Grid: (288, min(128, B * 8))`, `Block: 256`, `288 B` SMEM!):
+// Replaces `36 KiB`-SMEM (`16.7%` occ) `mxfp8_grouped_up_situ` at `1 <= B <= 8` (`0.0000-ULP` exact!).
+INK2_SCALE_KERNEL_LB(ink2_moe_mxfp8_verify_up_situ, 256, 2, (
+    const uint4* __restrict__ w13_u128,        // [128, 2304, 144]
+    const uint32_t* __restrict__ s13_u32,      // [128, 2304, 18]
+    const float4* __restrict__ x4_base,        // [B, 576]
+    const int32_t* __restrict__ active_exps,   // [128]
+    const int32_t* __restrict__ exp_counts,    // [128]
+    const int32_t* __restrict__ exp_toks,      // [128, 64]
+    const int32_t* __restrict__ exp_pairs,     // [128, 64]
+    float* __restrict__ act_out),              // [B * 8, 1152]
+    (w13_u128, s13_u32, x4_base, active_exps, exp_counts, exp_toks, exp_pairs, act_out)) {
+    const int ex = active_exps[blockIdx.y];
+    if (ex < 0) return;
+    const int cnt = exp_counts[ex];
+    if (cnt <= 0) return;
+
+    __shared__ float smem_gu[8][8];
+    __shared__ int32_t smem_pairs[8];
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int m = blockIdx.x * 4 + (warp_id >> 1);
+    const int is_up = warp_id & 1;
+    const int r = m * 2 + is_up;
+    const size_t row_idx = static_cast<size_t>(ex) * (2u * kFf) + r;
+    const uint4* row_fp8 = w13_u128 + row_idx * 144u;
+    const unsigned sc_start = static_cast<unsigned>(row_idx * 18u);
+
+    uint4 wp[4];
+    float esc[4];
+    #pragma unroll
+    for (int it = 0; it < 4; ++it) {
+        const int u16 = lane + 32 * it;
+        wp[it] = row_fp8[u16];
+        esc[it] = load_e8m0_scale<PackedScales>(s13_u32, sc_start, u16);
+    }
+    const bool tail16 = (lane < 16);
+    const uint4 wp4 = tail16 ? row_fp8[lane + 128] : make_uint4(0u, 0u, 0u, 0u);
+    const float esc4 = tail16 ? load_e8m0_scale<PackedScales>(s13_u32, sc_start, lane + 128) : 0.0f;
+
+    for (int t_base = 0; t_base < cnt; t_base += 8) {
+        if (t_base > 0) __syncthreads();
+        const int tile_t = min(8, cnt - t_base);
+        if (tid < tile_t) {
+            smem_pairs[tid] = exp_pairs[ex * 64 + t_base + tid];
+        }
+        for (int t = 0; t < tile_t; ++t) {
+            const int tok = exp_toks[ex * 64 + t_base + t];
+            const float4* x4 = x4_base + static_cast<size_t>(tok) * 576u;
+            float acc = 0.0f;
+            #pragma unroll
+            for (int it = 0; it < 4; ++it) {
+                acc = __fmaf_rn(dot_mxfp8_u128_exact(wp[it], x4 + (lane + 32 * it) * 4), esc[it], acc);
+            }
+            if (tail16) {
+                acc = __fmaf_rn(dot_mxfp8_u128_exact(wp4, x4 + (lane + 128) * 4), esc4, acc);
+            }
+            const float dot = warp_sum(acc);
+            if (lane == 0) {
+                smem_gu[t][warp_id] = dot;
+            }
+        }
+        __syncthreads();
+        if (is_up == 0 && lane < tile_t) {
+            const float g = smem_gu[lane][warp_id];
+            const float u = smem_gu[lane][warp_id + 1];
+            const float situ = 4.0f * ptx_tanh(g * 0.25f) * ptx_sigmoid(g) * 25.0f * ptx_tanh(u * 0.04f);
+            act_out[static_cast<size_t>(smem_pairs[lane]) * kFf + m] = situ;
+        }
+    }
+}
+
+// Active-Expert Register-Cached MXFP8 Down (`Grid: (288, min(128, B * 8))`, `Block: 256`, `0 B` SMEM!):
+// `4` CTAs/SM = `32` warps/SM, `0` barriers, `0.0000-ULP` exact!
+INK2_SCALE_KERNEL(ink2_moe_mxfp8_verify_down, (
+    const uint4* __restrict__ w2_u128,         // [128, 2304, 72]
+    const uint32_t* __restrict__ s2_u32,       // [128, 2304, 9]
+    const float4* __restrict__ act4_base,      // [B * 8, 288]
+    const int32_t* __restrict__ active_exps,   // [128]
+    const int32_t* __restrict__ exp_counts,    // [128]
+    const int32_t* __restrict__ exp_pairs,     // [128, 64]
+    float* __restrict__ pair_y),               // [B * 8, 2304]
+    (w2_u128, s2_u32, act4_base, active_exps, exp_counts, exp_pairs, pair_y)) {
+    const int ex = active_exps[blockIdx.y];
+    if (ex < 0) return;
+    const int cnt = exp_counts[ex];
+    if (cnt <= 0) return;
+
+    const int warp_id = threadIdx.x >> 5;
+    const int lane = threadIdx.x & 31;
+    const int row = blockIdx.x * 8 + warp_id; // 288 * 8 = 2304 exact
+    const bool tail8 = (lane < 8);
+    const size_t r_idx = static_cast<size_t>(ex) * kD + row;
+    const uint4* row_fp8 = w2_u128 + r_idx * 72u;
+    const unsigned sc_start = static_cast<unsigned>(r_idx * 9u);
+
+    uint4 wp[2];
+    float esc[2];
+    #pragma unroll
+    for (int it = 0; it < 2; ++it) {
+        const int u16 = lane + 32 * it;
+        wp[it] = row_fp8[u16];
+        esc[it] = load_e8m0_scale<PackedScales>(s2_u32, sc_start, u16);
+    }
+    const uint4 wp_tail = tail8 ? row_fp8[lane + 64] : make_uint4(0u, 0u, 0u, 0u);
+    const float esc_tail = tail8 ? load_e8m0_scale<PackedScales>(s2_u32, sc_start, lane + 64) : 0.0f;
+
+    for (int t = 0; t < cnt; ++t) {
+        const int pair = exp_pairs[ex * 64 + t];
+        const float4* ak = act4_base + static_cast<size_t>(pair) * 288u;
+        float acc = 0.0f;
+        acc = __fmaf_rn(dot_mxfp8_u128_exact(wp[0], ak + lane * 4), esc[0], acc);
+        acc = __fmaf_rn(dot_mxfp8_u128_exact(wp[1], ak + (lane + 32) * 4), esc[1], acc);
+        if (tail8) {
+            acc = __fmaf_rn(dot_mxfp8_u128_exact(wp_tail, ak + (lane + 64) * 4), esc_tail, acc);
+        }
+        const float dot = warp_sum(acc);
+        if (lane == 0) {
+            pair_y[static_cast<size_t>(pair) * kD + row] = dot;
+        }
+    }
+}
+
+#undef INK2_SCALE_KERNEL_LB
 #undef INK2_SCALE_KERNEL
 
 // ============================================================================
