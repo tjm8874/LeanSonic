@@ -432,5 +432,127 @@
       "shard_sha256": "db017b9af6f755a471d45e62a5c759ec3838444ff21b0bbd8bf432c6a870a27d",
       "package_bytes": 14069832246
     }
+  },
+  "6-12": {
+    "rows": {
+      "test": [
+        {
+          "chunk": 29,
+          "position": 443,
+          "target": 149918,
+          "engine_logits_sha256": "a1a76189998367123129410ffa0a50b7e85c1601085f99c12b934989429e51a1",
+          "canonical": {
+            "kl": 0.336321065916234,
+            "reference_top": 149918,
+            "engine_top": 149918
+          },
+          "serial": {
+            "kl": 0.16526563679809136,
+            "reference_top": 149918,
+            "engine_top": 149918
+          }
+        },
+        {
+          "chunk": 69,
+          "position": 353,
+          "target": 1057,
+          "engine_logits_sha256": "28d2dec2262be285107536c5c58e525c4e818ca033a6db78a2d8ddc570e27283",
+          "canonical": {
+            "kl": 0.03304066605518015,
+            "reference_top": 2952,
+            "engine_top": 1057
+          },
+          "serial": {
+            "kl": 0.01248418199907023,
+            "reference_top": 1057,
+            "engine_top": 1057
+          }
+        },
+        {
+          "chunk": 80,
+          "position": 452,
+          "target": 197045,
+          "engine_logits_sha256": "e3c86e955e9fccf9f2c46da935513804e7c2516261fbde18696c1a092d01b1f1",
+          "canonical": {
+            "kl": 0.015194344893726591,
+            "reference_top": 197045,
+            "engine_top": 197045
+          },
+          "serial": {
+            "kl": 0.729161563137541,
+            "reference_top": 196977,
+            "engine_top": 197045
+          }
+        },
+        {
+          "chunk": 99,
+          "position": 398,
+          "target": 156577,
+          "engine_logits_sha256": "7b3115ef5ee77930ca04eee6b07682d95962ef23edb24e1a7993cf5495229da4",
+          "canonical": {
+            "kl": 1.5276829209325493,
+            "reference_top": 158000,
+            "engine_top": 220
+          },
+          "serial": {
+            "kl": 1.3730360373842578,
+            "reference_top": 158000,
+            "engine_top": 220
+          }
+        }
+      ],
+      "valid": [
+        {
+          "chunk": 30,
+          "position": 331,
+          "target": 20,
+          "engine_logits_sha256": "cedd52410ebad89e18713dbb9c372d19d59a3f85f84dd7b14fe9135d2a4bfa69",
+          "canonical": {
+            "kl": 0.12183366073057172,
+            "reference_top": 18,
+            "engine_top": 18
+          },
+          "serial": {
+            "kl": 0.20753239194945594,
+            "reference_top": 18,
+            "engine_top": 18
+          }
+        },
+        {
+          "chunk": 46,
+          "position": 379,
+          "target": 220,
+          "engine_logits_sha256": "6a1169f5dabd29c8a52bba01b981cdf5bbce9bad34be9af723581be488632640",
+          "canonical": {
+            "kl": 1.430708632151023,
+            "reference_top": 170558,
+            "engine_top": 17
+          },
+          "serial": {
+            "kl": 1.729328819044273,
+            "reference_top": 170558,
+            "engine_top": 17
+          }
+        }
+      ]
+    },
+    "model": {
+      "restore": [
+        "model.llm.layers.10.mlp.experts.w13_weight.nvctx_v1",
+        "model.llm.layers.10.mlp.experts.w2_weight.nvctx_v1",
+        "model.llm.layers.11.mlp.experts.w13_weight.nvctx_v1",
+        "model.llm.layers.11.mlp.experts.w2_weight.nvctx_v1",
+        "model.llm.layers.6.mlp.experts.w13_weight.nvctx_v1",
+        "model.llm.layers.6.mlp.experts.w2_weight.nvctx_v1",
+        "model.llm.layers.7.mlp.experts.w13_weight.nvctx_v1",
+        "model.llm.layers.7.mlp.experts.w2_weight.nvctx_v1",
+        "model.llm.layers.8.mlp.experts.w13_weight.nvctx_v1",
+        "model.llm.layers.8.mlp.experts.w2_weight.nvctx_v1",
+        "model.llm.layers.9.mlp.experts.w13_weight.nvctx_v1",
+        "model.llm.layers.9.mlp.experts.w2_weight.nvctx_v1"
+      ],
+      "shard_sha256": "e8429e9ccae00d217c2ac41c9d88d53793aa9794f622374ead8648d37facd48d",
+      "package_bytes": 13824275094
+    }
   }
 }

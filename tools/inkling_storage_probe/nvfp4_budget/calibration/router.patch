@@ -1,0 +1,44 @@
+--- a/crates/leansonic-core/src/inkling2_gpu.rs
++++ b/crates/leansonic-core/src/inkling2_gpu.rs
+@@ -7414,6 +7414,41 @@
+                 (&mut pwts as *mut _) as *mut c_void,
+             ];
+             self.launch(stream, self.fns.router_topk8_b, (b_u32, 1), 32, &mut args)?;
++        }
++
++        if il < NVFP4_LAYERS && b_len == 512 && std::path::Path::new("capture-routes").exists() {
++            use std::io::Write;
++            let n = b_len * TOP_K;
++            let mut ids = vec![0i32; n];
++            let mut weights = vec![0f32; n];
++            unsafe {
++                check_cu((self.ctx.api.cuStreamSynchronize)(stream), "sync router capture")?;
++                check_cu((self.ctx.api.cuMemcpyDtoH_v2)(ids.as_mut_ptr().cast(), self.prefill.d_b_sel_ids.ptr, 4*n), "copy router ids")?;
++            }
++            self.prefill.d_b_sel_wts.copy_to_host_f32(&mut weights)?;
++            let mut hits = [0u32; N_EXP];
++            let mut squared = [0f64; N_EXP];
++            for (row, ws) in ids.chunks_exact(TOP_K).zip(weights.chunks_exact(TOP_K)) {
++                let mut seen = 0u128;
++                for (&id, &w) in row.iter().zip(ws) {
++                    if !(0..N_EXP as i32).contains(&id) || !w.is_finite() || w < 0.0 {
++                        return Err("invalid router observation".into());
++                    }
++                    let bit = 1u128 << id;
++                    if seen & bit != 0 { return Err("duplicate selected expert".into()); }
++                    seen |= bit;
++                    hits[id as usize] += 1;
++                    squared[id as usize] += f64::from(w).powi(2);
++                }
++            }
++            let mut bytes = Vec::with_capacity(8 + 12*N_EXP);
++            bytes.extend((il as u32).to_le_bytes());
++            bytes.extend((slot_idx as u32).to_le_bytes());
++            for v in hits { bytes.extend(v.to_le_bytes()); }
++            for v in squared { bytes.extend(v.to_le_bytes()); }
++            let mut file = std::fs::OpenOptions::new().create(true).append(true)
++                .open("routes.bin").map_err(|e| e.to_string())?;
++            file.write_all(&bytes).map_err(|e| e.to_string())?;
+         }
+         let mut active_groups_ready = false;
+         if let (true, Some(f_act)) = (

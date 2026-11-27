@@ -5,6 +5,24 @@ from pathlib import Path
 import numpy as np
 from choose_codebooks import header, magnitude
 
+if len(sys.argv) not in (5, 6):
+    sys.exit(
+        "usage: select_cutoffs.py OFFICIAL_SHARD MIDDLE OUTPUT TARGET_BYTES [ROUTING_JSON]"
+    )
+factors = np.ones((20, 128))
+if len(sys.argv) == 6:
+    factors = np.asarray(
+        json.loads(Path(sys.argv[5]).read_text())["factor"], dtype=np.float64
+    )
+    if (
+        factors.shape != (20, 128)
+        or not np.isfinite(factors).all()
+        or np.any(factors < 0.5)
+        or not np.allclose(factors.mean(axis=1), 1)
+    ):
+        raise ValueError(
+            "expected 20 x 128 finite expert factors >= 0.5 with per-layer mean 1"
+        )
 official, base, maps = map(Path, sys.argv[1:4])
 shard = "model-00001-of-00001.safetensors"
 with official.open("rb") as f:
@@ -83,6 +101,7 @@ for layer in range(20):
         assert signal > 0
         # Three visits to each recurrent layer. Compare impact per changed weight.
         risk = actual * (3 if 6 <= layer < 18 else 1) / signal
+        risk *= factors[layer, :, None]
         planes[name] = (
             codes,
             trim[codes],
