@@ -64,6 +64,40 @@
       "top1_matches": 25088,
       "top1_agreement": 0.9838431372549019
     },
+    "valid-canonical-v13": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 6.504620985971503,
+      "ref_ppl": 6.498588819010602,
+      "mean_kld": 0.0027607406235017986,
+      "median_kld": 0.0010193128624920618,
+      "p99_kld": 0.027633147959790057,
+      "max_kld": 0.352436096904504,
+      "start_chunk": 0,
+      "max_kld_chunk": 46,
+      "max_kld_position": 379,
+      "ref_floor_targets": 10,
+      "top1_matches": 24963,
+      "top1_agreement": 0.9789411764705882
+    },
+    "valid-serial-v12": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 6.504620985971503,
+      "ref_ppl": 6.497404544996293,
+      "mean_kld": 0.0026828769980981925,
+      "median_kld": 0.0010057025731599334,
+      "p99_kld": 0.026188352975701396,
+      "max_kld": 0.5150199271035698,
+      "start_chunk": 0,
+      "max_kld_chunk": 30,
+      "max_kld_position": 331,
+      "ref_floor_targets": 11,
+      "top1_matches": 24985,
+      "top1_agreement": 0.9798039215686275
+    },
     "test-bf16-vs-canonical": {
       "chunks": 100,
       "context": 512,
@@ -80,6 +114,23 @@
       "ref_floor_targets": 14,
       "top1_matches": 25043,
       "top1_agreement": 0.982078431372549
+    },
+    "valid-serial-v13": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 6.504620985971503,
+      "ref_ppl": 6.497404544996293,
+      "mean_kld": 0.0026828769980981925,
+      "median_kld": 0.0010057025731599334,
+      "p99_kld": 0.026188352975701396,
+      "max_kld": 0.5150199271035698,
+      "start_chunk": 0,
+      "max_kld_chunk": 30,
+      "max_kld_position": 331,
+      "ref_floor_targets": 11,
+      "top1_matches": 24985,
+      "top1_agreement": 0.9798039215686275
     },
     "test-serial-v13": {
       "chunks": 100,
@@ -212,6 +263,23 @@
       "ref_floor_targets": 14,
       "top1_matches": 24865,
       "top1_agreement": 0.9750980392156863
+    },
+    "test-serial-v12": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.072955538814124,
+      "ref_ppl": 7.06532735753101,
+      "mean_kld": 0.003171705164493709,
+      "median_kld": 0.0012578696345625952,
+      "p99_kld": 0.0300755344871085,
+      "max_kld": 0.8274179725180755,
+      "start_chunk": 0,
+      "max_kld_chunk": 80,
+      "max_kld_position": 452,
+      "ref_floor_targets": 15,
+      "top1_matches": 24863,
+      "top1_agreement": 0.9750196078431372
     },
     "control-bf16-vs-canonical": {
       "chunks": 16,

@@ -12,6 +12,18 @@ Using the same grouping did not reduce V13's aggregate test divergence. The maxi
 
 A trace build of the V13 engine reported `offset=0 len=256` then `offset=256 len=1`. It produced the same complete one-chunk metrics as the unmodified engine. The public generator independently checks the observed positions and batch sizes of the first BF16 chunk after successful decode. Its canonical control reproduced all 4,080 rows of the first 16 chunks byte-for-byte, including all vocabulary entries and IDs. Its separately generated serial control reproduced the first 255 rows of the 100-chunk serial reference byte-for-byte. See [builds, hashes and full numeric results](inkling-bf16-serial.json).
 
+## Held-out validation and the previous kernel revision
+
+All 100 previously held-out WikiText-2 validation chunks used the same 25,500 next-token targets and RTX PRO 5000. V12 and V13 produced identical score reports under the serial oracle on both test and validation, including the worst positions and PPL. The following rows distinguish the oracle schedule from changes to the engine.
+
+| Validation, 25,500 positions | Mean KL | Worst KL (chunk/position) | Top-1 matches | Raw output PPL |
+|---|---:|---:|---:|---:|
+| Serial BF16 vs canonical BF16 | 0.001613 | 0.356536 (76/501) | 25,088 | 6.503794 |
+| V13 vs canonical BF16 | 0.002761 | 0.352436 (46/379) | 24,963 | 6.504621 |
+| V13 vs serial BF16 | 0.002683 | 0.515020 (30/331) | 24,985 | 6.504621 |
+
+On validation, using the serial reference slightly lowers the mean and increases the worst KL. The largest deviation moves from 46/379 to 30/331. Keep the original canonical reference for regression decisions and use the serial reference to investigate sensitivity to execution order.
+
 ## The same engine row against both oracles
 
 We also dumped the full V13 logit vector once per selected position through the normal greedy CLI. The raw output SHA-256 per position is in the JSON. At test 69/353 V13 predicts the observed WikiText target, and matching the schedule changes the BF16 top token to that same target. The KL remains above 0.5. At 80/452 V13 and canonical BF16 predict the observed target, while serial BF16 predicts a different token.
