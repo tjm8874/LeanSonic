@@ -1,0 +1,18 @@
+{
+  "model.llm.layers.0.mlp.experts.w2_weight.nvscale_direct_v1": {
+    "sha256": "4c506926eb97a4b191e5be433d01f2925edb310ba9d0040afdb0fbb36cac8ad7",
+    "bytes": 145632072
+  },
+  "model.llm.layers.0.mlp.experts.w2_weight_scale.mean8_v1": {
+    "sha256": "bac52824b84a96412ada715d2eb2e7afdeac820fb2c19e5aabd9953d5039087c",
+    "bytes": 9425800
+  },
+  "model.llm.layers.11.mlp.experts.w13_weight.nvscale_direct_v1": {
+    "sha256": "a884a5a13baa5d0aa48071e3488dbb1dfea0221d70b4d0fb0a4a0f7e615870a6",
+    "bytes": 319956720
+  },
+  "model.llm.layers.11.mlp.experts.w13_weight_scale.mean8_v1": {
+    "sha256": "d5aa7cbe952811cf2b8792d4f2603eb79071f5b7680fa79839aa42b16d943d2e",
+    "bytes": 18922560
+  }
+}

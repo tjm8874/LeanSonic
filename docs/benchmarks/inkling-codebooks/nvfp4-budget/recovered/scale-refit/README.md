@@ -17,3 +17,5 @@ python3 assemble.py "$OFFICIAL_SHARD" "$DIRECT_CONTROL" "$SELECTION" \
 ```
 
 [Model and tokenizer hashes, byte counts, errors per plane](receipt.json) · [Independent per-plane audit](audit.json).
+
+[BF16 test and validation results and default decision](quality.md).
