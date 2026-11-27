@@ -608,7 +608,9 @@ extern "C" __global__ void ink2_bf16_gemv(
     float softcap) {
     const int warp_id = threadIdx.x >> 5;
     const int lane = threadIdx.x & 31;
-    const int row = blockIdx.x * 8 + warp_id;
+    // One warp per row with any multiple of 32 threads per CTA: the 128-row router launches one
+    // warp per CTA so its rows spread over many SMs instead of 16.
+    const int row = blockIdx.x * (blockDim.x >> 5) + warp_id;
     if (row >= rows) return;
 
     const int cols8 = cols >> 3;
@@ -616,8 +618,22 @@ extern "C" __global__ void ink2_bf16_gemv(
     const float4* x4 = reinterpret_cast<const float4*>(x);
 
     float acc = 0.0f;
-    for (int c8 = lane; c8 < cols8; c8 += 32) {
-        acc = accum_bf16_8(acc, w_row[c8], x4[c8 * 2], x4[c8 * 2 + 1]);
+    if (cols8 == 288) {
+        // D = 2304 (router): issue all 9 weight loads of this lane before the FMA chain, which
+        // keeps the same per-lane order (c8 = lane + 32 i) and therefore the same result.
+        constexpr int kIters = 288 / 32;
+        uint4 w[kIters];
+        #pragma unroll
+        for (int i = 0; i < kIters; ++i) w[i] = w_row[lane + 32 * i];
+        #pragma unroll
+        for (int i = 0; i < kIters; ++i) {
+            const int c8 = lane + 32 * i;
+            acc = accum_bf16_8(acc, w[i], x4[c8 * 2], x4[c8 * 2 + 1]);
+        }
+    } else {
+        for (int c8 = lane; c8 < cols8; c8 += 32) {
+            acc = accum_bf16_8(acc, w_row[c8], x4[c8 * 2], x4[c8 * 2 + 1]);
+        }
     }
     acc = warp_sum(acc);
     if (lane == 0) {
@@ -1330,6 +1346,86 @@ extern "C" __global__ void ink2_q8_dp4a_gemv(
             d1 = __dp4a(static_cast<int>(w1.y), static_cast<int>(xq.y), d1);
             d1 = __dp4a(static_cast<int>(w1.z), static_cast<int>(xq.z), d1);
             d1 = __dp4a(static_cast<int>(w1.w), static_cast<int>(xq.w), d1);
+            acc1 = __fmaf_rn(static_cast<float>(d1), __fmul_rn(s_r1[c16 >> 2], xsc), acc1);
+        }
+    }
+
+    acc0 = warp_sum(acc0);
+    acc1 = warp_sum(acc1);
+    if (lane == 0) {
+        if (softcap > 0.0f) {
+            float inv_sc = ptx_rcp(softcap);
+            acc0 = softcap * ptx_tanh(acc0 * inv_sc);
+            acc1 = softcap * ptx_tanh(acc1 * inv_sc);
+        }
+        y[row0] = acc0;
+        if (has_row1) y[row0 + 1] = acc1;
+    }
+}
+
+// `ink2_q8_dp4a_gemv` specialised for `cols = 3072` (the attention output projection `wo`,
+// 2,304 x 3,072): each lane loads all 6 of its weight `uint4`s for both rows before the
+// `__dp4a` / FMA chain. Same lanes, same per-lane order (c16 = lane + 32 i) and the same
+// `warp_sum`, so the output is bit-identical; only the loads are hoisted.
+extern "C" __global__ void ink2_q8_dp4a_gemv_c3072(
+    const uint4* __restrict__ w_q8_u128,   // [rows, 192]
+    const float* __restrict__ w_sc64,      // [rows, 48]
+    const uint4* __restrict__ x_q8_u128,   // [192]
+    const float* __restrict__ x_sc64,      // [48]
+    float* __restrict__ y,                 // [rows]
+    int32_t rows,
+    int32_t cols,
+    float softcap) {
+    constexpr int kCols16 = 3072 / 16;
+    constexpr int kCols64 = 3072 / 64;
+    constexpr int kIters = kCols16 / 32;
+    __shared__ uint4 smem_x[kCols16];
+    __shared__ float smem_xsc[kCols64];
+
+    const int tid = threadIdx.x; // 256
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    (void)cols;
+
+    if (tid < kCols16) smem_x[tid] = x_q8_u128[tid];
+    if (tid < kCols64) smem_xsc[tid] = x_sc64[tid];
+    __syncthreads();
+
+    const int row0 = (blockIdx.x * 8 + warp_id) * 2;
+    if (row0 >= rows) return;
+    const bool has_row1 = (row0 + 1 < rows);
+
+    const uint4* w_r0 = w_q8_u128 + static_cast<size_t>(row0) * kCols16;
+    const uint4* w_r1 = has_row1 ? (w_r0 + kCols16) : w_r0;
+    const float* s_r0 = w_sc64 + static_cast<size_t>(row0) * kCols64;
+    const float* s_r1 = has_row1 ? (s_r0 + kCols64) : s_r0;
+
+    uint4 w0[kIters], w1[kIters];
+    #pragma unroll
+    for (int i = 0; i < kIters; ++i) {
+        w0[i] = w_r0[lane + 32 * i];
+        w1[i] = w_r1[lane + 32 * i];
+    }
+
+    float acc0 = 0.0f;
+    float acc1 = 0.0f;
+    #pragma unroll
+    for (int i = 0; i < kIters; ++i) {
+        const int c16 = lane + 32 * i;
+        uint4 xq = smem_x[c16];
+        float xsc = smem_xsc[c16 >> 2];
+
+        int d0 = __dp4a(static_cast<int>(w0[i].x), static_cast<int>(xq.x), 0);
+        d0 = __dp4a(static_cast<int>(w0[i].y), static_cast<int>(xq.y), d0);
+        d0 = __dp4a(static_cast<int>(w0[i].z), static_cast<int>(xq.z), d0);
+        d0 = __dp4a(static_cast<int>(w0[i].w), static_cast<int>(xq.w), d0);
+        acc0 = __fmaf_rn(static_cast<float>(d0), __fmul_rn(s_r0[c16 >> 2], xsc), acc0);
+
+        if (has_row1) {
+            int d1 = __dp4a(static_cast<int>(w1[i].x), static_cast<int>(xq.x), 0);
+            d1 = __dp4a(static_cast<int>(w1[i].y), static_cast<int>(xq.y), d1);
+            d1 = __dp4a(static_cast<int>(w1[i].z), static_cast<int>(xq.z), d1);
+            d1 = __dp4a(static_cast<int>(w1[i].w), static_cast<int>(xq.w), d1);
             acc1 = __fmaf_rn(static_cast<float>(d1), __fmul_rn(s_r1[c16 >> 2], xsc), acc1);
         }
     }

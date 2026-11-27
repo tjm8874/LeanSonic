@@ -346,6 +346,7 @@ struct KernelFns {
     quant_q8_64: CUfunction,
     quant_q8_16: Q8GroupKernel,
     q8_dp4a_gemv: CUfunction,
+    q8_dp4a_gemv_c3072: Option<CUfunction>,
     short_conv4: CUfunction,
     prep_qkv_and_cache: CUfunction,
     gqa_rel_sink_attn: CUfunction,
@@ -1788,6 +1789,7 @@ impl Inkling2GpuEngine {
                 },
             },
             q8_dp4a_gemv: get_fn("ink2_q8_dp4a_gemv")?,
+            q8_dp4a_gemv_c3072: get_fn("ink2_q8_dp4a_gemv_c3072").ok(),
             short_conv4: get_fn("ink2_short_conv4")?,
             prep_qkv_and_cache: get_fn("ink2_prep_qkv_and_cache")?,
             gqa_rel_sink_attn: get_fn("ink2_gqa_rel_sink_attn")?,
@@ -2022,8 +2024,14 @@ impl Inkling2GpuEngine {
             (&mut c as *mut _) as *mut c_void,
             (&mut sc as *mut _) as *mut c_void,
         ];
-        let grid_x = (rows as u32).div_ceil(8);
-        self.launch(stream, self.fns.bf16_gemv, (grid_x, 1), 256, &mut args)
+        // One warp per row either way (bit-identical). Small outputs such as the 128-row router
+        // use one warp per CTA so the rows land on different SMs.
+        let (grid_x, block) = if rows <= 1024 {
+            (rows as u32, 32)
+        } else {
+            ((rows as u32).div_ceil(8), 256)
+        };
+        self.launch(stream, self.fns.bf16_gemv, (grid_x, 1), block, &mut args)
     }
 
     fn enqueue_quant_q8_64(
@@ -2132,7 +2140,12 @@ impl Inkling2GpuEngine {
         ];
         // 16 rows per 256-thread CTA (2 rows/warp = 38 regs <= 42 SM120 full occupancy, 16x SMEM reuse!)
         let grid_x = (rows as u32).div_ceil(16);
-        self.launch(stream, self.fns.q8_dp4a_gemv, (grid_x, 1), 256, &mut args)
+        // `wo` (cols 3072) has a load-hoisted twin with the same arithmetic.
+        let f = match (cols, self.fns.q8_dp4a_gemv_c3072) {
+            (3072, Some(f)) => f,
+            _ => self.fns.q8_dp4a_gemv,
+        };
+        self.launch(stream, f, (grid_x, 1), 256, &mut args)
     }
 
     /// Fused G=0 attention + Q8_64 epilogue for this slot's KV format (FP16 or opt-in INT8).
