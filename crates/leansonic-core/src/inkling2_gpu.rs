@@ -352,6 +352,7 @@ struct KernelFns {
     gqa_rel_sink_attn: CUfunction,
     gqa_attn_split: Option<CUfunction>,
     gqa_attn_split_i8: Option<CUfunction>,
+    gqa_attn_split_dec: Option<CUfunction>,
     gqa_attn_combine: Option<CUfunction>,
     router_topk8: CUfunction,
     copy_d: CUfunction,
@@ -1816,6 +1817,7 @@ impl Inkling2GpuEngine {
             gqa_rel_sink_attn: get_fn("ink2_gqa_rel_sink_attn")?,
             gqa_attn_split: get_fn("ink2_gqa_attn_split").ok(),
             gqa_attn_split_i8: get_fn("ink2_gqa_attn_split_i8").ok(),
+            gqa_attn_split_dec: get_fn("ink2_gqa_attn_split_dec").ok(),
             gqa_attn_combine: get_fn("ink2_gqa_attn_combine").ok(),
             router_topk8: get_fn("ink2_router_topk8")?,
             copy_d: get_fn("ink2_copy_d")?,
@@ -2253,6 +2255,11 @@ impl Inkling2GpuEngine {
                 self.fns
                     .gqa_attn_split_i8
                     .ok_or("LEANSONIC_KV=int8 requires a cubin with ink2_gqa_attn_split_i8")?
+            } else if b_len <= MAX_SPEC_TOKENS {
+                // Decode / verify rows: pipelined FP16 loop (same arithmetic as the prefill kernel).
+                self.fns
+                    .gqa_attn_split_dec
+                    .unwrap_or(self.fns.gqa_attn_split.unwrap())
             } else {
                 self.fns.gqa_attn_split.unwrap()
             },

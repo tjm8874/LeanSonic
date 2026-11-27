@@ -594,6 +594,12 @@ def kInk2GqaAttnSplit : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
+/-- FP16 decode / verify instantiation with the pipelined row loop (`64` regs -> still `4` CTAs). -/
+def kInk2GqaAttnSplitDec : KernelResourceSpec :=
+  { kInk2GqaAttnSplit with
+    name := "ink2_gqa_attn_split_dec"
+    rawRegsPerThread := 64 }        -- 16,384 regs/CTA; 4 CTAs = 65,536 <= 65,536
+
 /-- Split-KV Online-Softmax Combine + Sigmoid Gate (`128` threads, `39` regs -> `12` CTAs = `48` warps/SM!). -/
 def kInk2GqaAttnCombine : KernelResourceSpec :=
   { name := "ink2_gqa_attn_combine"
@@ -611,11 +617,13 @@ def cycle4SplitKvKernelSuite : List KernelResourceSpec :=
   [ kInk2QuantQ8Packed
   , kInk2GqaAttnSplit
   , kInk2GqaAttnSplitI8
+  , kInk2GqaAttnSplitDec
   , kInk2GqaAttnCombine ]
 
 theorem ink2_quant_q8_16_packed_valid : ValidSm120Kernel kInk2QuantQ8Packed := by decide
 theorem ink2_gqa_attn_split_valid : ValidSm120Kernel kInk2GqaAttnSplit := by decide
 theorem ink2_gqa_attn_split_i8_valid : ValidSm120Kernel kInk2GqaAttnSplitI8 := by decide
+theorem ink2_gqa_attn_split_dec_valid : ValidSm120Kernel kInk2GqaAttnSplitDec := by decide
 theorem ink2_gqa_attn_combine_valid : ValidSm120Kernel kInk2GqaAttnCombine := by decide
 
 theorem cycle4_splitkv_all_kernels_valid :
