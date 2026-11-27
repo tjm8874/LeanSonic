@@ -19,7 +19,7 @@ pub fn pack_scale_split(
     }
     let mut parts = [Vec::new(), Vec::new()];
     let groups_per_expert = scales.len() / cuts.len();
-    for (i, bytes) in raw.chunks_exact(8).enumerate() {
+    for (i, bytes) in raw.as_chunks::<8>().0.iter().enumerate() {
         parts[arm(scales[i], cuts[i / groups_per_expert])].extend_from_slice(bytes);
     }
     let mut frame = cuts.to_vec();
@@ -54,8 +54,8 @@ pub fn unpack_scale_split(frame: &[u8], scales: &[u8]) -> Result<Vec<u8>, Box<dy
     }
     let mut data = &frame[144..];
     let mut parts = [Vec::new(), Vec::new()];
-    for (j, field) in header.chunks_exact(8).enumerate() {
-        let bytes = usize::try_from(u64::from_le_bytes(field.try_into()?))?;
+    for (j, field) in header.as_chunks::<8>().0.iter().enumerate() {
+        let bytes = usize::try_from(u64::from_le_bytes(*field))?;
         let (encoded, rest) = data.split_at_checked(bytes).ok_or("truncated stream")?;
         if sizes[j] > 0 {
             parts[j] = unpack_nvfp4_codes(encoded, sizes[j].next_multiple_of(32), true)?;
