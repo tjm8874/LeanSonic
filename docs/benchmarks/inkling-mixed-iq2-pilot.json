@@ -1,0 +1,78 @@
+{
+  "layer1": {
+    "tensors": 734,
+    "layers": [
+      1
+    ],
+    "bytes": 15569194336,
+    "saved": 164560896,
+    "selected": {
+      "blk.1.ffn_gate_up_exps.scale": {
+        "source": "F32",
+        "target": "F32",
+        "sha256": "2ad0cdba11ede85ec99f6bab388535f72526c180b9c98d508860eaf7f709f74c"
+      },
+      "blk.1.ffn_gate_up_exps.weight": {
+        "source": "NVFP4",
+        "target": "IQ2_S",
+        "sha256": "8e0f646e4f5a4a9d354b1aeac2eeb8b155b9ac4d3de33111ddf327c730717137"
+      }
+    },
+    "sha256": "06d7303b1c9ef802c400ea73b7fee5419d4fa9e036d550f2f15f9d6d0377b000",
+    "rows": 255,
+    "cpu_threads": 2,
+    "mean_kl": 0.003346,
+    "worst_kl": 0.052336,
+    "ppl": 5.295852,
+    "top1_matches": 246
+  },
+  "layers123": {
+    "tensors": 734,
+    "layers": [
+      1,
+      2,
+      3
+    ],
+    "bytes": 15240072544,
+    "saved": 493682688,
+    "selected": {
+      "blk.1.ffn_gate_up_exps.scale": {
+        "source": "F32",
+        "target": "F32",
+        "sha256": "2ad0cdba11ede85ec99f6bab388535f72526c180b9c98d508860eaf7f709f74c"
+      },
+      "blk.1.ffn_gate_up_exps.weight": {
+        "source": "NVFP4",
+        "target": "IQ2_S",
+        "sha256": "8e0f646e4f5a4a9d354b1aeac2eeb8b155b9ac4d3de33111ddf327c730717137"
+      },
+      "blk.2.ffn_gate_up_exps.scale": {
+        "source": "F32",
+        "target": "F32",
+        "sha256": "a917e39c07326901fe61b2b499d0d8b3544e286041d89d229578a56f52896067"
+      },
+      "blk.2.ffn_gate_up_exps.weight": {
+        "source": "NVFP4",
+        "target": "IQ2_S",
+        "sha256": "5c269964d1adac2f984b3251c3caefa8e5fafd8e2c2cb6c4e9027c560e8e208e"
+      },
+      "blk.3.ffn_gate_up_exps.scale": {
+        "source": "F32",
+        "target": "F32",
+        "sha256": "abd6eb2f5e52c8038308ef11e27d99b9dfcfecccef14c79be548c8d9f1ffde4e"
+      },
+      "blk.3.ffn_gate_up_exps.weight": {
+        "source": "NVFP4",
+        "target": "IQ2_S",
+        "sha256": "80e18f2d783c08a64fa3e4b6d5dfd5d58e3e80e56c303d7016da908474ca22c4"
+      }
+    },
+    "sha256": "55d32bd3264c93dad8f3c907ebb847640d5840c091b8f076332211ff68fe98de",
+    "rows": 255,
+    "cpu_threads": 2,
+    "mean_kl": 0.005595,
+    "worst_kl": 0.141788,
+    "ppl": 5.253679,
+    "top1_matches": 249
+  }
+}
