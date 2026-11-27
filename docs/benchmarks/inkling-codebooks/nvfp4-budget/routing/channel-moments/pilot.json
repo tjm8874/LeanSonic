@@ -1,0 +1,190 @@
+{
+  "source_sha256": "0fb38dda4cb68ca889b1783aeb597ff58fbe9c25bc1f3ec80bd042c798b2542c",
+  "seed": 8874,
+  "blocks_per_expert": 64,
+  "layers": [
+    {
+      "layer": 0,
+      "blocks": 8192,
+      "changed": 53,
+      "weighted_error_prior": 4785449395904436.0,
+      "weighted_error_trial": 4784797755714318.0,
+      "ordinary_error_prior": 4797795657580544,
+      "ordinary_error_trial": 4798390980313088
+    },
+    {
+      "layer": 1,
+      "blocks": 8192,
+      "changed": 36,
+      "weighted_error_prior": 4843307661960266.0,
+      "weighted_error_trial": 4843071397618086.0,
+      "ordinary_error_prior": 4834547983187968,
+      "ordinary_error_trial": 4834851986341888
+    },
+    {
+      "layer": 2,
+      "blocks": 8192,
+      "changed": 52,
+      "weighted_error_prior": 4323553988606194.0,
+      "weighted_error_trial": 4323283455456785.0,
+      "ordinary_error_prior": 4310268428419072,
+      "ordinary_error_trial": 4310690207629312
+    },
+    {
+      "layer": 3,
+      "blocks": 8192,
+      "changed": 37,
+      "weighted_error_prior": 4019326062921443.5,
+      "weighted_error_trial": 4018928419538642.0,
+      "ordinary_error_prior": 4012347781808128,
+      "ordinary_error_trial": 4012604070559744
+    },
+    {
+      "layer": 4,
+      "blocks": 8192,
+      "changed": 44,
+      "weighted_error_prior": 5338591354259534.0,
+      "weighted_error_trial": 5338255375104442.0,
+      "ordinary_error_prior": 5339781332467712,
+      "ordinary_error_trial": 5340248410161152
+    },
+    {
+      "layer": 5,
+      "blocks": 8192,
+      "changed": 52,
+      "weighted_error_prior": 2391769357761903.0,
+      "weighted_error_trial": 2391543660870336.5,
+      "ordinary_error_prior": 2383143024721920,
+      "ordinary_error_trial": 2383477025538048
+    },
+    {
+      "layer": 6,
+      "blocks": 8192,
+      "changed": 34,
+      "weighted_error_prior": 5286431375854396.0,
+      "weighted_error_trial": 5286014375952593.0,
+      "ordinary_error_prior": 5284339654852608,
+      "ordinary_error_trial": 5284852232355840
+    },
+    {
+      "layer": 7,
+      "blocks": 8192,
+      "changed": 30,
+      "weighted_error_prior": 6661381539117878.0,
+      "weighted_error_trial": 6661175364747769.0,
+      "ordinary_error_prior": 6654748010741760,
+      "ordinary_error_trial": 6654957390397440
+    },
+    {
+      "layer": 8,
+      "blocks": 8192,
+      "changed": 28,
+      "weighted_error_prior": 6833968572777123.0,
+      "weighted_error_trial": 6833679235783745.0,
+      "ordinary_error_prior": 6839721221160960,
+      "ordinary_error_trial": 6839949928169472
+    },
+    {
+      "layer": 9,
+      "blocks": 8192,
+      "changed": 33,
+      "weighted_error_prior": 6504416475524172.0,
+      "weighted_error_trial": 6504209275566686.0,
+      "ordinary_error_prior": 6503690202513408,
+      "ordinary_error_trial": 6503966019944448
+    },
+    {
+      "layer": 10,
+      "blocks": 8192,
+      "changed": 44,
+      "weighted_error_prior": 4175169628245924.0,
+      "weighted_error_trial": 4174947355609064.5,
+      "ordinary_error_prior": 4174268554280960,
+      "ordinary_error_trial": 4174477732610048
+    },
+    {
+      "layer": 11,
+      "blocks": 8192,
+      "changed": 45,
+      "weighted_error_prior": 3300515619832867.5,
+      "weighted_error_trial": 3300368857839667.0,
+      "ordinary_error_prior": 3300608508428288,
+      "ordinary_error_trial": 3300845016842240
+    },
+    {
+      "layer": 12,
+      "blocks": 8192,
+      "changed": 20,
+      "weighted_error_prior": 4017462440324322.0,
+      "weighted_error_trial": 4017414891416376.0,
+      "ordinary_error_prior": 4026462317314048,
+      "ordinary_error_trial": 4026529560395776
+    },
+    {
+      "layer": 13,
+      "blocks": 8192,
+      "changed": 30,
+      "weighted_error_prior": 4543603790458080.0,
+      "weighted_error_trial": 4543477075594839.0,
+      "ordinary_error_prior": 4539104354107392,
+      "ordinary_error_trial": 4539289775898624
+    },
+    {
+      "layer": 14,
+      "blocks": 8192,
+      "changed": 51,
+      "weighted_error_prior": 3343499402309095.0,
+      "weighted_error_trial": 3343135187993955.0,
+      "ordinary_error_prior": 3350167612555264,
+      "ordinary_error_trial": 3350541878689792
+    },
+    {
+      "layer": 15,
+      "blocks": 8192,
+      "changed": 32,
+      "weighted_error_prior": 2521557291796558.0,
+      "weighted_error_trial": 2521403454063949.0,
+      "ordinary_error_prior": 2521236755185664,
+      "ordinary_error_trial": 2521341596008448
+    },
+    {
+      "layer": 16,
+      "blocks": 8192,
+      "changed": 58,
+      "weighted_error_prior": 1507780329814073.5,
+      "weighted_error_trial": 1507675754107836.5,
+      "ordinary_error_prior": 1513862170935296,
+      "ordinary_error_trial": 1514064000843776
+    },
+    {
+      "layer": 17,
+      "blocks": 8192,
+      "changed": 64,
+      "weighted_error_prior": 1319415246497195.8,
+      "weighted_error_trial": 1319233685102886.5,
+      "ordinary_error_prior": 1322837444132864,
+      "ordinary_error_trial": 1323114872176640
+    },
+    {
+      "layer": 18,
+      "blocks": 8192,
+      "changed": 40,
+      "weighted_error_prior": 3892115116233705.0,
+      "weighted_error_trial": 3891939909012583.5,
+      "ordinary_error_prior": 3892391570309120,
+      "ordinary_error_trial": 3892645745131520
+    },
+    {
+      "layer": 19,
+      "blocks": 8192,
+      "changed": 33,
+      "weighted_error_prior": 5700225614601106.0,
+      "weighted_error_trial": 5699867816597096.0,
+      "ordinary_error_prior": 5695178677420032,
+      "ordinary_error_trial": 5695625823780864
+    }
+  ],
+  "weighted_error_pct": -0.00599928342449596,
+  "ordinary_error_pct": 0.006990898309910953,
+  "changed_blocks": 816
+}
