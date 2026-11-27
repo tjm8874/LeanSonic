@@ -556,6 +556,22 @@ def kInk2QuantQ8Packed : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
+/-- INT8-KV instantiation of the unified Split-KV attention (`LEANSONIC_KV=int8`, #14 / T011).
+`__launch_bounds__(256, 4)`; `ptxas` (CUDA 13.0, `sm_120a`): `64` regs, `14,976` B SMEM, `0` stack /
+spill, no `CALL.REL.NOINC`. `64 * 256 = 16,384` regs/CTA; `4` CTAs = `65,536 <= 65,536`;
+`4 * (14976 + 1024) = 64,000` B <= 64 KiB carveout -> 64 KiB L1. -/
+def kInk2GqaAttnSplitI8 : KernelResourceSpec :=
+  { name := "ink2_gqa_attn_split_i8"
+    threadsPerCta := 256
+    rawRegsPerThread := 64
+    userSmemPerCtaBytes := 14976
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
 /-- Unified Split-KV + GQA-Grouped Attention (`56` regs, `14,976` B SMEM -> `4` CTAs = `32` warps/SM, `64` KiB L1!). -/
 def kInk2GqaAttnSplit : KernelResourceSpec :=
   { name := "ink2_gqa_attn_split"
@@ -585,10 +601,12 @@ def kInk2GqaAttnCombine : KernelResourceSpec :=
 def cycle4SplitKvKernelSuite : List KernelResourceSpec :=
   [ kInk2QuantQ8Packed
   , kInk2GqaAttnSplit
+  , kInk2GqaAttnSplitI8
   , kInk2GqaAttnCombine ]
 
 theorem ink2_quant_q8_16_packed_valid : ValidSm120Kernel kInk2QuantQ8Packed := by decide
 theorem ink2_gqa_attn_split_valid : ValidSm120Kernel kInk2GqaAttnSplit := by decide
+theorem ink2_gqa_attn_split_i8_valid : ValidSm120Kernel kInk2GqaAttnSplitI8 := by decide
 theorem ink2_gqa_attn_combine_valid : ValidSm120Kernel kInk2GqaAttnCombine := by decide
 
 theorem cycle4_splitkv_all_kernels_valid :
@@ -690,6 +708,24 @@ def kInk2GqaRelSinkAttnQ8B : KernelResourceSpec :=
     minRequiredL1KiB := 64
     hasStackSpill := false
     hasHotLoopLibmCall := false }
+
+/-- INT8-KV instantiation of the fused attention (`LEANSONIC_KV=int8`, same `40` regs / `8,856` B SMEM -> `6` CTAs). -/
+def kInk2GqaRelSinkAttnQ8BI8 : KernelResourceSpec :=
+  { kInk2GqaRelSinkAttnQ8B with name := "ink2_gqa_rel_sink_attn_q8_b_i8" }
+
+/-- Latency-staged decode / small-verify variant (#56): `75` regs -> `3` CTAs (`57,600` regs/SM). -/
+def kInk2GqaRelSinkAttnQ8Decode : KernelResourceSpec :=
+  { kInk2GqaRelSinkAttnQ8B with
+    name := "ink2_gqa_rel_sink_attn_q8_decode"
+    rawRegsPerThread := 75
+    ctasPerSm := 3 }
+
+/-- INT8-KV instantiation of the staged decode variant: `72` regs -> `3` CTAs. -/
+def kInk2GqaRelSinkAttnQ8DecodeI8 : KernelResourceSpec :=
+  { kInk2GqaRelSinkAttnQ8B with
+    name := "ink2_gqa_rel_sink_attn_q8_decode_i8"
+    rawRegsPerThread := 72
+    ctasPerSm := 3 }
 
 /-- Split-KV Combine + In-Register `Q8_64` Epilogue (`128` threads, `40` regs -> `12` CTAs = `48` warps/SM!). -/
 def kInk2GqaAttnCombineQ8 : KernelResourceSpec :=
@@ -814,6 +850,9 @@ def cycle5GlueFusionKernelSuite : List KernelResourceSpec :=
   , kInk2RmsnormDQuantQ8B
   , kInk2CtrlApplyCoalescedB
   , kInk2GqaRelSinkAttnQ8B
+  , kInk2GqaRelSinkAttnQ8BI8
+  , kInk2GqaRelSinkAttnQ8Decode
+  , kInk2GqaRelSinkAttnQ8DecodeI8
   , kInk2GqaAttnCombineQ8
   , kInk2ShortConv4Save
   , kInk2ShortConv4SaveB
@@ -834,6 +873,15 @@ theorem ink2_ctrl_apply_coalesced_b_valid :
     ValidSm120Kernel kInk2CtrlApplyCoalescedB := by decide
 theorem ink2_gqa_rel_sink_attn_q8_b_valid :
     ValidSm120Kernel kInk2GqaRelSinkAttnQ8B := by decide
+
+theorem ink2_gqa_rel_sink_attn_q8_b_i8_valid :
+    ValidSm120Kernel kInk2GqaRelSinkAttnQ8BI8 := by decide
+
+theorem ink2_gqa_rel_sink_attn_q8_decode_valid :
+    ValidSm120Kernel kInk2GqaRelSinkAttnQ8Decode := by decide
+
+theorem ink2_gqa_rel_sink_attn_q8_decode_i8_valid :
+    ValidSm120Kernel kInk2GqaRelSinkAttnQ8DecodeI8 := by decide
 theorem ink2_gqa_attn_combine_q8_valid :
     ValidSm120Kernel kInk2GqaAttnCombineQ8 := by decide
 theorem ink2_short_conv4_save_valid :
