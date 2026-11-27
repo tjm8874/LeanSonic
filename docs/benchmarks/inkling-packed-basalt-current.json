@@ -1,0 +1,120 @@
+{
+  "model": "Inkling-2-Mini",
+  "kv": "fp16",
+  "context": 8192,
+  "concurrency": 1,
+  "spec_k": 0,
+  "sampling": "greedy",
+  "lean_source": "f407b3ae3aadb59740c51170a5aec325feed5711",
+  "lean_cli_sha256": "ede799f5b823c4517ef83a0cec766e14bcc0baa12e9afacccf8eabaec4abe6bd",
+  "lean_cubin_sha256": "38d5afc8ccbc31ff5fff0107d6376d8d1ffbeeb13d091a878a47b80813dc61a6",
+  "lean_weights": "Five-flag text shard, resident expert scales packed",
+  "lean_shard_sha256": "432691b0c4437415378b918797fcf24add19d9e50dae75ecc1563d7d6445464d",
+  "basalt": "Inkling-only Release build, CUDA architecture 120, upstream main 5fe1928dcc82ad62286d2a622bcbb5d85ebfba2b; Inkling-2-Mini-NVFP4-mxfp8.basalt",
+  "token_file": "docs/benchmarks/inputs/inkling-readme1024.ids",
+  "input_ids_sha256": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843",
+  "expected_ids": [145026, 220, 39446, 220, 19, 154978, 152792, 189134, 149860, 185136, 198, 84375, 149859, 23033, 220, 137294, 196997],
+  "command_lean": "LEANSONIC_GPU_SCALES=packed LEANSONIC_CTX=8192 LEANSONIC_KV=fp16 LEANSONIC_CUBIN_PATH=<joint.cubin> joint-cli bench --weights <compact> --spec 0 --tokens @inkling-readme1024.ids --gen 16 --repeat 1",
+  "command_basalt": "basalt --model Inkling-2-Mini-NVFP4-mxfp8.basalt --tokens-file inkling-readme1024.ids --gpu 0 --kv fp16 --max-context 8192 --spec 0 --temperature 0 --max-new 17",
+  "method": "5 A/B/B/A cycles; four fresh processes per cycle. LeanSonic A emits 16 IDs, Basalt B emits 17 including its prefill sample. Both execute 16 decode steps with identical inputs. Times use the internal prompt/prefill and generation/decode boundaries. Whole process elapsed includes model loading, generation and shutdown. RSS is the host process maximum. The on-disk files use different container formats and can include different components.",
+  "row_columns": [
+    "prefill_ms",
+    "decode16_ms",
+    "process_s",
+    "peak_rss_mib"
+  ],
+  "devices": [
+    {
+      "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+      "uuid": "GPU-4636fd80-68e6-909c-cea4-60f0f4f5601e",
+      "driver": "595.99.02",
+      "power_limit": "350.00 W",
+      "pci_bus": "00000000:03:00.0",
+      "basalt_cli_sha256": "56a17a4ff47db8510329e5c129cb98372d95d14eff7b1d80a2c0085b8d8053ca",
+      "legs_A1_B1_B2_A2": [
+        [
+          [450.24, 107.16, 3.53, 3016.95],
+          [102.0, 92.0, 4.32, 1561.39],
+          [102.0, 92.0, 4.33, 1561.73],
+          [450.65, 107.14, 3.48, 3017.36]
+        ],
+        [
+          [450.74, 107.11, 3.5, 3017.46],
+          [103.0, 92.0, 4.35, 1561.97],
+          [102.0, 92.0, 4.32, 1562.06],
+          [450.47, 107.09, 3.54, 3018.07]
+        ],
+        [
+          [450.67, 107.05, 3.53, 3017.46],
+          [102.0, 92.0, 4.34, 1561.87],
+          [102.0, 92.0, 4.3, 1561.98],
+          [450.81, 107.06, 3.48, 3017.27]
+        ],
+        [
+          [450.9, 107.07, 3.5, 3017.47],
+          [103.0, 92.0, 4.35, 1561.12],
+          [102.0, 92.0, 4.31, 1561.43],
+          [450.59, 107.11, 3.55, 3017.44]
+        ],
+        [
+          [456.99, 107.25, 3.47, 3017.66],
+          [103.0, 92.0, 4.4, 1561.75],
+          [102.0, 92.0, 4.34, 1561.75],
+          [454.15, 107.21, 3.49, 3017.6]
+        ]
+      ],
+      "mean_lean_basalt": {
+        "prefill_ms": [451.621, 102.3],
+        "decode16_ms": [107.125, 92.0],
+        "process_s": [3.507, 4.336],
+        "peak_rss_mib": [3017.474, 1561.705]
+      }
+    },
+    {
+      "gpu": "NVIDIA GeForce RTX 5060 Ti",
+      "uuid": "GPU-2dea8452-6bf2-393f-21c0-85cad3978c40",
+      "driver": "595.99.02",
+      "power_limit": "180.00 W",
+      "pci_bus": "00000000:07:00.0",
+      "basalt_cli_sha256": "56a17a4ff47db8510329e5c129cb98372d95d14eff7b1d80a2c0085b8d8053ca",
+      "legs_A1_B1_B2_A2": [
+        [
+          [1334.34, 396.24, 6.78, 3154.0],
+          [1283.0, 392.0, 6.99, 6044.1],
+          [1284.0, 397.0, 6.98, 6044.5],
+          [1334.63, 396.25, 6.62, 3154.3]
+        ],
+        [
+          [1335.08, 396.28, 6.6, 3154.18],
+          [1284.0, 393.0, 7.02, 6044.62],
+          [1282.0, 388.0, 6.97, 6044.12],
+          [1334.57, 396.3, 6.61, 3153.97]
+        ],
+        [
+          [1334.62, 396.18, 6.64, 3154.23],
+          [1283.0, 391.0, 6.96, 6044.3],
+          [1283.0, 395.0, 6.99, 6044.41],
+          [1335.11, 396.36, 6.59, 3154.11]
+        ],
+        [
+          [1335.3, 396.26, 6.72, 3154.11],
+          [1284.0, 395.0, 6.94, 6044.44],
+          [1283.0, 392.0, 7.09, 6044.18],
+          [1334.27, 396.19, 6.64, 3154.15]
+        ],
+        [
+          [1334.48, 396.22, 6.6, 3153.87],
+          [1283.0, 390.0, 7.0, 6043.96],
+          [1284.0, 395.0, 7.01, 6044.04],
+          [1334.65, 396.19, 6.57, 3154.21]
+        ]
+      ],
+      "mean_lean_basalt": {
+        "prefill_ms": [1334.705, 1283.3],
+        "decode16_ms": [396.247, 392.8],
+        "process_s": [6.637, 6.995],
+        "peak_rss_mib": [3154.113, 6044.267]
+      }
+    }
+  ]
+}
