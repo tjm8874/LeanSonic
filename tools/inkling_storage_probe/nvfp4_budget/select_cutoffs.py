@@ -1,19 +1,30 @@
 """Spend the middle package's additional MXFP8 precision within the original Q3 byte budget."""
 
-import json, struct, sys
+import argparse
+import json
 from pathlib import Path
 import numpy as np
 from choose_codebooks import header, magnitude
 
-if len(sys.argv) not in (5, 6):
-    sys.exit(
-        "usage: select_cutoffs.py OFFICIAL_SHARD MIDDLE OUTPUT TARGET_BYTES [ROUTING_JSON]"
-    )
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("official", type=Path)
+parser.add_argument("base", type=Path)
+parser.add_argument("output", type=Path)
+parser.add_argument("target", type=int)
+parser.add_argument("routing", type=Path, nargs="?")
+parser.add_argument("--trim-baseline", type=Path, help="cutoff JSON for an already measured trim-context package")
+parser.add_argument("--trim-bytes", type=int, help="measured bytes of that entire package")
+args = parser.parse_args()
+if (args.trim_baseline is None) != (args.trim_bytes is None):
+    parser.error("--trim-baseline and --trim-bytes must be supplied together")
+if args.trim_bytes is not None and args.trim_bytes <= 0:
+    parser.error("--trim-bytes must be positive")
+baseline = None
+if args.trim_baseline is not None:
+    baseline = json.loads(args.trim_baseline.read_text())["cutoffs"]
 factors = np.ones((20, 128))
-if len(sys.argv) == 6:
-    factors = np.asarray(
-        json.loads(Path(sys.argv[5]).read_text())["factor"], dtype=np.float64
-    )
+if args.routing is not None:
+    factors = np.asarray(json.loads(args.routing.read_text())["factor"], dtype=np.float64)
     if (
         factors.shape != (20, 128)
         or not np.isfinite(factors).all()
@@ -23,7 +34,7 @@ if len(sys.argv) == 6:
         raise ValueError(
             "expected 20 x 128 finite expert factors >= 0.5 with per-layer mean 1"
         )
-official, base, maps = map(Path, sys.argv[1:4])
+official, base, maps = args.official, args.base, args.output
 shard = "model-00001-of-00001.safetensors"
 with official.open("rb") as f:
     original, start = header(f)
@@ -72,6 +83,23 @@ def rate(blocks):
     return bits / 8
 
 
+def trim_rate(blocks):
+    maximum = np.zeros(len(blocks), dtype=np.int32)
+    seen = np.zeros(len(blocks), dtype=bool)
+    total = 0.0
+    for column in blocks.T:
+        context = 2 * maximum + seen
+        hist = np.bincount(context * 256 + column, minlength=4096).reshape(16, 256)
+        rows, symbols = np.nonzero(hist)
+        counts = hist[rows, symbols]
+        total += np.dot(counts, np.log2(hist.sum(axis=1)[rows] / counts))
+        lo, hi = column & 7, (column >> 4) & 7
+        maximum = np.maximum(maximum, np.maximum(lo, hi))
+        seen |= (lo == 1) | (lo == 3) | (hi == 1) | (hi == 3)
+    return total / 8
+
+
+frame_rate = rate if baseline is None else trim_rate
 planes = {}
 for layer in range(20):
     for plane in ["w13", "w2"]:
@@ -102,17 +130,25 @@ for layer in range(20):
         # Three visits to each recurrent layer. Compare impact per changed weight.
         risk = actual * (3 if 6 <= layer < 18 else 1) / signal
         risk *= factors[layer, :, None]
+        anchor = codes
+        if baseline is not None:
+            cutoffs = np.asarray(baseline[name])
+            if cutoffs.shape != (128,) or np.any((cutoffs < -1) | (cutoffs > 126)):
+                raise ValueError(f"invalid baseline cutoffs for {name}")
+            anchor = np.where((scale <= cutoffs[ex])[:, None], trim[codes], codes)
         planes[name] = (
             codes,
             trim[codes],
             ex,
             scale,
             risk,
-            rate(codes),
+            frame_rate(anchor),
             weights.size / codes.size,
         )
-size = sum(f.stat().st_size for f in base.rglob("*") if f.is_file())
-target = int(sys.argv[4])
+size = args.trim_bytes if baseline is not None else sum(
+    f.stat().st_size for f in base.rglob("*") if f.is_file()
+)
+target = args.target
 
 
 def estimate(th):
@@ -123,7 +159,7 @@ def estimate(th):
         thresholds = (np.sum(risk <= th, axis=1) - 1).tolist()
         mask = scale <= np.array(thresholds)[ex]
         result = np.where(mask[:, None], cut, codes)
-        savings += (old - rate(result)) * factor
+        savings += (old - frame_rate(result)) * factor
         luts[key] = thresholds
     return round(size - savings), luts
 
