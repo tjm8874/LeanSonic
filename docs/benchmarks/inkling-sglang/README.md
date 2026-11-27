@@ -37,3 +37,19 @@ LEANSONIC_KV=fp16 LEANSONIC_PDL=1 LEANSONIC_SEQS=1 LEANSONIC_CUBIN_PATH="$PINNED
 ```
 
 [Native phase metrics and predictions](timing.json) · [configuration and all requests](functional.json) · [answers and token hashes](scores.json) · [SGLang peak sample](sglang-peak.json).
+
+## Where the canonical prefill spends GPU time
+
+A separate Nsight Systems capture of the second 1,024-token prefill recorded 1,324 GPU kernel launches. The packed NVFP4 expert gate/up kernel accounted for 33.379 ms across 44 launches and its down projection for 13.300 ms across 44 launches. Q8 Tensor Core GEMM was next at 8.364 ms. From the first kernel start to the last end, at least one kernel was active for 89.435 of 89.797 ms. This profiled request produced the same top ID (145026) as warm-up. The main timing comparison above uses uninstrumented requests.
+
+Build [profile.rs](profile.rs) as example `inkling_warm_prefill` in the pinned LeanSonic source tree, with libcuda available for linking. Set the same model, cubin, FP16 KV, one slot and PDL settings as for the replay. Run the following in a fresh directory.
+
+```sh
+nsys profile --sample=none --cpuctxsw=none --trace=cuda --cuda-graph-trace=node \
+  --capture-range=cudaProfilerApi --capture-range-end=stop --output=prefill \
+  "$PINNED/target/release/examples/inkling_warm_prefill" "$MODEL" inkling-readme1024.ids
+nsys export --type sqlite --output prefill.sqlite prefill.nsys-rep
+python3 "$bench/summarize_prefill.py"
+```
+
+[Per-kernel launch counts and GPU durations](prefill-kernels.json).
