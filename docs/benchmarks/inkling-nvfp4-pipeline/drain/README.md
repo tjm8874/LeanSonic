@@ -1,6 +1,6 @@
 # Omitting redundant pipeline drain barriers
 
-Change only the CUBIN (a1bf5e3 versus 1cdc654). Both use the same indexed-weight host executable and [13,626,745,974-byte compact model recipe](https://github.com/tjm8874/LeanSonic/pull/167).
+Change only the CUBIN (a1bf5e3 versus 1cdc654). Both use the same indexed-weight host executable and [13,445,948,726-byte capped compact model recipe](https://github.com/tjm8874/LeanSonic/tree/58c993f/docs/benchmarks/inkling-codebooks/nvfp4-budget/capped).
 
 The executable creates a 4096-token engine and runs batch 1 with FP16 KV, spec 0 and PDL enabled. Each process repeats 32/1024/2048-token requests four times, with a 64-token greedy continuation. The 2048 prefix repeats the 1024 input. Each of five cycles runs two processes per arm in ABBA or BAAB order. Exclude the first sweep per process from timings and retain it for exact-token and final-logit hash verification. Bootstrap intervals resample the five paired cycles.
 
