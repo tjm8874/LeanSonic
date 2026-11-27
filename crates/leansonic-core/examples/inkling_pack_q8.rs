@@ -6,14 +6,17 @@ use std::io::{self, Read, Write};
 fn main() -> io::Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if let [mode, size] = args.as_slice() {
-        if matches!(mode.as_str(), "mxfp8-size" | "mxfp8-pack") {
+        if matches!(
+            mode.as_str(),
+            "mxfp8-size" | "mxfp8-pack" | "rans-size" | "rans-pack"
+        ) {
             let n: usize = size.parse().map_err(io::Error::other)?;
             if n == 0 || n > 128 * 2304 * 2304 {
                 return Err(io::Error::other("invalid MXFP8 matrix size"));
             }
             let mut raw = vec![0; n];
             io::stdin().lock().read_exact(&mut raw)?;
-            if mode == "mxfp8-size" {
+            if mode.ends_with("-size") {
                 println!("{}", leansonic_core::inkling_mxfp8::pack(&raw, io::sink())?);
             } else {
                 let mut dst = io::BufWriter::new(io::stdout().lock());
