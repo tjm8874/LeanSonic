@@ -245,6 +245,16 @@
       "regular_token": null,
       "speculative_token": null
     },
+    "release-PRO5000": {
+      "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+      "generated": 200,
+      "spec_width": 7,
+      "regular_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "speculative_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
     "release-PRO4500": {
       "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
       "generated": 200,
@@ -257,6 +267,23 @@
     }
   },
   "quality": {
+    "old-test-quality": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.072582283191336,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.003175525720314373,
+      "median_kld": 0.0012816721567639787,
+      "p99_kld": 0.030938605542115,
+      "max_kld": 0.674715904066122,
+      "start_chunk": 0,
+      "max_kld_chunk": 69,
+      "max_kld_position": 353,
+      "ref_floor_targets": 14,
+      "top1_matches": 24879,
+      "top1_agreement": 0.9756470588235294
+    },
     "test-quality": {
       "chunks": 100,
       "context": 512,
@@ -273,6 +300,23 @@
       "ref_floor_targets": 14,
       "top1_matches": 24865,
       "top1_agreement": 0.9750980392156863
+    },
+    "old-valid-quality": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 6.505563065610817,
+      "ref_ppl": 6.498588819010602,
+      "mean_kld": 0.0027494108255580276,
+      "median_kld": 0.0010238906104672874,
+      "p99_kld": 0.027606991099292433,
+      "max_kld": 0.5101780709426357,
+      "start_chunk": 0,
+      "max_kld_chunk": 91,
+      "max_kld_position": 507,
+      "ref_floor_targets": 10,
+      "top1_matches": 24948,
+      "top1_agreement": 0.9783529411764705
     },
     "valid-quality": {
       "chunks": 100,
