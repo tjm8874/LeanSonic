@@ -13,6 +13,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut tokens = None;
     let mut seqs = 4usize;
     let mut gen = 32usize;
+    let mut round_rows = 8usize;
+    let mut check = true;
     let mut i = 0;
     while i < args.len() {
         let v = args.get(i + 1).cloned();
@@ -21,13 +23,19 @@ pub fn run(args: &[String]) -> Result<(), String> {
             "--tokens" => tokens = v,
             "--seqs" => seqs = v.and_then(|s| s.parse().ok()).ok_or("bad --seqs")?,
             "--gen" => gen = v.and_then(|s| s.parse().ok()).ok_or("bad --gen")?,
+            "--round" => round_rows = v.and_then(|s| s.parse().ok()).ok_or("bad --round")?,
+            "--no-check" => {
+                check = false;
+                i += 1;
+                continue;
+            }
             other => return Err(format!("unknown argument `{other}`")),
         }
         i += 2;
     }
     let dir = dir.ok_or("missing --weights <dir>")?;
     let base = crate::parse_bench_tokens(&tokens.ok_or("missing --tokens")?)?;
-    if base.len() < 8 * seqs {
+    if base.len() < 3 * seqs + 8 {
         return Err("prompt too short for the requested number of sequences".into());
     }
     // Sequence `s` drops its last `3 * s` prompt tokens so the sequences differ.
@@ -47,7 +55,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     // 1) Each sequence alone.
     let mut alone = Vec::new();
-    for (s, p) in prompts.iter().enumerate() {
+    for (s, p) in prompts.iter().enumerate().filter(|_| check) {
         eng.select_seq(s)?;
         eng.reset()?;
         let (mut tok, _) = eng.prefill_tokens(p)?;
@@ -61,7 +69,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // 2) All sequences interleaved token by token.
     let mut cur: Vec<u32> = Vec::new();
     let mut inter: Vec<Vec<u32>> = Vec::new();
-    for (s, p) in prompts.iter().enumerate() {
+    for (s, p) in prompts.iter().enumerate().filter(|_| check) {
         eng.select_seq(s)?;
         eng.reset()?;
         let (tok, _) = eng.prefill_tokens(p)?;
@@ -69,7 +77,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         inter.push(vec![tok]);
     }
     let t0 = Instant::now();
-    for _ in 1..gen {
+    for _ in (1..gen).filter(|_| check) {
         for s in 0..seqs {
             eng.select_seq(s)?;
             let t = eng.forward_greedy_token(cur[s])?;
@@ -90,7 +98,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
     let t1 = Instant::now();
     for _ in 1..gen {
-        for chunk in (0..seqs).collect::<Vec<_>>().chunks(8) {
+        for chunk in (0..seqs).collect::<Vec<_>>().chunks(round_rows) {
             let toks: Vec<u32> = chunk.iter().map(|&s| cur3[s]).collect();
             let next = eng.decode_round(chunk, &toks)?;
             for (k, &s) in chunk.iter().enumerate() {
@@ -106,12 +114,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
         (seqs * (gen - 1)) as f64 / (ms3 / 1e3)
     );
     let mut ok = true;
-    for s in 0..seqs {
+    for s in (0..seqs).filter(|_| check) {
         let first = alone[s].iter().zip(&round[s]).position(|(a, b)| a != b);
         println!("seq {s}: alone vs batched rounds first diff {first:?}");
         ok &= first.is_none();
     }
-    for s in 0..seqs {
+    for s in (0..seqs).filter(|_| check) {
         let first = alone[s].iter().zip(&inter[s]).position(|(a, b)| a != b);
         let h = alone[s].iter().fold(0xcbf29ce484222325u64, |h, &t| {
             (h ^ t as u64).wrapping_mul(0x100000001b3)
