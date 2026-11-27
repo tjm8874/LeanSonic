@@ -23,3 +23,5 @@ export LEANSONIC_KV=fp16 LEANSONIC_CTX=8192 LEANSONIC_CUBIN_PATH="$PWD/inkling.c
 target/release/leansonic eval-kld --weights "$NATIVE" --ref "$BF16_KLD" --chunks 100
 target/release/leansonic eval-kld --weights "$CANDIDATE" --ref "$BF16_KLD" --chunks 100
 ```
+
+The default V12 build at `7a02b538` was also tested on PRO 5000. Use the same build commands at that revision, with FP16 KV and default Tensor Core prefill. The immutable stock dictionary gave mean KL 0.003175526 and max KL 0.674716. The grid candidate gave 0.003140554 and 0.564691, respectively. Top-1 matches increased from 24,879 to 24,910. PPL increased from 7.072582 to 7.072916. Both V12 runs missed the project quality targets.

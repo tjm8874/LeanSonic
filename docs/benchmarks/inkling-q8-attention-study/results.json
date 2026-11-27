@@ -83,6 +83,23 @@
     "top1_matches": 24879,
     "top1_agreement": 0.9756470588235294
   },
+  "v12-grid": {
+    "chunks": 100,
+    "context": 512,
+    "rows": 25500,
+    "ppl": 7.072915903268071,
+    "ref_ppl": 7.064408191101908,
+    "mean_kld": 0.003140554202331062,
+    "median_kld": 0.0012561441762807893,
+    "p99_kld": 0.030335159996474022,
+    "max_kld": 0.5646905514937366,
+    "start_chunk": 0,
+    "max_kld_chunk": 69,
+    "max_kld_position": 353,
+    "ref_floor_targets": 14,
+    "top1_matches": 24910,
+    "top1_agreement": 0.9768627450980392
+  },
   "selected_simt_rows": {
     "2/476": {
       "raw": {
