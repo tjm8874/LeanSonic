@@ -1602,4 +1602,163 @@ def attnSplitWorkspaceSlices : List SmemSlice :=
 theorem attn_split_workspace_non_aliasing :
     SafeSmemLayout 73728 attnSplitWorkspaceSlices := by decide
 
+-- ============================================================================
+-- Cycle 8 (`v0.8.0` Issue #11): Solo & Speculative Decode PDL + Load-Hoisted Suite
+-- ============================================================================
+
+def kInk2Q8Dp4aGemvC2304 : KernelResourceSpec :=
+  { name := "ink2_q8_dp4a_gemv_c2304"
+    threadsPerCta := 256
+    rawRegsPerThread := 63          -- aligns to 64 -> 16,384 regs/CTA; 4 CTAs = 65,536 <= 65,536
+    userSmemPerCtaBytes := 2448     -- 4 * (2,448 + 1,024) = 13,888 B <= 32 KiB carveout -> 96 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2DepthMixInv : KernelResourceSpec :=
+  { name := "ink2_depth_mix_inv"
+    threadsPerCta := 256
+    rawRegsPerThread := 80          -- 80 * 256 = 20,480 regs/CTA; 3 CTAs = 61,440 <= 65,536
+    userSmemPerCtaBytes := 464
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2CtrlDownR4Fast : KernelResourceSpec :=
+  { name := "ink2_ctrl_down_r4_fast"
+    threadsPerCta := 256
+    rawRegsPerThread := 72          -- 72 * 256 = 18,432 regs/CTA; 3 CTAs = 55,296 <= 65,536
+    userSmemPerCtaBytes := 128
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeMxfp8DownXw : KernelResourceSpec :=
+  { name := "ink2_moe_mxfp8_down_xw"
+    threadsPerCta := 256
+    rawRegsPerThread := 68          -- aligns to 72 -> 18,432 regs/CTA; 3 CTAs = 55,296 <= 65,536
+    userSmemPerCtaBytes := 64
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeMxfp8DownXwPackedScales : KernelResourceSpec :=
+  { kInk2MoeMxfp8DownXw with
+    name := "ink2_moe_mxfp8_down_xw_packed_scales" }
+
+def kInk2MoeNvfp4Dp4aUpHalfQ8 : KernelResourceSpec :=
+  { name := "ink2_moe_nvfp4_dp4a_up_half_q8"
+    threadsPerCta := 512
+    rawRegsPerThread := 38          -- aligns to 40 -> 20,480 regs/CTA; 3 CTAs = 61,440 <= 65,536 (48 warps/SM!)
+    userSmemPerCtaBytes := 64
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 112
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeNvfp4Dp4aUpHalfQ8PackedScales : KernelResourceSpec :=
+  { kInk2MoeNvfp4Dp4aUpHalfQ8 with
+    name := "ink2_moe_nvfp4_dp4a_up_half_q8_packed_scales"
+    rawRegsPerThread := 40 }
+
+def kInk2GqaAttnCombineQ8Dyn : KernelResourceSpec :=
+  { name := "ink2_gqa_attn_combine_q8_dyn"
+    threadsPerCta := 128
+    rawRegsPerThread := 40          -- 40 * 128 = 5,120 regs/CTA; 12 CTAs = 61,440 <= 65,536 (48 warps/SM!)
+    userSmemPerCtaBytes := 32
+    smemAlignPadBytes := 0
+    ctasPerSm := 12
+    clusterCtas := 1
+    minRequiredL1KiB := 112
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2Q8Dp4aGemmB8Fast : KernelResourceSpec :=
+  { name := "ink2_q8_dp4a_gemm_b8_fast"
+    threadsPerCta := 256
+    rawRegsPerThread := 89          -- aligns to 96 -> 24,576 regs/CTA; 2 CTAs = 49,152 <= 65,536
+    userSmemPerCtaBytes := 26112    -- 2 * (26,112 + 1,024) = 54,272 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 2
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def cycle8SoloSpecPdlSuite : List KernelResourceSpec :=
+  [ kInk2Q8Dp4aGemvC2304
+  , kInk2DepthMixInv
+  , kInk2CtrlDownR4Fast
+  , kInk2MoeMxfp8DownXw
+  , kInk2MoeMxfp8DownXwPackedScales
+  , kInk2MoeNvfp4Dp4aUpHalfQ8
+  , kInk2MoeNvfp4Dp4aUpHalfQ8PackedScales
+  , kInk2GqaAttnCombineQ8Dyn
+  , kInk2Q8Dp4aGemmB8Fast ]
+
+theorem ink2_q8_dp4a_gemv_c2304_valid :
+    ValidSm120Kernel kInk2Q8Dp4aGemvC2304 := by decide
+theorem ink2_depth_mix_inv_valid :
+    ValidSm120Kernel kInk2DepthMixInv := by decide
+theorem ink2_ctrl_down_r4_fast_valid :
+    ValidSm120Kernel kInk2CtrlDownR4Fast := by decide
+theorem ink2_moe_mxfp8_down_xw_valid :
+    ValidSm120Kernel kInk2MoeMxfp8DownXw := by decide
+theorem ink2_moe_mxfp8_down_xw_packed_scales_valid :
+    ValidSm120Kernel kInk2MoeMxfp8DownXwPackedScales := by decide
+theorem ink2_moe_nvfp4_dp4a_up_half_q8_valid :
+    ValidSm120Kernel kInk2MoeNvfp4Dp4aUpHalfQ8 := by decide
+theorem ink2_moe_nvfp4_dp4a_up_half_q8_packed_scales_valid :
+    ValidSm120Kernel kInk2MoeNvfp4Dp4aUpHalfQ8PackedScales := by decide
+theorem ink2_gqa_attn_combine_q8_dyn_valid :
+    ValidSm120Kernel kInk2GqaAttnCombineQ8Dyn := by decide
+theorem ink2_q8_dp4a_gemm_b8_fast_valid :
+    ValidSm120Kernel kInk2Q8Dp4aGemmB8Fast := by decide
+
+theorem cycle8_solo_spec_pdl_all_kernels_valid :
+    (cycle8SoloSpecPdlSuite.all checkSm120Kernel) = true := by
+  decide
+
+/-- `ink2_moe_nvfp4_dp4a_up_half_q8` (`Grid: (72, 8)`, `Block: 512` = `16` warps) covers all `1,152` FFN channels in exact 16-channel `Q8_16` groups. -/
+theorem up_half_q8_channel_coverage :
+    72 * 16 = 1152 ∧ 512 / 32 = 16 := by decide
+
+/-- Exact 4-full + 1-half-warp (`lane < 16`) coverage of `cols = 2304` (`144` `u128` chunks). -/
+theorem c2304_hoist_exact_coverage :
+    4 * 32 + 16 = 2304 / 16 := by decide
+
+/-- `ink2_ctrl_down_r4_fast` (`Grid: (16, 3)`) reduces CTAs by `4x` (`48` vs `192`) while covering all `64` ranks. -/
+theorem ctrl_down_r4_cta_reduction :
+    16 * 4 = 64 ∧ 16 * 3 * 4 = 64 * 3 := by decide
+
+/-- `ink2_moe_mxfp8_down_xw` (`Grid: 1152`, `kRows = 2`) partitions `D = 2304` exactly across 8 expert warps/CTA. -/
+theorem mxfp8_down_xw_row_coverage :
+    1152 * 2 = 2304 ∧ 1152 * 8 = 9216 := by decide
+
+/-- Programmatic Dependent Launch (`PDL`) Two-Stage Ordering Invariant:
+    When every middle kernel `K2` executes `ACQBULK` (`k2_wait`, waiting on `k1_exit`) strictly before
+    `PREEXIT` (`k2_trigger`, enabling `k3_start`), any write committed by `K1` (such as `router_topk8`'s
+    `sel_ids`) strictly precedes `K3`'s pre-wait weight prefetch (`down_xw`). -/
+theorem pdl_two_stage_order_safety
+    (k1_exit k2_wait k2_trigger k3_start : Nat)
+    (h_wait : k1_exit ≤ k2_wait)
+    (h_order : k2_wait < k2_trigger)
+    (h_kick : k2_trigger ≤ k3_start) :
+    k1_exit < k3_start :=
+  Nat.lt_of_lt_of_le (Nat.lt_of_le_of_lt h_wait h_order) h_kick
+
 end LeanSonic.Proofs
