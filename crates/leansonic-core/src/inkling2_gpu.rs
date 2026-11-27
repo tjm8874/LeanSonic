@@ -10620,4 +10620,444 @@ mod tests {
             [[true; 2]; N_LAYER]
         );
     }
+
+    /// Exact-size boundary harness (#179): every planar Q8_64 reader and the DFlash 2 kernels
+    /// run on buffers allocated to exactly their logical size (no tail padding, odd row counts
+    /// and token counts), and their outputs are checked against a CPU reference. Run it under
+    /// `compute-sanitizer --tool memcheck` to turn any tail over-read into a hard error:
+    ///
+    /// `compute-sanitizer --tool memcheck <leansonic_core test binary> --ignored exact_size`
+    ///
+    /// `exact_size_red_control_overread` is the planted fault: the same GEMV told it has 16
+    /// more rows than its buffers hold, which memcheck must report.
+    mod exact_size {
+        use super::*;
+        use crate::inkling2_dflash2::load_dflash2_kernels;
+
+        struct Lcg(u64);
+        impl Lcg {
+            fn next(&mut self) -> u32 {
+                self.0 = self
+                    .0
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                (self.0 >> 33) as u32
+            }
+            fn code(&mut self) -> i8 {
+                ((self.next() % 255) as i32 - 127) as i8
+            }
+            fn unit(&mut self) -> f32 {
+                (self.next() % 10_000) as f32 / 10_000.0
+            }
+        }
+
+        struct Q8 {
+            codes: Vec<i8>,
+            scales: Vec<f32>,
+            cols: usize,
+        }
+
+        impl Q8 {
+            fn random(rng: &mut Lcg, rows: usize, cols: usize) -> Self {
+                Self {
+                    codes: (0..rows * cols).map(|_| rng.code()).collect(),
+                    scales: (0..rows * cols / 64)
+                        .map(|_| 0.001 + 0.01 * rng.unit())
+                        .collect(),
+                    cols,
+                }
+            }
+            fn upload(
+                &self,
+                ctx: &Arc<CudaContextHandle>,
+            ) -> Result<(DeviceBuf, DeviceBuf), String> {
+                let codes: Vec<u8> = self.codes.iter().map(|&c| c as u8).collect();
+                let scales: Vec<u8> = self.scales.iter().flat_map(|s| s.to_le_bytes()).collect();
+                Ok((
+                    DeviceBuf::from_host_bytes(ctx, &codes)?,
+                    DeviceBuf::from_host_bytes(ctx, &scales)?,
+                ))
+            }
+            /// `w[r] . x[t]` with per-64-column scales.
+            fn dot(&self, r: usize, x: &Q8, t: usize) -> f32 {
+                let g = self.cols / 64;
+                let mut acc = 0f64;
+                for c64 in 0..g {
+                    let mut d = 0i64;
+                    for j in 0..64 {
+                        let c = c64 * 64 + j;
+                        d += self.codes[r * self.cols + c] as i64 * x.codes[t * x.cols + c] as i64;
+                    }
+                    acc +=
+                        d as f64 * self.scales[r * g + c64] as f64 * x.scales[t * g + c64] as f64;
+                }
+                acc as f32
+            }
+        }
+
+        fn module(ctx: &Arc<CudaContextHandle>) -> Result<CUmodule, String> {
+            let image = match std::env::var("LEANSONIC_CUBIN_PATH") {
+                Ok(p) => std::fs::read(&p).map_err(|e| format!("read {p}: {e}"))?,
+                Err(_) => compile_cuda_to_ptx_nvrtc(CUDA_KERNEL_SRC, "compute_120")?,
+            };
+            let mut m: CUmodule = core::ptr::null_mut();
+            unsafe {
+                check_cu(
+                    (ctx.api.cuModuleLoadData)(&mut m, image.as_ptr().cast()),
+                    "load",
+                )?
+            };
+            Ok(m)
+        }
+
+        fn func(
+            ctx: &Arc<CudaContextHandle>,
+            m: CUmodule,
+            name: &str,
+        ) -> Result<CUfunction, String> {
+            let c = CString::new(name).unwrap();
+            let mut f: CUfunction = core::ptr::null_mut();
+            unsafe { check_cu((ctx.api.cuModuleGetFunction)(&mut f, m, c.as_ptr()), name)? };
+            Ok(f)
+        }
+
+        fn run(
+            ctx: &Arc<CudaContextHandle>,
+            f: CUfunction,
+            grid: (u32, u32),
+            block: u32,
+            args: &mut [*mut c_void],
+        ) -> Result<(), String> {
+            unsafe {
+                check_cu(
+                    (ctx.api.cuLaunchKernel)(
+                        f,
+                        grid.0,
+                        grid.1,
+                        1,
+                        block,
+                        1,
+                        1,
+                        0,
+                        ctx.compute_stream,
+                        args.as_mut_ptr(),
+                        core::ptr::null_mut(),
+                    ),
+                    "launch",
+                )?;
+            }
+            ctx.sync_compute()
+        }
+
+        fn check(name: &str, got: &[f32], want: &[f32]) -> Result<(), String> {
+            for (i, (&g, &w)) in got.iter().zip(want).enumerate() {
+                if (g - w).abs() > 1e-3 * (1.0 + w.abs()) {
+                    return Err(format!("{name}: element {i}: got {g}, want {w}"));
+                }
+            }
+            Ok(())
+        }
+
+        macro_rules! args {
+            ($($v:ident),* $(,)?) => { [$((&mut $v as *mut _) as *mut c_void),*] };
+        }
+
+        /// One planar GEMV / GEMM launch on exact-size buffers, checked against the CPU.
+        #[allow(clippy::too_many_arguments)]
+        fn gemm_case(
+            ctx: &Arc<CudaContextHandle>,
+            f: CUfunction,
+            name: &str,
+            rows: usize,
+            cols: usize,
+            b: usize,
+            batched: Option<bool>, // None = GEMV args; Some(softcap_arg) = GEMM args
+            grid: (u32, u32),
+            block: u32,
+            rows_claimed: usize,
+        ) -> Result<(), String> {
+            let mut rng = Lcg((rows * 131 + cols * 7 + b) as u64);
+            let w = Q8::random(&mut rng, rows, cols);
+            let x = Q8::random(&mut rng, b, cols);
+            let (wc, ws) = w.upload(ctx)?;
+            let (xc, xs) = x.upload(ctx)?;
+            let y = DeviceBuf::alloc_zeroed(ctx, b * rows * 4)?;
+            let (mut pw, mut pws, mut px, mut pxs, mut py) =
+                (wc.ptr, ws.ptr, xc.ptr, xs.ptr, y.ptr);
+            let (mut r, mut c, mut sc) = (rows_claimed as i32, cols as i32, 0.0f32);
+            let (mut bb, mut ys) = (b as i32, rows as i32);
+            match batched {
+                None => run(
+                    ctx,
+                    f,
+                    grid,
+                    block,
+                    &mut args![pw, pws, px, pxs, py, r, c, sc],
+                )?,
+                Some(true) => run(
+                    ctx,
+                    f,
+                    grid,
+                    block,
+                    &mut args![pw, pws, px, pxs, py, r, c, bb, ys, sc],
+                )?,
+                Some(false) => run(
+                    ctx,
+                    f,
+                    grid,
+                    block,
+                    &mut args![pw, pws, px, pxs, py, r, c, bb, ys],
+                )?,
+            }
+            let mut got = vec![0f32; b * rows];
+            y.copy_to_host_f32(&mut got)?;
+            let want: Vec<f32> = (0..b)
+                .flat_map(|t| (0..rows).map(move |rr| (t, rr)))
+                .map(|(t, rr)| w.dot(rr, &x, t))
+                .collect();
+            check(
+                &format!("{name} rows={rows} cols={cols} B={b}"),
+                &got,
+                &want,
+            )
+        }
+
+        #[test]
+        #[ignore = "requires a CUDA device; run under compute-sanitizer --tool memcheck"]
+        fn exact_size_q8_readers_match_cpu() -> Result<(), String> {
+            let ctx = CudaContextHandle::init(0)?;
+            let m = module(&ctx)?;
+            let g16 = |rows: usize| (rows as u32).div_ceil(16);
+            for rows in [17usize, 33] {
+                // GEMV twins (B = 1).
+                for (name, cols, grid, block) in [
+                    ("ink2_q8_dp4a_gemv", 256, g16(rows), 256),
+                    ("ink2_q8_dp4a_gemv", 2304, g16(rows), 256),
+                    ("ink2_q8_dp4a_gemv", 3072, g16(rows), 256),
+                    ("ink2_q8_dp4a_gemv_c2304", 2304, g16(rows), 256),
+                    (
+                        "ink2_q8_dp4a_gemv_c2304_r1",
+                        2304,
+                        (rows as u32).div_ceil(8),
+                        256,
+                    ),
+                    ("ink2_q8_dp4a_gemv_c3072", 3072, g16(rows), 256),
+                    (
+                        "ink2_q8_dp4a_gemv_c3072_r1",
+                        3072,
+                        (rows as u32).div_ceil(8),
+                        256,
+                    ),
+                    ("ink2_q8_dp4a_gemv_4r", 2304, (rows as u32).div_ceil(4), 64),
+                ] {
+                    let f = func(&ctx, m, name)?;
+                    gemm_case(&ctx, f, name, rows, cols, 1, None, (grid, 1), block, rows)?;
+                }
+                // Batched GEMMs, odd token counts.
+                for b in [1usize, 3, 8] {
+                    for cols in [256usize, 2304, 3072] {
+                        let f = func(&ctx, m, "ink2_q8_dp4a_gemm_b8_fast")?;
+                        gemm_case(
+                            &ctx,
+                            f,
+                            "b8_fast",
+                            rows,
+                            cols,
+                            b,
+                            Some(true),
+                            (g16(rows), 1),
+                            256,
+                            rows,
+                        )?;
+                    }
+                    for cols in [256usize, 2304, 4608, 9216] {
+                        let f = func(&ctx, m, "ink2_q8_dp4a_gemm_ktiled")?;
+                        gemm_case(
+                            &ctx,
+                            f,
+                            "ktiled",
+                            rows,
+                            cols,
+                            b,
+                            Some(false),
+                            (g16(rows), 1),
+                            256,
+                            rows,
+                        )?;
+                    }
+                }
+                for b in [1usize, 9, 19] {
+                    let f = func(&ctx, m, "ink2_q8_dp4a_gemm_b")?;
+                    let grid = (g16(rows), (b as u32).div_ceil(8));
+                    gemm_case(
+                        &ctx,
+                        f,
+                        "gemm_b",
+                        rows,
+                        2304,
+                        b,
+                        Some(true),
+                        grid,
+                        256,
+                        rows,
+                    )?;
+                }
+            }
+            // Q8_64 activation quantizer: B = 3 rows of 2304 exactly.
+            let (b, cols) = (3usize, 2304usize);
+            let mut rng = Lcg(7);
+            let xs: Vec<f32> = (0..b * cols).map(|_| rng.unit() * 2.0 - 1.0).collect();
+            let xb = DeviceBuf::from_host_bytes(
+                &ctx,
+                &xs.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>(),
+            )?;
+            let q = DeviceBuf::alloc_zeroed(&ctx, b * cols)?;
+            let s = DeviceBuf::alloc_zeroed(&ctx, b * cols / 64 * 4)?;
+            let (mut px, mut pq, mut ps, mut c) = (xb.ptr, q.ptr, s.ptr, cols as i32);
+            run(
+                &ctx,
+                func(&ctx, m, "ink2_quant_q8_64_b")?,
+                ((cols / 64) as u32, b as u32),
+                64,
+                &mut args![px, pq, ps, c],
+            )?;
+            let mut sc = vec![0f32; b * cols / 64];
+            s.copy_to_host_f32(&mut sc)?;
+            for (g, &got) in sc.iter().enumerate() {
+                let amax = xs[g * 64..g * 64 + 64]
+                    .iter()
+                    .fold(0f32, |a, v| a.max(v.abs()));
+                check("ink2_quant_q8_64_b scale", &[got], &[amax / 127.0])?;
+            }
+            Ok(())
+        }
+
+        #[test]
+        #[ignore = "requires a CUDA device; run under compute-sanitizer --tool memcheck"]
+        fn exact_size_dflash2_kernels_match_cpu() -> Result<(), String> {
+            let ctx = CudaContextHandle::init(0)?;
+            let k = load_dflash2_kernels(&ctx)?;
+            // Split-K GEMM: 8 block rows, every slice count the drafter uses, plus the commit's
+            // row-segment mapping ending exactly at the last weight row.
+            for (rows, cols, slices, seg) in [
+                (32usize, 6912usize, 4usize, None),
+                (48, 2304, 2, None),
+                (16, 9216, 6, None),
+                (160, 2304, 2, Some((32usize, 96usize, 64usize))),
+            ] {
+                let phys_rows = seg.map_or(rows, |(s, st, _)| (rows / s) * st);
+                let mut rng = Lcg((rows + cols) as u64);
+                let w = Q8::random(&mut rng, phys_rows, cols);
+                let x = Q8::random(&mut rng, 8, cols);
+                let (wc, ws) = w.upload(&ctx)?;
+                let (xc, xs) = x.upload(&ctx)?;
+                let out = DeviceBuf::alloc_zeroed(&ctx, slices * 8 * rows * 4)?;
+                let (s, st, so) = seg.unwrap_or((rows, 0, 0));
+                let (mut pw, mut pws, mut px, mut pxs, mut po) =
+                    (wc.ptr, ws.ptr, xc.ptr, xs.ptr, out.ptr);
+                let (mut r, mut c, mut sl) =
+                    (rows as i32, cols as i32, (cols / 16 / slices) as i32);
+                let (mut sg, mut sst, mut sso) = (s as i32, st as i32, so as i32);
+                run(
+                    &ctx,
+                    k.gemm_sk,
+                    ((rows / 16) as u32, slices as u32),
+                    256,
+                    &mut args![pw, pws, px, pxs, po, r, c, sl, sg, sst, sso],
+                )?;
+                let mut part = vec![0f32; slices * 8 * rows];
+                out.copy_to_host_f32(&mut part)?;
+                let got: Vec<f32> = (0..8 * rows)
+                    .map(|i| (0..slices).map(|q| part[q * 8 * rows + i]).sum())
+                    .collect();
+                let want: Vec<f32> = (0..8)
+                    .flat_map(|t| (0..rows).map(move |rr| (t, rr)))
+                    .map(|(t, rr)| {
+                        let phys = if st > 0 {
+                            (rr / s) * st + so + rr % s
+                        } else {
+                            rr
+                        };
+                        w.dot(phys, &x, t)
+                    })
+                    .collect();
+                check(
+                    &format!("df2_gemm_sk rows={rows} cols={cols} S={slices}"),
+                    &got,
+                    &want,
+                )?;
+            }
+            // Q4 head: requantize 37 rows (allocation padded to 48 like the engine) and score
+            // B = 3 rows; the Q4 result must stay within the 4-bit quantization error.
+            let (rows, rows16, b) = (37usize, 48usize, 3usize);
+            let mut rng = Lcg(99);
+            let w = Q8::random(&mut rng, rows, D);
+            let x = Q8::random(&mut rng, b, D);
+            let (wc, ws) = w.upload(&ctx)?;
+            let (xc, xs) = x.upload(&ctx)?;
+            let q4c = DeviceBuf::alloc_zeroed(&ctx, rows16 * D / 2)?;
+            let q4s = DeviceBuf::alloc_zeroed(&ctx, rows16 * (D / 64) * 4)?;
+            let (mut pw, mut pws, mut pc, mut pcs, mut cc) =
+                (wc.ptr, ws.ptr, q4c.ptr, q4s.ptr, D as i32);
+            run(
+                &ctx,
+                k.q8_to_q4,
+                (rows as u32, (D / 64) as u32),
+                32,
+                &mut args![pw, pws, pc, pcs, cc],
+            )?;
+            let y = DeviceBuf::alloc_zeroed(&ctx, b * rows * 4)?;
+            let (mut qc, mut qs, mut px, mut pxs, mut py) =
+                (q4c.ptr, q4s.ptr, xc.ptr, xs.ptr, y.ptr);
+            let (mut r, mut bb, mut ys) = (rows as i32, b as i32, rows as i32);
+            run(
+                &ctx,
+                k.q4_head,
+                ((rows16 / 16) as u32, 1),
+                256,
+                &mut args![qc, qs, px, pxs, py, r, bb, ys],
+            )?;
+            let mut got = vec![0f32; b * rows];
+            y.copy_to_host_f32(&mut got)?;
+            for t in 0..b {
+                for rr in 0..rows {
+                    let want = w.dot(rr, &x, t);
+                    // |q4 - q8| per weight <= amax / 14: bound the dot by that times sum |x|.
+                    let mut bound = 0f64;
+                    for c64 in 0..D / 64 {
+                        let amax = (0..64)
+                            .map(|j| (w.codes[rr * D + c64 * 64 + j] as i32).abs())
+                            .max()
+                            .unwrap() as f64;
+                        let xsum: f64 = (0..64)
+                            .map(|j| (x.codes[t * D + c64 * 64 + j] as f64).abs())
+                            .sum();
+                        bound += amax / 14.0
+                            * xsum
+                            * w.scales[rr * (D / 64) + c64] as f64
+                            * x.scales[t * (D / 64) + c64] as f64;
+                    }
+                    let g = got[t * rows + rr];
+                    if ((g - want) as f64).abs() > bound + 1e-3 {
+                        return Err(format!(
+                            "df2_q4_head t={t} row={rr}: got {g}, want {want} +- {bound}"
+                        ));
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        #[test]
+        #[ignore = "planted fault: memcheck must report an out-of-bounds read"]
+        fn exact_size_red_control_overread() -> Result<(), String> {
+            let ctx = CudaContextHandle::init(0)?;
+            let m = module(&ctx)?;
+            let f = func(&ctx, m, "ink2_q8_dp4a_gemv")?;
+            // Claims 33 rows over 17-row buffers: the result is garbage on purpose, only the
+            // sanitizer report matters.
+            let _ = gemm_case(&ctx, f, "red-control", 17, 2304, 1, None, (3, 1), 256, 33);
+            Ok(())
+        }
+    }
 }
