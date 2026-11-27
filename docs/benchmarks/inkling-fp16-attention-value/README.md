@@ -21,3 +21,12 @@ Candidate ea3a7cf passes **704/704** operator cases comparing per-head batched v
 Both new dispatch paths produce identical score and full-vocabulary fingerprint files across all 255 positions of test chunk 2; they also match the isolated earlier G1 run for every row. At position 478 both predict BF16 ID 44259 with KL 0.035403482. On the 66 independent FP64 fixtures the two paths agree on every code and scale. Each has two Q8 codes different from FP64 out of 202,752 (seed 303, position 31, global and local). The maximum scale error is 9.79e-10. This low-level rounding tradeoff is relevant to adoption.
 
 For exact operator reproduction compile the repository's kernels/tests/inkling_decode_attention.cpp and run against the same candidate cubin first without a flag and then with `g1`. Run the [independent FP64 executable](https://github.com/tjm8874/LeanSonic/tree/d654dad/docs/benchmarks/inkling-mixed-ternary-down/5060Ti/matched-revisions/g1/operator) against that cubin. For the compact model use the 571-slice package, bd048b8 host, the integrated candidate cubin and the scoring flags from the isolation experiment above. [Candidate binaries, operator and corpus summaries](candidate-5060.json) · [All FP64 fixtures](operator-5060.csv).
+
+| Split | Arm | Mean KL | Worst KL | BF16 top-1 / 25,500 | PPL |
+| --- | --- | ---: | ---: | ---: | ---: |
+| test | current | 0.0172238 | 6.1395663 | 24,071 | 7.128123 |
+| test | shared recurrence | 0.0169571 | 2.8585658 | 24,084 | 7.127375 |
+| valid | current | 0.0157144 | 2.6382777 | 24,192 | 6.565670 |
+| valid | shared recurrence | 0.0157347 | 2.5524491 | 24,200 | 6.566551 |
+
+[Full test and validation comparison on two GPUs, paired row transitions and follow-up arithmetic](full-corpus.md).

@@ -1,0 +1,41 @@
+{
+  "source": "ea3a7cf957817b7a4669a463df6f56b670ccbe4d",
+  "digests": [
+    "52bd8f25bbe785726f2f03a8a8fe5c52a426c7c223972f1a6a888f5cbcffc3b6  once.cubin",
+    "40b6d791ef53dd148d241146e72af76cdc9b2c5846ada9b280c939f58ed2fb04  once.patch"
+  ],
+  "audit": "[PASS] Gate 2: CUDA/PTX kernel templates & SASS static audit passed.",
+  "grouped": "Function ink2_gqa_attn_g1_q8_decode:\n  REG:64 STACK:0 SHARED:15232 LOCAL:0 CONSTANT[0]:984 TEXTURE:0 SURFACE:0 SAMPLER:0",
+  "disassembly": {
+    "ink2_gqa_attn_g1_q8_decode": {
+      "prior": [
+        760,
+        "0466231c3d3584aa4681ad6303aaa0ef1fa290c587709b00c68c97c602f98cc8"
+      ],
+      "trial": [
+        768,
+        "a72d09614a01f66a15d8da95bd645a0f72c8cf85caef704143bb767696f1c81d"
+      ]
+    },
+    "ink2_gqa_rel_sink_attn_q8_decode": {
+      "prior": [
+        2256,
+        "5a43dba4910c4693f7b3249c75638575ad9902ec9db4b7b193e8f6250bd669e0"
+      ],
+      "trial": [
+        1888,
+        "fe611848e0587ce53a3b0f36c823389389703b85fb6b336aba6762d149b06dae"
+      ]
+    },
+    "ink2_gqa_rel_sink_attn_q8_b": {
+      "prior": [
+        1112,
+        "274eb148e5b19db8ef473c127b0bb8b64217c0a19c1f378cc62cf494965d127e"
+      ],
+      "trial": [
+        1152,
+        "8bf720d675289c2ccd0588c6caa3849abf67877c3df07b4928b95d6b0f26710a"
+      ]
+    }
+  }
+}

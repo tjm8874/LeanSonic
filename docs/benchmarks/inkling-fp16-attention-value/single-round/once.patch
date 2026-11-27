@@ -1,0 +1,43 @@
+--- a/kernels/inkling2_sm120.cu
++++ b/kernels/inkling2_sm120.cu
+@@ -7407,7 +7407,7 @@
+ 
+ // Keep the per-head and three-head FP16 KV paths on the same FP32 recurrence.
+ __device__ __forceinline__ float fp16_kv_weighted_value(float prior, float alpha, float p, float value) {
+-    return __fmaf_rn(p, value, __fmul_rn(prior, alpha));
++    return alpha == 1.0f ? __fmaf_rn(p, value, prior) : __fmaf_rn(alpha, prior, value);
+ }
+ 
+ // Unified `G=0` Attention + In-Register `Q8_64` Epilogue (`Grid: (24, B)`, `Block: 256`):
+@@ -14311,15 +14311,22 @@
+             for (int hh = 0; hh < 3; ++hh) {
+                 float dot = __fmul_rn(dots[hh], scale);
+                 if (d < kExtent) dot = __fadd_rn(dot, sm_u.rel[hh][d]);
+-                const float m_new = (dot > m_w[hh]) ? dot : m_w[hh];
+-                const float alpha = ptx_exp(m_w[hh] - m_new);
+-                const float p = ptx_exp(dot - m_new);
+-                l_w[hh] = __fmaf_rn(l_w[hh], alpha, p);
+-                m_w[hh] = m_new;
+-                o[hh][0] = fp16_kv_weighted_value(o[hh][0], alpha, p, v0);
+-                o[hh][1] = fp16_kv_weighted_value(o[hh][1], alpha, p, v1);
+-                o[hh][2] = fp16_kv_weighted_value(o[hh][2], alpha, p, v2);
+-                o[hh][3] = fp16_kv_weighted_value(o[hh][3], alpha, p, v3);
++                if (dot > m_w[hh]) {
++                    const float alpha = ptx_exp(m_w[hh] - dot);
++                    m_w[hh] = dot;
++                    l_w[hh] = __fmaf_rn(l_w[hh], alpha, 1.0f);
++                    o[hh][0] = __fmaf_rn(alpha, o[hh][0], v0);
++                    o[hh][1] = __fmaf_rn(alpha, o[hh][1], v1);
++                    o[hh][2] = __fmaf_rn(alpha, o[hh][2], v2);
++                    o[hh][3] = __fmaf_rn(alpha, o[hh][3], v3);
++                } else {
++                    const float probability = ptx_exp(dot - m_w[hh]);
++                    l_w[hh] = __fadd_rn(l_w[hh], probability);
++                    o[hh][0] = __fmaf_rn(probability, v0, o[hh][0]);
++                    o[hh][1] = __fmaf_rn(probability, v1, o[hh][1]);
++                    o[hh][2] = __fmaf_rn(probability, v2, o[hh][2]);
++                    o[hh][3] = __fmaf_rn(probability, v3, o[hh][3]);
++                }
+             }
+             wk = nwk; wv = nwv;
+             j = jn;
