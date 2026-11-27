@@ -19,6 +19,7 @@ Both builders regenerated all 352 canonical control frames byte for byte. The al
 | test | rate | 0.00313373 | 0.70959240 | 24915/25500 | 7.071119 |
 | valid | canonical | 0.00276074 | 0.35243610 | 24963/25500 | 6.504621 |
 | valid | refine | 0.00272742 | 0.51979952 | 24976/25500 | 6.507939 |
+| valid | rate | 0.00276034 | 1.05203942 | 24972/25500 | 6.501526 |
 | chat | canonical | 0.00264874 | 0.09567916 | 609/613 | 3.736971 |
 | chat | refine | 0.00244614 | 0.08607209 | 606/613 | 3.721961 |
 | chat | rate | 0.00259262 | 0.08234757 | 606/613 | 3.725609 |
@@ -26,6 +27,8 @@ Both builders regenerated all 352 canonical control frames byte for byte. The al
 WikiText uses the canonical 512-context BF16 oracles and 100 chunks per split. The refine package was assigned PRO 4500 and the rate package PRO 5000. Chat uses the independent [613-position bilingual full-vocabulary suite](inkling-chat-quality.md) on PRO 5000.
 
 The smaller rate candidate gained 50 BF16 top-1 matches on the test split and lowered mean KL from 0.00315843 to 0.00313373. Worst KL rose from 0.680977 to 0.709592, at chunk 69, token 353. In bilingual chat it lost three top-1 matches while both mean and worst KL fell. Keep the canonical default pending wider quality evaluation.
+
+The rate candidate's validation maximum reached 1.052039 at chunk 91, token 507, compared with 0.352436 for the canonical model. Both attention-scale variants remain research candidates.
 
 ## Previously identified difficult positions
 
