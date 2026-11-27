@@ -17,3 +17,5 @@ cmp release.json "$RECIPE/release.json"
 ```
 
 [Production conversion, per-plane byte counts and hashes](release.json) · [First full packaging run](receipt.json).
+
+[BF16 test and validation](paired-quality.md) · [Fixed-continuation timing and peak VRAM](fixed-q3.md) · [Free greedy generation](free/).

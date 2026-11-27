@@ -5,5 +5,6 @@ The same RTX PRO 4500 and executable score the preceding two-bank package and th
 | Split | Mean KL | Worst KL (chunk/position) | BF16 top-1 matches | PPL |
 |---|---:|---:|---:|---:|
 | test | 0.0076817 | 1.5215775 (36/319) | 24,542/25,500 (96.24%) | 7.079444 |
+| valid | 0.0068862 | 1.1576402 (11/374) | 24,655/25,500 (96.69%) | 6.532434 |
 
 Run the [published BF16 oracle procedure](../../../inkling-reference.md) on each file, with `LEANSONIC_PREFILL_CHUNK=512` and `leansonic eval-kld --weights "$MODEL" --ref "$ORACLE" --chunks 100`. Use the [four-bank conversion recipe](README.md) and the cubin pinned in the [throughput comparison](fixed-q3.md). [Complete score objects](paired-quality.json).
