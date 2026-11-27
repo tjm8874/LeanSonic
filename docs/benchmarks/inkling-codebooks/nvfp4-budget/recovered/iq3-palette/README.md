@@ -32,3 +32,5 @@ cmp audit.json "$RECIPE/audit.json"
 ```
 
 The [predeclared quality gate](https://github.com/tjm8874/LeanSonic/issues/35#issuecomment-7220905362) compares both 25,500-position splits with the higher-precision direct-format control. Byte counts and codec checks alone do not establish output quality or throughput.
+
+[BF16 corpus scores and decision](quality.md).
