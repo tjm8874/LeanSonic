@@ -1,0 +1,609 @@
+{
+  "candidate-66": {
+    "kernel_span_ms": 16.257545,
+    "kernel_sum_ms": 15.974023,
+    "kernel_count": 1132,
+    "kernels": [
+      {
+        "name": "ink2_moe_nvfp4_tc_up_situ_packed_scales",
+        "calls": 44,
+        "total_ms": 4.712528
+      },
+      {
+        "name": "ink2_bf16_tc_gemm_b",
+        "calls": 96,
+        "total_ms": 3.179612
+      },
+      {
+        "name": "ink2_moe_nvfp4_tc_down_packed_scales",
+        "calls": 44,
+        "total_ms": 1.690321
+      },
+      {
+        "name": "ink2_q8_tc_gemm_b",
+        "calls": 68,
+        "total_ms": 1.461162
+      },
+      {
+        "name": "ink2_q8_tc_qkv3_gemm_b",
+        "calls": 28,
+        "total_ms": 0.942316
+      },
+      {
+        "name": "ink2_flash_attn_tc_q8_b",
+        "calls": 48,
+        "total_ms": 0.69982
+      },
+      {
+        "name": "ink2_q8_dp4a_gemv_c2304",
+        "calls": 1,
+        "total_ms": 0.596519
+      },
+      {
+        "name": "ink2_moe_mxfp8_tc_up_situ_packed_scales",
+        "calls": 4,
+        "total_ms": 0.391844
+      },
+      {
+        "name": "ink2_depth_mix_multi_ctrl_norm_bf16_b",
+        "calls": 48,
+        "total_ms": 0.317572
+      },
+      {
+        "name": "ink2_short_conv4_b",
+        "calls": 144,
+        "total_ms": 0.247937
+      },
+      {
+        "name": "ink2_moe_mxfp8_tc_down_packed_scales",
+        "calls": 4,
+        "total_ms": 0.220386
+      },
+      {
+        "name": "ink2_ctrl_apply_tc_b",
+        "calls": 48,
+        "total_ms": 0.207716
+      },
+      {
+        "name": "ink2_quant_nvfp4_2term_1p_b",
+        "calls": 88,
+        "total_ms": 0.165956
+      },
+      {
+        "name": "ink2_depth_mix_multi_b",
+        "calls": 24,
+        "total_ms": 0.161508
+      },
+      {
+        "name": "ink2_router_topk8_b",
+        "calls": 48,
+        "total_ms": 0.111104
+      },
+      {
+        "name": "ink2_rmsnorm_quant_q8_64_b",
+        "calls": 25,
+        "total_ms": 0.108033
+      },
+      {
+        "name": "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+        "calls": 24,
+        "total_ms": 0.104353
+      },
+      {
+        "name": "ink2_prep_qkv_and_cache_b",
+        "calls": 48,
+        "total_ms": 0.093376
+      },
+      {
+        "name": "ink2_gather_nvfp4_sorted_b",
+        "calls": 44,
+        "total_ms": 0.089473
+      },
+      {
+        "name": "ink2_rmsnorm_d_b",
+        "calls": 24,
+        "total_ms": 0.089027
+      },
+      {
+        "name": "ink2_short_conv4_save_b",
+        "calls": 48,
+        "total_ms": 0.088224
+      },
+      {
+        "name": "ink2_depth_mix_rmsnorm_d_quant_q8_16_b",
+        "calls": 24,
+        "total_ms": 0.079362
+      },
+      {
+        "name": "ink2_moe_combine_top8_f16_b",
+        "calls": 48,
+        "total_ms": 0.067361
+      },
+      {
+        "name": "ink2_build_expert_groups_b",
+        "calls": 48,
+        "total_ms": 0.062176
+      },
+      {
+        "name": "ink2_f32_to_bf16_b",
+        "calls": 48,
+        "total_ms": 0.042784
+      },
+      {
+        "name": "ink2_argmax_b",
+        "calls": 1,
+        "total_ms": 0.02176
+      },
+      {
+        "name": "ink2_quant_mxfp8_b",
+        "calls": 8,
+        "total_ms": 0.008961
+      },
+      {
+        "name": "ink2_embed_rmsnorm_b",
+        "calls": 1,
+        "total_ms": 0.006208
+      },
+      {
+        "name": "ink2_loop_pass_setup_b",
+        "calls": 3,
+        "total_ms": 0.005216
+      },
+      {
+        "name": "ink2_inc_pos_by",
+        "calls": 1,
+        "total_ms": 0.001408
+      }
+    ],
+    "copies": []
+  },
+  "candidate-95": {
+    "kernel_span_ms": 40.436138,
+    "kernel_sum_ms": 40.156456,
+    "kernel_count": 1132,
+    "kernels": [
+      {
+        "name": "ink2_moe_nvfp4_tc_up_situ_packed_scales",
+        "calls": 44,
+        "total_ms": 20.772471
+      },
+      {
+        "name": "ink2_moe_nvfp4_tc_down_packed_scales",
+        "calls": 44,
+        "total_ms": 6.217409
+      },
+      {
+        "name": "ink2_bf16_tc_gemm_b",
+        "calls": 96,
+        "total_ms": 3.241988
+      },
+      {
+        "name": "ink2_q8_tc_gemm_b",
+        "calls": 68,
+        "total_ms": 1.893559
+      },
+      {
+        "name": "ink2_moe_mxfp8_tc_up_situ_packed_scales",
+        "calls": 4,
+        "total_ms": 1.567759
+      },
+      {
+        "name": "ink2_q8_tc_qkv3_gemm_b",
+        "calls": 28,
+        "total_ms": 0.971142
+      },
+      {
+        "name": "ink2_short_conv4_b",
+        "calls": 144,
+        "total_ms": 0.88404
+      },
+      {
+        "name": "ink2_moe_mxfp8_tc_down_packed_scales",
+        "calls": 4,
+        "total_ms": 0.799049
+      },
+      {
+        "name": "ink2_flash_attn_tc_q8_b",
+        "calls": 48,
+        "total_ms": 0.745638
+      },
+      {
+        "name": "ink2_q8_dp4a_gemv_c2304",
+        "calls": 1,
+        "total_ms": 0.59799
+      },
+      {
+        "name": "ink2_depth_mix_multi_ctrl_norm_bf16_b",
+        "calls": 48,
+        "total_ms": 0.340962
+      },
+      {
+        "name": "ink2_build_expert_groups_b",
+        "calls": 48,
+        "total_ms": 0.283239
+      },
+      {
+        "name": "ink2_short_conv4_save_b",
+        "calls": 48,
+        "total_ms": 0.277156
+      },
+      {
+        "name": "ink2_ctrl_apply_tc_b",
+        "calls": 48,
+        "total_ms": 0.235973
+      },
+      {
+        "name": "ink2_quant_nvfp4_2term_1p_b",
+        "calls": 88,
+        "total_ms": 0.219874
+      },
+      {
+        "name": "ink2_depth_mix_multi_b",
+        "calls": 24,
+        "total_ms": 0.172835
+      },
+      {
+        "name": "ink2_gather_nvfp4_sorted_b",
+        "calls": 44,
+        "total_ms": 0.125634
+      },
+      {
+        "name": "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+        "calls": 24,
+        "total_ms": 0.120642
+      },
+      {
+        "name": "ink2_router_topk8_b",
+        "calls": 48,
+        "total_ms": 0.111937
+      },
+      {
+        "name": "ink2_rmsnorm_quant_q8_64_b",
+        "calls": 25,
+        "total_ms": 0.107936
+      },
+      {
+        "name": "ink2_prep_qkv_and_cache_b",
+        "calls": 48,
+        "total_ms": 0.10173
+      },
+      {
+        "name": "ink2_moe_combine_top8_f16_b",
+        "calls": 48,
+        "total_ms": 0.093505
+      },
+      {
+        "name": "ink2_rmsnorm_d_b",
+        "calls": 24,
+        "total_ms": 0.085504
+      },
+      {
+        "name": "ink2_depth_mix_rmsnorm_d_quant_q8_16_b",
+        "calls": 24,
+        "total_ms": 0.082401
+      },
+      {
+        "name": "ink2_f32_to_bf16_b",
+        "calls": 48,
+        "total_ms": 0.044642
+      },
+      {
+        "name": "ink2_argmax_b",
+        "calls": 1,
+        "total_ms": 0.021632
+      },
+      {
+        "name": "ink2_embed_rmsnorm_b",
+        "calls": 1,
+        "total_ms": 0.018176
+      },
+      {
+        "name": "ink2_quant_mxfp8_b",
+        "calls": 8,
+        "total_ms": 0.012993
+      },
+      {
+        "name": "ink2_loop_pass_setup_b",
+        "calls": 3,
+        "total_ms": 0.007232
+      },
+      {
+        "name": "ink2_inc_pos_by",
+        "calls": 1,
+        "total_ms": 0.001408
+      }
+    ],
+    "copies": []
+  },
+  "prior-66": {
+    "kernel_span_ms": 10.867147,
+    "kernel_sum_ms": 10.622055,
+    "kernel_count": 1070,
+    "kernels": [
+      {
+        "name": "ink2_moe_nvfp4_dp4a_grouped_up_situ_packed_scales",
+        "calls": 44,
+        "total_ms": 3.13974
+      },
+      {
+        "name": "ink2_q8_dp4a_gemm_b8_fast",
+        "calls": 152,
+        "total_ms": 2.065809
+      },
+      {
+        "name": "ink2_moe_nvfp4_dp4a_grouped_down_packed_scales",
+        "calls": 44,
+        "total_ms": 1.575129
+      },
+      {
+        "name": "ink2_q8_dp4a_gemv_c2304",
+        "calls": 1,
+        "total_ms": 0.596806
+      },
+      {
+        "name": "ink2_moe_mxfp8_grouped_up_situ_packed_scales",
+        "calls": 4,
+        "total_ms": 0.466181
+      },
+      {
+        "name": "ink2_ctrl_down_r8_b",
+        "calls": 48,
+        "total_ms": 0.331939
+      },
+      {
+        "name": "ink2_moe_mxfp8_grouped_down_packed_scales",
+        "calls": 4,
+        "total_ms": 0.294819
+      },
+      {
+        "name": "ink2_gqa_attn_split_dec",
+        "calls": 48,
+        "total_ms": 0.293472
+      },
+      {
+        "name": "ink2_bf16_gemm_router_b",
+        "calls": 48,
+        "total_ms": 0.264993
+      },
+      {
+        "name": "ink2_short_conv4_b",
+        "calls": 144,
+        "total_ms": 0.244674
+      },
+      {
+        "name": "ink2_depth_mix_multi_b",
+        "calls": 48,
+        "total_ms": 0.20349
+      },
+      {
+        "name": "ink2_ctrl_apply_coalesced_b",
+        "calls": 48,
+        "total_ms": 0.182913
+      },
+      {
+        "name": "ink2_router_topk8_b",
+        "calls": 48,
+        "total_ms": 0.111202
+      },
+      {
+        "name": "ink2_rmsnorm_quant_q8_64_b",
+        "calls": 25,
+        "total_ms": 0.107968
+      },
+      {
+        "name": "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+        "calls": 24,
+        "total_ms": 0.107008
+      },
+      {
+        "name": "ink2_prep_qkv_and_cache_b",
+        "calls": 48,
+        "total_ms": 0.092737
+      },
+      {
+        "name": "ink2_depth_mix_rmsnorm_d_quant_q8_16_b",
+        "calls": 24,
+        "total_ms": 0.090529
+      },
+      {
+        "name": "ink2_gqa_attn_combine_q8_dyn",
+        "calls": 48,
+        "total_ms": 0.08845
+      },
+      {
+        "name": "ink2_short_conv4_save_b",
+        "calls": 48,
+        "total_ms": 0.087265
+      },
+      {
+        "name": "ink2_rmsnorm_d_quant_q8_16_b",
+        "calls": 24,
+        "total_ms": 0.069952
+      },
+      {
+        "name": "ink2_build_expert_groups_b",
+        "calls": 48,
+        "total_ms": 0.062144
+      },
+      {
+        "name": "ink2_moe_combine_top8_vec4_b",
+        "calls": 48,
+        "total_ms": 0.058145
+      },
+      {
+        "name": "ink2_quant_q8_16_packed",
+        "calls": 44,
+        "total_ms": 0.044737
+      },
+      {
+        "name": "ink2_argmax_b",
+        "calls": 1,
+        "total_ms": 0.02144
+      },
+      {
+        "name": "ink2_depth_mix_b",
+        "calls": 2,
+        "total_ms": 0.007233
+      },
+      {
+        "name": "ink2_embed_rmsnorm_b",
+        "calls": 1,
+        "total_ms": 0.006656
+      },
+      {
+        "name": "ink2_loop_pass_setup_b",
+        "calls": 3,
+        "total_ms": 0.005216
+      },
+      {
+        "name": "ink2_inc_pos_by",
+        "calls": 1,
+        "total_ms": 0.001408
+      }
+    ],
+    "copies": []
+  },
+  "prior-95": {
+    "kernel_span_ms": 34.660934,
+    "kernel_sum_ms": 34.412388,
+    "kernel_count": 1092,
+    "kernels": [
+      {
+        "name": "ink2_moe_nvfp4_dp4a_grouped_up_situ_packed_scales",
+        "calls": 44,
+        "total_ms": 13.508172
+      },
+      {
+        "name": "ink2_moe_nvfp4_dp4a_grouped_down_packed_scales",
+        "calls": 44,
+        "total_ms": 6.556673
+      },
+      {
+        "name": "ink2_q8_dp4a_gemm_b",
+        "calls": 152,
+        "total_ms": 4.684622
+      },
+      {
+        "name": "ink2_moe_mxfp8_grouped_up_situ_packed_scales",
+        "calls": 4,
+        "total_ms": 2.644029
+      },
+      {
+        "name": "ink2_moe_mxfp8_grouped_down_packed_scales",
+        "calls": 4,
+        "total_ms": 1.577232
+      },
+      {
+        "name": "ink2_short_conv4_b",
+        "calls": 144,
+        "total_ms": 0.916842
+      },
+      {
+        "name": "ink2_gqa_attn_split",
+        "calls": 48,
+        "total_ms": 0.630468
+      },
+      {
+        "name": "ink2_ctrl_down_r8_b",
+        "calls": 48,
+        "total_ms": 0.624297
+      },
+      {
+        "name": "ink2_q8_dp4a_gemv_c2304",
+        "calls": 1,
+        "total_ms": 0.598278
+      },
+      {
+        "name": "ink2_depth_mix_multi_b",
+        "calls": 72,
+        "total_ms": 0.402211
+      },
+      {
+        "name": "ink2_ctrl_apply_t8_b",
+        "calls": 48,
+        "total_ms": 0.33655
+      },
+      {
+        "name": "ink2_bf16_gemm_router_b",
+        "calls": 48,
+        "total_ms": 0.334757
+      },
+      {
+        "name": "ink2_build_expert_groups_b",
+        "calls": 48,
+        "total_ms": 0.28711
+      },
+      {
+        "name": "ink2_short_conv4_save_b",
+        "calls": 48,
+        "total_ms": 0.28381
+      },
+      {
+        "name": "ink2_quant_q8_16_packed",
+        "calls": 44,
+        "total_ms": 0.13773
+      },
+      {
+        "name": "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+        "calls": 24,
+        "total_ms": 0.124672
+      },
+      {
+        "name": "ink2_gqa_attn_combine_q8_dyn",
+        "calls": 48,
+        "total_ms": 0.113505
+      },
+      {
+        "name": "ink2_router_topk8_b",
+        "calls": 48,
+        "total_ms": 0.111393
+      },
+      {
+        "name": "ink2_rmsnorm_quant_q8_64_b",
+        "calls": 25,
+        "total_ms": 0.108832
+      },
+      {
+        "name": "ink2_moe_combine_top8_vec4_b",
+        "calls": 48,
+        "total_ms": 0.108672
+      },
+      {
+        "name": "ink2_prep_qkv_and_cache_b",
+        "calls": 48,
+        "total_ms": 0.107394
+      },
+      {
+        "name": "ink2_depth_mix_rmsnorm_d_quant_q8_16_b",
+        "calls": 24,
+        "total_ms": 0.095969
+      },
+      {
+        "name": "ink2_rmsnorm_d_quant_q8_16_b",
+        "calls": 24,
+        "total_ms": 0.072224
+      },
+      {
+        "name": "ink2_argmax_b",
+        "calls": 1,
+        "total_ms": 0.021345
+      },
+      {
+        "name": "ink2_embed_rmsnorm_b",
+        "calls": 1,
+        "total_ms": 0.017057
+      },
+      {
+        "name": "ink2_loop_pass_setup_b",
+        "calls": 3,
+        "total_ms": 0.007104
+      },
+      {
+        "name": "ink2_inc_pos_by",
+        "calls": 1,
+        "total_ms": 0.00144
+      }
+    ],
+    "copies": []
+  }
+}
