@@ -817,9 +817,28 @@ struct DraftPrice {
     round_ns: f64,
     tokens: usize,
     skip_left: usize,
+    eligible_in_pause: usize,
 }
 
 impl DraftPrice {
+    fn pause_action(&mut self, eligible: bool, allow_probe: bool) -> (bool, bool) {
+        let in_pause = eligible && self.skip_left > 0;
+        let probe = in_pause && allow_probe && self.eligible_in_pause == 6;
+        self.skip_left = self.skip_left.saturating_sub(1);
+        self.eligible_in_pause += usize::from(in_pause);
+        (in_pause && !probe, probe)
+    }
+
+    fn record_round(&mut self, ns: f64, tokens: usize, probe: bool) {
+        if probe {
+            if ns <= 0.98 * self.scalar_ns * tokens as f64 {
+                self.skip_left = 0;
+            }
+        } else {
+            self.observe_neural(ns, tokens);
+        }
+    }
+
     fn observe_scalar(&mut self, ns: f64) {
         self.scalar_ns = if self.scalar_ns == 0.0 {
             ns
@@ -835,6 +854,7 @@ impl DraftPrice {
         if self.rounds == 8 {
             if self.scalar_ns > 0.0 && self.round_ns > 1.02 * self.scalar_ns * self.tokens as f64 {
                 self.skip_left = 24;
+                self.eligible_in_pause = 0;
             }
             self.rounds = 0;
             self.round_ns = 0.0;
@@ -6445,6 +6465,8 @@ impl Inkling2GpuEngine {
         let (mut zero_streak, mut pause_left, mut pause_len) = (0usize, 0usize, 8usize);
         let price_enabled =
             self.drafter.is_some() && std::env::var("LEANSONIC_SPEC_PRICE").is_ok_and(|v| v == "1");
+        let price_probe =
+            price_enabled && std::env::var("LEANSONIC_SPEC_PRICE_PROBE").as_deref() == Ok("1");
         let mut price = DraftPrice::default();
         let mut last_verify_row = None;
         while steps_done < n_gen {
@@ -6470,8 +6492,8 @@ impl Inkling2GpuEngine {
             } else {
                 copy_index.run(&full_hist, cur_tok, max_draft)
             };
-            let price_skip = max_draft > 0 && !paused && copied.is_empty() && price.skip_left > 0;
-            price.skip_left = price.skip_left.saturating_sub(1);
+            let (price_skip, early_probe) =
+                price.pause_action(max_draft > 0 && !paused && copied.is_empty(), price_probe);
             self.spec_price_skips += usize::from(price_skip);
             let neural_start =
                 (price_enabled && max_draft > 0 && !paused && !price_skip && copied.is_empty())
@@ -6519,7 +6541,7 @@ impl Inkling2GpuEngine {
                     let ns = start.elapsed().as_nanos() as f64;
                     price.observe_scalar(ns);
                     if let Some(draft_ns) = draft_ns {
-                        price.observe_neural(draft_ns + ns, 1);
+                        price.record_round(draft_ns + ns, 1, early_probe);
                     }
                 }
                 last_verify_row = None;
@@ -6573,7 +6595,7 @@ impl Inkling2GpuEngine {
             self.enqueue_drafter_context(keep)?;
 
             if let Some(start) = neural_start {
-                price.observe_neural(start.elapsed().as_nanos() as f64, keep);
+                price.record_round(start.elapsed().as_nanos() as f64, keep, early_probe);
             }
             let emitted = verified - usize::from(hit_stop);
             for &token in &verify_in[..emitted] {
@@ -10003,6 +10025,27 @@ impl Inkling2GpuEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn priced_pause_probes_once_after_six_actual_skips() {
+        for (cost, resumed) in [(195.0, true), (197.0, false)] {
+            let mut price = DraftPrice {
+                scalar_ns: 100.0,
+                skip_left: 24,
+                ..Default::default()
+            };
+            for _ in 0..6 {
+                assert_eq!(price.pause_action(true, true), (true, false));
+            }
+            assert_eq!(price.pause_action(false, true), (false, false));
+            assert_eq!(price.pause_action(true, true), (false, true));
+            price.record_round(cost, 2, true);
+            assert_eq!(price.skip_left == 0, resumed);
+            while price.skip_left > 0 {
+                assert_eq!(price.pause_action(true, true), (true, false));
+            }
+        }
+    }
 
     #[test]
     fn draft_price_compares_total_time_per_committed_token() {
