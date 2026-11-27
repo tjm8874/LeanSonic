@@ -1,0 +1,14 @@
+[
+  {"id":"ja_name","language":"ja","prompt":"次の店名をそのまま一度だけ返してください。説明やかぎ括弧は不要です。店名は「𠮷野家🍵」です。","kind":"text","expected":"𠮷野家🍵"},
+  {"id":"en_count","language":"en","prompt":"Count the red circles in this sequence: 🔴🔵🔴🟢🔴. Reply with the numeral only.","kind":"text","expected":"3"},
+  {"id":"ja_stock","language":"ja","prompt":"倉庫に部品が48個あります。13個出荷し、その後7個入荷しました。残りの個数を半角数字だけで答えてください。","kind":"text","expected":"42"},
+  {"id":"en_sort","language":"en","prompt":"Sort these integers in ascending order, keeping duplicates: 6, -2, 6, 0, 3. Answer only with a JSON array.","kind":"json","expected":[-2,0,3,6,6]},
+  {"id":"ja_reading","language":"ja","prompt":"出荷記録は「月曜は箱A、火曜は箱C、水曜は箱B」です。火曜に出荷した箱の記号を英大文字1字だけで答えてください。","kind":"text","expected":"C"},
+  {"id":"en_boolean","language":"en","prompt":"Output only a JSON object with two fields. Set ready to the Boolean value false, and count to the integer 0.","kind":"json","expected":{"ready":false,"count":0}},
+  {"id":"ja_filter","language":"ja","prompt":"[11, 4, 8, 13, 6] のうち、偶数だけを元の順番のままJSON配列で返してください。説明は不要です。","kind":"json","expected":[4,8,6]},
+  {"id":"en_code","language":"en","prompt":"What does Python print for this code? Answer with the exact printed text, without quotes or explanation.\ns = 'apricot'\nprint(s[1:6:2])","kind":"text","expected":"pio"},
+  {"id":"ja_time","language":"ja","prompt":"午後2時45分の35分後を、24時間制のHH:MM形式だけで答えてください。","kind":"text","expected":"15:20"},
+  {"id":"en_extract","language":"en","prompt":"Use this record: order 312 has tag blue; order 321 has tag green. What is the tag for order 321? Return the lowercase word only.","kind":"text","expected":"green"},
+  {"id":"ja_json","language":"ja","prompt":"品名は「茶」、個数は2です。キーが item と quantity のJSONオブジェクトだけを返してください。quantityは整数にしてください。","kind":"json","expected":{"item":"茶","quantity":2}},
+  {"id":"en_days","language":"en","prompt":"If today is Friday, what weekday will it be in 10 days? Use just the English weekday name.","kind":"text","expected":"Monday"}
+]

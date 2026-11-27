@@ -1,0 +1,2638 @@
+{
+  "fixtures_sha256": "45132f3cfb31f47d046d90a3abff1b68c78242f40cce1fab50e8faac70b5f9bb",
+  "prompt_sha256": {
+    "ja_name": "00ea6018386c4e3302a56f1adaa0ca6b9aec98fc5ef28bbbcfda9679fdeec357",
+    "en_count": "7ff00d64fe58ad5559bc47a7c1f7161f95636b1b62d93e0c7decc88c8d9f3670",
+    "ja_stock": "513117ca31492c715600bfe1fd2f2d761a82b623e570f071dcfc5d169e63d7fb",
+    "en_sort": "b79ac9f1fd51f5c134f84ff47c4e1ebb3ff905751f238959aaef0373a299334a",
+    "ja_reading": "0aad759fc96848dc6f7ad62f849075c134d864e252842f7bda66e1282602a459",
+    "en_boolean": "1be01c919e00f370431a74c21863a50c5882747a5c1973030962e0dbb40572f1",
+    "ja_filter": "43a92a49572965cac30829d1d0a2ec53deb3bca41286eb2cf1966ee86156591b",
+    "en_code": "ad9b0e878c90272c62a4dabbe04f9cfb9b491fb55d8c8ec7e71373190cf8a24e",
+    "ja_time": "4297b75414937b006013ee2a6f095c30b37aac63ef690b2cd75664ab9736194f",
+    "en_extract": "c4f43ba695ee79a04ff9383864c070cad5d63a3b184ec35a31ce9ae9ef50ea35",
+    "ja_json": "9e9d37a4dfd1d62f8bec2f74fc6bb0f8cf2a0c7aaf759eb17dda7f4347289f60",
+    "en_days": "a9dfa58ffb0e60c0bac7ef9af01e2b4903a0c15282bee68255689dcbb6f06e77"
+  },
+  "model_sha256": {
+    "parent": "9b242a81188f0f552625639dec98879a0090a7f9a003141631d3a836aed3fcb3",
+    "budget": "942cb21ea5153d9e22e3996b3a4310d655ebcdfec7eabaaf688ad51c8c248449",
+    "iq4": "a861d21e7c6d7bc69d8cdcdfb9eb195fd37ef1cd2ab31499db61cd7d30d9b3a1",
+    "q3": "f72f396d1b479b14d76346df80baa449c8b1f399653bff38fa4764b359a40048",
+    "plane": "a92a576de1f4b12e00f75c515a1d930213055c7d3b6edf83c28fb8292d6decaa",
+    "bf16": "d4b5181aeb49acf2b08acaa2ad5e0f9f9710e8030d589b3c6e9f43150cf10804"
+  },
+  "executable_sha256": {
+    "before.cli": "a3eaf45e5f8a012207401204e7b87ad86c70d005ffd91e77281a5121800ee4dc",
+    "after.cli": "2bd686e734ab1a28043c646e083cbfbd454f38b0f83ab4b44305ff1380ae60c1"
+  },
+  "checks": {
+    "before-parent": {
+      "raw_correct": 8,
+      "raw_stopped": 8,
+      "repeat": true,
+      "escaped_correct": 7,
+      "encoding_differences": [
+        "ja_name",
+        "en_count"
+      ]
+    },
+    "after-parent": {
+      "raw_correct": 8,
+      "raw_stopped": 8,
+      "repeat": true,
+      "escaped_correct": 8,
+      "encoding_differences": []
+    },
+    "after-budget": {
+      "raw_correct": 8,
+      "raw_stopped": 8,
+      "repeat": true,
+      "escaped_correct": 8,
+      "encoding_differences": []
+    },
+    "after-plane": {
+      "raw_correct": 8,
+      "raw_stopped": 8,
+      "repeat": true,
+      "escaped_correct": 8,
+      "encoding_differences": []
+    },
+    "long-parent": {
+      "raw_correct": 12,
+      "raw_stopped": 12,
+      "repeat": true
+    },
+    "long-budget": {
+      "raw_correct": 12,
+      "raw_stopped": 12,
+      "repeat": true
+    },
+    "long-plane": {
+      "raw_correct": 12,
+      "raw_stopped": 12,
+      "repeat": true
+    },
+    "bf16": {
+      "128": {
+        "correct": 7,
+        "stopped": 7
+      },
+      "384": {
+        "correct": 12,
+        "stopped": 12
+      }
+    },
+    "iq4": {
+      "128": {
+        "correct": 8,
+        "stopped": 8
+      },
+      "384": {
+        "correct": 12,
+        "stopped": 12
+      }
+    },
+    "q3": {
+      "128": {
+        "correct": 7,
+        "stopped": 7
+      },
+      "384": {
+        "correct": 11,
+        "stopped": 11
+      }
+    }
+  },
+  "results": {
+    "before-parent": [
+      {
+        "case": "ja_name",
+        "encoding": "raw",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 53,
+          "completion_tokens": 128,
+          "total_tokens": 181
+        },
+        "expected_prompt_tokens": 53,
+        "passed": false
+      },
+      {
+        "case": "en_count",
+        "encoding": "raw",
+        "text": "3",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 36,
+          "completion_tokens": 92,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 36,
+        "passed": true
+      },
+      {
+        "case": "ja_stock",
+        "encoding": "raw",
+        "text": "42",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 55,
+          "completion_tokens": 80,
+          "total_tokens": 135
+        },
+        "expected_prompt_tokens": 55,
+        "passed": true
+      },
+      {
+        "case": "en_sort",
+        "encoding": "raw",
+        "text": "[-2, 0, 3, 6, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 46,
+          "completion_tokens": 82,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 46,
+        "passed": true
+      },
+      {
+        "case": "ja_reading",
+        "encoding": "raw",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 63,
+          "completion_tokens": 128,
+          "total_tokens": 191
+        },
+        "expected_prompt_tokens": 63,
+        "passed": false
+      },
+      {
+        "case": "en_boolean",
+        "encoding": "raw",
+        "text": "{\"ready\":false,\"count\":0}",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 38,
+          "completion_tokens": 62,
+          "total_tokens": 100
+        },
+        "expected_prompt_tokens": 38,
+        "passed": true
+      },
+      {
+        "case": "ja_filter",
+        "encoding": "raw",
+        "text": "[4, 8, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 61,
+          "completion_tokens": 110,
+          "total_tokens": 171
+        },
+        "expected_prompt_tokens": 61,
+        "passed": true
+      },
+      {
+        "case": "en_code",
+        "encoding": "raw",
+        "text": "pio",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 51,
+          "completion_tokens": 107,
+          "total_tokens": 158
+        },
+        "expected_prompt_tokens": 51,
+        "passed": true
+      },
+      {
+        "case": "ja_time",
+        "encoding": "raw",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 42,
+          "completion_tokens": 128,
+          "total_tokens": 170
+        },
+        "expected_prompt_tokens": 42,
+        "passed": false
+      },
+      {
+        "case": "en_extract",
+        "encoding": "raw",
+        "text": "green",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 47,
+          "completion_tokens": 70,
+          "total_tokens": 117
+        },
+        "expected_prompt_tokens": 47,
+        "passed": true
+      },
+      {
+        "case": "ja_json",
+        "encoding": "raw",
+        "text": "{\"item\":\"茶\"",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 59,
+          "completion_tokens": 128,
+          "total_tokens": 187
+        },
+        "expected_prompt_tokens": 59,
+        "passed": false
+      },
+      {
+        "case": "en_days",
+        "encoding": "raw",
+        "text": "Monday",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 37,
+          "completion_tokens": 112,
+          "total_tokens": 149
+        },
+        "expected_prompt_tokens": 37,
+        "passed": true
+      },
+      {
+        "case": "en_days",
+        "encoding": "escaped",
+        "text": "Monday",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 37,
+          "completion_tokens": 112,
+          "total_tokens": 149
+        },
+        "expected_prompt_tokens": 37,
+        "passed": true
+      },
+      {
+        "case": "ja_json",
+        "encoding": "escaped",
+        "text": "{\"item\":\"茶\"",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 59,
+          "completion_tokens": 128,
+          "total_tokens": 187
+        },
+        "expected_prompt_tokens": 59,
+        "passed": false
+      },
+      {
+        "case": "en_extract",
+        "encoding": "escaped",
+        "text": "green",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 47,
+          "completion_tokens": 70,
+          "total_tokens": 117
+        },
+        "expected_prompt_tokens": 47,
+        "passed": true
+      },
+      {
+        "case": "ja_time",
+        "encoding": "escaped",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 42,
+          "completion_tokens": 128,
+          "total_tokens": 170
+        },
+        "expected_prompt_tokens": 42,
+        "passed": false
+      },
+      {
+        "case": "en_code",
+        "encoding": "escaped",
+        "text": "pio",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 51,
+          "completion_tokens": 107,
+          "total_tokens": 158
+        },
+        "expected_prompt_tokens": 51,
+        "passed": true
+      },
+      {
+        "case": "ja_filter",
+        "encoding": "escaped",
+        "text": "[4, 8, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 61,
+          "completion_tokens": 110,
+          "total_tokens": 171
+        },
+        "expected_prompt_tokens": 61,
+        "passed": true
+      },
+      {
+        "case": "en_boolean",
+        "encoding": "escaped",
+        "text": "{\"ready\":false,\"count\":0}",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 38,
+          "completion_tokens": 62,
+          "total_tokens": 100
+        },
+        "expected_prompt_tokens": 38,
+        "passed": true
+      },
+      {
+        "case": "ja_reading",
+        "encoding": "escaped",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 63,
+          "completion_tokens": 128,
+          "total_tokens": 191
+        },
+        "expected_prompt_tokens": 63,
+        "passed": false
+      },
+      {
+        "case": "en_sort",
+        "encoding": "escaped",
+        "text": "[-2, 0, 3, 6, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 46,
+          "completion_tokens": 82,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 46,
+        "passed": true
+      },
+      {
+        "case": "ja_stock",
+        "encoding": "escaped",
+        "text": "42",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 55,
+          "completion_tokens": 80,
+          "total_tokens": 135
+        },
+        "expected_prompt_tokens": 55,
+        "passed": true
+      },
+      {
+        "case": "en_count",
+        "encoding": "escaped",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 28,
+          "completion_tokens": 128,
+          "total_tokens": 156
+        },
+        "expected_prompt_tokens": 36,
+        "passed": false
+      },
+      {
+        "case": "ja_name",
+        "encoding": "escaped",
+        "text": "野家",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 50,
+          "completion_tokens": 103,
+          "total_tokens": 153
+        },
+        "expected_prompt_tokens": 53,
+        "passed": false
+      },
+      {
+        "case": "ja_name",
+        "encoding": "repeat",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 53,
+          "completion_tokens": 128,
+          "total_tokens": 181
+        },
+        "expected_prompt_tokens": 53,
+        "passed": false
+      }
+    ],
+    "after-parent": [
+      {
+        "case": "ja_name",
+        "encoding": "raw",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 53,
+          "completion_tokens": 128,
+          "total_tokens": 181
+        },
+        "expected_prompt_tokens": 53,
+        "passed": false
+      },
+      {
+        "case": "en_count",
+        "encoding": "raw",
+        "text": "3",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 36,
+          "completion_tokens": 92,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 36,
+        "passed": true
+      },
+      {
+        "case": "ja_stock",
+        "encoding": "raw",
+        "text": "42",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 55,
+          "completion_tokens": 80,
+          "total_tokens": 135
+        },
+        "expected_prompt_tokens": 55,
+        "passed": true
+      },
+      {
+        "case": "en_sort",
+        "encoding": "raw",
+        "text": "[-2, 0, 3, 6, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 46,
+          "completion_tokens": 82,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 46,
+        "passed": true
+      },
+      {
+        "case": "ja_reading",
+        "encoding": "raw",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 63,
+          "completion_tokens": 128,
+          "total_tokens": 191
+        },
+        "expected_prompt_tokens": 63,
+        "passed": false
+      },
+      {
+        "case": "en_boolean",
+        "encoding": "raw",
+        "text": "{\"ready\":false,\"count\":0}",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 38,
+          "completion_tokens": 62,
+          "total_tokens": 100
+        },
+        "expected_prompt_tokens": 38,
+        "passed": true
+      },
+      {
+        "case": "ja_filter",
+        "encoding": "raw",
+        "text": "[4, 8, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 61,
+          "completion_tokens": 110,
+          "total_tokens": 171
+        },
+        "expected_prompt_tokens": 61,
+        "passed": true
+      },
+      {
+        "case": "en_code",
+        "encoding": "raw",
+        "text": "pio",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 51,
+          "completion_tokens": 107,
+          "total_tokens": 158
+        },
+        "expected_prompt_tokens": 51,
+        "passed": true
+      },
+      {
+        "case": "ja_time",
+        "encoding": "raw",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 42,
+          "completion_tokens": 128,
+          "total_tokens": 170
+        },
+        "expected_prompt_tokens": 42,
+        "passed": false
+      },
+      {
+        "case": "en_extract",
+        "encoding": "raw",
+        "text": "green",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 47,
+          "completion_tokens": 70,
+          "total_tokens": 117
+        },
+        "expected_prompt_tokens": 47,
+        "passed": true
+      },
+      {
+        "case": "ja_json",
+        "encoding": "raw",
+        "text": "{\"item\":\"茶\"",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 59,
+          "completion_tokens": 128,
+          "total_tokens": 187
+        },
+        "expected_prompt_tokens": 59,
+        "passed": false
+      },
+      {
+        "case": "en_days",
+        "encoding": "raw",
+        "text": "Monday",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 37,
+          "completion_tokens": 112,
+          "total_tokens": 149
+        },
+        "expected_prompt_tokens": 37,
+        "passed": true
+      },
+      {
+        "case": "en_days",
+        "encoding": "escaped",
+        "text": "Monday",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 37,
+          "completion_tokens": 112,
+          "total_tokens": 149
+        },
+        "expected_prompt_tokens": 37,
+        "passed": true
+      },
+      {
+        "case": "ja_json",
+        "encoding": "escaped",
+        "text": "{\"item\":\"茶\"",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 59,
+          "completion_tokens": 128,
+          "total_tokens": 187
+        },
+        "expected_prompt_tokens": 59,
+        "passed": false
+      },
+      {
+        "case": "en_extract",
+        "encoding": "escaped",
+        "text": "green",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 47,
+          "completion_tokens": 70,
+          "total_tokens": 117
+        },
+        "expected_prompt_tokens": 47,
+        "passed": true
+      },
+      {
+        "case": "ja_time",
+        "encoding": "escaped",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 42,
+          "completion_tokens": 128,
+          "total_tokens": 170
+        },
+        "expected_prompt_tokens": 42,
+        "passed": false
+      },
+      {
+        "case": "en_code",
+        "encoding": "escaped",
+        "text": "pio",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 51,
+          "completion_tokens": 107,
+          "total_tokens": 158
+        },
+        "expected_prompt_tokens": 51,
+        "passed": true
+      },
+      {
+        "case": "ja_filter",
+        "encoding": "escaped",
+        "text": "[4, 8, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 61,
+          "completion_tokens": 110,
+          "total_tokens": 171
+        },
+        "expected_prompt_tokens": 61,
+        "passed": true
+      },
+      {
+        "case": "en_boolean",
+        "encoding": "escaped",
+        "text": "{\"ready\":false,\"count\":0}",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 38,
+          "completion_tokens": 62,
+          "total_tokens": 100
+        },
+        "expected_prompt_tokens": 38,
+        "passed": true
+      },
+      {
+        "case": "ja_reading",
+        "encoding": "escaped",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 63,
+          "completion_tokens": 128,
+          "total_tokens": 191
+        },
+        "expected_prompt_tokens": 63,
+        "passed": false
+      },
+      {
+        "case": "en_sort",
+        "encoding": "escaped",
+        "text": "[-2, 0, 3, 6, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 46,
+          "completion_tokens": 82,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 46,
+        "passed": true
+      },
+      {
+        "case": "ja_stock",
+        "encoding": "escaped",
+        "text": "42",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 55,
+          "completion_tokens": 80,
+          "total_tokens": 135
+        },
+        "expected_prompt_tokens": 55,
+        "passed": true
+      },
+      {
+        "case": "en_count",
+        "encoding": "escaped",
+        "text": "3",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 36,
+          "completion_tokens": 92,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 36,
+        "passed": true
+      },
+      {
+        "case": "ja_name",
+        "encoding": "escaped",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 53,
+          "completion_tokens": 128,
+          "total_tokens": 181
+        },
+        "expected_prompt_tokens": 53,
+        "passed": false
+      },
+      {
+        "case": "ja_name",
+        "encoding": "repeat",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 53,
+          "completion_tokens": 128,
+          "total_tokens": 181
+        },
+        "expected_prompt_tokens": 53,
+        "passed": false
+      }
+    ],
+    "after-budget": [
+      {
+        "case": "ja_name",
+        "encoding": "raw",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 53,
+          "completion_tokens": 128,
+          "total_tokens": 181
+        },
+        "expected_prompt_tokens": 53,
+        "passed": false
+      },
+      {
+        "case": "en_count",
+        "encoding": "raw",
+        "text": "3",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 36,
+          "completion_tokens": 92,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 36,
+        "passed": true
+      },
+      {
+        "case": "ja_stock",
+        "encoding": "raw",
+        "text": "42",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 55,
+          "completion_tokens": 80,
+          "total_tokens": 135
+        },
+        "expected_prompt_tokens": 55,
+        "passed": true
+      },
+      {
+        "case": "en_sort",
+        "encoding": "raw",
+        "text": "[-2, 0, 3, 6, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 46,
+          "completion_tokens": 82,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 46,
+        "passed": true
+      },
+      {
+        "case": "ja_reading",
+        "encoding": "raw",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 63,
+          "completion_tokens": 128,
+          "total_tokens": 191
+        },
+        "expected_prompt_tokens": 63,
+        "passed": false
+      },
+      {
+        "case": "en_boolean",
+        "encoding": "raw",
+        "text": "{\"ready\":false,\"count\":0}",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 38,
+          "completion_tokens": 62,
+          "total_tokens": 100
+        },
+        "expected_prompt_tokens": 38,
+        "passed": true
+      },
+      {
+        "case": "ja_filter",
+        "encoding": "raw",
+        "text": "[4, 8, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 61,
+          "completion_tokens": 110,
+          "total_tokens": 171
+        },
+        "expected_prompt_tokens": 61,
+        "passed": true
+      },
+      {
+        "case": "en_code",
+        "encoding": "raw",
+        "text": "pio",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 51,
+          "completion_tokens": 107,
+          "total_tokens": 158
+        },
+        "expected_prompt_tokens": 51,
+        "passed": true
+      },
+      {
+        "case": "ja_time",
+        "encoding": "raw",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 42,
+          "completion_tokens": 128,
+          "total_tokens": 170
+        },
+        "expected_prompt_tokens": 42,
+        "passed": false
+      },
+      {
+        "case": "en_extract",
+        "encoding": "raw",
+        "text": "green",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 47,
+          "completion_tokens": 62,
+          "total_tokens": 109
+        },
+        "expected_prompt_tokens": 47,
+        "passed": true
+      },
+      {
+        "case": "ja_json",
+        "encoding": "raw",
+        "text": "{\"item\":\"茶\"",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 59,
+          "completion_tokens": 128,
+          "total_tokens": 187
+        },
+        "expected_prompt_tokens": 59,
+        "passed": false
+      },
+      {
+        "case": "en_days",
+        "encoding": "raw",
+        "text": "Monday",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 37,
+          "completion_tokens": 112,
+          "total_tokens": 149
+        },
+        "expected_prompt_tokens": 37,
+        "passed": true
+      },
+      {
+        "case": "en_days",
+        "encoding": "escaped",
+        "text": "Monday",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 37,
+          "completion_tokens": 112,
+          "total_tokens": 149
+        },
+        "expected_prompt_tokens": 37,
+        "passed": true
+      },
+      {
+        "case": "ja_json",
+        "encoding": "escaped",
+        "text": "{\"item\":\"茶\"",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 59,
+          "completion_tokens": 128,
+          "total_tokens": 187
+        },
+        "expected_prompt_tokens": 59,
+        "passed": false
+      },
+      {
+        "case": "en_extract",
+        "encoding": "escaped",
+        "text": "green",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 47,
+          "completion_tokens": 62,
+          "total_tokens": 109
+        },
+        "expected_prompt_tokens": 47,
+        "passed": true
+      },
+      {
+        "case": "ja_time",
+        "encoding": "escaped",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 42,
+          "completion_tokens": 128,
+          "total_tokens": 170
+        },
+        "expected_prompt_tokens": 42,
+        "passed": false
+      },
+      {
+        "case": "en_code",
+        "encoding": "escaped",
+        "text": "pio",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 51,
+          "completion_tokens": 107,
+          "total_tokens": 158
+        },
+        "expected_prompt_tokens": 51,
+        "passed": true
+      },
+      {
+        "case": "ja_filter",
+        "encoding": "escaped",
+        "text": "[4, 8, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 61,
+          "completion_tokens": 110,
+          "total_tokens": 171
+        },
+        "expected_prompt_tokens": 61,
+        "passed": true
+      },
+      {
+        "case": "en_boolean",
+        "encoding": "escaped",
+        "text": "{\"ready\":false,\"count\":0}",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 38,
+          "completion_tokens": 62,
+          "total_tokens": 100
+        },
+        "expected_prompt_tokens": 38,
+        "passed": true
+      },
+      {
+        "case": "ja_reading",
+        "encoding": "escaped",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 63,
+          "completion_tokens": 128,
+          "total_tokens": 191
+        },
+        "expected_prompt_tokens": 63,
+        "passed": false
+      },
+      {
+        "case": "en_sort",
+        "encoding": "escaped",
+        "text": "[-2, 0, 3, 6, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 46,
+          "completion_tokens": 82,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 46,
+        "passed": true
+      },
+      {
+        "case": "ja_stock",
+        "encoding": "escaped",
+        "text": "42",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 55,
+          "completion_tokens": 80,
+          "total_tokens": 135
+        },
+        "expected_prompt_tokens": 55,
+        "passed": true
+      },
+      {
+        "case": "en_count",
+        "encoding": "escaped",
+        "text": "3",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 36,
+          "completion_tokens": 92,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 36,
+        "passed": true
+      },
+      {
+        "case": "ja_name",
+        "encoding": "escaped",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 53,
+          "completion_tokens": 128,
+          "total_tokens": 181
+        },
+        "expected_prompt_tokens": 53,
+        "passed": false
+      },
+      {
+        "case": "ja_name",
+        "encoding": "repeat",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 53,
+          "completion_tokens": 128,
+          "total_tokens": 181
+        },
+        "expected_prompt_tokens": 53,
+        "passed": false
+      }
+    ],
+    "after-plane": [
+      {
+        "case": "ja_name",
+        "encoding": "raw",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 53,
+          "completion_tokens": 128,
+          "total_tokens": 181
+        },
+        "expected_prompt_tokens": 53,
+        "passed": false
+      },
+      {
+        "case": "en_count",
+        "encoding": "raw",
+        "text": "3",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 36,
+          "completion_tokens": 92,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 36,
+        "passed": true
+      },
+      {
+        "case": "ja_stock",
+        "encoding": "raw",
+        "text": "42",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 55,
+          "completion_tokens": 80,
+          "total_tokens": 135
+        },
+        "expected_prompt_tokens": 55,
+        "passed": true
+      },
+      {
+        "case": "en_sort",
+        "encoding": "raw",
+        "text": "[-2, 0, 3, 6, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 46,
+          "completion_tokens": 82,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 46,
+        "passed": true
+      },
+      {
+        "case": "ja_reading",
+        "encoding": "raw",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 63,
+          "completion_tokens": 128,
+          "total_tokens": 191
+        },
+        "expected_prompt_tokens": 63,
+        "passed": false
+      },
+      {
+        "case": "en_boolean",
+        "encoding": "raw",
+        "text": "{\"ready\":false,\"count\":0}",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 38,
+          "completion_tokens": 62,
+          "total_tokens": 100
+        },
+        "expected_prompt_tokens": 38,
+        "passed": true
+      },
+      {
+        "case": "ja_filter",
+        "encoding": "raw",
+        "text": "[4, 8, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 61,
+          "completion_tokens": 110,
+          "total_tokens": 171
+        },
+        "expected_prompt_tokens": 61,
+        "passed": true
+      },
+      {
+        "case": "en_code",
+        "encoding": "raw",
+        "text": "pio",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 51,
+          "completion_tokens": 107,
+          "total_tokens": 158
+        },
+        "expected_prompt_tokens": 51,
+        "passed": true
+      },
+      {
+        "case": "ja_time",
+        "encoding": "raw",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 42,
+          "completion_tokens": 128,
+          "total_tokens": 170
+        },
+        "expected_prompt_tokens": 42,
+        "passed": false
+      },
+      {
+        "case": "en_extract",
+        "encoding": "raw",
+        "text": "green",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 47,
+          "completion_tokens": 62,
+          "total_tokens": 109
+        },
+        "expected_prompt_tokens": 47,
+        "passed": true
+      },
+      {
+        "case": "ja_json",
+        "encoding": "raw",
+        "text": "{\"item\":\"茶\"",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 59,
+          "completion_tokens": 128,
+          "total_tokens": 187
+        },
+        "expected_prompt_tokens": 59,
+        "passed": false
+      },
+      {
+        "case": "en_days",
+        "encoding": "raw",
+        "text": "Monday",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 37,
+          "completion_tokens": 112,
+          "total_tokens": 149
+        },
+        "expected_prompt_tokens": 37,
+        "passed": true
+      },
+      {
+        "case": "en_days",
+        "encoding": "escaped",
+        "text": "Monday",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 37,
+          "completion_tokens": 112,
+          "total_tokens": 149
+        },
+        "expected_prompt_tokens": 37,
+        "passed": true
+      },
+      {
+        "case": "ja_json",
+        "encoding": "escaped",
+        "text": "{\"item\":\"茶\"",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 59,
+          "completion_tokens": 128,
+          "total_tokens": 187
+        },
+        "expected_prompt_tokens": 59,
+        "passed": false
+      },
+      {
+        "case": "en_extract",
+        "encoding": "escaped",
+        "text": "green",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 47,
+          "completion_tokens": 62,
+          "total_tokens": 109
+        },
+        "expected_prompt_tokens": 47,
+        "passed": true
+      },
+      {
+        "case": "ja_time",
+        "encoding": "escaped",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 42,
+          "completion_tokens": 128,
+          "total_tokens": 170
+        },
+        "expected_prompt_tokens": 42,
+        "passed": false
+      },
+      {
+        "case": "en_code",
+        "encoding": "escaped",
+        "text": "pio",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 51,
+          "completion_tokens": 107,
+          "total_tokens": 158
+        },
+        "expected_prompt_tokens": 51,
+        "passed": true
+      },
+      {
+        "case": "ja_filter",
+        "encoding": "escaped",
+        "text": "[4, 8, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 61,
+          "completion_tokens": 110,
+          "total_tokens": 171
+        },
+        "expected_prompt_tokens": 61,
+        "passed": true
+      },
+      {
+        "case": "en_boolean",
+        "encoding": "escaped",
+        "text": "{\"ready\":false,\"count\":0}",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 38,
+          "completion_tokens": 62,
+          "total_tokens": 100
+        },
+        "expected_prompt_tokens": 38,
+        "passed": true
+      },
+      {
+        "case": "ja_reading",
+        "encoding": "escaped",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 63,
+          "completion_tokens": 128,
+          "total_tokens": 191
+        },
+        "expected_prompt_tokens": 63,
+        "passed": false
+      },
+      {
+        "case": "en_sort",
+        "encoding": "escaped",
+        "text": "[-2, 0, 3, 6, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 46,
+          "completion_tokens": 82,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 46,
+        "passed": true
+      },
+      {
+        "case": "ja_stock",
+        "encoding": "escaped",
+        "text": "42",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 55,
+          "completion_tokens": 80,
+          "total_tokens": 135
+        },
+        "expected_prompt_tokens": 55,
+        "passed": true
+      },
+      {
+        "case": "en_count",
+        "encoding": "escaped",
+        "text": "3",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 36,
+          "completion_tokens": 92,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 36,
+        "passed": true
+      },
+      {
+        "case": "ja_name",
+        "encoding": "escaped",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 53,
+          "completion_tokens": 128,
+          "total_tokens": 181
+        },
+        "expected_prompt_tokens": 53,
+        "passed": false
+      },
+      {
+        "case": "ja_name",
+        "encoding": "repeat",
+        "text": "",
+        "finish": "length",
+        "usage": {
+          "prompt_tokens": 53,
+          "completion_tokens": 128,
+          "total_tokens": 181
+        },
+        "expected_prompt_tokens": 53,
+        "passed": false
+      }
+    ],
+    "long-parent": [
+      {
+        "case": "ja_name",
+        "encoding": "raw",
+        "text": "𠮷野家🍵",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 53,
+          "completion_tokens": 219,
+          "total_tokens": 272
+        },
+        "expected_prompt_tokens": 53,
+        "passed": true
+      },
+      {
+        "case": "en_count",
+        "encoding": "raw",
+        "text": "3",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 36,
+          "completion_tokens": 92,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 36,
+        "passed": true
+      },
+      {
+        "case": "ja_stock",
+        "encoding": "raw",
+        "text": "42",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 55,
+          "completion_tokens": 80,
+          "total_tokens": 135
+        },
+        "expected_prompt_tokens": 55,
+        "passed": true
+      },
+      {
+        "case": "en_sort",
+        "encoding": "raw",
+        "text": "[-2, 0, 3, 6, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 46,
+          "completion_tokens": 82,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 46,
+        "passed": true
+      },
+      {
+        "case": "ja_reading",
+        "encoding": "raw",
+        "text": "C",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 63,
+          "completion_tokens": 135,
+          "total_tokens": 198
+        },
+        "expected_prompt_tokens": 63,
+        "passed": true
+      },
+      {
+        "case": "en_boolean",
+        "encoding": "raw",
+        "text": "{\"ready\":false,\"count\":0}",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 38,
+          "completion_tokens": 62,
+          "total_tokens": 100
+        },
+        "expected_prompt_tokens": 38,
+        "passed": true
+      },
+      {
+        "case": "ja_filter",
+        "encoding": "raw",
+        "text": "[4, 8, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 61,
+          "completion_tokens": 110,
+          "total_tokens": 171
+        },
+        "expected_prompt_tokens": 61,
+        "passed": true
+      },
+      {
+        "case": "en_code",
+        "encoding": "raw",
+        "text": "pio",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 51,
+          "completion_tokens": 107,
+          "total_tokens": 158
+        },
+        "expected_prompt_tokens": 51,
+        "passed": true
+      },
+      {
+        "case": "ja_time",
+        "encoding": "raw",
+        "text": "15:20",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 42,
+          "completion_tokens": 203,
+          "total_tokens": 245
+        },
+        "expected_prompt_tokens": 42,
+        "passed": true
+      },
+      {
+        "case": "en_extract",
+        "encoding": "raw",
+        "text": "green",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 47,
+          "completion_tokens": 70,
+          "total_tokens": 117
+        },
+        "expected_prompt_tokens": 47,
+        "passed": true
+      },
+      {
+        "case": "ja_json",
+        "encoding": "raw",
+        "text": "{\"item\":\"茶\",\"quantity\":2}",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 59,
+          "completion_tokens": 136,
+          "total_tokens": 195
+        },
+        "expected_prompt_tokens": 59,
+        "passed": true
+      },
+      {
+        "case": "en_days",
+        "encoding": "raw",
+        "text": "Monday",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 37,
+          "completion_tokens": 112,
+          "total_tokens": 149
+        },
+        "expected_prompt_tokens": 37,
+        "passed": true
+      },
+      {
+        "case": "ja_name",
+        "encoding": "repeat",
+        "text": "𠮷野家🍵",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 53,
+          "completion_tokens": 219,
+          "total_tokens": 272
+        },
+        "expected_prompt_tokens": 53,
+        "passed": true
+      }
+    ],
+    "long-budget": [
+      {
+        "case": "ja_name",
+        "encoding": "raw",
+        "text": "𠮷野家🍵",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 53,
+          "completion_tokens": 193,
+          "total_tokens": 246
+        },
+        "expected_prompt_tokens": 53,
+        "passed": true
+      },
+      {
+        "case": "en_count",
+        "encoding": "raw",
+        "text": "3",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 36,
+          "completion_tokens": 92,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 36,
+        "passed": true
+      },
+      {
+        "case": "ja_stock",
+        "encoding": "raw",
+        "text": "42",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 55,
+          "completion_tokens": 80,
+          "total_tokens": 135
+        },
+        "expected_prompt_tokens": 55,
+        "passed": true
+      },
+      {
+        "case": "en_sort",
+        "encoding": "raw",
+        "text": "[-2, 0, 3, 6, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 46,
+          "completion_tokens": 82,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 46,
+        "passed": true
+      },
+      {
+        "case": "ja_reading",
+        "encoding": "raw",
+        "text": "C",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 63,
+          "completion_tokens": 135,
+          "total_tokens": 198
+        },
+        "expected_prompt_tokens": 63,
+        "passed": true
+      },
+      {
+        "case": "en_boolean",
+        "encoding": "raw",
+        "text": "{\"ready\":false,\"count\":0}",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 38,
+          "completion_tokens": 62,
+          "total_tokens": 100
+        },
+        "expected_prompt_tokens": 38,
+        "passed": true
+      },
+      {
+        "case": "ja_filter",
+        "encoding": "raw",
+        "text": "[4, 8, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 61,
+          "completion_tokens": 110,
+          "total_tokens": 171
+        },
+        "expected_prompt_tokens": 61,
+        "passed": true
+      },
+      {
+        "case": "en_code",
+        "encoding": "raw",
+        "text": "pio",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 51,
+          "completion_tokens": 107,
+          "total_tokens": 158
+        },
+        "expected_prompt_tokens": 51,
+        "passed": true
+      },
+      {
+        "case": "ja_time",
+        "encoding": "raw",
+        "text": "15:20",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 42,
+          "completion_tokens": 203,
+          "total_tokens": 245
+        },
+        "expected_prompt_tokens": 42,
+        "passed": true
+      },
+      {
+        "case": "en_extract",
+        "encoding": "raw",
+        "text": "green",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 47,
+          "completion_tokens": 62,
+          "total_tokens": 109
+        },
+        "expected_prompt_tokens": 47,
+        "passed": true
+      },
+      {
+        "case": "ja_json",
+        "encoding": "raw",
+        "text": "{\"item\":\"茶\",\"quantity\":2}",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 59,
+          "completion_tokens": 136,
+          "total_tokens": 195
+        },
+        "expected_prompt_tokens": 59,
+        "passed": true
+      },
+      {
+        "case": "en_days",
+        "encoding": "raw",
+        "text": "Monday",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 37,
+          "completion_tokens": 112,
+          "total_tokens": 149
+        },
+        "expected_prompt_tokens": 37,
+        "passed": true
+      },
+      {
+        "case": "ja_name",
+        "encoding": "repeat",
+        "text": "𠮷野家🍵",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 53,
+          "completion_tokens": 193,
+          "total_tokens": 246
+        },
+        "expected_prompt_tokens": 53,
+        "passed": true
+      }
+    ],
+    "long-plane": [
+      {
+        "case": "ja_name",
+        "encoding": "raw",
+        "text": "𠮷野家🍵",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 53,
+          "completion_tokens": 219,
+          "total_tokens": 272
+        },
+        "expected_prompt_tokens": 53,
+        "passed": true
+      },
+      {
+        "case": "en_count",
+        "encoding": "raw",
+        "text": "3",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 36,
+          "completion_tokens": 92,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 36,
+        "passed": true
+      },
+      {
+        "case": "ja_stock",
+        "encoding": "raw",
+        "text": "42",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 55,
+          "completion_tokens": 80,
+          "total_tokens": 135
+        },
+        "expected_prompt_tokens": 55,
+        "passed": true
+      },
+      {
+        "case": "en_sort",
+        "encoding": "raw",
+        "text": "[-2, 0, 3, 6, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 46,
+          "completion_tokens": 82,
+          "total_tokens": 128
+        },
+        "expected_prompt_tokens": 46,
+        "passed": true
+      },
+      {
+        "case": "ja_reading",
+        "encoding": "raw",
+        "text": "C",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 63,
+          "completion_tokens": 135,
+          "total_tokens": 198
+        },
+        "expected_prompt_tokens": 63,
+        "passed": true
+      },
+      {
+        "case": "en_boolean",
+        "encoding": "raw",
+        "text": "{\"ready\":false,\"count\":0}",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 38,
+          "completion_tokens": 62,
+          "total_tokens": 100
+        },
+        "expected_prompt_tokens": 38,
+        "passed": true
+      },
+      {
+        "case": "ja_filter",
+        "encoding": "raw",
+        "text": "[4, 8, 6]",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 61,
+          "completion_tokens": 110,
+          "total_tokens": 171
+        },
+        "expected_prompt_tokens": 61,
+        "passed": true
+      },
+      {
+        "case": "en_code",
+        "encoding": "raw",
+        "text": "pio",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 51,
+          "completion_tokens": 107,
+          "total_tokens": 158
+        },
+        "expected_prompt_tokens": 51,
+        "passed": true
+      },
+      {
+        "case": "ja_time",
+        "encoding": "raw",
+        "text": "15:20",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 42,
+          "completion_tokens": 193,
+          "total_tokens": 235
+        },
+        "expected_prompt_tokens": 42,
+        "passed": true
+      },
+      {
+        "case": "en_extract",
+        "encoding": "raw",
+        "text": "green",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 47,
+          "completion_tokens": 62,
+          "total_tokens": 109
+        },
+        "expected_prompt_tokens": 47,
+        "passed": true
+      },
+      {
+        "case": "ja_json",
+        "encoding": "raw",
+        "text": "{\"item\":\"茶\",\"quantity\":2}",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 59,
+          "completion_tokens": 136,
+          "total_tokens": 195
+        },
+        "expected_prompt_tokens": 59,
+        "passed": true
+      },
+      {
+        "case": "en_days",
+        "encoding": "raw",
+        "text": "Monday",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 37,
+          "completion_tokens": 112,
+          "total_tokens": 149
+        },
+        "expected_prompt_tokens": 37,
+        "passed": true
+      },
+      {
+        "case": "ja_name",
+        "encoding": "repeat",
+        "text": "𠮷野家🍵",
+        "finish": "stop",
+        "usage": {
+          "prompt_tokens": 53,
+          "completion_tokens": 219,
+          "total_tokens": 272
+        },
+        "expected_prompt_tokens": 53,
+        "passed": true
+      }
+    ],
+    "bf16": [
+      {
+        "case": "ja_name",
+        "generated": {
+          "128": {
+            "text": "",
+            "finish": "length",
+            "tokens": 128,
+            "passed": false
+          },
+          "384": {
+            "text": "𠮷野家🍵",
+            "finish": "stop",
+            "tokens": 228,
+            "passed": true
+          }
+        },
+        "token_sha256": "7eff1d07f494365bb049f85d050c34b8586c4e846747f6e017cbce671d503f3c"
+      },
+      {
+        "case": "en_count",
+        "generated": {
+          "128": {
+            "text": "3",
+            "finish": "stop",
+            "tokens": 92,
+            "passed": true
+          },
+          "384": {
+            "text": "3",
+            "finish": "stop",
+            "tokens": 92,
+            "passed": true
+          }
+        },
+        "token_sha256": "d0cdf867fd8dd2ca8652a7013db572321dcb368671638b13b7fb58e4cc997933"
+      },
+      {
+        "case": "ja_stock",
+        "generated": {
+          "128": {
+            "text": "42",
+            "finish": "stop",
+            "tokens": 74,
+            "passed": true
+          },
+          "384": {
+            "text": "42",
+            "finish": "stop",
+            "tokens": 74,
+            "passed": true
+          }
+        },
+        "token_sha256": "a7f15eb905da6d847f70cae6460bbec0af1f009ce4a72a127bbc67988fa12b9b"
+      },
+      {
+        "case": "en_sort",
+        "generated": {
+          "128": {
+            "text": "[-2, 0, 3, 6, 6]",
+            "finish": "stop",
+            "tokens": 82,
+            "passed": true
+          },
+          "384": {
+            "text": "[-2, 0, 3, 6, 6]",
+            "finish": "stop",
+            "tokens": 82,
+            "passed": true
+          }
+        },
+        "token_sha256": "8edb5622de998e32edb7d139723eb4f02eb5156df318ff18bc969227f95ad83f"
+      },
+      {
+        "case": "ja_reading",
+        "generated": {
+          "128": {
+            "text": "",
+            "finish": "length",
+            "tokens": 128,
+            "passed": false
+          },
+          "384": {
+            "text": "C",
+            "finish": "stop",
+            "tokens": 135,
+            "passed": true
+          }
+        },
+        "token_sha256": "224b9a1c9d334999540fa99be4c546f60d1fcc324d4595b9d5afb60016db0e23"
+      },
+      {
+        "case": "en_boolean",
+        "generated": {
+          "128": {
+            "text": "{\"ready\":false,\"count\":0}",
+            "finish": "stop",
+            "tokens": 62,
+            "passed": true
+          },
+          "384": {
+            "text": "{\"ready\":false,\"count\":0}",
+            "finish": "stop",
+            "tokens": 62,
+            "passed": true
+          }
+        },
+        "token_sha256": "d6f1922e33bc02e0883e54dacbf3b980a4fd9dd8291c10e8d4ffdb3d55d1466c"
+      },
+      {
+        "case": "ja_filter",
+        "generated": {
+          "128": {
+            "text": "[4, 8, 6]",
+            "finish": "stop",
+            "tokens": 112,
+            "passed": true
+          },
+          "384": {
+            "text": "[4, 8, 6]",
+            "finish": "stop",
+            "tokens": 112,
+            "passed": true
+          }
+        },
+        "token_sha256": "7c63b8f7d23bd087812125d7c1cb1e738b8c7037c93d04f488c52927e48a1eaf"
+      },
+      {
+        "case": "en_code",
+        "generated": {
+          "128": {
+            "text": "",
+            "finish": "length",
+            "tokens": 128,
+            "passed": false
+          },
+          "384": {
+            "text": "pio",
+            "finish": "stop",
+            "tokens": 150,
+            "passed": true
+          }
+        },
+        "token_sha256": "6d9916c5dd3f18920daef7f72e064bf804b997f1eb1a15a53d3620d461280f6a"
+      },
+      {
+        "case": "ja_time",
+        "generated": {
+          "128": {
+            "text": "",
+            "finish": "length",
+            "tokens": 128,
+            "passed": false
+          },
+          "384": {
+            "text": "15:20",
+            "finish": "stop",
+            "tokens": 231,
+            "passed": true
+          }
+        },
+        "token_sha256": "14590d840f86d9540a999535c6e9023b3c760ef102c6b93786e5df35cfa76879"
+      },
+      {
+        "case": "en_extract",
+        "generated": {
+          "128": {
+            "text": "green",
+            "finish": "stop",
+            "tokens": 50,
+            "passed": true
+          },
+          "384": {
+            "text": "green",
+            "finish": "stop",
+            "tokens": 50,
+            "passed": true
+          }
+        },
+        "token_sha256": "1158f8b0e69232e94a9e28cb9370cd510eb0cdda2f0d69eb4aa4c9ca30b635ef"
+      },
+      {
+        "case": "ja_json",
+        "generated": {
+          "128": {
+            "text": "",
+            "finish": "length",
+            "tokens": 128,
+            "passed": false
+          },
+          "384": {
+            "text": "{\"item\":\"茶\",\"quantity\":2}",
+            "finish": "stop",
+            "tokens": 167,
+            "passed": true
+          }
+        },
+        "token_sha256": "c1acaa172c66b9989d15b4874aed114c0511cac792b47e461139e02679cd5255"
+      },
+      {
+        "case": "en_days",
+        "generated": {
+          "128": {
+            "text": "Monday",
+            "finish": "stop",
+            "tokens": 112,
+            "passed": true
+          },
+          "384": {
+            "text": "Monday",
+            "finish": "stop",
+            "tokens": 112,
+            "passed": true
+          }
+        },
+        "token_sha256": "d98cb60142525b877feadf0997e93cdce3a8f8e1e19796a7821398b3989fb57a"
+      },
+      {
+        "case": "ja_name",
+        "generated": {
+          "128": {
+            "text": "",
+            "finish": "length",
+            "tokens": 128,
+            "passed": false
+          },
+          "384": {
+            "text": "𠮷野家🍵",
+            "finish": "stop",
+            "tokens": 228,
+            "passed": true
+          }
+        },
+        "token_sha256": "7eff1d07f494365bb049f85d050c34b8586c4e846747f6e017cbce671d503f3c"
+      }
+    ],
+    "iq4": [
+      {
+        "case": "ja_name",
+        "generated": {
+          "128": {
+            "text": "",
+            "finish": "length",
+            "tokens": 128,
+            "passed": false
+          },
+          "384": {
+            "text": "𠮷野家🍵",
+            "finish": "stop",
+            "tokens": 383,
+            "passed": true
+          }
+        },
+        "token_sha256": "06295f72001e75abf34131391ffae569369a31dc02b57e92e970a5d47c832cbe"
+      },
+      {
+        "case": "en_count",
+        "generated": {
+          "128": {
+            "text": "3",
+            "finish": "stop",
+            "tokens": 92,
+            "passed": true
+          },
+          "384": {
+            "text": "3",
+            "finish": "stop",
+            "tokens": 92,
+            "passed": true
+          }
+        },
+        "token_sha256": "d0cdf867fd8dd2ca8652a7013db572321dcb368671638b13b7fb58e4cc997933"
+      },
+      {
+        "case": "ja_stock",
+        "generated": {
+          "128": {
+            "text": "42",
+            "finish": "stop",
+            "tokens": 80,
+            "passed": true
+          },
+          "384": {
+            "text": "42",
+            "finish": "stop",
+            "tokens": 80,
+            "passed": true
+          }
+        },
+        "token_sha256": "37b63b793a967fbb3645e718bf062b52154e327fc978e9d95e9ee4c62f89e0b7"
+      },
+      {
+        "case": "en_sort",
+        "generated": {
+          "128": {
+            "text": "[-2, 0, 3, 6, 6]",
+            "finish": "stop",
+            "tokens": 82,
+            "passed": true
+          },
+          "384": {
+            "text": "[-2, 0, 3, 6, 6]",
+            "finish": "stop",
+            "tokens": 82,
+            "passed": true
+          }
+        },
+        "token_sha256": "8edb5622de998e32edb7d139723eb4f02eb5156df318ff18bc969227f95ad83f"
+      },
+      {
+        "case": "ja_reading",
+        "generated": {
+          "128": {
+            "text": "",
+            "finish": "length",
+            "tokens": 128,
+            "passed": false
+          },
+          "384": {
+            "text": "C",
+            "finish": "stop",
+            "tokens": 135,
+            "passed": true
+          }
+        },
+        "token_sha256": "a6d38ef71913616b0e2a88f96ab84baedc37323583e62df4012622c24761fd49"
+      },
+      {
+        "case": "en_boolean",
+        "generated": {
+          "128": {
+            "text": "{\"ready\":false,\"count\":0}",
+            "finish": "stop",
+            "tokens": 62,
+            "passed": true
+          },
+          "384": {
+            "text": "{\"ready\":false,\"count\":0}",
+            "finish": "stop",
+            "tokens": 62,
+            "passed": true
+          }
+        },
+        "token_sha256": "d6f1922e33bc02e0883e54dacbf3b980a4fd9dd8291c10e8d4ffdb3d55d1466c"
+      },
+      {
+        "case": "ja_filter",
+        "generated": {
+          "128": {
+            "text": "[4, 8, 6]",
+            "finish": "stop",
+            "tokens": 88,
+            "passed": true
+          },
+          "384": {
+            "text": "[4, 8, 6]",
+            "finish": "stop",
+            "tokens": 88,
+            "passed": true
+          }
+        },
+        "token_sha256": "7aef33ce27b4f393f01c2a932df92b7f373066fa8244aa63d8811496b4449431"
+      },
+      {
+        "case": "en_code",
+        "generated": {
+          "128": {
+            "text": "pio",
+            "finish": "stop",
+            "tokens": 107,
+            "passed": true
+          },
+          "384": {
+            "text": "pio",
+            "finish": "stop",
+            "tokens": 107,
+            "passed": true
+          }
+        },
+        "token_sha256": "9a79a503b5e5886f496b68e2bdb05985241c1cc76536e3a01b63641131dfbe78"
+      },
+      {
+        "case": "ja_time",
+        "generated": {
+          "128": {
+            "text": "",
+            "finish": "length",
+            "tokens": 128,
+            "passed": false
+          },
+          "384": {
+            "text": "15:20",
+            "finish": "stop",
+            "tokens": 204,
+            "passed": true
+          }
+        },
+        "token_sha256": "105928d65c56fee844c737740a8d813afd5c70553ec68ac9185297ebd99ac21e"
+      },
+      {
+        "case": "en_extract",
+        "generated": {
+          "128": {
+            "text": "green",
+            "finish": "stop",
+            "tokens": 62,
+            "passed": true
+          },
+          "384": {
+            "text": "green",
+            "finish": "stop",
+            "tokens": 62,
+            "passed": true
+          }
+        },
+        "token_sha256": "a5f64baec9727b5f7ef4e0763863386a004688e8feffc9505e2ac4911921c158"
+      },
+      {
+        "case": "ja_json",
+        "generated": {
+          "128": {
+            "text": "",
+            "finish": "length",
+            "tokens": 128,
+            "passed": false
+          },
+          "384": {
+            "text": "{\"item\":\"茶\",\"quantity\":2}",
+            "finish": "stop",
+            "tokens": 167,
+            "passed": true
+          }
+        },
+        "token_sha256": "314d497e426343ed0d346aa0aa51ef60a11336ca99bd36b6da27201fe0718a45"
+      },
+      {
+        "case": "en_days",
+        "generated": {
+          "128": {
+            "text": "Monday",
+            "finish": "stop",
+            "tokens": 112,
+            "passed": true
+          },
+          "384": {
+            "text": "Monday",
+            "finish": "stop",
+            "tokens": 112,
+            "passed": true
+          }
+        },
+        "token_sha256": "d98cb60142525b877feadf0997e93cdce3a8f8e1e19796a7821398b3989fb57a"
+      },
+      {
+        "case": "ja_name",
+        "generated": {
+          "128": {
+            "text": "",
+            "finish": "length",
+            "tokens": 128,
+            "passed": false
+          },
+          "384": {
+            "text": "𠮷野家🍵",
+            "finish": "stop",
+            "tokens": 383,
+            "passed": true
+          }
+        },
+        "token_sha256": "06295f72001e75abf34131391ffae569369a31dc02b57e92e970a5d47c832cbe"
+      }
+    ],
+    "q3": [
+      {
+        "case": "ja_name",
+        "generated": {
+          "128": {
+            "text": "",
+            "finish": "length",
+            "tokens": 128,
+            "passed": false
+          },
+          "384": {
+            "text": "𠮷野家🍵",
+            "finish": "stop",
+            "tokens": 205,
+            "passed": true
+          }
+        },
+        "token_sha256": "dbb0ed473c521e1b064b6cbadc1aace9033cddd17552b53eb9e4f3ca1117bc72"
+      },
+      {
+        "case": "en_count",
+        "generated": {
+          "128": {
+            "text": "3",
+            "finish": "stop",
+            "tokens": 92,
+            "passed": true
+          },
+          "384": {
+            "text": "3",
+            "finish": "stop",
+            "tokens": 92,
+            "passed": true
+          }
+        },
+        "token_sha256": "d0cdf867fd8dd2ca8652a7013db572321dcb368671638b13b7fb58e4cc997933"
+      },
+      {
+        "case": "ja_stock",
+        "generated": {
+          "128": {
+            "text": "42",
+            "finish": "stop",
+            "tokens": 75,
+            "passed": true
+          },
+          "384": {
+            "text": "42",
+            "finish": "stop",
+            "tokens": 75,
+            "passed": true
+          }
+        },
+        "token_sha256": "55e5613dbe5281e562e8a379b9c04ca7938b1004aaa722c73d813d91aae40b34"
+      },
+      {
+        "case": "en_sort",
+        "generated": {
+          "128": {
+            "text": "[-2, 0, 3, 6, 6]",
+            "finish": "stop",
+            "tokens": 79,
+            "passed": true
+          },
+          "384": {
+            "text": "[-2, 0, 3, 6, 6]",
+            "finish": "stop",
+            "tokens": 79,
+            "passed": true
+          }
+        },
+        "token_sha256": "d058f1a24019480135490f2cb12774713b65d81acb3cd00ca2abb5b5b46e9b1c"
+      },
+      {
+        "case": "ja_reading",
+        "generated": {
+          "128": {
+            "text": "",
+            "finish": "length",
+            "tokens": 128,
+            "passed": false
+          },
+          "384": {
+            "text": "C",
+            "finish": "stop",
+            "tokens": 131,
+            "passed": true
+          }
+        },
+        "token_sha256": "370910a015cad7643d2070d65de26de633e16ce0d6f4556774c5fd168006e9a2"
+      },
+      {
+        "case": "en_boolean",
+        "generated": {
+          "128": {
+            "text": "{\"ready\":false,\"count\":0}",
+            "finish": "stop",
+            "tokens": 62,
+            "passed": true
+          },
+          "384": {
+            "text": "{\"ready\":false,\"count\":0}",
+            "finish": "stop",
+            "tokens": 62,
+            "passed": true
+          }
+        },
+        "token_sha256": "d6f1922e33bc02e0883e54dacbf3b980a4fd9dd8291c10e8d4ffdb3d55d1466c"
+      },
+      {
+        "case": "ja_filter",
+        "generated": {
+          "128": {
+            "text": "[4, 8, 6]",
+            "finish": "stop",
+            "tokens": 112,
+            "passed": true
+          },
+          "384": {
+            "text": "[4, 8, 6]",
+            "finish": "stop",
+            "tokens": 112,
+            "passed": true
+          }
+        },
+        "token_sha256": "7c63b8f7d23bd087812125d7c1cb1e738b8c7037c93d04f488c52927e48a1eaf"
+      },
+      {
+        "case": "en_code",
+        "generated": {
+          "128": {
+            "text": "",
+            "finish": "length",
+            "tokens": 128,
+            "passed": false
+          },
+          "384": {
+            "text": "",
+            "finish": "length",
+            "tokens": 384,
+            "passed": false
+          }
+        },
+        "token_sha256": "e0a55badb2464588001f36c080899de9d6dcdcec08afac20282d39fc69bf73e9"
+      },
+      {
+        "case": "ja_time",
+        "generated": {
+          "128": {
+            "text": "",
+            "finish": "length",
+            "tokens": 128,
+            "passed": false
+          },
+          "384": {
+            "text": "15:20",
+            "finish": "stop",
+            "tokens": 142,
+            "passed": true
+          }
+        },
+        "token_sha256": "59ff64172fbffc1aef93ae43912c7b4398c7b52c217c471990e8e44c7ec1aa0c"
+      },
+      {
+        "case": "en_extract",
+        "generated": {
+          "128": {
+            "text": "green",
+            "finish": "stop",
+            "tokens": 62,
+            "passed": true
+          },
+          "384": {
+            "text": "green",
+            "finish": "stop",
+            "tokens": 62,
+            "passed": true
+          }
+        },
+        "token_sha256": "a5f64baec9727b5f7ef4e0763863386a004688e8feffc9505e2ac4911921c158"
+      },
+      {
+        "case": "ja_json",
+        "generated": {
+          "128": {
+            "text": "",
+            "finish": "length",
+            "tokens": 128,
+            "passed": false
+          },
+          "384": {
+            "text": "{\"item\":\"茶\",\"quantity\":2}",
+            "finish": "stop",
+            "tokens": 167,
+            "passed": true
+          }
+        },
+        "token_sha256": "c1acaa172c66b9989d15b4874aed114c0511cac792b47e461139e02679cd5255"
+      },
+      {
+        "case": "en_days",
+        "generated": {
+          "128": {
+            "text": "Monday",
+            "finish": "stop",
+            "tokens": 95,
+            "passed": true
+          },
+          "384": {
+            "text": "Monday",
+            "finish": "stop",
+            "tokens": 95,
+            "passed": true
+          }
+        },
+        "token_sha256": "210cda77bb2e50341bd1cfb94578633ebfd2dc87da3819c700114c2471c1b09c"
+      },
+      {
+        "case": "ja_name",
+        "generated": {
+          "128": {
+            "text": "",
+            "finish": "length",
+            "tokens": 128,
+            "passed": false
+          },
+          "384": {
+            "text": "𠮷野家🍵",
+            "finish": "stop",
+            "tokens": 205,
+            "passed": true
+          }
+        },
+        "token_sha256": "dbb0ed473c521e1b064b6cbadc1aace9033cddd17552b53eb9e4f3ca1117bc72"
+      }
+    ]
+  }
+}
