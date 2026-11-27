@@ -11,29 +11,54 @@ parser.add_argument("output_dir", type=Path)
 parser.add_argument(
     "--encoder", type=Path, default=Path("target/release/examples/inkling_mxfp8_round")
 )
-parser.add_argument(
+selection = parser.add_mutually_exclusive_group()
+selection.add_argument(
+    "--codebooks", type=Path, help="Use magnitude maps from choose_codebooks.py."
+)
+selection.add_argument(
     "--cutoffs",
     type=Path,
     help="Use eight per-plane magnitude cutoffs from choose_cutoffs.py and write the budget variant.",
 )
+parser.add_argument(
+    "--condition-on-scale",
+    action="store_true",
+    help="Refit code assignments per block exponent within each plane's original cross-entropy budget.",
+)
 args = parser.parse_args()
+if args.condition_on_scale and not args.codebooks:
+    parser.error("--condition-on-scale requires --codebooks")
 thresholds = (
     json.loads(args.cutoffs.read_text())["thresholds"] if args.cutoffs else None
 )
+codebooks = json.loads(args.codebooks.read_text())["maps"] if args.codebooks else None
+keys = {
+    f"model.llm.layers.{layer}.mlp.experts.{kind}"
+    for layer in range(20, 24)
+    for kind in ("w13_weight", "w2_weight")
+}
 if thresholds is not None:
-    keys = {
-        f"model.llm.layers.{layer}.mlp.experts.{kind}"
-        for layer in range(20, 24)
-        for kind in ("w13_weight", "w2_weight")
-    }
     if set(thresholds) != keys or any(
         type(v) != int or not 0 <= v <= 125 for v in thresholds.values()
     ):
         raise ValueError(
             "expected a finite magnitude cutoff for each of the eight planes"
         )
+if codebooks is not None:
+    if set(codebooks) != keys or any(
+        len(m) != 127
+        or m[0] != 0
+        or any(type(v) is not int or not 0 <= v < 127 for v in m)
+        for m in codebooks.values()
+    ):
+        raise ValueError("invalid magnitude codebooks")
+single_arm = (
+    "codebook"
+    if codebooks is not None
+    else ("budget" if thresholds is not None else None)
+)
 args.output_dir.mkdir(parents=True, exist_ok=True)
-for arm in ("budget",) if thresholds else ("last", "all"):
+for arm in (single_arm,) if single_arm else ("last", "all"):
     if (args.output_dir / arm).exists():
         raise FileExistsError(args.output_dir / arm)
 
@@ -88,14 +113,39 @@ with tempfile.TemporaryDirectory(prefix="round-frame-", dir=args.output_dir) as 
             assert raw[name]["dtype"] == "F8_E4M3" and old[key]["dtype"] == "U8"
             cutoff = thresholds[name] if thresholds else 125
             dest = Path(scratch) / key
+            if codebooks is not None:
+                magnitudes = codebooks[name]
+                table = [
+                    (v & 128) | magnitudes[v & 127]
+                    if v & 127 < 127 and magnitudes[v & 127]
+                    else 0
+                    for v in range(256)
+                ]
+                lut = Path(scratch) / (key + ".lut")
+                lut.write_bytes(bytes(table))
+                options = ["--lut", str(lut)]
+            else:
+                table = [
+                    (v & 128) | (rounded(v & 127) if v & 127 <= cutoff else v & 127)
+                    for v in range(256)
+                ]
+                options = [str(cutoff)]
+            source, offset = original, roff + a
+            conditioned = None
+            if args.condition_on_scale:
+                from scale_codebook import transform
+
+                source = Path(scratch) / (key + ".raw")
+                conditioned = transform(original, raw, roff, name, magnitudes, source)
+                offset, options = 0, ["0"]
             lines = subprocess.check_output(
                 [
                     str(args.encoder.resolve()),
-                    str(original),
-                    str(roff + a),
+                    str(source),
+                    str(offset),
                     str(b - a),
                     str(dest),
-                    str(cutoff),
+                    *options,
                 ],
                 text=True,
             ).splitlines()
@@ -106,29 +156,26 @@ with tempfile.TemporaryDirectory(prefix="round-frame-", dir=args.output_dir) as 
                 and hist[127] == hist[255] == 0
             )
             err = sum(
-                n
-                * (
-                    number(i & 127)
-                    - number(rounded(i & 127) if (i & 127) <= cutoff else i & 127)
-                )
-                ** 2
+                n * (number(i & 127) - number(table[i] & 127)) ** 2
                 for i, n in hist.items()
             )
             power = sum(n * number(i & 127) ** 2 for i, n in hist.items())
             frames[key] = dict(
                 bytes=int(lines[0]),
                 sha256=hashlib.sha256(dest.read_bytes()).hexdigest(),
-                changed_codes=sum(
-                    n for v, n in hist.items() if v % 2 and (v & 127) <= cutoff
-                ),
+                changed_codes=sum(n for v, n in hist.items() if v != table[v]),
                 codes=b - a,
                 normalized_code_mse=err / power,
             )
+            if conditioned is not None:
+                source.unlink()
+                frames[key].pop("normalized_code_mse")
+                frames[key].update(conditioned)
             if thresholds:
                 frames[key]["threshold"] = cutoff
-        if layer not in ((20,) if thresholds else (20, 23)):
+        if layer not in ((20,) if single_arm else (20, 23)):
             continue
-        arm = "budget" if thresholds else ("last" if layer == 23 else "all")
+        arm = single_arm or ("last" if layer == 23 else "all")
         target = Path(tempfile.mkdtemp(dir=args.output_dir, prefix=arm + ".partial."))
         meta = {}
         o = 0
