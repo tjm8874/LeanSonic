@@ -324,5 +324,22 @@
     "dictionary_sha256": "a4ba3e60d1838325a4d5109687d0a7ddb3e3722a726424ce68057beee8e9441a",
     "dictionary_shard_bytes": 16035182576
   },
-  "validation_oracle_sha256": "b3d804824373950c9b6d7cd37e5607d132d2f3caca6f80ffd26739b2776a2ca0"
+  "validation_oracle_sha256": "b3d804824373950c9b6d7cd37e5607d132d2f3caca6f80ffd26739b2776a2ca0",
+  "simt_5070ti_wo_test": {
+    "chunks": 100,
+    "context": 512,
+    "rows": 25500,
+    "ppl": 7.073395234385687,
+    "ref_ppl": 7.064408191101908,
+    "mean_kld": 0.003001176012048478,
+    "median_kld": 0.0012150391013605235,
+    "p99_kld": 0.028105891697851545,
+    "max_kld": 0.29878836588256785,
+    "start_chunk": 0,
+    "max_kld_chunk": 24,
+    "max_kld_position": 488,
+    "ref_floor_targets": 14,
+    "top1_matches": 24896,
+    "top1_agreement": 0.9763137254901961
+  }
 }

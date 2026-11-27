@@ -62,3 +62,5 @@ target/release/leansonic eval-kld --weights "$SPLIT/wo_only" --ref valid.kld --c
 ```
 
 The [one-step research converter](https://github.com/tjm8874/LeanSonic/tree/00f69a6) accepts `--refine-attention-output` with `--prepack-attention` on the original BF16 source. Its raw shard matched the independent matrix-copy experiment byte for byte. Direct dictionary conversion and repacking the raw shard also produced identical bytes. This converter remains on a research branch.
+
+The RTX 5070 Ti SIMT run with the same 24 output projections on the original test split gave mean KL 0.003001176, worst KL 0.298788, 24,896 top-1 matches and PPL 7.073395. Separate V12 timing runs on PRO 5000 and 5070 Ti used stock/candidate ABBA for five cycles each at 32 and 1,024 prompt tokens. Both packages produced the same 16 greedy IDs on each workload across all 80 processes. [Per-process timings and token IDs](candidate-timings.json). The independent validation regression above determined the decision to retain the stock quantizer.
