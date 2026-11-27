@@ -1,0 +1,3 @@
+========= COMPUTE-SANITIZER
+80/80 cases match CPU and original GPU argmax; exactly one position advance
+========= ERROR SUMMARY: 0 errors

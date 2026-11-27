@@ -16,3 +16,5 @@ export LEANSONIC_CUBIN_PATH="$PWD/trial.cubin" LEANSONIC_PDL=1 LEANSONIC_KV=fp16
 ```
 
 Each line contains a pass number, input length, prefill and 64-token decode milliseconds, terminal prediction, a hash of the 200,058 final FP32 logits, and every output token. Repeat the executable in the documented five mirrored cycles, validating all output IDs and hashes for each prefix before comparing times.
+
+On PRO 4500, `compute-sanitizer --tool memcheck --error-exitcode 7 ./edges trial.cubin` passed all 80 rows and reported zero memory errors. [Recorded output](memcheck.txt).
