@@ -71,13 +71,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     let mut total_diff = 0u64;
     let mut top_diff = 0;
-    for t in 0..2 {
-        let mut slots: Vec<_> = (0..n).collect();
-        if t == 1 {
-            slots.reverse();
-        }
+    let forward: Vec<_> = (0..n).collect();
+    let reverse: Vec<_> = (0..n).rev().collect();
+    for (t, slots) in [forward, reverse].iter().enumerate() {
         let inputs: Vec<_> = slots.iter().map(|&s| forced(s, t)).collect();
-        let greedy = batch.decode_round(&slots, &inputs)?;
+        let greedy = batch.decode_round(slots, &inputs)?;
         let output = batch.read_round_logits(n)?;
         for (i, &s) in slots.iter().enumerate() {
             let row = &output[i * VOCAB..(i + 1) * VOCAB];
