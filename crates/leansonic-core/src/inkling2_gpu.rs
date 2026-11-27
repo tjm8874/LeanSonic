@@ -5511,6 +5511,21 @@ impl Inkling2GpuEngine {
         Ok(())
     }
 
+    fn enqueue_greedy_step(&self, short: bool) -> Result<(), String> {
+        let graph = if short {
+            self.decode_graph_short
+                .as_ref()
+                .or(self.decode_graph.as_ref())
+        } else {
+            self.decode_graph.as_ref()
+        };
+        if let Some(graph) = graph {
+            graph.replay()
+        } else {
+            self.enqueue_step_impl(self.ctx.compute_stream, false, short)
+        }
+    }
+
     pub fn forward_greedy_token(&mut self, token: u32) -> Result<u32, String> {
         if self.host_pos >= self.max_ctx {
             return Err(format!("sequence exceeded max_ctx ({})", self.max_ctx));
@@ -5529,19 +5544,7 @@ impl Inkling2GpuEngine {
             )?;
         }
         let use_short = self.has_short_decode_regime() && self.host_pos < SHORT_UNSPLIT_CTX;
-        if use_short {
-            if let Some(ref sgraph) = self.decode_graph_short {
-                sgraph.replay()?;
-            } else if let Some(ref graph) = self.decode_graph {
-                graph.replay()?;
-            } else {
-                self.enqueue_step_impl(self.ctx.compute_stream, false, true)?;
-            }
-        } else if let Some(ref graph) = self.decode_graph {
-            graph.replay()?;
-        } else {
-            self.enqueue_step_impl(self.ctx.compute_stream, false, false)?;
-        }
+        self.enqueue_greedy_step(use_short)?;
         self.enqueue_drafter_context(1)?;
         unsafe {
             check_cu(
@@ -6392,6 +6395,66 @@ impl Inkling2GpuEngine {
         Ok(())
     }
 
+    /// Generate exactly `count` tokens and return the next prediction, with no
+    /// streaming callback or stop token. A target-only engine keeps adjacent
+    /// steps on the GPU and synchronizes once per 64-token buffer at most.
+    pub fn generate_fixed_greedy_tokens(
+        &mut self,
+        first_next: u32,
+        count: usize,
+        prompt: &[u32],
+    ) -> Result<(Vec<u32>, u32), String> {
+        if count == 0 {
+            return Ok((Vec::new(), first_next));
+        }
+        if count > self.max_ctx.saturating_sub(self.host_pos) {
+            return Err(format!("sequence exceeded max_ctx ({})", self.max_ctx));
+        }
+        if self.spec_k != 0 || self.drafter.is_some() {
+            return self.generate_greedy_tokens(first_next, count, None, prompt, |_| {});
+        }
+
+        let stream = self.ctx.compute_stream;
+        let ring = self.h_token_ring.host_ptr.cast::<u32>();
+        let mut next = first_next;
+        let mut output = Vec::with_capacity(count);
+        unsafe {
+            core::ptr::write_volatile(ring, next);
+            check_cu(
+                (self.ctx.api.cuMemcpyHtoDAsync_v2)(self.d_token_in.ptr, ring.cast(), 4, stream),
+                "HtoD(token_in_chain)",
+            )?;
+        }
+        while output.len() < count {
+            let short = self.has_short_decode_regime() && self.host_pos < SHORT_UNSPLIT_CTX;
+            let mut len = (count - output.len()).min(64);
+            if short {
+                len = len.min(SHORT_UNSPLIT_CTX - self.host_pos);
+            }
+            for slot in 1..=len {
+                self.enqueue_greedy_step(short)?;
+                unsafe {
+                    check_cu(
+                        (self.ctx.api.cuMemcpyDtoDAsync_v2)(
+                            self.h_token_ring.dev_ptr + (slot * 4) as u64,
+                            self.d_token_in.ptr,
+                            4,
+                            stream,
+                        ),
+                        "DtoHAsync(token_chain)",
+                    )?;
+                }
+            }
+            self.ctx.sync_compute()?;
+            for slot in 1..=len {
+                output.push(next);
+                next = unsafe { core::ptr::read_volatile(ring.add(slot)) };
+            }
+            self.host_pos += len;
+        }
+        Ok((output, next))
+    }
+
     /// Unified Greedy Generation Loop (`spec_k == 0` -> CUDA Graph Solo; `spec_k > 0` -> DSpark/Suffix + Batch Verify).
     /// Guarantees `0-ULP` lossless greedy token identity (`spec_k == 0` == `spec_k > 0`)!
     pub fn generate_greedy_tokens(
@@ -6447,71 +6510,6 @@ impl Inkling2GpuEngine {
         };
 
         let mut steps_done = 0usize;
-        if self.spec_k == 0 && self.drafter.is_none() && stop_tok.is_none() && n_gen > 0 {
-            if self.host_pos + n_gen > self.max_ctx {
-                return Err(format!("sequence exceeded max_ctx ({})", self.max_ctx));
-            }
-            unsafe {
-                let ring = self.h_token_ring.host_ptr.cast::<i32>();
-                core::ptr::write_volatile(ring, cur_tok as i32);
-                check_cu(
-                    (self.ctx.api.cuMemcpyHtoDAsync_v2)(
-                        self.d_token_in.ptr,
-                        ring.cast(),
-                        4,
-                        self.ctx.compute_stream,
-                    ),
-                    "HtoD(token_in_chain)",
-                )?;
-            }
-            while steps_done < n_gen {
-                let use_short = self.has_short_decode_regime() && self.host_pos < SHORT_UNSPLIT_CTX;
-                let mut chunk = (n_gen - steps_done).min(64);
-                if use_short {
-                    chunk = chunk.min(SHORT_UNSPLIT_CTX - self.host_pos);
-                }
-                for s in 0..chunk {
-                    if use_short {
-                        if let Some(ref sgraph) = self.decode_graph_short {
-                            sgraph.replay()?;
-                        } else if let Some(ref graph) = self.decode_graph {
-                            graph.replay()?;
-                        } else {
-                            self.enqueue_step_impl(self.ctx.compute_stream, false, true)?;
-                        }
-                    } else if let Some(ref graph) = self.decode_graph {
-                        graph.replay()?;
-                    } else {
-                        self.enqueue_step_impl(self.ctx.compute_stream, false, false)?;
-                    }
-                    unsafe {
-                        check_cu(
-                            (self.ctx.api.cuMemcpyDtoDAsync_v2)(
-                                self.h_token_ring.dev_ptr + ((1 + s) * 4) as u64,
-                                self.d_token_in.ptr,
-                                4,
-                                self.ctx.compute_stream,
-                            ),
-                            "DtoHAsync(token_chain)",
-                        )?;
-                    }
-                }
-                self.ctx.sync_compute()?;
-                let ring = self.h_token_ring.host_ptr.cast::<i32>();
-                out_ids.push(cur_tok);
-                on_token(cur_tok);
-                for s in 0..(chunk - 1) {
-                    let t = unsafe { core::ptr::read_volatile(ring.add(1 + s)) } as u32;
-                    out_ids.push(t);
-                    on_token(t);
-                }
-                cur_tok = unsafe { core::ptr::read_volatile(ring.add(chunk)) } as u32;
-                self.host_pos += chunk;
-                steps_done += chunk;
-            }
-            return Ok((out_ids, cur_tok));
-        }
-
         // Draft pause: after `PAUSE_AFTER` steps in a row without an accepted draft, decode
         // the next `pause_len` tokens without drafting (8, doubling to 64 while drafts keep
         // failing). Drafting a context that rejects everything costs a full drafter pass per

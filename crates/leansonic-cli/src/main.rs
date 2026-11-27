@@ -859,8 +859,7 @@ fn cmd_bench(args: &[String]) -> Result<(), String> {
 
         if n_gen > 0 {
             let t_dec = Instant::now();
-            let (out_ids, _) =
-                gpu.generate_greedy_tokens(next, n_gen, None, &prompt_ids, |_| {})?;
+            let (out_ids, _) = gpu.generate_fixed_greedy_tokens(next, n_gen, &prompt_ids)?;
             let dec_ms = t_dec.elapsed().as_secs_f64() * 1000.0;
             let dec_tok_s = (n_gen as f64) / (dec_ms / 1000.0).max(1e-9);
             if gpu.spec_verify_steps > 0 {
