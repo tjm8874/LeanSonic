@@ -2,6 +2,16 @@
   "commit": "8d1762b6fb4dc77d632f542c7e5ffd38439b030e",
   "baseline": "d912b30",
   "gpus": {
+    "PRO5000": {
+      "windows": {
+        "32": {
+          "prefill_mismatches": 0,
+          "logit_mismatches": 0,
+          "top_changes": 0,
+          "worst_abs": 0.0
+        }
+      }
+    },
     "PRO4500": {
       "windows": {
         "32": {
@@ -38,7 +48,241 @@
           "top_changes": 0,
           "worst_abs": 0.0
         }
+      },
+      "cycles": [
+        1,
+        2,
+        3
+      ],
+      "latency": {
+        "64": {
+          "prior": {
+            "prefill_ms": 143.42609927777778,
+            "decode8_ms": 67.79275116666666,
+            "first": [
+              12
+            ]
+          },
+          "candidate": {
+            "prefill_ms": 143.31334338888888,
+            "decode8_ms": 67.78371383333334,
+            "first": [
+              12
+            ]
+          }
+        },
+        "65": {
+          "prior": {
+            "prefill_ms": 151.3001855,
+            "decode8_ms": 67.79919666666666,
+            "first": [
+              1445
+            ]
+          },
+          "candidate": {
+            "prefill_ms": 151.10749566666667,
+            "decode8_ms": 67.78925155555555,
+            "first": [
+              1445
+            ]
+          }
+        },
+        "66": {
+          "prior": {
+            "prefill_ms": 157.59388416666667,
+            "decode8_ms": 67.793279,
+            "first": [
+              63
+            ]
+          },
+          "candidate": {
+            "prefill_ms": 217.86772555555555,
+            "decode8_ms": 67.81334722222222,
+            "first": [
+              63
+            ]
+          }
+        },
+        "80": {
+          "prior": {
+            "prefill_ms": 179.19434433333333,
+            "decode8_ms": 67.78078844444444,
+            "first": [
+              65468
+            ]
+          },
+          "candidate": {
+            "prefill_ms": 224.7087578888889,
+            "decode8_ms": 67.794955,
+            "first": [
+              65468
+            ]
+          }
+        },
+        "95": {
+          "prior": {
+            "prefill_ms": 196.86936005555555,
+            "decode8_ms": 67.8043855,
+            "first": [
+              8
+            ]
+          },
+          "candidate": {
+            "prefill_ms": 248.02214438888888,
+            "decode8_ms": 67.79991127777778,
+            "first": [
+              8
+            ]
+          }
+        },
+        "96": {
+          "prior": {
+            "prefill_ms": 247.97931938888888,
+            "decode8_ms": 67.81225627777778,
+            "first": [
+              196975
+            ]
+          },
+          "candidate": {
+            "prefill_ms": 247.9504283888889,
+            "decode8_ms": 67.82676111111111,
+            "first": [
+              196975
+            ]
+          }
+        },
+        "128": {
+          "prior": {
+            "prefill_ms": 281.41085833333335,
+            "decode8_ms": 67.82610433333333,
+            "first": [
+              39446
+            ]
+          },
+          "candidate": {
+            "prefill_ms": 281.3944843333333,
+            "decode8_ms": 67.86053805555557,
+            "first": [
+              39446
+            ]
+          }
+        },
+        "129": {
+          "prior": {
+            "prefill_ms": 289.2643776666667,
+            "decode8_ms": 67.85859544444445,
+            "first": [
+              3604
+            ]
+          },
+          "candidate": {
+            "prefill_ms": 289.1876458888889,
+            "decode8_ms": 67.87527355555555,
+            "first": [
+              3604
+            ]
+          }
+        },
+        "159": {
+          "prior": {
+            "prefill_ms": 336.82243055555557,
+            "decode8_ms": 67.88614233333334,
+            "first": [
+              9
+            ]
+          },
+          "candidate": {
+            "prefill_ms": 392.28471822222224,
+            "decode8_ms": 67.86259816666666,
+            "first": [
+              9
+            ]
+          }
+        },
+        "160": {
+          "prior": {
+            "prefill_ms": 392.5019041666667,
+            "decode8_ms": 67.8764695,
+            "first": [
+              9
+            ]
+          },
+          "candidate": {
+            "prefill_ms": 392.57622166666664,
+            "decode8_ms": 67.89015127777778,
+            "first": [
+              9
+            ]
+          }
+        },
+        "255": {
+          "prior": {
+            "prefill_ms": 540.1923293888889,
+            "decode8_ms": 67.8693226111111,
+            "first": [
+              37508
+            ]
+          },
+          "candidate": {
+            "prefill_ms": 540.0374164444445,
+            "decode8_ms": 67.8807585,
+            "first": [
+              37508
+            ]
+          }
+        },
+        "256": {
+          "prior": {
+            "prefill_ms": 541.5844532777778,
+            "decode8_ms": 67.89583683333333,
+            "first": [
+              47
+            ]
+          },
+          "candidate": {
+            "prefill_ms": 541.3626246111111,
+            "decode8_ms": 67.91199794444445,
+            "first": [
+              47
+            ]
+          }
+        },
+        "1024": {
+          "prior": {
+            "prefill_ms": 2159.145831222222,
+            "decode8_ms": 68.99421377777779,
+            "first": [
+              145026
+            ]
+          },
+          "candidate": {
+            "prefill_ms": 2157.774985277778,
+            "decode8_ms": 69.023086,
+            "first": [
+              145026
+            ]
+          }
+        }
       }
+    }
+  },
+  "quality": {
+    "valid": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 6.504620985971503,
+      "ref_ppl": 6.498588819010602,
+      "mean_kld": 0.0027607406235017986,
+      "median_kld": 0.0010193128624920618,
+      "p99_kld": 0.027633147959790057,
+      "max_kld": 0.352436096904504,
+      "start_chunk": 0,
+      "max_kld_chunk": 46,
+      "max_kld_position": 379,
+      "ref_floor_targets": 10,
+      "top1_matches": 24963,
+      "top1_agreement": 0.9789411764705882
     }
   }
 }

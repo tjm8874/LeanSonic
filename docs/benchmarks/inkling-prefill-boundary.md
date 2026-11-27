@@ -32,8 +32,27 @@ Automatic prefill width, FP16 KV, PDL, context 256, 64 independent prompts, 2 fo
 
 | GPU | Prompt lengths | Unequal FP32 values | Changed first tokens after prefill | Changed decode top-1 |
 |---|---|---:|---:|---:|
+| PRO5000 | 32–95 | 0 | 0 | 0 |
 | PRO4500 | 32–95 | 0 | 0 | 0 |
 | PRO4500 | 96–159 | 0 | 0 | 0 |
 | 5070Ti | 32–95 | 0 | 0 | 0 |
 | 5070Ti | 96–159 | 0 | 0 | 0 |
 | 5070Ti | 160–223 | 0 | 0 | 0 |
+
+### Latency on 5070Ti
+
+One sequence, FP16 KV, context 2,048, fixed prefill width 64. Three ABBA/BAAB cycles produce 18 measured requests per length and revision after the first request of each fresh process is removed. Both arms consume identical IDs. The [machine-readable result](inkling-prefill-boundary.json) includes the other lengths and the eight forced decode steps.
+
+| Input tokens | Original prefill ms | Rebalanced prefill ms |
+|---:|---:|---:|
+| 66 | 157.59 | 217.87 |
+| 80 | 179.19 | 224.71 |
+| 95 | 196.87 | 248.02 |
+| 96 | 247.98 | 247.95 |
+| 1024 | 2159.15 | 2157.77 |
+
+### BF16 corpus check
+
+| WikiText split | Positions | Mean KL | Worst KL | Top-1 matches | PPL |
+|---|---:|---:|---:|---:|---:|
+| valid | 25,500 | 0.002760741 | 0.352436097 | 24,963 | 6.50462099 |
