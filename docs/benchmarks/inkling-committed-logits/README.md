@@ -25,3 +25,7 @@ for file in scalar-rows/*.f32; do cmp "$file" "spec-rows/${file##*/}"; done
 ```
 
 [Input, binary and cubin fingerprints, complete emitted sequences, selected verification row, prior scalar readback and actual row digests](audit.json).
+
+## Fixed API on main with the official drafter
+
+The uninstrumented release at 14442e0 (main 3819d3f plus the fix) ran each of the four inputs on RTX 5070 Ti with the same seven-level target, spec0 and spec7 with the official drafter. Each invocation first tested immediate EOS after prefill, then generated 128 tokens with no stop. Both modes returned the same 128 IDs and next ID for every input. All four pairs of 800,232-byte FP32 vectors were byte-identical and also matched the independently selected rows above. The EOS check preserved the prefill logits and emitted zero tokens. [Executable and cubin hashes, per-row SHA-256 and generated tokens](fixed-api.json) · [Uninstrumented test driver](fixed-api.rs).
