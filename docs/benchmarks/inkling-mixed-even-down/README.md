@@ -34,3 +34,16 @@ Comparing the original reader on RTX 5070 Ti with the integration build on RTX P
 ## RTX 5060 Ti reproduction
 
 With bd048b8 and the same 571-expert package, raw vs packed peak process VRAM was 15,661,531,136 vs 14,686,355,456 bytes, a reduction of 975,175,680 bytes. Warm prefill measured 3,982.35 vs 3,959.01 tok/s and decode measured 94.54 vs 95.50 tok/s in the single-process pilot. All 32 predictions matched on five requests. The 1,530 Tensor Core and 255 generic-path full-logit fingerprints matched within each mode. [RTX 5060 Ti process readings and score files](5060-parity.json).
+
+## Paired native comparison on RTX 5060 Ti
+
+Five mirrored cycles used the same 1,024 IDs, 32 teacher-forced decode steps, one sequence, 8,192 context and FP16 KV. Each engine contributed 40 warm requests across ten fresh processes. The GPU peak is the maximum observed NVML process reading including loading. [Inputs, package and executable hashes, request times, predictions and paired confidence intervals](5060ti-native.json.gz).
+
+| Engine | Prefill tok/s | Decode tok/s | Package bytes | Peak process GPU bytes |
+| --- | ---: | ---: | ---: | ---: |
+| LeanSonic | 3,949.17 | 95.42 | 11,487,467,790 | 14,686,355,456 |
+| llama.cpp IQ3_XXS | 1,090.47 | 56.40 | 11,663,309,504 | 14,935,916,544 |
+
+The LeanSonic package counts the weights and tokenizer. The GGUF includes its tokenizer. Timings cover the individual engines at this input shape and do not include process startup.
+
+This measurement used LeanSonic bd048b8 and the Unsloth llama.cpp build 12588 (883286076) with Inkling-2-Mini-UD-IQ3_XXS.gguf. LeanSonic used 175,841,714 fewer distribution bytes and 249,561,088 fewer peak process GPU bytes. On the 5060 Ti, the paired prefill speedup was 3.622× (95% paired-cycle bootstrap interval 3.621–3.622) and decode speedup was 1.692× (1.691–1.693). The full same-card BF16 corpus comparison is tracked in issue #35.
