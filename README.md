@@ -137,6 +137,8 @@ For a single Inkling prompt, `-p` and `bench` use its token count to limit the w
 
 For Inkling-2-Mini on Blackwell, set `LEANSONIC_GPU_SCALES=packed` to keep eligible expert scale planes compressed in VRAM. This works with the official checkpoint and with a shard produced by `--prepack-scales`. The MoE kernels reconstruct the original scale bytes as they read them. Each plane falls back to raw storage if its values exceed the supported range. A cubin without the packed-scale kernels uses raw storage throughout. The default is `packed` (set `LEANSONIC_GPU_SCALES=raw` to keep uncompressed scales). On a 16 GB card, the loader can use the released memory for a wider prompt chunk and additional resident weights. Benchmark your prompt and completion lengths together when choosing a chunk cap.
 
+Inkling stores KV in FP16 by default. `LEANSONIC_KV=int8` stores the four full-attention (global) layers as INT8 with one FP32 scale per row and KV head, and `LEANSONIC_KV=int8-all` also stores the sliding-window rings as INT8. On GPUs with at most 16.5 GiB of memory, a context above 20,480 tokens selects `int8` automatically when `LEANSONIC_KV` is unset, because the FP16 global KV would otherwise displace resident expert layers. The startup log shows `int8 (auto, ...)` in that case. Set `LEANSONIC_KV=fp16` to keep FP16.
+
 #### Prepare a smaller text-only Inkling checkpoint
 
 For a text-only deployment, omit the vision tower and keep the language tensors at their original precision. The converter needs Python 3.9+ and about 19 GB of free disk space for the output.
