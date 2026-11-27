@@ -903,19 +903,24 @@ enum ExpertMatrix<'a> {
 }
 
 impl<'a> ExpertMatrix<'a> {
-    fn mxfp8(st: &'a MappedSafeTensors, name: &str, shape: &[usize]) -> Result<Self, String> {
+    fn read(
+        st: &'a MappedSafeTensors,
+        name: &str,
+        dtype: &str,
+        shape: &[usize],
+    ) -> Result<Self, String> {
         let count = shape.iter().product();
         match (st.get(name), st.get(&format!("{name}.rans_v1"))) {
-            (Some(t), None)
-                if t.dtype == "F8_E4M3" && t.shape == shape && t.data.len() == count =>
-            {
+            (Some(t), None) if t.dtype == dtype && t.shape == shape && t.data.len() == count => {
                 Ok(Self::Raw(t.data))
             }
             (None, Some(t)) if t.dtype == "U8" && t.shape == [t.data.len()] => Ok(Self::Packed {
                 bytes: t.data,
                 count,
             }),
-            _ => Err(format!("missing, ambiguous or invalid MXFP8 matrix {name}")),
+            _ => Err(format!(
+                "missing, ambiguous or invalid {dtype} expert matrix {name}"
+            )),
         }
     }
     fn len(&self) -> usize {
@@ -1570,22 +1575,26 @@ impl Inkling2GpuEngine {
                     .upload(&ctx, count, il < NVFP4_LAYERS, &fns)
                     .map_err(|e| format!("{name}: {e}"))
             };
+            let (dtype, codes_per_byte) = if il < NVFP4_LAYERS {
+                ("U8", 2)
+            } else {
+                ("F8_E4M3", 1)
+            };
+            expert_views.push([
+                ExpertMatrix::read(
+                    &st,
+                    &format!("{pfx}mlp.experts.w13_weight"),
+                    dtype,
+                    &[N_EXP, 2 * FF, D / codes_per_byte],
+                )?,
+                ExpertMatrix::read(
+                    &st,
+                    &format!("{pfx}mlp.experts.w2_weight"),
+                    dtype,
+                    &[N_EXP, D, FF / codes_per_byte],
+                )?,
+            ]);
             let expert_scales = if il < NVFP4_LAYERS {
-                let w13_raw = st
-                    .require(
-                        &format!("{pfx}mlp.experts.w13_weight"),
-                        "U8",
-                        &[N_EXP, 2 * FF, D / 2],
-                    )
-                    .data;
-                let w2_raw = st
-                    .require(
-                        &format!("{pfx}mlp.experts.w2_weight"),
-                        "U8",
-                        &[N_EXP, D, FF / 2],
-                    )
-                    .data;
-                expert_views.push([ExpertMatrix::Raw(w13_raw), ExpertMatrix::Raw(w2_raw)]);
                 ExpertScales::Nvfp4 {
                     s13: load_scale(
                         &format!("{pfx}mlp.experts.w13_weight_scale"),
@@ -1613,18 +1622,6 @@ impl Inkling2GpuEngine {
                     )?,
                 }
             } else {
-                expert_views.push([
-                    ExpertMatrix::mxfp8(
-                        &st,
-                        &format!("{pfx}mlp.experts.w13_weight"),
-                        &[N_EXP, 2 * FF, D],
-                    )?,
-                    ExpertMatrix::mxfp8(
-                        &st,
-                        &format!("{pfx}mlp.experts.w2_weight"),
-                        &[N_EXP, D, FF],
-                    )?,
-                ]);
                 ExpertScales::Mxfp8 {
                     s13: load_scale(
                         &format!("{pfx}mlp.experts.w13_weight_scale"),

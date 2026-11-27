@@ -1,0 +1,418 @@
+{
+  "baseline_shard": 15978753408,
+  "candidate_shard": 15898104040,
+  "tokenizer": 3386494,
+  "package_bytes": 15901490534,
+  "baseline_package": 15982139902,
+  "records": {
+    "model.llm.layers.0.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 337033072,
+      "decode_check_seconds": 0.302991653
+    },
+    "model.llm.layers.0.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168482128,
+      "decode_check_seconds": 0.123472214
+    },
+    "model.llm.layers.1.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 337052776,
+      "decode_check_seconds": 0.22126551
+    },
+    "model.llm.layers.1.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168495360,
+      "decode_check_seconds": 0.121202186
+    },
+    "model.llm.layers.10.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 337048000,
+      "decode_check_seconds": 0.210941867
+    },
+    "model.llm.layers.10.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168525768,
+      "decode_check_seconds": 0.106403357
+    },
+    "model.llm.layers.11.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 337042832,
+      "decode_check_seconds": 0.209218227
+    },
+    "model.llm.layers.11.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168570184,
+      "decode_check_seconds": 0.106643969
+    },
+    "model.llm.layers.12.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 336999296,
+      "decode_check_seconds": 0.230391792
+    },
+    "model.llm.layers.12.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168529096,
+      "decode_check_seconds": 0.106771399
+    },
+    "model.llm.layers.13.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 337008328,
+      "decode_check_seconds": 0.20933753
+    },
+    "model.llm.layers.13.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168533192,
+      "decode_check_seconds": 0.107020077
+    },
+    "model.llm.layers.14.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 337021720,
+      "decode_check_seconds": 0.209379499
+    },
+    "model.llm.layers.14.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168559744,
+      "decode_check_seconds": 0.107533202
+    },
+    "model.llm.layers.15.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 337030040,
+      "decode_check_seconds": 0.209084715
+    },
+    "model.llm.layers.15.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168597488,
+      "decode_check_seconds": 0.229985408
+    },
+    "model.llm.layers.16.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 337080424,
+      "decode_check_seconds": 0.209822833
+    },
+    "model.llm.layers.16.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168659368,
+      "decode_check_seconds": 0.106424106
+    },
+    "model.llm.layers.17.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 337075776,
+      "decode_check_seconds": 0.208501509
+    },
+    "model.llm.layers.17.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168702376,
+      "decode_check_seconds": 0.106977376
+    },
+    "model.llm.layers.18.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 336996968,
+      "decode_check_seconds": 0.208854412
+    },
+    "model.llm.layers.18.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168524992,
+      "decode_check_seconds": 0.10588915
+    },
+    "model.llm.layers.19.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 336982536,
+      "decode_check_seconds": 0.209295972
+    },
+    "model.llm.layers.19.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168519976,
+      "decode_check_seconds": 0.107088225
+    },
+    "model.llm.layers.2.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 337104536,
+      "decode_check_seconds": 0.209446485
+    },
+    "model.llm.layers.2.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168494224,
+      "decode_check_seconds": 0.106877118
+    },
+    "model.llm.layers.3.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 337100304,
+      "decode_check_seconds": 0.209539029
+    },
+    "model.llm.layers.3.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168492840,
+      "decode_check_seconds": 0.113655484
+    },
+    "model.llm.layers.4.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 337083384,
+      "decode_check_seconds": 0.209484437
+    },
+    "model.llm.layers.4.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168491592,
+      "decode_check_seconds": 0.106409689
+    },
+    "model.llm.layers.5.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 337058648,
+      "decode_check_seconds": 0.20999138
+    },
+    "model.llm.layers.5.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168511216,
+      "decode_check_seconds": 0.107749439
+    },
+    "model.llm.layers.6.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 336995936,
+      "decode_check_seconds": 0.208419173
+    },
+    "model.llm.layers.6.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168494664,
+      "decode_check_seconds": 0.106967248
+    },
+    "model.llm.layers.7.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 337025664,
+      "decode_check_seconds": 0.211053387
+    },
+    "model.llm.layers.7.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168490840,
+      "decode_check_seconds": 0.106468048
+    },
+    "model.llm.layers.8.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 337053264,
+      "decode_check_seconds": 0.211491019
+    },
+    "model.llm.layers.8.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168492912,
+      "decode_check_seconds": 0.106759086
+    },
+    "model.llm.layers.9.mlp.experts.w13_weight": {
+      "raw": 339738624,
+      "encoded": 337046848,
+      "decode_check_seconds": 0.208703729
+    },
+    "model.llm.layers.9.mlp.experts.w2_weight": {
+      "raw": 169869312,
+      "encoded": 168500864,
+      "decode_check_seconds": 0.106791377
+    }
+  },
+  "all_reopened_payloads_checked": 999,
+  "shard_sha256": "c0b42b8bf338a0690000e57668f03e9f2d27450c8187c89555165a4bf22588f4",
+  "warm_load": {
+    "5060Ti": {
+      "fully_warm_cycles": [
+        2,
+        3
+      ],
+      "baseline": {
+        "mean_load_s": 5.555,
+        "mean_warm_decode64_ms": 1331.1725000000001
+      },
+      "dest": {
+        "mean_load_s": 8.92,
+        "mean_warm_decode64_ms": 1331.2312499999998
+      }
+    }
+  },
+  "runs": [
+    {
+      "cache_resident_fraction": 1.0,
+      "arm": "baseline",
+      "cycle": 1,
+      "leg": 0,
+      "shard": 15978753408,
+      "loader_s": 5.57,
+      "decode64_ms": [
+        1331.53,
+        1331.38,
+        1331.28
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "gpu": "5060Ti"
+    },
+    {
+      "cache_resident_fraction": 0.7184716030972537,
+      "arm": "dest",
+      "cycle": 1,
+      "leg": 1,
+      "shard": 15898104040,
+      "loader_s": 14.34,
+      "decode64_ms": [
+        1331.44,
+        1331.17,
+        1331.08
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "gpu": "5060Ti"
+    },
+    {
+      "cache_resident_fraction": 0.8897511551321774,
+      "arm": "dest",
+      "cycle": 1,
+      "leg": 2,
+      "shard": 15898104040,
+      "loader_s": 15.81,
+      "decode64_ms": [
+        1331.46,
+        1331.44,
+        1331.24
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "gpu": "5060Ti"
+    },
+    {
+      "cache_resident_fraction": 0.9610055002956887,
+      "arm": "baseline",
+      "cycle": 1,
+      "leg": 3,
+      "shard": 15978753408,
+      "loader_s": 6.29,
+      "decode64_ms": [
+        1331.38,
+        1331.37,
+        1331.3
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "gpu": "5060Ti"
+    },
+    {
+      "cache_resident_fraction": 1.0,
+      "arm": "dest",
+      "cycle": 2,
+      "leg": 0,
+      "shard": 15898104040,
+      "loader_s": 8.97,
+      "decode64_ms": [
+        1330.94,
+        1330.88,
+        1330.91
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "gpu": "5060Ti"
+    },
+    {
+      "cache_resident_fraction": 1.0,
+      "arm": "baseline",
+      "cycle": 2,
+      "leg": 1,
+      "shard": 15978753408,
+      "loader_s": 5.49,
+      "decode64_ms": [
+        1330.86,
+        1330.66,
+        1330.6
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "gpu": "5060Ti"
+    },
+    {
+      "cache_resident_fraction": 1.0,
+      "arm": "baseline",
+      "cycle": 2,
+      "leg": 2,
+      "shard": 15978753408,
+      "loader_s": 5.52,
+      "decode64_ms": [
+        1330.99,
+        1331.0,
+        1331.13
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "gpu": "5060Ti"
+    },
+    {
+      "cache_resident_fraction": 1.0,
+      "arm": "dest",
+      "cycle": 2,
+      "leg": 3,
+      "shard": 15898104040,
+      "loader_s": 8.97,
+      "decode64_ms": [
+        1331.14,
+        1331.08,
+        1331.11
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "gpu": "5060Ti"
+    },
+    {
+      "cache_resident_fraction": 1.0,
+      "arm": "baseline",
+      "cycle": 3,
+      "leg": 0,
+      "shard": 15978753408,
+      "loader_s": 5.62,
+      "decode64_ms": [
+        1331.7,
+        1331.41,
+        1331.36
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "gpu": "5060Ti"
+    },
+    {
+      "cache_resident_fraction": 1.0,
+      "arm": "dest",
+      "cycle": 3,
+      "leg": 1,
+      "shard": 15898104040,
+      "loader_s": 8.96,
+      "decode64_ms": [
+        1331.72,
+        1331.51,
+        1331.54
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "gpu": "5060Ti"
+    },
+    {
+      "cache_resident_fraction": 1.0,
+      "arm": "dest",
+      "cycle": 3,
+      "leg": 2,
+      "shard": 15898104040,
+      "loader_s": 8.78,
+      "decode64_ms": [
+        1331.6,
+        1331.29,
+        1331.53
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "gpu": "5060Ti"
+    },
+    {
+      "cache_resident_fraction": 1.0,
+      "arm": "baseline",
+      "cycle": 3,
+      "leg": 3,
+      "shard": 15978753408,
+      "loader_s": 5.59,
+      "decode64_ms": [
+        1331.8,
+        1331.62,
+        1331.6
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710",
+      "gpu": "5060Ti"
+    }
+  ],
+  "base_commit": "144430561eda9ff87bf557dbf984a169dd353810",
+  "independently_packed_shard_sha256_on_second_host": "c0b42b8bf338a0690000e57668f03e9f2d27450c8187c89555165a4bf22588f4",
+  "rtx5070ti_raw_vs_compressed_full_logits": {
+    "positions": 17,
+    "vocab": 200058,
+    "dtype": "FP32",
+    "bytes": 13603944,
+    "sha256": "68538b83e50b2df69e032bc05740bd5f019a9dd279f7077905553fe792df3489"
+  }
+}
