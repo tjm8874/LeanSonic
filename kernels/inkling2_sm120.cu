@@ -94,6 +94,12 @@ __device__ __forceinline__ float fp16_bits_to_f32(uint16_t h) {
     return v;
 }
 
+// PDL contract (#152 P0-B): every `extern "C"` kernel below executes `pdl_wait()` before its
+// first access to global memory that a preceding kernel may write (reads of constant weights
+// may come first).  The host therefore launches *every* kernel with programmatic stream
+// serialization when the cubin exports `ink2_pdl_all_marker`, hiding the launch gap between
+// dependent kernels in the verify, drafter and prefill paths as well as single-sequence decode.
+// `crates/leansonic-core` has a unit test that rejects a kernel without `pdl_wait()`.
 __device__ __forceinline__ void pdl_wait() {
 #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900)
     asm volatile("griddepcontrol.wait;" ::: "memory");
@@ -104,6 +110,11 @@ __device__ __forceinline__ void pdl_trigger() {
 #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900)
     asm volatile("griddepcontrol.launch_dependents;");
 #endif
+}
+
+// Exported only so the host can tell that this cubin honours the PDL contract above.
+extern "C" __global__ void ink2_pdl_all_marker() {
+    pdl_wait();
 }
 
 // Breaks `ptxas` parameter-space provenance (`c[0x0][...]`) on mutable input pointers after `pdl_wait()`,
@@ -627,6 +638,7 @@ extern "C" __global__ void ink2_depth_mix(
     const float* __restrict__ queries,    // [n_q, D]
     float* __restrict__ out_mixed,        // [n_q, D] (or `[3, D]` if `broadcast3 == 1`)
     int32_t broadcast3) {
+    pdl_wait();
     depth_mix_body(blocks_buf, n_blocks, cur_opt, append_cur, queries, out_mixed, broadcast3, nullptr);
 }
 
@@ -639,6 +651,7 @@ extern "C" __global__ void ink2_depth_mix_inv(
     float* __restrict__ out_mixed,        // [n_q, D] (or `[3, D]` if `broadcast3 == 1`)
     int32_t broadcast3,
     float* __restrict__ out_inv) {        // [n_q] (or `[3]` if `broadcast3 == 1`)
+    pdl_wait();
     depth_mix_body(blocks_buf, n_blocks, cur_opt, append_cur, queries, out_mixed, broadcast3, out_inv);
 }
 
@@ -741,6 +754,7 @@ extern "C" __global__ void ink2_ctrl_down(
     const float* __restrict__ msg_base,       // [n_ctrls, D]
     const uint4* __restrict__ down_bf16_u128, // [n_ctrls, 64, 576]
     float* __restrict__ g_out_base) {         // [n_ctrls, 64]
+    pdl_wait();
     __shared__ float smem_red_a[8];
     __shared__ float smem_red_b[8];
     __shared__ float inv_ab[2];
@@ -814,6 +828,7 @@ extern "C" __global__ void ink2_ctrl_apply(
     const float* __restrict__ g_vec_base,     // [n_ctrls, 64]
     const uint4* __restrict__ gain_bf16_u128, // [n_ctrls, D, 8]
     const uint4* __restrict__ forget_bf16_u128) {
+    pdl_wait();
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     const int c_idx = blockIdx.y;
     if (i >= kD) return;
@@ -1113,6 +1128,7 @@ extern "C" __global__ void ink2_gqa_rel_sink_attn(
     int32_t kv_cap,
     int32_t is_global,
     float* __restrict__ attn_out) {             // [24, 128]
+    pdl_wait();
     __shared__ float smem_rel[kExtent];
     __shared__ float smem_q[kHd];
     __shared__ float smem_r[kRel];
@@ -1419,14 +1435,14 @@ extern "C" __global__ void ink2_router_gemv_topk8(
 // reconstructs four original scale bytes before the existing arithmetic.
 #define INK2_SCALE_KERNEL(name, params, args) \
     template<bool PackedScales> __device__ __forceinline__ void name##_impl params; \
-    extern "C" __global__ void name params { name##_impl<false> args; } \
-    extern "C" __global__ void name##_packed_scales params { name##_impl<true> args; } \
+    extern "C" __global__ void name params { pdl_wait(); name##_impl<false> args; } \
+    extern "C" __global__ void name##_packed_scales params { pdl_wait(); name##_impl<true> args; } \
     template<bool PackedScales> __device__ __forceinline__ void name##_impl params
 
 #define INK2_SCALE_KERNEL_LB(name, lb_threads, lb_blocks, params, args) \
     template<bool PackedScales> __device__ __forceinline__ void name##_impl params; \
-    extern "C" __global__ __launch_bounds__(lb_threads, lb_blocks) void name params { name##_impl<false> args; } \
-    extern "C" __global__ __launch_bounds__(lb_threads, lb_blocks) void name##_packed_scales params { name##_impl<true> args; } \
+    extern "C" __global__ __launch_bounds__(lb_threads, lb_blocks) void name params { pdl_wait(); name##_impl<false> args; } \
+    extern "C" __global__ __launch_bounds__(lb_threads, lb_blocks) void name##_packed_scales params { pdl_wait(); name##_impl<true> args; } \
     template<bool PackedScales> __device__ __forceinline__ void name##_impl params
 
 template<bool PackedScales, int Bits, unsigned Base>
@@ -1853,6 +1869,7 @@ extern "C" __global__ void ink2_quant_q8_64(
     const float* __restrict__ x,
     uint32_t* __restrict__ out_q8_u32, // [cols / 4]
     float* __restrict__ out_sc64) {    // [cols / 64]
+    pdl_wait();
     __shared__ float smem_max[2];
     __shared__ float smem_inv;
     const int blk = blockIdx.x;
@@ -1936,6 +1953,7 @@ extern "C" __global__ void ink2_q8_dp4a_gemv(
     int32_t rows,
     int32_t cols,
     float softcap) {
+    pdl_wait();
     __shared__ uint4 smem_x[192];  // max `3072 / 16 = 192` (`3,072` B)
     __shared__ float smem_xsc[48]; // max `3072 / 64 = 48`  (`192` B)
 
@@ -2681,6 +2699,7 @@ INK2_SCALE_KERNEL_LB(ink2_moe_nvfp4_dp4a_up_half_q8, 512, 2, (
 extern "C" __global__ void ink2_gather_nvfp4_up_192(
     const uint4* __restrict__ mapped, const int32_t* __restrict__ selected,
     uint4* __restrict__ staged, int first_channel) {
+    pdl_wait();
     constexpr int vectors_per_channel = 2 * 72;
     constexpr int tile_vectors = 192 * vectors_per_channel;
     const int slot = blockIdx.y;
@@ -2951,6 +2970,7 @@ extern "C" __global__ void ink2_embed_rmsnorm_b(
     const uint32_t* __restrict__ norm_bf16_pairs,  // [D / 2]
     const int32_t* __restrict__ token_buf_ptr,     // [B]
     float* __restrict__ out_x_base) {              // [B, D]
+    pdl_wait();
     __shared__ float smem_red[8];
     const int b = blockIdx.x;
     const int tid = threadIdx.x;
@@ -2989,6 +3009,7 @@ extern "C" __global__ void ink2_rmsnorm_d_b(
     const uint32_t* __restrict__ gamma_bf16_pairs,  // [D / 2]
     float* __restrict__ out_base,                   // [B, D]
     int32_t has_gamma) {
+    pdl_wait();
     __shared__ float smem_red[8];
     const int b = blockIdx.x;
     const int tid = threadIdx.x;
@@ -3032,6 +3053,7 @@ extern "C" __global__ void ink2_rmsnorm_quant_q8_64_b(
     uint32_t* __restrict__ out_q8_u32,             // [count, B_out, 576]
     float* __restrict__ out_sc64,                  // [count, B_out, 36]
     int32_t B_out) {
+    pdl_wait();
     __shared__ float smem_red[8];
     const int b = blockIdx.x;
     const int c_idx = blockIdx.y;
@@ -3096,6 +3118,7 @@ extern "C" __global__ void ink2_quant_q8_64_b(
     uint32_t* __restrict__ out_q8_u32,  // [B, cols / 4]
     float* __restrict__ out_sc64,       // [B, cols / 64]
     int32_t cols) {
+    pdl_wait();
     __shared__ float smem_max[2];
     __shared__ float smem_inv;
     const int blk = blockIdx.x;
@@ -3146,6 +3169,7 @@ extern "C" __global__ void ink2_depth_mix_b(
     const float* __restrict__ queries,    // [n_q, D]
     float* __restrict__ out_mixed,        // [n_q, B_out, D] (or `[3, B_out, D]` if `broadcast3`)
     int32_t broadcast3) {
+    pdl_wait();
     __shared__ float smem_sq[6][8];
     __shared__ float smem_dq[6][8];
     __shared__ float smem_probs[6];
@@ -3346,6 +3370,7 @@ extern "C" __global__ void ink2_ctrl_down_b(
     const uint4* __restrict__ down_bf16_u128, // [n_ctrls, 64, 576]
     float* __restrict__ g_out_base,           // [n_ctrls, B, 64]
     int32_t B) {
+    pdl_wait();
     ctrl_down_rows<1>(cur_base, msg_base, down_bf16_u128, g_out_base, B);
 }
 
@@ -3355,6 +3380,7 @@ extern "C" __global__ void ink2_ctrl_down_r8_b(
     const uint4* __restrict__ down_bf16_u128, // [n_ctrls, 64, 576]
     float* __restrict__ g_out_base,           // [n_ctrls, B, 64]
     int32_t B) {
+    pdl_wait();
     ctrl_down_rows<8>(cur_base, msg_base, down_bf16_u128, g_out_base, B);
 }
 
@@ -3364,6 +3390,7 @@ extern "C" __global__ void ink2_ctrl_down_r8_t2_b(
     const uint4* __restrict__ down_bf16_u128, // [n_ctrls, 64, 576]
     float* __restrict__ g_out_base,           // [n_ctrls, B, 64]
     int32_t B) {
+    pdl_wait();
     constexpr int Rows = 8, Tokens = 2;
     __shared__ float norm_sums[Tokens][2][8];
     __shared__ float inv[Tokens][2];
@@ -3459,6 +3486,7 @@ extern "C" __global__ void ink2_ctrl_apply_b(
     const uint4* __restrict__ gain_bf16_u128, // [n_ctrls, D, 8]
     const uint4* __restrict__ forget_bf16_u128,
     int32_t B) {
+    pdl_wait();
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     const int cb = blockIdx.y;
     if (i >= kD) return;
@@ -3500,6 +3528,7 @@ extern "C" __global__ void ink2_ctrl_apply_t8_b(
     const uint4* __restrict__ gain_bf16_u128, // [n_ctrls, D, 8]
     const uint4* __restrict__ forget_bf16_u128,
     int32_t B) {
+    pdl_wait();
     constexpr int Tokens = 8;
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     const int tiles = (B + Tokens - 1) / Tokens;
@@ -3577,6 +3606,7 @@ extern "C" __global__ void ink2_q8_dp4a_gemm_b(
     int32_t B,
     int32_t y_stride,
     float softcap) {
+    pdl_wait();
     // A warp's four threads per row cover one K=16 operand fragment. Each
     // block computes 16 weight rows by 8 tokens, including partial edge tiles.
     const int tid = threadIdx.x;
@@ -3767,6 +3797,7 @@ extern "C" __global__ void ink2_q8_dp4a_gemm_b_ms4(
     const uint4* __restrict__ x_q8_u128, const float* __restrict__ x_sc64,
     float* __restrict__ y_base, int32_t rows, int32_t cols, int32_t B, int32_t y_stride,
     float softcap) {
+    pdl_wait();
     q8_gemm_ms_body<4>(w_q8_u128, w_sc64, x_q8_u128, x_sc64, y_base, rows, cols, B, y_stride,
                        softcap);
 }
@@ -3776,6 +3807,7 @@ extern "C" __global__ void ink2_q8_dp4a_gemm_b_ms8(
     const uint4* __restrict__ x_q8_u128, const float* __restrict__ x_sc64,
     float* __restrict__ y_base, int32_t rows, int32_t cols, int32_t B, int32_t y_stride,
     float softcap) {
+    pdl_wait();
     q8_gemm_ms_body<8>(w_q8_u128, w_sc64, x_q8_u128, x_sc64, y_base, rows, cols, B, y_stride,
                        softcap);
 }
@@ -3798,6 +3830,7 @@ extern "C" __global__ void ink2_short_conv4_b(
     int32_t B,
     int32_t has_dyn,
     int32_t do_res_add) {
+    pdl_wait();
     const int c = blockIdx.x * blockDim.x + threadIdx.x;
     if (c >= channels) return;
 
@@ -3985,6 +4018,7 @@ extern "C" __global__ void ink2_short_conv4_ms(
     float* out_base, int32_t out_stride, const float* res_base, int32_t res_stride,
     const int2* __restrict__ ms_rows, int32_t channels, int32_t has_dyn, int32_t do_res_add,
     int32_t hist_seq_floats) {
+    pdl_wait();
     short_conv4_ms_body<false>(cur_base, in_stride, w_conv4, dyn_base, dyn_f4_stride, hist3, out_base,
         out_stride, res_base, res_stride, nullptr, ms_rows, channels, has_dyn, do_res_add, hist_seq_floats);
 }
@@ -3994,6 +4028,7 @@ extern "C" __global__ void ink2_short_conv4_save_ms(
     float* out_base, int32_t out_stride, const float* res_base, int32_t res_stride,
     float* __restrict__ save_prev_base, const int2* __restrict__ ms_rows, int32_t channels,
     int32_t has_dyn, int32_t do_res_add, int32_t hist_seq_floats) {
+    pdl_wait();
     short_conv4_ms_body<true>(cur_base, in_stride, w_conv4, dyn_base, dyn_f4_stride, hist3, out_base,
         out_stride, res_base, res_stride, save_prev_base, ms_rows, channels, has_dyn, do_res_add, hist_seq_floats);
 }
@@ -4041,6 +4076,7 @@ extern "C" __global__ void ink2_short_conv4_vms(
     float* out_base, int32_t out_stride, const float* res_base, int32_t res_stride,
     const int2* __restrict__ ms_rows, const int32_t* __restrict__ ms_j, float* __restrict__ xrec,
     int32_t channels, int32_t has_dyn, int32_t do_res_add, int32_t hist_seq_floats) {
+    pdl_wait();
     short_conv4_vms_body<false>(cur_base, in_stride, w_conv4, dyn_base, dyn_f4_stride, hist3, out_base,
         out_stride, res_base, res_stride, nullptr, ms_rows, ms_j, xrec, channels, has_dyn, do_res_add,
         hist_seq_floats);
@@ -4052,6 +4088,7 @@ extern "C" __global__ void ink2_short_conv4_save_vms(
     float* __restrict__ save_prev_base, const int2* __restrict__ ms_rows,
     const int32_t* __restrict__ ms_j, float* __restrict__ xrec, int32_t channels,
     int32_t has_dyn, int32_t do_res_add, int32_t hist_seq_floats) {
+    pdl_wait();
     short_conv4_vms_body<true>(cur_base, in_stride, w_conv4, dyn_base, dyn_f4_stride, hist3, out_base,
         out_stride, res_base, res_stride, save_prev_base, ms_rows, ms_j, xrec, channels, has_dyn,
         do_res_add, hist_seq_floats);
@@ -4067,6 +4104,7 @@ extern "C" __global__ void ink2_conv_commit_ms(
     const uint64_t* __restrict__ hist_ptrs,   // [seq][48 * 4]
     const int4* __restrict__ runs,
     int32_t rows_stride) {
+    pdl_wait();
     const int slot = blockIdx.y >> 2;
     const int kind = blockIdx.y & 3;
     const int c = blockIdx.x * 256 + threadIdx.x;
@@ -4096,6 +4134,7 @@ extern "C" __global__ void ink2_prep_qkv_and_cache_b(
     uint16_t* __restrict__ k_cache_fp16, uint16_t* __restrict__ v_cache_fp16,
     float* __restrict__ k_scale, float* __restrict__ v_scale,
     const int32_t* __restrict__ pos_ptr, int32_t kv_cap, int32_t is_global) {
+    pdl_wait();
     prep_qkv_and_cache_b_body<false>(qrgs_base, qrgs_stride, k_in_base, v_in_base, q_clip_bf16,
         r_clip_bf16, k_cache_fp16, v_cache_fp16, k_scale, v_scale, pos_ptr, kv_cap, is_global);
 }
@@ -4109,6 +4148,7 @@ extern "C" __global__ void ink2_prep_qkv_and_cache_ms(
     float* __restrict__ k_scale, float* __restrict__ v_scale,
     const int2* __restrict__ ms_rows, int32_t kv_cap, int32_t is_global,
     long long seq_kv_bytes, int32_t seq_scale_floats) {
+    pdl_wait();
     prep_qkv_and_cache_b_body<true>(qrgs_base, qrgs_stride, k_in_base, v_in_base, q_clip_bf16,
         r_clip_bf16, k_cache_fp16, v_cache_fp16, k_scale, v_scale, nullptr, kv_cap, is_global,
         ms_rows, seq_kv_bytes, seq_scale_floats);
@@ -4253,6 +4293,7 @@ extern "C" __global__ void ink2_bf16_gemm_router_b(
     const float4* __restrict__ x4_base,    // [B, 576]
     float* __restrict__ y_base,            // [B, 128]
     int32_t B) {
+    pdl_wait();
     __shared__ float4 smem_x[4][576];      // 36,864 B
 
     const int tid = threadIdx.x;
@@ -4301,6 +4342,7 @@ extern "C" __global__ void ink2_router_topk8_b(
     const float* __restrict__ bias128,        // [128]
     int32_t* __restrict__ sel_ids_base,       // [B, 8]
     float* __restrict__ sel_wts_base) {       // [B, 8]
+    pdl_wait();
     __shared__ int smem_ids[8];
     __shared__ float smem_ps[8];
 
@@ -4366,6 +4408,7 @@ extern "C" __global__ void ink2_build_expert_groups_b(
     int32_t* __restrict__ exp_toks,      // [128, 64]
     int32_t* __restrict__ exp_pairs,     // [128, 64]
     int32_t B) {
+    pdl_wait();
     __shared__ int32_t smem_sel[512];
     const int ex = threadIdx.x; // 0..127
     const int total_pairs = B * 8;
@@ -4401,6 +4444,7 @@ extern "C" __global__ void ink2_build_expert_groups_wide_b(
     int32_t* __restrict__ exp_toks,
     int32_t* __restrict__ exp_pairs,
     int32_t B) {
+    pdl_wait();
     const int expert = blockIdx.x * 4 + threadIdx.x / 32;
     const int lane = threadIdx.x % 32;
     int count = 0;
@@ -4428,6 +4472,7 @@ extern "C" __global__ void ink2_build_expert_groups_par_b(
     int32_t* __restrict__ exp_toks,
     int32_t* __restrict__ exp_pairs,
     int32_t B) {
+    pdl_wait();
     __shared__ int32_t sm_wcnt[8];
     __shared__ int32_t sm_woff[8];
 
@@ -4860,6 +4905,7 @@ extern "C" __global__ void ink2_moe_combine_top8_b(
     const float* __restrict__ sel_wts,  // [B * 8]
     float* __restrict__ moe_out_base,   // [B, 2304]
     int32_t B) {
+    pdl_wait();
     const int d = blockIdx.x * blockDim.x + threadIdx.x;
     const int b = blockIdx.y;
     if (d >= kD || b >= B) return;
@@ -4873,6 +4919,7 @@ extern "C" __global__ void ink2_moe_combine_top8_b(
 }
 
 extern "C" __global__ void ink2_inc_pos_by(int32_t* __restrict__ pos_ptr, int32_t delta) {
+    pdl_wait();
     if (threadIdx.x == 0) {
         *pos_ptr += delta;
     }
@@ -4882,6 +4929,7 @@ extern "C" __global__ void ink2_inc_pos_by(int32_t* __restrict__ pos_ptr, int32_
 extern "C" __global__ void ink2_argmax_b(
     const float* __restrict__ logits_base, // [B_out, VOCAB]
     int32_t* __restrict__ out_toks) {      // [B_out]
+    pdl_wait();
     __shared__ float smem_val[8];
     __shared__ int smem_idx[8];
 
@@ -4988,6 +5036,7 @@ extern "C" __global__ void ink2_conv_rewind(
     int32_t* __restrict__ pos_ptr,
     int32_t keep,
     int32_t B) {
+    pdl_wait();
     const int slot = blockIdx.y >> 2;
     const int kind = blockIdx.y & 3;
     const int c = blockIdx.x * 256 + threadIdx.x;
@@ -5033,6 +5082,7 @@ extern "C" __global__ void ink2_q8_dp4a_gemm_ktiled(
     int32_t cols,
     int32_t B,
     int32_t y_stride) {
+    pdl_wait();
     __shared__ uint4 smem_x[8][64];   // 8,192 B (`K_TILE = 1024`)
     __shared__ float smem_xsc[8][16]; // 512 B
 
@@ -5123,6 +5173,7 @@ extern "C" __global__ void mtp_tapmix(
     float a0, float a1, float a2, float a3,
     int32_t n_floats,
     float* __restrict__ out) {
+    pdl_wait();
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n_floats) return;
     out[i] = a0 * taps[i]
@@ -5136,6 +5187,7 @@ extern "C" __global__ void mtp_copy_anchor(
     int32_t tap_cap,
     int32_t tok_idx,
     float* __restrict__ anchor_out) { // [4, D]
+    pdl_wait();
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     const int j = blockIdx.y; // 0..3
     if (i >= kD) return;
@@ -5152,6 +5204,7 @@ extern "C" __global__ void mtp_ctx_store(
     int32_t ring,                               // `0` = linear (`max_ctx`), `>0` = ring
     uint16_t* __restrict__ kc_fp16,
     uint16_t* __restrict__ vc_fp16) {
+    pdl_wait();
     __shared__ float smem_hd[128];
     const int h = blockIdx.x;
     const int t = blockIdx.y;
@@ -5181,6 +5234,7 @@ extern "C" __global__ void mtp_init_draft(
     float* __restrict__ dr_x,                 // [8, D]
     float* __restrict__ dr_state,             // [256]
     uint32_t* __restrict__ dr_res) {          // [16]
+    pdl_wait();
     __shared__ float smem_red[8];
     const int tid = threadIdx.x;
     const uint32_t* row = embed_bf16_pairs + static_cast<size_t>(next_tok) * (kD / 2);
@@ -5230,6 +5284,7 @@ extern "C" __global__ void mtp_qk_norm_rope(
     const uint32_t* __restrict__ kn_bf16_p,   // [64]
     const float* __restrict__ inv_freq64,     // [64]
     int32_t pos0) {
+    pdl_wait();
     __shared__ float smem_hd[128];
     const int hh = blockIdx.x; // 0..31 (`0..23` = Q, `24..31` = K)
     const int t = blockIdx.y;  // 0..7
@@ -5255,6 +5310,7 @@ extern "C" __global__ void mtp_attn(
     int32_t lo,
     int32_t hi,                               // `p = ctx_end`
     float* __restrict__ att_out) {            // [8, 3072]
+    pdl_wait();
     __shared__ float smem_q[128];
     __shared__ float smem_m[8];
     __shared__ float smem_l[8];
@@ -5367,6 +5423,7 @@ extern "C" __global__ void mtp_attn_split(
     int32_t kps,
     float* __restrict__ part_ml,              // [S, 8, 24, 2]
     float* __restrict__ part_o) {             // [S, 8, 24, 128]
+    pdl_wait();
     const int kvh = blockIdx.x;
     const int s = blockIdx.y;
     const int t = threadIdx.x >> 5;
@@ -5458,6 +5515,7 @@ extern "C" __global__ void mtp_attn_merge(
     const float* __restrict__ part_o,
     int32_t S,
     float* __restrict__ att_out) {            // [8, 3072]
+    pdl_wait();
     const int h = blockIdx.x;
     const int t = blockIdx.y;
     const int d = threadIdx.x;
@@ -5483,6 +5541,7 @@ extern "C" __global__ void mtp_add_inplace(
     float* __restrict__ x,
     const float* __restrict__ o,
     int32_t n) {
+    pdl_wait();
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < n) x[i] += o[i];
 }
@@ -5490,6 +5549,7 @@ extern "C" __global__ void mtp_add_inplace(
 extern "C" __global__ void mtp_silu_mul(
     const float* __restrict__ gu, // [8, 18432]
     float* __restrict__ act) {    // [8, 9216]
+    pdl_wait();
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= 8 * 9216) return;
     const int t = i / 9216;
@@ -5503,6 +5563,7 @@ extern "C" __global__ void mtp_concat_frnn(
     const float* __restrict__ hidden_rows1_7, // [7, 2304]
     const float* __restrict__ frnn,           // [2304]
     float* __restrict__ x2_out) {             // [7, 4608]
+    pdl_wait();
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= 7 * 4608) return;
     const int t = i / 4608;
@@ -5515,6 +5576,7 @@ extern "C" __global__ void mtp_add_bias_rows(
     const float* __restrict__ bias,
     int32_t cols,
     int32_t total) {
+    pdl_wait();
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < total) y[i] += bias[i % cols];
 }
@@ -5529,6 +5591,7 @@ extern "C" __global__ void mtp_markov_raw(
     const int32_t* __restrict__ prev_tok_ptr,
     float* __restrict__ raw_out,                  // [768]
     const float* __restrict__ cum_ptr) {
+    pdl_wait();
     if (*cum_ptr < 0.0f) return;
     __shared__ float smem_in[512];
 
@@ -5565,6 +5628,7 @@ extern "C" __global__ void mtp_markov_step_q8(
     uint32_t* __restrict__ lat_q8_u32, // [64] (`256` i8)
     float* __restrict__ lat_sc64,      // [4]
     const float* __restrict__ cum_ptr) {
+    pdl_wait();
     if (*cum_ptr < 0.0f) return;
     __shared__ float smem_lat[256];
 
@@ -5619,6 +5683,7 @@ extern "C" __global__ void ink2_q8_dp4a_gemm_b8_fast(
     int32_t B,
     int32_t y_stride,
     float softcap) {
+    pdl_wait();
     __shared__ uint4 smem_x[8][192];   // 24,576 B (`max cols = 3072`)
     __shared__ float smem_xsc[8][48];  // 1,536 B
 
@@ -5741,6 +5806,7 @@ extern "C" __global__ void mtp_fold_mv_q8(
     const float* __restrict__ base_logits,  // [VOCAB]
     float* __restrict__ part_out,           // [nb, 3]
     const float* __restrict__ cum_ptr) {
+    pdl_wait();
     if (*cum_ptr < 0.0f) return;
     __shared__ uint4 smem_lq[16];
     __shared__ float smem_lsc[4];
@@ -5837,6 +5903,7 @@ extern "C" __global__ void mtp_fold_fin(
     float* __restrict__ cum_inout,
     float tau,
     int32_t is_last) {
+    pdl_wait();
     if (*cum_inout < 0.0f) return;
     __shared__ float smem_bv[8];
     __shared__ int smem_bi[8];
@@ -6231,6 +6298,7 @@ extern "C" __global__ void ink2_gqa_attn_split(
     int32_t is_global,
     float* __restrict__ part_ml,                // [B, 24, G, 2]
     float* __restrict__ part_o) {
+    pdl_wait();
     gqa_attn_split_body<false>(qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_fp16, v_cache_fp16, k_scale, v_scale, pos_ptr, kv_cap, is_global, part_ml, part_o);
 }
 
@@ -6248,6 +6316,7 @@ extern "C" __global__ void ink2_gqa_attn_split_dec(
     int32_t is_global,
     float* __restrict__ part_ml,                // [B, 24, G, 2]
     float* __restrict__ part_o) {
+    pdl_wait();
     gqa_attn_split_body<false, true>(qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_fp16, v_cache_fp16, k_scale, v_scale, pos_ptr, kv_cap, is_global, part_ml, part_o);
 }
 
@@ -6266,6 +6335,7 @@ extern "C" __global__ void __launch_bounds__(256, 4) ink2_gqa_attn_split_i8(
     int32_t is_global,
     float* __restrict__ part_ml,                // [B, 24, G, 2]
     float* __restrict__ part_o) {
+    pdl_wait();
     gqa_attn_split_body<true>(qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_fp16, v_cache_fp16, k_scale, v_scale, pos_ptr, kv_cap, is_global, part_ml, part_o);
 }
 
@@ -6278,10 +6348,12 @@ extern "C" __global__ void __launch_bounds__(256, 4) ink2_gqa_attn_split_i8(
     const int2* __restrict__ ms_rows, int32_t kv_cap, int32_t is_global, \
     float* __restrict__ part_ml, float* __restrict__ part_o, long long seq_kv_bytes, int32_t seq_scale_floats
 extern "C" __global__ void ink2_gqa_attn_split_dec_ms(INK2_SPLIT_MS_PARAMS) {
+    pdl_wait();
     gqa_attn_split_body<false, true, true>(qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_fp16, v_cache_fp16,
         k_scale, v_scale, nullptr, kv_cap, is_global, part_ml, part_o, ms_rows, seq_kv_bytes, seq_scale_floats);
 }
 extern "C" __global__ void __launch_bounds__(256, 4) ink2_gqa_attn_split_i8_ms(INK2_SPLIT_MS_PARAMS) {
+    pdl_wait();
     gqa_attn_split_body<true, false, true>(qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_fp16, v_cache_fp16,
         k_scale, v_scale, nullptr, kv_cap, is_global, part_ml, part_o, ms_rows, seq_kv_bytes, seq_scale_floats);
 }
@@ -6295,6 +6367,7 @@ extern "C" __global__ void ink2_gqa_attn_combine(
     int32_t qrgs_stride,
     int32_t G,
     float* __restrict__ attn_out_base) { // [B, 24, 128]
+    pdl_wait();
     const int h = blockIdx.x;
     const int b = blockIdx.y;
     const int dd = threadIdx.x;
@@ -7187,6 +7260,7 @@ extern "C" __global__ void ink2_gqa_rel_sink_attn_q8_b(
     const float* __restrict__ k_scale, const float* __restrict__ v_scale,
     const int32_t* __restrict__ pos_ptr, int32_t kv_cap, int32_t is_global,
     uint32_t* __restrict__ out_q8_u32, float* __restrict__ out_sc64) {
+    pdl_wait();
     gqa_rel_sink_attn_q8<false, false>(qrgs_base, qrgs_stride, rel_proj_bf16,
         k_cache_fp16, v_cache_fp16, k_scale, v_scale, pos_ptr, kv_cap, is_global, out_q8_u32, out_sc64);
 }
@@ -7197,6 +7271,7 @@ extern "C" __global__ void ink2_gqa_rel_sink_attn_q8_decode(
     const float* __restrict__ k_scale, const float* __restrict__ v_scale,
     const int32_t* __restrict__ pos_ptr, int32_t kv_cap, int32_t is_global,
     uint32_t* __restrict__ out_q8_u32, float* __restrict__ out_sc64) {
+    pdl_wait();
     gqa_rel_sink_attn_q8<false, true>(qrgs_base, qrgs_stride, rel_proj_bf16,
         k_cache_fp16, v_cache_fp16, k_scale, v_scale, pos_ptr, kv_cap, is_global, out_q8_u32, out_sc64);
 }
@@ -7208,6 +7283,7 @@ extern "C" __global__ void ink2_gqa_rel_sink_attn_q8_b_i8(
     const float* __restrict__ k_scale, const float* __restrict__ v_scale,
     const int32_t* __restrict__ pos_ptr, int32_t kv_cap, int32_t is_global,
     uint32_t* __restrict__ out_q8_u32, float* __restrict__ out_sc64) {
+    pdl_wait();
     gqa_rel_sink_attn_q8<true, false>(qrgs_base, qrgs_stride, rel_proj_bf16,
         k_cache_fp16, v_cache_fp16, k_scale, v_scale, pos_ptr, kv_cap, is_global, out_q8_u32, out_sc64);
 }
@@ -7218,6 +7294,7 @@ extern "C" __global__ void ink2_gqa_rel_sink_attn_q8_decode_i8(
     const float* __restrict__ k_scale, const float* __restrict__ v_scale,
     const int32_t* __restrict__ pos_ptr, int32_t kv_cap, int32_t is_global,
     uint32_t* __restrict__ out_q8_u32, float* __restrict__ out_sc64) {
+    pdl_wait();
     gqa_rel_sink_attn_q8<true, true>(qrgs_base, qrgs_stride, rel_proj_bf16,
         k_cache_fp16, v_cache_fp16, k_scale, v_scale, pos_ptr, kv_cap, is_global, out_q8_u32, out_sc64);
 }
@@ -7319,10 +7396,12 @@ __device__ __forceinline__ void gqa_attn_combine_q8_dyn_body(
     const int32_t* __restrict__ pos_ptr, int32_t is_global, \
     uint32_t* __restrict__ out_q8_u32, float* __restrict__ out_sc64
 extern "C" __global__ void ink2_gqa_attn_combine_q8_dyn(INK2_COMBINE_DYN_PARAMS) {
+    pdl_wait();
     gqa_attn_combine_q8_dyn_body<false>(part_ml, part_o, qrgs_base, qrgs_stride, G, pos_ptr, is_global, out_q8_u32, out_sc64);
 }
 // Multi-sequence rows (#107): `pos_ptr` points at the `int2 {pos, seq}` row table.
 extern "C" __global__ void ink2_gqa_attn_combine_q8_dyn_ms(INK2_COMBINE_DYN_PARAMS) {
+    pdl_wait();
     gqa_attn_combine_q8_dyn_body<true>(part_ml, part_o, qrgs_base, qrgs_stride, G, pos_ptr, is_global, out_q8_u32, out_sc64);
 }
 #undef INK2_COMBINE_DYN_PARAMS
@@ -7387,6 +7466,7 @@ extern "C" __global__ void ink2_short_conv4_save_b(
     int32_t B,
     int32_t has_dyn,
     int32_t do_res_add) {
+    pdl_wait();
     const int c = blockIdx.x * blockDim.x + threadIdx.x;
     if (c >= channels) return;
 
@@ -7480,6 +7560,7 @@ extern "C" __global__ void ink2_short_conv4_tiled_b(
     const float* cur, int in_stride, const float4* weights, const float4* dyn, int dyn_stride,
     float* hist3, float* out, int out_stride, const float* residual, int res_stride,
     float* seq, int channels, int B, int has_dyn, int do_res_add) {
+    pdl_wait();
     short_conv4_tiled(cur, in_stride, weights, dyn, dyn_stride, hist3, out, out_stride, residual, res_stride,
                       nullptr, seq, channels, B, has_dyn, do_res_add);
 }
@@ -7488,6 +7569,7 @@ extern "C" __global__ void ink2_short_conv4_tiled_save_b(
     const float* cur, int in_stride, const float4* weights, const float4* dyn, int dyn_stride,
     float* hist3, float* out, int out_stride, const float* residual, int res_stride,
     float* save_prev, float* seq, int channels, int B, int has_dyn, int do_res_add) {
+    pdl_wait();
     short_conv4_tiled(cur, in_stride, weights, dyn, dyn_stride, hist3, out, out_stride, residual, res_stride,
                       save_prev, seq, channels, B, has_dyn, do_res_add);
 }
@@ -7536,6 +7618,7 @@ extern "C" __global__ void ink2_q8_dp4a_gemv_4r(
     int32_t rows,
     int32_t cols,
     float softcap) {
+    pdl_wait();
     __shared__ uint4 smem_x[192];  // max `3072 / 16 = 192` (`3,072` B)
     __shared__ float smem_xsc[48]; // max `3072 / 64 = 48`  (`192` B)
 
@@ -7884,6 +7967,7 @@ extern "C" __global__ void ink2_moe_nvfp4_dp4a_down_2w(
     const int32_t* __restrict__ sel_ids,   // [8]
     const float* __restrict__ sel_wts,     // [8]
     float* __restrict__ moe_out) {         // [2304]
+    pdl_wait();
     __shared__ uint4 smem_aq[8 * 72];      // 9,216 B
     __shared__ float smem_asc[8 * 72];     // 2,304 B
 
@@ -7925,6 +8009,7 @@ extern "C" __global__ void ink2_moe_mxfp8_down_2w(
     const int32_t* __restrict__ sel_ids,
     const float* __restrict__ sel_wts,
     float* __restrict__ moe_out) {
+    pdl_wait();
     const int warp_id = threadIdx.x >> 5;
     const int lane = threadIdx.x & 31;
     const int row = blockIdx.x * 2 + warp_id;
@@ -8437,6 +8522,7 @@ extern "C" __global__ void ink2_build_expert_groups_active_b(
     int32_t* __restrict__ exp_pairs,     // [128, 64]
     int32_t* __restrict__ active_exps,   // [128]
     int32_t B) {
+    pdl_wait();
     __shared__ int32_t smem_sel[128];
     __shared__ int32_t sm_wcnt[4];
 
@@ -9222,6 +9308,7 @@ extern "C" __global__ void ink2_short_conv4_save_par_b(
     int32_t B,
     int32_t has_dyn,
     int32_t do_res_add) {
+    pdl_wait();
     const int c = blockIdx.x * blockDim.x + threadIdx.x;
     if (c >= channels) return;
 
@@ -9269,6 +9356,7 @@ extern "C" __global__ void ink2_short_conv4_commit_hist_b(
     float* __restrict__ hist3,
     int32_t channels,
     int32_t B) {
+    pdl_wait();
     const int c = blockIdx.x * blockDim.x + threadIdx.x;
     if (c >= channels) return;
     float* h = hist3 + c * 3;
@@ -9438,6 +9526,7 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_q8_tc_gemm_b(
     int32_t B,
     int32_t y_stride,
     float softcap) {
+    pdl_wait();
     q8_tc_gemm_tile128(
         w_q8_u128, w_sc64, x_q8_u128, x_sc64, y_base,
         static_cast<int32_t>(blockIdx.x) * 128, rows, cols, B, y_stride, softcap);
@@ -9459,6 +9548,7 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_q8_tc_qkv3_gemm_b(
     int32_t rows_q,
     int32_t rows_kv,
     int32_t B) {
+    pdl_wait();
     const int nb_q = (rows_q + 127) >> 7;
     const int nb_kv = (rows_kv + 127) >> 7;
     const int bx = static_cast<int>(blockIdx.x);
@@ -9486,6 +9576,7 @@ extern "C" __global__ void ink2_quant_nvfp4_2term_b(
     float* __restrict__ out_gs,               // [n_rows]
     int32_t n_rows,
     int32_t cols) {
+    pdl_wait();
     const int r = blockIdx.x * 4 + (threadIdx.x >> 5);
     if (r >= n_rows) return;
     const int lane = threadIdx.x & 31;
@@ -9579,6 +9670,7 @@ extern "C" __global__ void ink2_quant_nvfp4_2term_1p_b(
     float* __restrict__ out_gs,               // [n_rows]
     int32_t n_rows,
     int32_t cols) {
+    pdl_wait();
     __shared__ float sm_wmax[5];
     __shared__ float sm_gtok[2];
 
@@ -9678,6 +9770,7 @@ extern "C" __global__ void ink2_gather_nvfp4_sorted_b(
     uint4* __restrict__ dst_codes_u128,       // [B * 8, 144]
     uint4* __restrict__ dst_sc_u128,          // [B * 8, 18]
     float* __restrict__ dst_gs) {             // [B * 8]
+    pdl_wait();
     __shared__ int32_t sm_blk_off[129];
     __shared__ int32_t sm_row_off[129];
     __shared__ int32_t sm_toks[128];
@@ -10006,6 +10099,7 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_nvfp4_tc_up_situ(
     int32_t exp_begin,
     int32_t exp_end,
     float* __restrict__ act_out) {
+    pdl_wait();
     (void)exp_toks;
     grouped_nvfp4_tc_impl<true, false>(
         w13_u128, s13_u32, a13, sorted_x_codes_u128, sorted_x_sc_u64, sorted_x_gs,
@@ -10025,6 +10119,7 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_nvfp4_tc_up_situ_p
     int32_t exp_begin,
     int32_t exp_end,
     float* __restrict__ act_out) {
+    pdl_wait();
     (void)exp_toks;
     grouped_nvfp4_tc_impl<true, true>(
         w13_u128, s13_u32, a13, sorted_x_codes_u128, sorted_x_sc_u64, sorted_x_gs,
@@ -10043,6 +10138,7 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_nvfp4_tc_down(
     int32_t exp_begin,
     int32_t exp_end,
     void* __restrict__ pair_y_f16) {
+    pdl_wait();
     grouped_nvfp4_tc_impl<false, false>(
         w2_u128, s2_u32, a2, act_codes_u128, act_sc_u64, act_gs,
         exp_counts, exp_pairs, exp_begin, exp_end, pair_y_f16);
@@ -10060,6 +10156,7 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_nvfp4_tc_down_pack
     int32_t exp_begin,
     int32_t exp_end,
     void* __restrict__ pair_y_f16) {
+    pdl_wait();
     grouped_nvfp4_tc_impl<false, true>(
         w2_u128, s2_u32, a2, act_codes_u128, act_sc_u64, act_gs,
         exp_counts, exp_pairs, exp_begin, exp_end, pair_y_f16);
@@ -10349,6 +10446,7 @@ extern "C" __global__ __launch_bounds__(384, 1) void ink2_moe_nvfp4_tc_up_situ_t
     int32_t exp_begin,
     int32_t exp_end,
     float* __restrict__ act_out) {
+    pdl_wait();
     (void)exp_toks;
     grouped_nvfp4_tc_t160_impl<true, false>(
         w13_u128, s13_u32, a13, sorted_x_codes_u128, sorted_x_sc_u64, sorted_x_gs,
@@ -10368,6 +10466,7 @@ extern "C" __global__ __launch_bounds__(384, 1) void ink2_moe_nvfp4_tc_up_situ_t
     int32_t exp_begin,
     int32_t exp_end,
     float* __restrict__ act_out) {
+    pdl_wait();
     (void)exp_toks;
     grouped_nvfp4_tc_t160_impl<true, true>(
         w13_u128, s13_u32, a13, sorted_x_codes_u128, sorted_x_sc_u64, sorted_x_gs,
@@ -10386,6 +10485,7 @@ extern "C" __global__ __launch_bounds__(384, 1) void ink2_moe_nvfp4_tc_down_t160
     int32_t exp_begin,
     int32_t exp_end,
     void* __restrict__ pair_y_f16) {
+    pdl_wait();
     grouped_nvfp4_tc_t160_impl<false, false>(
         w2_u128, s2_u32, a2, act_codes_u128, act_sc_u64, act_gs,
         exp_counts, exp_pairs, exp_begin, exp_end, pair_y_f16);
@@ -10403,6 +10503,7 @@ extern "C" __global__ __launch_bounds__(384, 1) void ink2_moe_nvfp4_tc_down_t160
     int32_t exp_begin,
     int32_t exp_end,
     void* __restrict__ pair_y_f16) {
+    pdl_wait();
     grouped_nvfp4_tc_t160_impl<false, true>(
         w2_u128, s2_u32, a2, act_codes_u128, act_sc_u64, act_gs,
         exp_counts, exp_pairs, exp_begin, exp_end, pair_y_f16);
@@ -10415,6 +10516,7 @@ extern "C" __global__ void ink2_quant_mxfp8_b(
     uint4* __restrict__ out_fp8_u128,         // [n_rows, cols / 16]
     uint32_t* __restrict__ out_ue8m0_u32,     // [n_rows, cols / 128]
     int32_t cols) {
+    pdl_wait();
     const int blk128 = blockIdx.x;
     const int row = blockIdx.y;
     const int lane = threadIdx.x & 31;
@@ -10721,6 +10823,7 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_up_situ(
     const int32_t* __restrict__ exp_toks,
     const int32_t* __restrict__ exp_pairs,
     float* __restrict__ act_out) {
+    pdl_wait();
     grouped_mxfp8_tc_impl<true, false>(w13_u128, s13_u32, x_u128, x_sc_u32, exp_counts, exp_toks, exp_pairs, act_out);
 }
 
@@ -10745,6 +10848,7 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_up_situ_p
     const int32_t* __restrict__ exp_toks,
     const int32_t* __restrict__ exp_pairs,
     float* __restrict__ act_out) {
+    pdl_wait();
     grouped_mxfp8_tc_impl<true, true>(w13_u128, s13_u32, x_u128, x_sc_u32, exp_counts, exp_toks, exp_pairs, act_out);
 }
 
@@ -10768,6 +10872,7 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_down(
     const int32_t* __restrict__ exp_counts,
     const int32_t* __restrict__ exp_pairs,
     void* __restrict__ pair_y_f16) {
+    pdl_wait();
     grouped_mxfp8_tc_impl<false, false>(w2_u128, s2_u32, act_u128, act_sc_u32, exp_counts, exp_pairs, exp_pairs, pair_y_f16);
 }
 
@@ -10790,6 +10895,7 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_down_pack
     const int32_t* __restrict__ exp_counts,
     const int32_t* __restrict__ exp_pairs,
     void* __restrict__ pair_y_f16) {
+    pdl_wait();
     grouped_mxfp8_tc_impl<false, true>(w2_u128, s2_u32, act_u128, act_sc_u32, exp_counts, exp_pairs, exp_pairs, pair_y_f16);
 }
 
@@ -11056,6 +11162,7 @@ extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_up_situ_t
     const int32_t* __restrict__ exp_toks,
     const int32_t* __restrict__ exp_pairs,
     float* __restrict__ act_out) {
+    pdl_wait();
     grouped_mxfp8_tc_t160_impl<true, false>(w13_u128, s13_u32, x_u128, x_sc_u32, exp_counts, exp_toks, exp_pairs, act_out);
 }
 
@@ -11080,6 +11187,7 @@ extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_up_situ_t
     const int32_t* __restrict__ exp_toks,
     const int32_t* __restrict__ exp_pairs,
     float* __restrict__ act_out) {
+    pdl_wait();
     grouped_mxfp8_tc_t160_impl<true, true>(w13_u128, s13_u32, x_u128, x_sc_u32, exp_counts, exp_toks, exp_pairs, act_out);
 }
 
@@ -11103,6 +11211,7 @@ extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_down_t160
     const int32_t* __restrict__ exp_counts,
     const int32_t* __restrict__ exp_pairs,
     void* __restrict__ pair_y_f16) {
+    pdl_wait();
     grouped_mxfp8_tc_t160_impl<false, false>(w2_u128, s2_u32, act_u128, act_sc_u32, exp_counts, exp_pairs, exp_pairs, pair_y_f16);
 }
 
@@ -11125,6 +11234,7 @@ extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_down_t160
     const int32_t* __restrict__ exp_counts,
     const int32_t* __restrict__ exp_pairs,
     void* __restrict__ pair_y_f16) {
+    pdl_wait();
     grouped_mxfp8_tc_t160_impl<false, true>(w2_u128, s2_u32, act_u128, act_sc_u32, exp_counts, exp_pairs, exp_pairs, pair_y_f16);
 }
 
@@ -11654,6 +11764,7 @@ extern "C" __global__ __launch_bounds__(384, 1) void ink2_flash_attn_tc_q8_b(
     int32_t B,
     uint32_t* __restrict__ out_q8_u32,
     float* __restrict__ out_sc64) {
+    pdl_wait();
     flash_attn_tc_q8_b_impl<false>(
         qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_fp16, v_cache_fp16,
         nullptr, nullptr, pos_ptr, kv_cap, is_global, B, out_q8_u32, out_sc64);
@@ -11673,6 +11784,7 @@ extern "C" __global__ __launch_bounds__(384, 1) void ink2_flash_attn_tc_q8_b_i8(
     int32_t B,
     uint32_t* __restrict__ out_q8_u32,
     float* __restrict__ out_sc64) {
+    pdl_wait();
     flash_attn_tc_q8_b_impl<true, false>(
         qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_i8_raw, v_cache_i8_raw,
         k_scale, v_scale, pos_ptr, kv_cap, is_global, B, out_q8_u32, out_sc64);
@@ -11692,6 +11804,7 @@ extern "C" __global__ __launch_bounds__(384, 1) void ink2_flash_attn_tc_split_b(
     int32_t B,
     uint32_t* __restrict__ out_part_o_f16x2,
     float2* __restrict__ out_part_ml) {
+    pdl_wait();
     flash_attn_tc_q8_b_impl<false, true>(
         qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_fp16, v_cache_fp16,
         nullptr, nullptr, pos_ptr, kv_cap, is_global, B, nullptr, nullptr, out_part_o_f16x2, out_part_ml);
@@ -11711,6 +11824,7 @@ extern "C" __global__ __launch_bounds__(384, 1) void ink2_flash_attn_tc_split_b_
     int32_t B,
     uint32_t* __restrict__ out_part_o_f16x2,
     float2* __restrict__ out_part_ml) {
+    pdl_wait();
     flash_attn_tc_q8_b_impl<true, true>(
         qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_i8_raw, v_cache_i8_raw,
         k_scale, v_scale, pos_ptr, kv_cap, is_global, B, nullptr, nullptr, out_part_o_f16x2, out_part_ml);
@@ -11726,6 +11840,7 @@ extern "C" __global__ void ink2_flash_attn_split_combine_q8_b(
     int32_t n_splits,
     uint32_t* __restrict__ out_q8_u32,         // [B, 768]
     float* __restrict__ out_sc64) {            // [B, 48]
+    pdl_wait();
     const int h = blockIdx.x; // 0..23
     const int b = blockIdx.y; // 0..B-1
     if (h >= 24 || b >= B) return;
@@ -11791,6 +11906,7 @@ extern "C" __global__ void ink2_f32_to_bf16_b(
     const float4* __restrict__ src_f4,   // [n_vec8 * 2]
     uint4* __restrict__ dst_bf16_u128,   // [n_vec8]
     int32_t n_vec8) {
+    pdl_wait();
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= n_vec8) return;
     const float4 a = src_f4[2 * idx];
@@ -11807,6 +11923,7 @@ extern "C" __global__ void ink2_ctrl_norm_bf16_b(
     const float4* __restrict__ cur4_base,    // [n_ctrls * B, 576]
     const float4* __restrict__ msg4_base,    // [n_ctrls * B, 576]
     uint4* __restrict__ out_bf16_u128) {     // [n_ctrls * B, 576]
+    pdl_wait();
     __shared__ float4 sm_vec4[576];          // 9,216 B (`6` CTAs/SM = `48` warps/SM preserved!)
     __shared__ float sm_red_a[8];
     __shared__ float sm_red_b[8];
@@ -11900,6 +12017,7 @@ extern "C" __global__ void ink2_bf16_tc_gemm_b(
     int32_t cols,
     int32_t B,
     int32_t t_blocks_per_group) {
+    pdl_wait();
     __shared__ uint4 sm_w[2][64][5]; // 10,240 B (`K_STAGE = 32` BF16 cols = `4` `uint4`s, stride = 20 dwords -> 32-bank bijection!)
     __shared__ uint4 sm_x[2][64][5]; // 10,240 B
 
@@ -11994,6 +12112,7 @@ extern "C" __global__ void ink2_ctrl_apply_tc_b(
     const uint4* __restrict__ forget_bf16_u128, // [n_ctrls, D, 8]
     int32_t B,
     int32_t t_blocks_per_ctrl) {
+    pdl_wait();
     __shared__ uint4 sm_gf[64][9];    // 9,216 B (`32` gain + `32` forget rows x `8` `uint4`s, stride = 36 dwords -> 32-bank bijection!)
     __shared__ uint4 sm_ghi[64][9];   // 9,216 B
     __shared__ uint4 sm_glo[64][9];   // 9,216 B
@@ -12125,6 +12244,7 @@ extern "C" __global__ void ink2_moe_combine_top8_vec4_b(
     const float4* __restrict__ sel_wts4, // [B * 2]
     float4* __restrict__ moe_out4,       // [B, 576]
     int32_t B) {
+    pdl_wait();
     const int d4 = blockIdx.x * 192 + threadIdx.x;
     const int b = blockIdx.y;
     if (d4 >= 576 || b >= B) return;
@@ -12162,6 +12282,7 @@ extern "C" __global__ void ink2_depth_mix_multi_b(
     float* __restrict__ out_mixed,        // [n_q, B_out, D] (or `[3, B_out, D]` if `broadcast3`)
     int32_t broadcast3,
     int32_t n_q) {
+    pdl_wait();
     __shared__ float smem_sq[6][8];
     __shared__ float smem_dq[4][6][8];
     __shared__ float smem_probs[4][6];
@@ -12295,6 +12416,7 @@ extern "C" __global__ void ink2_moe_combine_top8_f16_b(
     const float4* __restrict__ sel_wts4,       // [B * 2]
     float4* __restrict__ moe_out4,             // [B, 576]
     int32_t B) {
+    pdl_wait();
     const int d8 = threadIdx.x; // 0..287
     const int b = blockIdx.y;
     if (d8 >= 288 || b >= B) return;
@@ -12341,6 +12463,7 @@ extern "C" __global__ void ink2_depth_mix_multi_ctrl_norm_bf16_b(
     int32_t n_q,
     const float4* __restrict__ msg4_base, // [n_ctrls, B_out, 576]
     uint4* __restrict__ out_bf16_u128) {  // [n_ctrls, B_out, 576]
+    pdl_wait();
     __shared__ float4 sm_vec4[576];       // 9,216 B (`5` CTAs/SM = `40` warps/SM, `64 KiB` L1!)
     __shared__ float smem_sq[6][8];
     __shared__ float smem_dq[3][6][8];
