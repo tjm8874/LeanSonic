@@ -34,7 +34,7 @@ def copy_verified(source, offset, length, destination):
     return h.hexdigest()
 
 
-def repack(src, official, encoder, dest):
+def repack(src, official, encoder, dest, scale_cutoffs=None):
     if dest.exists():
         raise FileExistsError(dest)
     with official.open("rb") as f:
@@ -46,9 +46,19 @@ def repack(src, official, encoder, dest):
         for i in range(20)
         for p in ("w13", "w2")
     }
-    old_keys = {k.removesuffix(OLD) for k in meta if k.endswith(OLD)}
-    if old_keys != expected:
-        raise ValueError("expected 40 original contextual NVFP4 planes")
+    source_suffix, output_suffix = OLD, NEW
+    cuts = None
+    if scale_cutoffs is not None:
+        source_suffix, output_suffix = NEW, ".nvscale_split_v1"
+        cuts = json.loads(scale_cutoffs.read_text())["cutoffs"]
+        if set(cuts) != expected or any(
+            len(row) != 128 or any(type(v) is not int or not -1 <= v <= 126 for v in row)
+            for row in cuts.values()
+        ):
+            raise ValueError("expected 128 E4M3 cutoffs for each original NVFP4 plane")
+    keys = {k.removesuffix(source_suffix) for k in meta if k.endswith(source_suffix)}
+    if keys != expected:
+        raise ValueError(f"expected 40 NVFP4 planes with suffix {source_suffix}")
     if {p.relative_to(src).as_posix() for p in src.rglob("*") if p.is_file()} != {
         SHARD,
         "tiktoken/tokenizer.model",
@@ -69,30 +79,32 @@ def repack(src, official, encoder, dest):
                 continue
             a, b = item["data_offsets"]
             new_key, size = key, b - a
-            if key.endswith(OLD):
-                name = key.removesuffix(OLD)
+            if key.endswith(source_suffix):
+                name = key.removesuffix(source_suffix)
                 oa, ob = base[name]["data_offsets"]
                 frame = tmp / (name + ".frame")
-                size2 = int(
-                    subprocess.check_output(
-                        [
-                            encoder,
-                            src / SHARD,
-                            str(start + a),
-                            str(size),
-                            str(ob - oa),
-                            frame,
-                        ],
-                        text=True,
-                    )
-                )
+                args = [encoder, src / SHARD, str(start + a), str(size)]
+                if cuts is None:
+                    args.extend([str(ob - oa), frame])
+                else:
+                    companion = meta[name + "_scale.mean8_v1"]
+                    sa, sb = companion["data_offsets"]
+                    cutfile = tmp / "cutoffs.bin"
+                    cutfile.write_bytes(bytes(v + 1 for v in cuts[name]))
+                    width = base[name + "_scale"]["shape"][-1]
+                    args.extend([str(start + sa), str(sb - sa), str(width),
+                                 str(ob - oa), cutfile, frame])
+                sizes = subprocess.check_output(args, text=True).split()
+                size2 = int(sizes[0])
+                if cuts is not None and (int(sizes[1]) != ob - oa or frame.stat().st_size != size2):
+                    raise ValueError(f"inconsistent split encoder receipt for {name}")
                 comparisons[name] = dict(
                     old_bytes=size, trial_bytes=size2, decoded_bytes=ob - oa
                 )
                 if size2 < size:
                     if frame.stat().st_size != size2:
                         raise ValueError("incomplete encoded frame")
-                    new_key, size = name + NEW, size2
+                    new_key, size = name + output_suffix, size2
                     frames[key] = frame
             rebuilt[new_key] = dict(item, data_offsets=[end, end + size])
             if new_key != key:
@@ -152,10 +164,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     for arg in ("source", "official_shard", "encoder", "destination"):
         parser.add_argument(arg, type=Path)
+    parser.add_argument("--scale-cutoffs", type=Path, help="enable scale-conditioned coding for an existing trim package")
     a = parser.parse_args()
     print(
         json.dumps(
-            repack(a.source, a.official_shard, a.encoder.resolve(), a.destination),
+            repack(a.source, a.official_shard, a.encoder.resolve(), a.destination, a.scale_cutoffs),
             indent=2,
         )
     )
