@@ -20,3 +20,5 @@ cmp 0.f32 auto.f32
 ```
 
 The PRO4500 directory includes the binary digests, endpoint and ID digests, full generated ID histories, and per-arm peak samples.
+
+On RTX 5070 Ti (16 GB), the same model and executable selected the same 19/20 planes. Peak process memory fell from 13,948,157,952 to 12,524,191,744 bytes. Both cards saved exactly 1,423,966,208 bytes in these runs. All eight endpoint vectors and four generated sequences also matched across cards. [GeForce records](5070Ti/).
