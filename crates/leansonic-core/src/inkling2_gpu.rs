@@ -487,9 +487,11 @@ struct KernelFns {
     ctrl_apply_t8_b: Option<CUfunction>,
     q8_dp4a_gemm_b: CUfunction,
     short_conv4_b: CUfunction,
+    short_conv4_pair_b: Option<CUfunction>,
     prep_qkv_and_cache_b: CUfunction,
     gqa_rel_sink_attn_b: CUfunction,
     bf16_gemm_router_b: CUfunction,
+    bf16_gemv_router_b: Option<CUfunction>,
     router_topk8_b: CUfunction,
     build_expert_groups_b: CUfunction,
     build_expert_groups_wide_b: Option<CUfunction>,
@@ -550,6 +552,7 @@ struct KernelFns {
     q8_tc_qkv3_gemm_b: Option<CUfunction>,
     quant_nvfp4_2term_b: Option<CUfunction>,
     gather_nvfp4_sorted_b: Option<CUfunction>,
+    expand_mxfp8_indices: Option<CUfunction>,
     quant_mxfp8_b: Option<CUfunction>,
     flash_attn_tc_q8_b: Option<CUfunction>,
     flash_attn_tc_q8_b_i8: Option<CUfunction>,
@@ -558,6 +561,7 @@ struct KernelFns {
     bf16_tc_gemm_b: Option<CUfunction>,
     ctrl_apply_tc_b: Option<CUfunction>,
     moe_combine_top8_vec4_b: Option<CUfunction>,
+    moe_combine_conv4_b: Option<CUfunction>,
     moe_combine_top8_f16_b: Option<CUfunction>,
     depth_mix_multi_b: Option<CUfunction>,
     // v0.8.0 V13 Prefill Suite (`Issue #79`)
@@ -578,6 +582,7 @@ struct KernelFns {
     kv_conv4_prep_cache: Option<CUfunction>,
     wo_conv4_save_c3072: Option<CUfunction>,
     build_expert_groups_active_b: Option<CUfunction>,
+    router_topk8_groups_b: Option<CUfunction>,
 }
 
 unsafe impl Send for KernelFns {}
@@ -772,6 +777,7 @@ pub struct Inkling2GpuEngine {
     d_all_msg_queries: DeviceBuf,
     layers: Vec<LayerGpu>,
     expert_weights: Vec<[TierBuf; 2]>,
+    device_codebook_scratch: Option<DeviceBuf>,
     slots: Vec<SlotStateGpu>,
     conv_history: DeviceBuf,
     /// Number of independent sequences with their own state (`LEANSONIC_SEQS`, default 1).
@@ -933,6 +939,26 @@ fn concat_slices(slices: &[&[u8]]) -> Vec<u8> {
         out.extend_from_slice(s);
     }
     out
+}
+
+/// By-value arguments of one `ink2_short_conv4_b` launch (`Conv4BArgs` in the kernel source).
+#[repr(C)]
+struct Conv4BArgs {
+    cur_base: CUdeviceptr,
+    w_conv4: CUdeviceptr,
+    dyn_base: CUdeviceptr,
+    hist3: CUdeviceptr,
+    out_base: CUdeviceptr,
+    res_base: CUdeviceptr,
+    seq_out: CUdeviceptr,
+    in_stride: i32,
+    dyn_f4_stride: i32,
+    out_stride: i32,
+    res_stride: i32,
+    channels: i32,
+    b: i32,
+    has_dyn: i32,
+    do_res_add: i32,
 }
 
 /// `LEANSONIC_PDL_ALL=0` (or `LEANSONIC_PDL=0`) keeps PDL on the single-sequence decode chain only.
@@ -1158,6 +1184,45 @@ impl<'a> ExpertMatrix<'a> {
             Self::Packed { count, .. } => *count,
         }
     }
+    // A standard byte-rANS frame lists exactly the symbols its decoder may emit.
+    // Store the lookup table and the two indices per byte together, aligned to 16 bytes.
+    fn device_codebook(self) -> Result<Vec<u8>, String> {
+        let Self::Packed {
+            bytes,
+            count,
+            contextual: false,
+        } = self
+        else {
+            return Err("device codebooks require rANS MXFP8 frames".into());
+        };
+        let matrix = crate::inkling_mxfp8::Matrix::parse(bytes, count)?;
+        let mut result = Vec::with_capacity(16 + count / 2);
+        let mut index = [0u8; 256];
+        for (symbol, &freq) in bytes[..512].as_chunks::<2>().0.iter().enumerate() {
+            if freq != [0, 0] {
+                if result.len() == 16 {
+                    return Err("MXFP8 frame exceeds the 16-symbol device codebook limit".into());
+                }
+                index[symbol] = result.len() as u8;
+                result.push(symbol as u8);
+            }
+        }
+        result.resize(16, 0);
+        matrix.for_each_chunk(|_, tile| {
+            let (pairs, tail) = tile.as_chunks::<2>();
+            if !tail.is_empty() {
+                return Err("unaligned MXFP8 device codebook tile".into());
+            }
+            result.extend(
+                pairs
+                    .iter()
+                    .map(|&[a, b]| index[a as usize] | (index[b as usize] << 4)),
+            );
+            Ok(())
+        })?;
+        Ok(result)
+    }
+
     fn place(self, ctx: &Arc<CudaContextHandle>, on_device: bool) -> Result<TierBuf, String> {
         match self {
             Self::Raw(bytes) => {
@@ -2020,6 +2085,33 @@ impl Inkling2GpuEngine {
         let d_ms_j = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 4)?;
         let d_ms_runs = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 16)?;
         let d_ms_tokens = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 4)?;
+        let mut device_codebooks = Vec::new();
+        let device_codebook_scratch = if std::env::var("LEANSONIC_MXFP8_DEVICE_U4").as_deref()
+            == Ok("1")
+        {
+            if fns.expand_mxfp8_indices.is_none() {
+                return Err("missing ink2_expand_mxfp8_indices in the selected CUDA module".into());
+            }
+            for &[up, down] in &expert_views[NVFP4_LAYERS..] {
+                device_codebooks.push([up.device_codebook()?, down.device_codebook()?]);
+            }
+            let largest = expert_views[NVFP4_LAYERS..]
+                .iter()
+                .flatten()
+                .map(ExpertMatrix::len)
+                .max()
+                .ok_or("missing MXFP8 layers")?;
+            for (views, packed) in expert_views[NVFP4_LAYERS..]
+                .iter_mut()
+                .zip(&device_codebooks)
+            {
+                *views = [ExpertMatrix::Raw(&packed[0]), ExpertMatrix::Raw(&packed[1])];
+            }
+            Some(DeviceBuf::alloc_zeroed(&ctx, largest)?)
+        } else {
+            None
+        };
+
         let mut eng = Self {
             d_token_in: DeviceBuf::alloc_zeroed(&ctx, 4)?,
             d_prefill_tokens: DeviceBuf::alloc_zeroed(&ctx, max_ctx * 4)?,
@@ -2114,6 +2206,7 @@ impl Inkling2GpuEngine {
             layers,
             slots,
             expert_weights: Vec::with_capacity(N_LAYER),
+            device_codebook_scratch,
             resident_expert_layers: 0,
             spilled_expert_layers: 0,
             max_ctx,
@@ -2291,6 +2384,7 @@ impl Inkling2GpuEngine {
             st.discard_resident_pages();
         }
 
+        drop(device_codebooks);
         eng.stage_host_up = eng.select_host_up_staging()?;
         if eng.stage_host_up {
             eprintln!("[LeanSonic GPU] Staging selected host-backed NVFP4 gate/up weights");
@@ -2651,9 +2745,11 @@ impl Inkling2GpuEngine {
             ctrl_apply_t8_b: get_fn("ink2_ctrl_apply_t8_b").ok(),
             q8_dp4a_gemm_b: get_fn("ink2_q8_dp4a_gemm_b")?,
             short_conv4_b: get_fn("ink2_short_conv4_b")?,
+            short_conv4_pair_b: get_fn("ink2_short_conv4_pair_b").ok(),
             prep_qkv_and_cache_b: get_fn("ink2_prep_qkv_and_cache_b")?,
             gqa_rel_sink_attn_b: get_fn("ink2_gqa_rel_sink_attn_b")?,
             bf16_gemm_router_b: get_fn("ink2_bf16_gemm_router_b")?,
+            bf16_gemv_router_b: get_fn("ink2_bf16_gemv_router_b").ok(),
             router_topk8_b: get_fn("ink2_router_topk8_b")?,
             build_expert_groups_b: get_fn("ink2_build_expert_groups_b")?,
             build_expert_groups_wide_b: get_fn("ink2_build_expert_groups_wide_b").ok(),
@@ -2714,6 +2810,7 @@ impl Inkling2GpuEngine {
             q8_tc_qkv3_gemm_b,
             quant_nvfp4_2term_b: get_fn("ink2_quant_nvfp4_2term_b").ok(),
             gather_nvfp4_sorted_b: get_fn("ink2_gather_nvfp4_sorted_b").ok(),
+            expand_mxfp8_indices: get_fn("ink2_expand_mxfp8_indices").ok(),
             quant_mxfp8_b: get_fn("ink2_quant_mxfp8_b").ok(),
             flash_attn_tc_q8_b,
             flash_attn_tc_q8_b_i8,
@@ -2722,6 +2819,7 @@ impl Inkling2GpuEngine {
             bf16_tc_gemm_b: get_fn("ink2_bf16_tc_gemm_b").ok(),
             ctrl_apply_tc_b: get_fn("ink2_ctrl_apply_tc_b").ok(),
             moe_combine_top8_vec4_b: get_fn("ink2_moe_combine_top8_vec4_b").ok(),
+            moe_combine_conv4_b: get_fn("ink2_moe_combine_conv4_b").ok(),
             moe_combine_top8_f16_b: get_fn("ink2_moe_combine_top8_f16_b").ok(),
             depth_mix_multi_b: get_fn("ink2_depth_mix_multi_b").ok(),
             quant_nvfp4_2term_1p_b: get_fn("ink2_quant_nvfp4_2term_1p_b").ok(),
@@ -2738,6 +2836,7 @@ impl Inkling2GpuEngine {
             kv_conv4_prep_cache: get_fn("ink2_kv_conv4_prep_cache").ok(),
             wo_conv4_save_c3072: get_fn("ink2_wo_conv4_save_c3072").ok(),
             build_expert_groups_active_b: get_fn("ink2_build_expert_groups_active_b").ok(),
+            router_topk8_groups_b: get_fn("ink2_router_topk8_groups_b").ok(),
         })
     }
 
@@ -2843,6 +2942,40 @@ impl Inkling2GpuEngine {
         params: &mut [*mut c_void],
     ) -> Result<(), String> {
         self.launch_smem(stream, func, grid, block, 0, params)
+    }
+
+    // Uses the ordinary stream ordering at both scratch reuse boundaries. The next
+    // projection can overwrite the buffer after its preceding consumer completes.
+    fn mxfp8_weight_ptr(
+        &self,
+        stream: CUstream,
+        weight: &TierBuf,
+        expert_bytes: usize,
+        selected: bool,
+    ) -> Result<CUdeviceptr, String> {
+        let Some(scratch) = &self.device_codebook_scratch else {
+            return Ok(weight.ptr());
+        };
+        let mut src = weight.ptr();
+        let mut dst = scratch.ptr;
+        let mut ids = if selected { self.d_sel_ids.ptr } else { 0 };
+        let mut words = (expert_bytes / 8) as u32;
+        let mut args = [
+            (&mut src as *mut _) as *mut c_void,
+            (&mut dst as *mut _) as *mut c_void,
+            (&mut ids as *mut _) as *mut c_void,
+            (&mut words as *mut _) as *mut c_void,
+        ];
+        self.launch(
+            stream,
+            self.fns
+                .expand_mxfp8_indices
+                .ok_or("missing device codebook kernel")?,
+            (64, if selected { TOP_K } else { N_EXP } as u32),
+            256,
+            &mut args,
+        )?;
+        Ok(dst)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -4399,7 +4532,7 @@ impl Inkling2GpuEngine {
                 }
             }
             ExpertScales::Mxfp8 { s13, s2 } => {
-                let mut pw13 = w13.ptr();
+                let mut pw13 = self.mxfp8_weight_ptr(stream, w13, 2 * FF * D, true)?;
                 let mut ps13 = s13.buffer.ptr;
                 let mut px = self.d_mlp_h.ptr;
                 let mut pids = self.d_sel_ids.ptr;
@@ -4419,7 +4552,7 @@ impl Inkling2GpuEngine {
                     &mut up_args,
                 )?;
 
-                let mut pw2 = w2.ptr();
+                let mut pw2 = self.mxfp8_weight_ptr(stream, w2, FF * D, true)?;
                 let mut ps2 = s2.buffer.ptr;
                 let mut pwts = self.d_sel_wts.ptr;
                 let allow_xw = self.moe_down_xw == 2
@@ -6599,6 +6732,7 @@ impl Inkling2GpuEngine {
         }
 
         // 4. Register-Persistent / Token-Parallel Causal `short_conv4` for K & V
+        let mut kv_pair: Vec<Conv4BArgs> = Vec::with_capacity(2);
         for (raw_ptr, raw_stride, conv_w, hist_ptr, dst_ptr, seq_off_floats) in [
             (
                 k_raw_ptr,
@@ -6684,6 +6818,30 @@ impl Inkling2GpuEngine {
             let mut bi = b_i32;
             let mut hd = i32::from(l.global);
             let mut dr = 0i32;
+            if self.fns.short_conv4_pair_b.is_some()
+                && conv == self.fns.short_conv4_b
+                && std::env::var("LEANSONIC_CONV_PAIR").map_or(true, |v| v != "0")
+            {
+                // K and V go out as one `ink2_short_conv4_pair_b` launch below.
+                kv_pair.push(Conv4BArgs {
+                    cur_base: p_cur,
+                    w_conv4: p_w,
+                    dyn_base: p_dyn,
+                    hist3: p_hist,
+                    out_base: p_out,
+                    res_base: p_res,
+                    seq_out: p_seq,
+                    in_stride: ins,
+                    dyn_f4_stride: df4,
+                    out_stride: outs,
+                    res_stride: ress,
+                    channels: ch,
+                    b: bi,
+                    has_dyn: hd,
+                    do_res_add: dr,
+                });
+                continue;
+            }
             let mut args: [*mut c_void; 15] = [
                 (&mut p_cur as *mut _) as *mut c_void,
                 (&mut ins as *mut _) as *mut c_void,
@@ -6702,6 +6860,17 @@ impl Inkling2GpuEngine {
                 (&mut dr as *mut _) as *mut c_void,
             ];
             self.launch(stream, conv, kv_conv_grid, 256, &mut args)?;
+        }
+        match (kv_pair.as_mut_slice(), self.fns.short_conv4_pair_b) {
+            ([k_args, v_args], Some(f_pair)) => {
+                let mut args: [*mut c_void; 2] = [
+                    (k_args as *mut Conv4BArgs).cast(),
+                    (v_args as *mut Conv4BArgs).cast(),
+                ];
+                self.launch(stream, f_pair, (kv_conv_grid.0, 2), 256, &mut args)?;
+            }
+            ([], _) => {}
+            _ => return Err("short_conv4 K/V pair: expected two launches".into()),
         }
 
         // 5. Batched Q/R/K Clip + V RMSNorm + KV Cache Write (Ring-Hazard-Free via `1088 >= 1024 + 64`!)
@@ -7515,15 +7684,54 @@ impl Inkling2GpuEngine {
                 (&mut py as *mut _) as *mut c_void,
                 (&mut bi as *mut _) as *mut c_void,
             ];
-            self.launch(
-                stream,
-                self.fns.bf16_gemm_router_b,
-                (16, b_u32.div_ceil(4)),
-                256,
-                &mut args,
-            )?;
+            match self.fns.bf16_gemv_router_b {
+                Some(f) if std::env::var("LEANSONIC_ROUTER_GEMV").map_or(true, |v| v != "0") => {
+                    self.launch(stream, f, (N_EXP as u32, b_u32.div_ceil(4)), 32, &mut args)?
+                }
+                _ => self.launch(
+                    stream,
+                    self.fns.bf16_gemm_router_b,
+                    (16, b_u32.div_ceil(4)),
+                    256,
+                    &mut args,
+                )?,
+            }
         }
-        {
+        // Speculative verify: top-8 and the active-expert groups in one CTA.
+        let fused_groups = match self.fns.router_topk8_groups_b {
+            Some(f)
+                if self.verify_moe
+                    && b_len <= MAX_SPEC_TOKENS
+                    && self.fns.build_expert_groups_active_b.is_some()
+                    && std::env::var("LEANSONIC_TOPK_GROUPS").map_or(true, |v| v != "0") =>
+            {
+                Some(f)
+            }
+            _ => None,
+        };
+        if let Some(f_fused) = fused_groups {
+            let mut pl = self.prefill.layer_workspace.router_logits;
+            let mut pb = l.router_bias.ptr;
+            let mut pids = self.prefill.d_b_sel_ids.ptr;
+            let mut pwts = self.prefill.d_b_sel_wts.ptr;
+            let mut pcnt = self.d_b_exp_counts.ptr;
+            let mut ptok = self.prefill.d_b_exp_toks.ptr;
+            let mut ppair = self.prefill.d_b_exp_pairs.ptr;
+            let mut pact_exps = self.d_b_active_exps.ptr;
+            let mut bi = b_i32;
+            let mut args: [*mut c_void; 9] = [
+                (&mut pl as *mut _) as *mut c_void,
+                (&mut pb as *mut _) as *mut c_void,
+                (&mut pids as *mut _) as *mut c_void,
+                (&mut pwts as *mut _) as *mut c_void,
+                (&mut pcnt as *mut _) as *mut c_void,
+                (&mut ptok as *mut _) as *mut c_void,
+                (&mut ppair as *mut _) as *mut c_void,
+                (&mut pact_exps as *mut _) as *mut c_void,
+                (&mut bi as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, f_fused, (1, 1), 256, &mut args)?;
+        } else {
             let mut pl = self.prefill.layer_workspace.router_logits;
             let mut pb = l.router_bias.ptr;
             let mut pids = self.prefill.d_b_sel_ids.ptr;
@@ -7536,8 +7744,10 @@ impl Inkling2GpuEngine {
             ];
             self.launch(stream, self.fns.router_topk8_b, (b_u32, 1), 32, &mut args)?;
         }
-        let mut active_groups_ready = false;
-        if let (true, Some(f_act)) = (
+        let mut active_groups_ready = fused_groups.is_some();
+        if active_groups_ready {
+            // Groups were built by `ink2_router_topk8_groups_b`.
+        } else if let (true, Some(f_act)) = (
             self.verify_moe && b_len <= MAX_SPEC_TOKENS,
             self.fns.build_expert_groups_active_b,
         ) {
@@ -8175,7 +8385,7 @@ impl Inkling2GpuEngine {
                         ];
                         self.launch(stream, f_qm, ((D / 128) as u32, b_u32), 32, &mut q_args)?;
                     }
-                    let mut pw13 = w13.ptr();
+                    let mut pw13 = self.mxfp8_weight_ptr(stream, w13, 2 * FF * D, false)?;
                     let mut ps13 = s13.buffer.ptr;
                     let mut pxq = self.prefill.d_b_act_codes.ptr;
                     let mut pxs = self.prefill.d_b_act_scales.ptr;
@@ -8223,7 +8433,7 @@ impl Inkling2GpuEngine {
                             &mut q_args,
                         )?;
                     }
-                    let mut pw2 = w2.ptr();
+                    let mut pw2 = self.mxfp8_weight_ptr(stream, w2, FF * D, false)?;
                     let mut ps2 = s2.buffer.ptr;
                     let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
                     let mut dn_args: [*mut c_void; 7] = [
@@ -8250,7 +8460,7 @@ impl Inkling2GpuEngine {
                     s2.kernels.mxfp8_verify_down,
                 ) {
                     let max_active = (b_len * TOP_K).min(N_EXP) as u32;
-                    let mut pw13 = w13.ptr();
+                    let mut pw13 = self.mxfp8_weight_ptr(stream, w13, 2 * FF * D, false)?;
                     let mut ps13 = s13.buffer.ptr;
                     let mut px = self.prefill.layer_workspace.mlp_hidden;
                     let mut pact_exps = self.d_b_active_exps.ptr;
@@ -8270,7 +8480,7 @@ impl Inkling2GpuEngine {
                     ];
                     self.launch(stream, f_vup, (288, max_active), 256, &mut up_args)?;
 
-                    let mut pw2 = w2.ptr();
+                    let mut pw2 = self.mxfp8_weight_ptr(stream, w2, FF * D, false)?;
                     let mut ps2 = s2.buffer.ptr;
                     let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
                     let mut dn_args: [*mut c_void; 7] = [
@@ -8284,7 +8494,7 @@ impl Inkling2GpuEngine {
                     ];
                     self.launch(stream, f_vdn, (288, max_active), 256, &mut dn_args)?;
                 } else {
-                    let mut pw13 = w13.ptr();
+                    let mut pw13 = self.mxfp8_weight_ptr(stream, w13, 2 * FF * D, false)?;
                     let mut ps13 = s13.buffer.ptr;
                     let mut px = self.prefill.layer_workspace.mlp_hidden;
                     let mut pcnt = self.d_b_exp_counts.ptr;
@@ -8308,7 +8518,7 @@ impl Inkling2GpuEngine {
                         &mut up_args,
                     )?;
 
-                    let mut pw2 = w2.ptr();
+                    let mut pw2 = self.mxfp8_weight_ptr(stream, w2, FF * D, false)?;
                     let mut ps2 = s2.buffer.ptr;
                     let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
                     let mut dn_args: [*mut c_void; 6] = [
@@ -8330,7 +8540,43 @@ impl Inkling2GpuEngine {
             }
         }
 
-        {
+        // Speculative verify: top-8 combine + MLP conv in one launch.
+        let combine_conv = match self.fns.moe_combine_conv4_b {
+            Some(f)
+                if !moe_wrote_f16
+                    && self.ms_rows.get() == 0
+                    && b_len <= MAX_SPEC_TOKENS
+                    && std::env::var("LEANSONIC_COMBINE_CONV").map_or(true, |v| v != "0") =>
+            {
+                Some(f)
+            }
+            _ => None,
+        };
+        if let Some(f_cc) = combine_conv {
+            let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
+            let mut pwts = self.prefill.d_b_sel_wts.ptr;
+            let mut pout = self.prefill.d_b_activations.ptr;
+            let mut p_w = l.mlp_conv4.ptr;
+            let mut p_hist = st.hist_mlp_at(self.cur_seq);
+            let mut p_cur = self.prefill.d_b_cur.ptr;
+            let mut p_seq = if record_seq {
+                slot_seq_base + (4352 * CONV_SEQ_STEPS * 4) as u64
+            } else {
+                0
+            };
+            let mut bi = b_i32;
+            let mut args: [*mut c_void; 8] = [
+                (&mut ppy as *mut _) as *mut c_void,
+                (&mut pwts as *mut _) as *mut c_void,
+                (&mut pout as *mut _) as *mut c_void,
+                (&mut p_w as *mut _) as *mut c_void,
+                (&mut p_hist as *mut _) as *mut c_void,
+                (&mut p_cur as *mut _) as *mut c_void,
+                (&mut p_seq as *mut _) as *mut c_void,
+                (&mut bi as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, f_cc, (D as u32 / 256, 1), 256, &mut args)?;
+        } else {
             let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
             let mut pwts = self.prefill.d_b_sel_wts.ptr;
             let mut pout = self.prefill.d_b_activations.ptr;
@@ -8361,7 +8607,9 @@ impl Inkling2GpuEngine {
         }
 
         // 10. `mlp_sconv` + Residual Add into `d_b_cur`
-        if self.ms_rows.get() != 0 {
+        if combine_conv.is_some() {
+            // Done by `ink2_moe_combine_conv4_b` above.
+        } else if self.ms_rows.get() != 0 {
             self.enqueue_short_conv4_ms(
                 stream,
                 self.prefill.d_b_activations.ptr,
@@ -8980,6 +9228,15 @@ impl Inkling2GpuEngine {
 mod tests {
     use super::*;
 
+    #[test]
+    fn conv4_pair_args_match_the_kernel_struct() {
+        // `struct Conv4BArgs` in `kernels/inkling2_sm120.cu`: 7 pointers then 8 `int32_t`.
+        assert_eq!(core::mem::size_of::<Conv4BArgs>(), 88);
+        assert_eq!(core::mem::align_of::<Conv4BArgs>(), 8);
+        assert_eq!(core::mem::offset_of!(Conv4BArgs, in_stride), 56);
+        assert_eq!(core::mem::offset_of!(Conv4BArgs, do_res_add), 84);
+    }
+
     /// Every kernel may be launched with PDL (`pdl_all`), so each one must reach `pdl_wait()`
     /// before it touches memory a preceding kernel may write (#152 P0-B).
     #[test]
@@ -8987,6 +9244,7 @@ mod tests {
         let src = CUDA_KERNEL_SRC;
         let mut missing = Vec::new();
         let mut seen = 0;
+        let mut macro_entries = 0;
         for (at, _) in src.match_indices("extern \"C\" __global__") {
             let line_start = src[..at].rfind('\n').map_or(0, |i| i + 1);
             let prev_line_end = line_start.saturating_sub(1);
@@ -8995,7 +9253,13 @@ mod tests {
                 .trim_end()
                 .ends_with('\\')
             {
-                // Inside `INK2_SCALE_KERNEL*`; the macro body is checked below.
+                let entry = src[at..].lines().next().unwrap();
+                let (_, body) = entry.split_once('{').expect("kernel macro entry body");
+                assert!(
+                    body.trim_start().starts_with("pdl_wait();"),
+                    "kernel macro reads before waiting on its predecessor: {entry}"
+                );
+                macro_entries += 1;
                 continue;
             }
             let open = at + src[at..].find('{').expect("kernel body");
@@ -9030,8 +9294,41 @@ mod tests {
             missing.is_empty(),
             "kernels without pdl_wait(): {missing:?}"
         );
-        assert_eq!(src.matches("{ pdl_wait(); name##_impl<").count(), 4);
+        assert!(
+            macro_entries >= 4,
+            "parsed only {macro_entries} macro entries"
+        );
         assert!(src.contains("void ink2_pdl_all_marker()"));
+    }
+
+    #[test]
+    fn device_codebook_roundtrips_every_nibble_across_rans_tiles() {
+        let values = [
+            0, 128, 1, 129, 10, 138, 17, 145, 30, 158, 63, 191, 100, 228, 126, 254,
+        ];
+        let raw: Vec<u8> = (0..crate::inkling_mxfp8::TILE + 32)
+            .map(|i| values[(i * 7 + i / 16) % values.len()])
+            .collect();
+        let encode = |raw: &[u8]| {
+            let mut frame = Vec::new();
+            crate::inkling_mxfp8::pack(raw, &mut frame).unwrap();
+            ExpertMatrix::Packed {
+                bytes: &frame,
+                count: raw.len(),
+                contextual: false,
+            }
+            .device_codebook()
+        };
+        let packed = encode(&raw).unwrap();
+        assert_eq!(packed.len(), 16 + raw.len() / 2);
+        let decoded: Vec<u8> = packed[16..]
+            .iter()
+            .flat_map(|&v| [packed[(v & 15) as usize], packed[(v >> 4) as usize]])
+            .collect();
+        assert_eq!(decoded, raw);
+        let mut excessive = raw;
+        excessive[0] = 2;
+        assert!(encode(&excessive).is_err());
     }
 
     #[test]
