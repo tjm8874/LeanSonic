@@ -1368,7 +1368,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
             ("index", Json::Num(idx as f64)),
             ("name", Json::Str(info.name.clone())),
             ("engine_device", device.map(Json::Str).unwrap_or(Json::Null)),
-            ("uuid", Json::Str(info.uuid.clone())),
+            (
+                "uuid",
+                Json::Str(if info.uuid.starts_with("GPU-") {
+                    "GPU-REDACTED".into()
+                } else {
+                    info.uuid.clone()
+                }),
+            ),
             ("driver", Json::Str(info.driver.clone())),
             ("power_limit_w", Json::Str(info.power_limit_w.clone())),
             ("pcie", Json::Str(info.pcie.clone())),
