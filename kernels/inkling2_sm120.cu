@@ -1600,9 +1600,9 @@ __device__ __forceinline__ float dot_mxfp8_u128_exact(uint4 p, const float4* __r
     return sub;
 }
 
-template<bool PackedScales>
+template<bool PackedScales, typename WeightRow>
 __device__ __forceinline__ float warp_dot_mxfp8_u128_row(
-    const uint4* __restrict__ row_fp8_u128,     // [n_u128]
+    WeightRow row_fp8_u128,     // [n_u128]
     const uint32_t* __restrict__ row_e8m0_u32, unsigned scale_start, // [n_u128 / 8]
     const float4* __restrict__ x4,              // [n_u128 * 4]
     int n_u128,
@@ -1632,6 +1632,31 @@ __device__ __forceinline__ uint4 load_indexed_mxfp8(const uint4* plane, uint4 ta
     return make_uint4(expand_four_indices(table, packed.x), expand_four_indices(table, packed.x >> 16),
                       expand_four_indices(table, packed.y), expand_four_indices(table, packed.y >> 16));
 }
+
+// The remaining MXFP8 paths use the same logical 16-weight vector offsets for
+// either storage format. In the indexed specialization only the payload is halved.
+template<bool Indexed>
+struct Mxfp8Row {
+    const uint4* plane;
+    size_t base;
+    uint4 table;
+
+    __device__ Mxfp8Row(const uint4* weights, size_t offset) : plane(weights), base(offset) {
+        if constexpr (Indexed) table = weights[0];
+    }
+    __device__ __forceinline__ uint4 operator[](unsigned column) const {
+        if constexpr (Indexed) return load_indexed_mxfp8(plane, table, base + column);
+        return plane[base + column];
+    }
+};
+
+#define INK2_INDEXED_KERNEL(name, bounds, params, args) \
+    template<bool PackedScales, bool Indexed> __device__ __forceinline__ void name##_impl params; \
+    extern "C" __global__ bounds void name params { name##_impl<false, false> args; } \
+    extern "C" __global__ bounds void name##_packed_scales params { name##_impl<true, false> args; } \
+    extern "C" __global__ bounds void name##_u4 params { name##_impl<false, true> args; } \
+    extern "C" __global__ bounds void name##_u4_packed_scales params { name##_impl<true, true> args; } \
+    template<bool PackedScales, bool Indexed> __device__ __forceinline__ void name##_impl params
 
 template<bool PackedScales, bool Indexed>
 __device__ __forceinline__ void mxfp8_up_situ_body(
@@ -1735,7 +1760,7 @@ INK2_SCALE_KERNEL(ink2_moe_mxfp8_up_situ_u4, (    const uint4* __restrict__ w13_
     mxfp8_up_situ_body<PackedScales, true>(w13_u128, s13_u32, x4, sel_ids, act_out);
 }
 
-INK2_SCALE_KERNEL(ink2_moe_mxfp8_down, (
+INK2_INDEXED_KERNEL(ink2_moe_mxfp8_down, , (
     const uint4* __restrict__ w2_u128,     // [128, 2304, 72]
     const uint32_t* __restrict__ s2_u32,   // [128, 2304, 9]
     const float4* __restrict__ act4,       // [8, 288]
@@ -1743,6 +1768,7 @@ INK2_SCALE_KERNEL(ink2_moe_mxfp8_down, (
     const float* __restrict__ sel_wts,     // [8]
     float* __restrict__ moe_out),
     (w2_u128, s2_u32, act4, sel_ids, sel_wts, moe_out)) {         // [2304]
+    pdl_wait();
     const int warp_id = threadIdx.x >> 5;
     const int lane = threadIdx.x & 31;
     const int row = blockIdx.x * 8 + warp_id;
@@ -1753,7 +1779,7 @@ INK2_SCALE_KERNEL(ink2_moe_mxfp8_down, (
         const int ex = sel_ids[k];
         const size_t r_idx = static_cast<size_t>(ex) * kD + row;
         float dot = warp_dot_mxfp8_u128_row<PackedScales>(
-            w2_u128 + r_idx * 72u,
+            Mxfp8Row<Indexed>(w2_u128, r_idx * 72u),
             s2_u32, r_idx * 9u,
             act4 + k * 288,
             72,
@@ -1768,32 +1794,14 @@ INK2_SCALE_KERNEL(ink2_moe_mxfp8_down, (
 // Expert-parallel MXFP8 MoE Down (`Grid: 1152`, `Block: 256`, `2` output rows/CTA, `0-ULP` exact!):
 // Warp `k` owns selected expert `k`; since `router_topk8` completed prior to `mxfp8_up_situ`,
 // `sel_ids[k]` is already visible before `pdl_wait()`, allowing `w2` weights to stream during `up_situ`'s tail!
-template<bool PackedScales> __device__ __forceinline__ void ink2_moe_mxfp8_down_xw_impl(
+INK2_INDEXED_KERNEL(ink2_moe_mxfp8_down_xw, , (
     const uint4* __restrict__ w2_u128,     // [128, 2304, 72]
     const uint32_t* __restrict__ s2_u32,   // [128, 2304, 9]
     const float4* __restrict__ act4,       // [8, 288]
     const int32_t* __restrict__ sel_ids,   // [8]
     const float* __restrict__ sel_wts,     // [8]
-    float* __restrict__ moe_out);
-extern "C" __global__ void ink2_moe_mxfp8_down_xw(
-    const uint4* __restrict__ w2_u128, const uint32_t* __restrict__ s2_u32, const float4* __restrict__ act4,
-    const int32_t* __restrict__ sel_ids, const float* __restrict__ sel_wts, float* __restrict__ moe_out) {
-    // Executes `pdl_wait()` inside `_impl` after prefetching `w2` weights.
-    ink2_moe_mxfp8_down_xw_impl<false>(w2_u128, s2_u32, act4, sel_ids, sel_wts, moe_out);
-}
-extern "C" __global__ void ink2_moe_mxfp8_down_xw_packed_scales(
-    const uint4* __restrict__ w2_u128, const uint32_t* __restrict__ s2_u32, const float4* __restrict__ act4,
-    const int32_t* __restrict__ sel_ids, const float* __restrict__ sel_wts, float* __restrict__ moe_out) {
-    // Executes `pdl_wait()` inside `_impl` after prefetching `w2` weights.
-    ink2_moe_mxfp8_down_xw_impl<true>(w2_u128, s2_u32, act4, sel_ids, sel_wts, moe_out);
-}
-template<bool PackedScales> __device__ __forceinline__ void ink2_moe_mxfp8_down_xw_impl(
-    const uint4* __restrict__ w2_u128,     // [128, 2304, 72]
-    const uint32_t* __restrict__ s2_u32,   // [128, 2304, 9]
-    const float4* __restrict__ act4,       // [8, 288]
-    const int32_t* __restrict__ sel_ids,   // [8]
-    const float* __restrict__ sel_wts,     // [8]
-    float* __restrict__ moe_out) {         // [2304]
+    float* __restrict__ moe_out),
+    (w2_u128, s2_u32, act4, sel_ids, sel_wts, moe_out)) {
     constexpr int kRows = 2;
     __shared__ float smem_dot[kRows][kTopK];
 
@@ -1811,7 +1819,7 @@ template<bool PackedScales> __device__ __forceinline__ void ink2_moe_mxfp8_down_
     #pragma unroll
     for (int r = 0; r < kRows; ++r) {
         const size_t r_idx = static_cast<size_t>(ex) * kD + (row0 + r);
-        const uint4* row_fp8 = w2_u128 + r_idx * 72u;
+        const Mxfp8Row<Indexed> row_fp8(w2_u128, r_idx * 72u);
         const unsigned sc_start = static_cast<unsigned>(r_idx * 9u);
         #pragma unroll
         for (int it = 0; it < 2; ++it) {
@@ -4867,7 +4875,7 @@ __device__ __forceinline__ float load_e8m0_scale(const uint32_t* __restrict__ ro
 }
 
 // Tile-4 Grouped-Expert MXFP8 Up+SITU (`Grid (72, 128)`, `Block 256`, `<= 42` regs!)
-INK2_SCALE_KERNEL(ink2_moe_mxfp8_grouped_up_situ, (
+INK2_INDEXED_KERNEL(ink2_moe_mxfp8_grouped_up_situ, , (
     const uint4* __restrict__ w13_u128,    // [128, 2304, 144]
     const uint32_t* __restrict__ s13_u32,  // [128, 2304, 18]
     const float4* __restrict__ x4_base,    // [B, 576]
@@ -4876,6 +4884,7 @@ INK2_SCALE_KERNEL(ink2_moe_mxfp8_grouped_up_situ, (
     const int32_t* __restrict__ exp_pairs, // [page, 128, 64]
     float* __restrict__ act_out),
     (w13_u128, s13_u32, x4_base, exp_counts, exp_toks, exp_pairs, act_out)) {         // [B * 8, 1152]
+    pdl_wait();
     const int ex = blockIdx.y;
     const int cnt = exp_counts[ex];
     if (cnt == 0) return;
@@ -4911,7 +4920,7 @@ INK2_SCALE_KERNEL(ink2_moe_mxfp8_grouped_up_situ, (
             const int m = (blockIdx.x * 4 + rg) * 4 + (warp_id >> 1);
             const int r = m * 2 + is_up;
             const size_t row_idx = static_cast<size_t>(ex) * (2u * kFf) + r;
-            const uint4* r_u128 = w13_u128 + row_idx * 144u;
+            const Mxfp8Row<Indexed> r_u128(w13_u128, row_idx * 144u);
             const unsigned scale_start = row_idx * 18u;
 
             float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
@@ -4958,7 +4967,7 @@ INK2_SCALE_KERNEL(ink2_moe_mxfp8_grouped_up_situ, (
 }
 
 // Tile-8 Grouped-Expert MXFP8 Down (`Grid (72, 128)`, `Block 256`, Zero Atomics!)
-INK2_SCALE_KERNEL(ink2_moe_mxfp8_grouped_down, (
+INK2_INDEXED_KERNEL(ink2_moe_mxfp8_grouped_down, , (
     const uint4* __restrict__ w2_u128,     // [128, 2304, 72]
     const uint32_t* __restrict__ s2_u32,   // [128, 2304, 9]
     const float4* __restrict__ act4_base,  // [B * 8, 288]
@@ -4966,6 +4975,7 @@ INK2_SCALE_KERNEL(ink2_moe_mxfp8_grouped_down, (
     const int32_t* __restrict__ exp_pairs, // [page, 128, 64]
     float* __restrict__ pair_y),
     (w2_u128, s2_u32, act4_base, exp_counts, exp_pairs, pair_y)) {          // [B * 8, 2304]
+    pdl_wait();
     const int ex = blockIdx.y;
     const int cnt = exp_counts[ex];
     if (cnt == 0) return;
@@ -4999,7 +5009,7 @@ INK2_SCALE_KERNEL(ink2_moe_mxfp8_grouped_down, (
             const int row = (blockIdx.x * 4 + rg) * 8 + warp_id;
             if (row >= kD) continue;
             const size_t r_idx = static_cast<size_t>(ex) * kD + row;
-            const uint4* r_u128 = w2_u128 + r_idx * 72u;
+            const Mxfp8Row<Indexed> r_u128(w2_u128, r_idx * 72u);
             const unsigned scale_start = r_idx * 9u;
 
             float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
@@ -8706,25 +8716,7 @@ template<bool PackedScales> __device__ __forceinline__ void ink2_moe_nvfp4_dp4a_
 
 // Fused Expert-Parallel MXFP8 MoE Down + `mlp_sconv` + Residual Add (`Grid: 1152`, `Block: 256`, `64 B` SMEM):
 // Eliminates `mlp_sconv` (`-4` launches/tok) and `d_moe_y` DRAM round-trips (`0-ULP` exact).
-template<bool PackedScales> __device__ __forceinline__ void ink2_moe_mxfp8_down_xw_conv_impl(
-    const uint4* __restrict__ w2_u128, const uint32_t* __restrict__ s2_u32, const float4* __restrict__ act4,
-    const int32_t* __restrict__ sel_ids, const float* __restrict__ sel_wts,
-    const float4* __restrict__ w_conv4, float* __restrict__ hist3, float* __restrict__ cur_inout);
-extern "C" __global__ void ink2_moe_mxfp8_down_xw_conv(
-    const uint4* __restrict__ w2_u128, const uint32_t* __restrict__ s2_u32, const float4* __restrict__ act4,
-    const int32_t* __restrict__ sel_ids, const float* __restrict__ sel_wts,
-    const float4* __restrict__ w_conv4, float* __restrict__ hist3, float* __restrict__ cur_inout) {
-    // Executes `pdl_wait()` inside `_impl` after prefetching `w2` weights.
-    ink2_moe_mxfp8_down_xw_conv_impl<false>(w2_u128, s2_u32, act4, sel_ids, sel_wts, w_conv4, hist3, cur_inout);
-}
-extern "C" __global__ void ink2_moe_mxfp8_down_xw_conv_packed_scales(
-    const uint4* __restrict__ w2_u128, const uint32_t* __restrict__ s2_u32, const float4* __restrict__ act4,
-    const int32_t* __restrict__ sel_ids, const float* __restrict__ sel_wts,
-    const float4* __restrict__ w_conv4, float* __restrict__ hist3, float* __restrict__ cur_inout) {
-    // Executes `pdl_wait()` inside `_impl` after prefetching `w2` weights.
-    ink2_moe_mxfp8_down_xw_conv_impl<true>(w2_u128, s2_u32, act4, sel_ids, sel_wts, w_conv4, hist3, cur_inout);
-}
-template<bool PackedScales> __device__ __forceinline__ void ink2_moe_mxfp8_down_xw_conv_impl(
+INK2_INDEXED_KERNEL(ink2_moe_mxfp8_down_xw_conv, , (
     const uint4* __restrict__ w2_u128,     // [128, 2304, 72]
     const uint32_t* __restrict__ s2_u32,   // [128, 2304, 9]
     const float4* __restrict__ act4,       // [8, 288]
@@ -8732,7 +8724,8 @@ template<bool PackedScales> __device__ __forceinline__ void ink2_moe_mxfp8_down_
     const float* __restrict__ sel_wts,     // [8]
     const float4* __restrict__ w_conv4,    // [2304]
     float* __restrict__ hist3,             // [2304 * 3]
-    float* __restrict__ cur_inout) {       // [2304]
+    float* __restrict__ cur_inout),        // [2304]
+    (w2_u128, s2_u32, act4, sel_ids, sel_wts, w_conv4, hist3, cur_inout)) {
     constexpr int kRows = 2;
     __shared__ float smem_dot[kRows][kTopK];
 
@@ -8750,7 +8743,7 @@ template<bool PackedScales> __device__ __forceinline__ void ink2_moe_mxfp8_down_
     #pragma unroll
     for (int r = 0; r < kRows; ++r) {
         const size_t r_idx = static_cast<size_t>(ex) * kD + (row0 + r);
-        const uint4* row_fp8 = w2_u128 + r_idx * 72u;
+        const Mxfp8Row<Indexed> row_fp8(w2_u128, r_idx * 72u);
         const unsigned sc_start = static_cast<unsigned>(r_idx * 9u);
         #pragma unroll
         for (int it = 0; it < 2; ++it) {
@@ -9162,7 +9155,7 @@ template<bool PackedScales> __device__ __forceinline__ void ink2_moe_nvfp4_dp4a_
 
 // Active-Expert Register-Cached MXFP8 Gate/Up + SiTU (`Grid: (288, min(128, B * 8))`, `Block: 256`, `288 B` SMEM!):
 // Replaces `36 KiB`-SMEM (`16.7%` occ) `mxfp8_grouped_up_situ` at `1 <= B <= 8` (`0.0000-ULP` exact!).
-INK2_SCALE_KERNEL_LB(ink2_moe_mxfp8_verify_up_situ, 256, 2, (
+INK2_INDEXED_KERNEL(ink2_moe_mxfp8_verify_up_situ, __launch_bounds__(256, 2), (
     const uint4* __restrict__ w13_u128,        // [128, 2304, 144]
     const uint32_t* __restrict__ s13_u32,      // [128, 2304, 18]
     const float4* __restrict__ x4_base,        // [B, 576]
@@ -9172,6 +9165,7 @@ INK2_SCALE_KERNEL_LB(ink2_moe_mxfp8_verify_up_situ, 256, 2, (
     const int32_t* __restrict__ exp_pairs,     // [128, 64]
     float* __restrict__ act_out),              // [B * 8, 1152]
     (w13_u128, s13_u32, x4_base, active_exps, exp_counts, exp_toks, exp_pairs, act_out)) {
+    pdl_wait();
     pdl_trigger();
     const int ex = active_exps[blockIdx.y];
     if (ex < 0) return;
@@ -9188,7 +9182,7 @@ INK2_SCALE_KERNEL_LB(ink2_moe_mxfp8_verify_up_situ, 256, 2, (
     const int is_up = warp_id & 1;
     const int r = m * 2 + is_up;
     const size_t row_idx = static_cast<size_t>(ex) * (2u * kFf) + r;
-    const uint4* row_fp8 = w13_u128 + row_idx * 144u;
+    const Mxfp8Row<Indexed> row_fp8(w13_u128, row_idx * 144u);
     const unsigned sc_start = static_cast<unsigned>(row_idx * 18u);
 
     uint4 wp[4];
@@ -9237,32 +9231,15 @@ INK2_SCALE_KERNEL_LB(ink2_moe_mxfp8_verify_up_situ, 256, 2, (
 
 // Active-Expert Register-Cached MXFP8 Down (`Grid: (288, min(128, B * 8))`, `Block: 256`, `0 B` SMEM!):
 // `4` CTAs/SM = `32` warps/SM, `0` barriers, `0.0000-ULP` exact!
-template<bool PackedScales> __device__ __forceinline__ void ink2_moe_mxfp8_verify_down_impl(
-    const uint4* __restrict__ w2_u128, const uint32_t* __restrict__ s2_u32, const float4* __restrict__ act4_base,
-    const int32_t* __restrict__ active_exps, const int32_t* __restrict__ exp_counts,
-    const int32_t* __restrict__ exp_pairs, float* __restrict__ pair_y);
-extern "C" __global__ void ink2_moe_mxfp8_verify_down(
-    const uint4* __restrict__ w2_u128, const uint32_t* __restrict__ s2_u32, const float4* __restrict__ act4_base,
-    const int32_t* __restrict__ active_exps, const int32_t* __restrict__ exp_counts,
-    const int32_t* __restrict__ exp_pairs, float* __restrict__ pair_y) {
-    // Executes `pdl_wait()` inside `_impl` after prefetching `w2` weights.
-    ink2_moe_mxfp8_verify_down_impl<false>(w2_u128, s2_u32, act4_base, active_exps, exp_counts, exp_pairs, pair_y);
-}
-extern "C" __global__ void ink2_moe_mxfp8_verify_down_packed_scales(
-    const uint4* __restrict__ w2_u128, const uint32_t* __restrict__ s2_u32, const float4* __restrict__ act4_base,
-    const int32_t* __restrict__ active_exps, const int32_t* __restrict__ exp_counts,
-    const int32_t* __restrict__ exp_pairs, float* __restrict__ pair_y) {
-    // Executes `pdl_wait()` inside `_impl` after prefetching `w2` weights.
-    ink2_moe_mxfp8_verify_down_impl<true>(w2_u128, s2_u32, act4_base, active_exps, exp_counts, exp_pairs, pair_y);
-}
-template<bool PackedScales> __device__ __forceinline__ void ink2_moe_mxfp8_verify_down_impl(
+INK2_INDEXED_KERNEL(ink2_moe_mxfp8_verify_down, , (
     const uint4* __restrict__ w2_u128,         // [128, 2304, 72]
     const uint32_t* __restrict__ s2_u32,       // [128, 2304, 9]
     const float4* __restrict__ act4_base,      // [B * 8, 288]
     const int32_t* __restrict__ active_exps,   // [128]
     const int32_t* __restrict__ exp_counts,    // [128]
     const int32_t* __restrict__ exp_pairs,     // [128, 64]
-    float* __restrict__ pair_y) {              // [B * 8, 2304]
+    float* __restrict__ pair_y),               // [B * 8, 2304]
+    (w2_u128, s2_u32, act4_base, active_exps, exp_counts, exp_pairs, pair_y)) {
     const int ex = ld_ca_i32(active_exps + blockIdx.y);
     if (ex < 0) {
         pdl_wait();
@@ -9281,7 +9258,7 @@ template<bool PackedScales> __device__ __forceinline__ void ink2_moe_mxfp8_verif
     const int row = blockIdx.x * 8 + warp_id; // 288 * 8 = 2304 exact
     const bool tail8 = (lane < 8);
     const size_t r_idx = static_cast<size_t>(ex) * kD + row;
-    const uint4* row_fp8 = w2_u128 + r_idx * 72u;
+    const Mxfp8Row<Indexed> row_fp8(w2_u128, r_idx * 72u);
     const unsigned sc_start = static_cast<unsigned>(r_idx * 9u);
 
     uint4 wp[2];
@@ -9316,6 +9293,7 @@ template<bool PackedScales> __device__ __forceinline__ void ink2_moe_mxfp8_verif
     }
 }
 
+#undef INK2_INDEXED_KERNEL
 #undef INK2_SCALE_KERNEL_LB
 #undef INK2_SCALE_KERNEL
 

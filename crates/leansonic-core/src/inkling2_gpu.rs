@@ -1452,10 +1452,18 @@ impl Inkling2GpuEngine {
             _ => return Err("LEANSONIC_GPU_SCALES must be raw or packed".into()),
         };
 
-        let direct_device_tc = std::env::var("LEANSONIC_MXFP8_DEVICE_U4").as_deref() == Ok("1")
-            && std::env::var("LEANSONIC_MXFP8_LOOKUP_PREFILL").as_deref() == Ok("1");
-        let fns =
-            Self::load_module_functions(&ctx, &module_image, pack_gpu_scales, direct_device_tc)?;
+        let device_u4 = std::env::var("LEANSONIC_MXFP8_DEVICE_U4").as_deref() == Ok("1");
+        let direct_all =
+            device_u4 && std::env::var("LEANSONIC_MXFP8_DIRECT_ALL").as_deref() == Ok("1");
+        let direct_device_tc = direct_all
+            || (device_u4 && std::env::var("LEANSONIC_MXFP8_LOOKUP_PREFILL").as_deref() == Ok("1"));
+        let fns = Self::load_module_functions(
+            &ctx,
+            &module_image,
+            pack_gpu_scales,
+            direct_device_tc,
+            direct_all,
+        )?;
         let has_split_attn = fns.gqa_attn_split.is_some() && fns.gqa_attn_combine.is_some();
         let attn_split_g = match attn_split_explicit {
             Some(g) => {
@@ -2139,10 +2147,8 @@ impl Inkling2GpuEngine {
         let d_ms_runs = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 16)?;
         let d_ms_tokens = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 4)?;
         let mut device_codebooks = Vec::new();
-        let device_codebook_scratch = if std::env::var("LEANSONIC_MXFP8_DEVICE_U4").as_deref()
-            == Ok("1")
-        {
-            if fns.expand_mxfp8_indices.is_none() {
+        let device_codebook_scratch = if device_u4 {
+            if !direct_all && fns.expand_mxfp8_indices.is_none() {
                 return Err("missing ink2_expand_mxfp8_indices in the selected CUDA module".into());
             }
             for &[up, down] in &expert_views[NVFP4_LAYERS..] {
@@ -2160,7 +2166,11 @@ impl Inkling2GpuEngine {
             {
                 *views = [ExpertMatrix::Raw(&packed[0]), ExpertMatrix::Raw(&packed[1])];
             }
-            Some(DeviceBuf::alloc_zeroed(&ctx, largest)?)
+            if direct_all {
+                None
+            } else {
+                Some(DeviceBuf::alloc_zeroed(&ctx, largest)?)
+            }
         } else {
             None
         };
@@ -2264,8 +2274,8 @@ impl Inkling2GpuEngine {
             slots,
             expert_weights: Vec::with_capacity(N_LAYER),
             direct_device_tc,
-            direct_device_up: device_codebook_scratch.is_some()
-                && std::env::var("LEANSONIC_MXFP8_LOOKUP_UP").as_deref() == Ok("1"),
+            direct_device_up: direct_all
+                || (device_u4 && std::env::var("LEANSONIC_MXFP8_LOOKUP_UP").as_deref() == Ok("1")),
             device_codebook_scratch,
             resident_expert_layers: 0,
             spilled_expert_layers: 0,
@@ -2729,6 +2739,7 @@ impl Inkling2GpuEngine {
         image: &[u8],
         pack_gpu_scales: bool,
         direct_device_tc: bool,
+        direct_all: bool,
     ) -> Result<KernelFns, String> {
         let mut module: CUmodule = core::ptr::null_mut();
         unsafe {
@@ -2763,6 +2774,9 @@ impl Inkling2GpuEngine {
             };
         let expert_kernels = |suffix: &str| -> Result<ExpertKernels, String> {
             let load = |name| get_fn(&format!("ink2_moe_{name}{suffix}"));
+            let scalar_variant = if direct_all { "_u4" } else { "" };
+            let load_scalar =
+                |name| get_fn(&format!("ink2_moe_mxfp8_{name}{scalar_variant}{suffix}"));
             let tc_variant = if direct_device_tc { "_u4" } else { "" };
             let load_mxfp8_tc = |name, bytes| {
                 let kernel = get_fn(&format!("ink2_moe_mxfp8_tc_{name}{tc_variant}{suffix}"));
@@ -2782,17 +2796,17 @@ impl Inkling2GpuEngine {
                 nvfp4_dp4a_down_xw_conv: load("nvfp4_dp4a_down_xw_conv").ok(),
                 mxfp8_up_situ: load("mxfp8_up_situ")?,
                 mxfp8_up_situ_u4: load("mxfp8_up_situ_u4").ok(),
-                mxfp8_down: load("mxfp8_down")?,
-                mxfp8_down_xw: load("mxfp8_down_xw").ok(),
-                mxfp8_down_xw_conv: load("mxfp8_down_xw_conv").ok(),
+                mxfp8_down: load_scalar("down")?,
+                mxfp8_down_xw: load_scalar("down_xw").ok(),
+                mxfp8_down_xw_conv: load_scalar("down_xw_conv").ok(),
                 nvfp4_dp4a_grouped_up_situ: load("nvfp4_dp4a_grouped_up_situ")?,
                 nvfp4_dp4a_grouped_down: load("nvfp4_dp4a_grouped_down")?,
-                mxfp8_grouped_up_situ: load("mxfp8_grouped_up_situ")?,
-                mxfp8_grouped_down: load("mxfp8_grouped_down")?,
+                mxfp8_grouped_up_situ: load_scalar("grouped_up_situ")?,
+                mxfp8_grouped_down: load_scalar("grouped_down")?,
                 nvfp4_dp4a_verify_up_half_q8: load("nvfp4_dp4a_verify_up_half_q8").ok(),
                 nvfp4_dp4a_verify_down: load("nvfp4_dp4a_verify_down").ok(),
-                mxfp8_verify_up_situ: load("mxfp8_verify_up_situ").ok(),
-                mxfp8_verify_down: load("mxfp8_verify_down").ok(),
+                mxfp8_verify_up_situ: load_scalar("verify_up_situ").ok(),
+                mxfp8_verify_down: load_scalar("verify_down").ok(),
                 nvfp4_tc_up_situ: set_dyn_smem(load("nvfp4_tc_up_situ").ok(), 62_976)?,
                 nvfp4_tc_down: set_dyn_smem(load("nvfp4_tc_down").ok(), 62_976)?,
                 nvfp4_tc_up_situ_t160: set_dyn_smem(load("nvfp4_tc_up_situ_t160").ok(), 58_112)?,
@@ -9817,7 +9831,10 @@ mod tests {
                 let entry = src[at..].lines().next().unwrap();
                 let (_, body) = entry.split_once('{').expect("kernel macro entry body");
                 assert!(
-                    body.trim_start().starts_with("pdl_wait();"),
+                    body.trim_start().starts_with("pdl_wait();")
+                        || (src[..at].rfind("#define ").is_some_and(|start| {
+                            src[start..].starts_with("#define INK2_INDEXED_KERNEL(")
+                        }) && body.trim_start().starts_with("name##_impl<")),
                     "kernel macro reads before waiting on its predecessor: {entry}"
                 );
                 macro_entries += 1;
@@ -9859,6 +9876,42 @@ mod tests {
             macro_entries >= 4,
             "parsed only {macro_entries} macro entries"
         );
+        // These wrappers forward directly to an inlined template. Three down kernels
+        // prefetch persistent weights before waiting for predecessor-produced activations.
+        let mut indexed = 0;
+        for definition in src.split("\nINK2_INDEXED_KERNEL(").skip(1) {
+            let (signature, rest) = definition.split_once(")) {").unwrap();
+            let (_, rest) = rest.split_once('\n').unwrap();
+            let body = rest.split_once("\n}").unwrap().0;
+            let name = signature.split(',').next().unwrap();
+            let inputs: &[&str] = match name {
+                "ink2_moe_mxfp8_down_xw" => &["act4", "sel_wts"],
+                "ink2_moe_mxfp8_down_xw_conv" => &["act4", "sel_wts", "hist3", "cur_inout"],
+                "ink2_moe_mxfp8_verify_down" => &["act4_base", "exp_pairs"],
+                _ => &[],
+            };
+            if inputs.is_empty() {
+                assert!(body.trim_start().starts_with("pdl_wait();"), "{name}");
+            } else {
+                let (prefetch, _) = body.split_once("\n    pdl_wait();").expect(name);
+                for input in inputs {
+                    assert!(
+                        !prefetch.contains(input),
+                        "{name} reads {input} before waiting"
+                    );
+                }
+                for (branch, _) in prefetch.match_indices("return;") {
+                    assert!(
+                        prefetch[..branch]
+                            .trim_end()
+                            .ends_with("pdl_wait();\n        pdl_trigger();"),
+                        "{name}"
+                    );
+                }
+            }
+            indexed += 1;
+        }
+        assert!(indexed >= 7, "parsed only {indexed} indexed kernels");
         assert!(src.contains("void ink2_pdl_all_marker()"));
     }
 
