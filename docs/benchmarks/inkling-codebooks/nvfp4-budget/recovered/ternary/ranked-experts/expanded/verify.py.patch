@@ -1,0 +1,11 @@
+--- direct/verify.py
++++ four/verify.py
+@@ -24,7 +24,7 @@
+ for path in (args.ternary_shard, args.control_shard, args.candidate_shard):
+     data_start, entries = header(path)
+     command.append(path)
+-    for name in (key + ".nvscale_direct_v1", key + "_scale.mean8_v1"):
++    for name in (key + (".nvscale_four_v1" if path == args.candidate_shard else ".nvscale_direct_v1"), key + "_scale.mean8_v1"):
+         start, end = entries[name]["data_offsets"]
+         command.extend([str(data_start + start), str(end - start)])
+ subprocess.run(command, check=True)

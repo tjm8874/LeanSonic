@@ -1,0 +1,244 @@
+{
+  "package_bytes": 11605970958,
+  "files": {
+    "model-00001-of-00001.safetensors": {
+      "bytes": 11602584464,
+      "sha256": "dd0839f3d61525a730eaf921d2b6243f2bb98f74238d11466e84cb66692db785"
+    },
+    "tiktoken/tokenizer.model": {
+      "bytes": 3386494,
+      "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+    }
+  },
+  "planes": {
+    "model.llm.layers.0.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 224710424,
+      "scale_bytes": 18797216,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.0.mlp.experts.w2_weight": {
+      "mode": "all",
+      "weight_bytes": 112496848,
+      "scale_bytes": 9402432,
+      "reduced_blocks": 21233664
+    },
+    "model.llm.layers.1.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 224702120,
+      "scale_bytes": 18786152,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.1.mlp.experts.w2_weight": {
+      "mode": "all",
+      "weight_bytes": 112469816,
+      "scale_bytes": 9424920,
+      "reduced_blocks": 21233664
+    },
+    "model.llm.layers.10.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 249045776,
+      "scale_bytes": 18923656,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.10.mlp.experts.w2_weight": {
+      "mode": "all",
+      "weight_bytes": 124504200,
+      "scale_bytes": 9542216,
+      "reduced_blocks": 21233664
+    },
+    "model.llm.layers.11.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 249117200,
+      "scale_bytes": 18956960,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.11.mlp.experts.w2_weight": {
+      "mode": "all",
+      "weight_bytes": 124231792,
+      "scale_bytes": 9624744,
+      "reduced_blocks": 21233664
+    },
+    "model.llm.layers.12.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 249342576,
+      "scale_bytes": 18879048,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.12.mlp.experts.w2_weight": {
+      "mode": "all",
+      "weight_bytes": 141729520,
+      "scale_bytes": 9573768,
+      "reduced_blocks": 21233664
+    },
+    "model.llm.layers.13.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 249337416,
+      "scale_bytes": 18856680,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.13.mlp.experts.w2_weight": {
+      "mode": "all",
+      "weight_bytes": 124474976,
+      "scale_bytes": 9559152,
+      "reduced_blocks": 21233664
+    },
+    "model.llm.layers.14.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 249289656,
+      "scale_bytes": 18981976,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.14.mlp.experts.w2_weight": {
+      "mode": "all",
+      "weight_bytes": 141602368,
+      "scale_bytes": 9648736,
+      "reduced_blocks": 21233664
+    },
+    "model.llm.layers.15.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 249268024,
+      "scale_bytes": 18963880,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.15.mlp.experts.w2_weight": {
+      "mode": "all",
+      "weight_bytes": 141427792,
+      "scale_bytes": 9727936,
+      "reduced_blocks": 21233664
+    },
+    "model.llm.layers.16.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 248961216,
+      "scale_bytes": 19075288,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.17.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 283400120,
+      "scale_bytes": 19228296,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.18.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 225189016,
+      "scale_bytes": 18802656,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.18.mlp.experts.w2_weight": {
+      "mode": "all",
+      "weight_bytes": 112555424,
+      "scale_bytes": 9481576,
+      "reduced_blocks": 21233664
+    },
+    "model.llm.layers.19.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 225255016,
+      "scale_bytes": 18690144,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.19.mlp.experts.w2_weight": {
+      "mode": "all",
+      "weight_bytes": 112557336,
+      "scale_bytes": 9474792,
+      "reduced_blocks": 21233664
+    },
+    "model.llm.layers.2.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 224534896,
+      "scale_bytes": 18811192,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.2.mlp.experts.w2_weight": {
+      "mode": "all",
+      "weight_bytes": 112462144,
+      "scale_bytes": 9409648,
+      "reduced_blocks": 21233664
+    },
+    "model.llm.layers.3.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 224556856,
+      "scale_bytes": 18999944,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.3.mlp.experts.w2_weight": {
+      "mode": "all",
+      "weight_bytes": 112475616,
+      "scale_bytes": 9415176,
+      "reduced_blocks": 21233664
+    },
+    "model.llm.layers.4.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 224657672,
+      "scale_bytes": 18833696,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.4.mlp.experts.w2_weight": {
+      "mode": "all",
+      "weight_bytes": 112489208,
+      "scale_bytes": 9430528,
+      "reduced_blocks": 21233664
+    },
+    "model.llm.layers.5.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 224719376,
+      "scale_bytes": 18845576,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.5.mlp.experts.w2_weight": {
+      "mode": "all",
+      "weight_bytes": 112439920,
+      "scale_bytes": 9465232,
+      "reduced_blocks": 21233664
+    },
+    "model.llm.layers.6.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 249159760,
+      "scale_bytes": 18864960,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.6.mlp.experts.w2_weight": {
+      "mode": "all",
+      "weight_bytes": 124624080,
+      "scale_bytes": 9466248,
+      "reduced_blocks": 21233664
+    },
+    "model.llm.layers.7.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 249064064,
+      "scale_bytes": 18791448,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.7.mlp.experts.w2_weight": {
+      "mode": "all",
+      "weight_bytes": 124686056,
+      "scale_bytes": 9460312,
+      "reduced_blocks": 21233664
+    },
+    "model.llm.layers.8.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 248988696,
+      "scale_bytes": 18810808,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.8.mlp.experts.w2_weight": {
+      "mode": "all",
+      "weight_bytes": 141839256,
+      "scale_bytes": 9530056,
+      "reduced_blocks": 21233664
+    },
+    "model.llm.layers.9.mlp.experts.w13_weight": {
+      "mode": "all",
+      "weight_bytes": 249051360,
+      "scale_bytes": 18796128,
+      "reduced_blocks": 42467328
+    },
+    "model.llm.layers.9.mlp.experts.w2_weight": {
+      "mode": "all",
+      "weight_bytes": 141829552,
+      "scale_bytes": 9533616,
+      "reduced_blocks": 21233664
+    }
+  },
+  "verified_tensors": 999
+}

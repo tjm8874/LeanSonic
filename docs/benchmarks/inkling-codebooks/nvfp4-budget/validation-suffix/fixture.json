@@ -1,0 +1,8 @@
+{
+  "dataset": "WikiText-2 raw validation",
+  "byte_offset": 576881,
+  "original_bytes": 1146846,
+  "original_sha256": "4cd0f6876d07a413aa911261ff6d363c72d757d47f0fdd6015702014c89cb9c7",
+  "suffix_bytes": 569965,
+  "suffix_sha256": "90ee94eb53b5833ceb64e56d6412a7d72c40c6bdcc0d0508f6314445201031c2"
+}

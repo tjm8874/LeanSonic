@@ -1,0 +1,206 @@
+{
+  "package_bytes": 11577239270,
+  "unchanged_tensors": 959,
+  "verified_weights": {
+    "model.llm.layers.0.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 640480
+    },
+    "model.llm.layers.0.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 283136
+    },
+    "model.llm.layers.1.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 666464
+    },
+    "model.llm.layers.1.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 309880
+    },
+    "model.llm.layers.10.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 1281080
+    },
+    "model.llm.layers.10.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 637128
+    },
+    "model.llm.layers.11.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 1296632
+    },
+    "model.llm.layers.11.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 662016
+    },
+    "model.llm.layers.12.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 1281168
+    },
+    "model.llm.layers.12.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 401544
+    },
+    "model.llm.layers.13.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 1270032
+    },
+    "model.llm.layers.13.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 642864
+    },
+    "model.llm.layers.14.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 1294520
+    },
+    "model.llm.layers.14.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 413552
+    },
+    "model.llm.layers.15.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 1287072
+    },
+    "model.llm.layers.15.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 420904
+    },
+    "model.llm.layers.16.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 1320448
+    },
+    "model.llm.layers.16.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 479632
+    },
+    "model.llm.layers.17.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 800672
+    },
+    "model.llm.layers.17.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 475472
+    },
+    "model.llm.layers.18.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 644832
+    },
+    "model.llm.layers.18.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 296472
+    },
+    "model.llm.layers.19.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 637808
+    },
+    "model.llm.layers.19.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 297040
+    },
+    "model.llm.layers.2.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 658184
+    },
+    "model.llm.layers.2.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 300904
+    },
+    "model.llm.layers.3.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 680936
+    },
+    "model.llm.layers.3.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 309744
+    },
+    "model.llm.layers.4.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 672304
+    },
+    "model.llm.layers.4.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 303576
+    },
+    "model.llm.layers.5.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 671840
+    },
+    "model.llm.layers.5.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 306640
+    },
+    "model.llm.layers.6.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 1271424
+    },
+    "model.llm.layers.6.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 611080
+    },
+    "model.llm.layers.7.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 1274520
+    },
+    "model.llm.layers.7.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 616920
+    },
+    "model.llm.layers.8.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 1263488
+    },
+    "model.llm.layers.8.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 392200
+    },
+    "model.llm.layers.9.mlp.experts.w13_weight": {
+      "codec": "four",
+      "decoded": 339738624,
+      "saved": 1275320
+    },
+    "model.llm.layers.9.mlp.experts.w2_weight": {
+      "codec": "four",
+      "decoded": 169869312,
+      "saved": 381680
+    }
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "scorer_source": "8132335e36b11d99a74ee198f85827605cb1370e",
+  "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell, 595.99.02, 350.00 W",
+  "binary_digests": [
+    "86f923eca6d2d02c76d21a4f2d83f7b987b0188eb015d48f019662aa2b956c47  lean",
+    "7d3d1416baeaefcb71c4cbefab686def0a46ca1b44a4b7a8630d56e56518e8e6  engine.cubin"
+  ],
+  "logit_sha256": {
+    "ja_allocation.f32": "8a8ff669799ee324847ff788f6b18ecc30a495e84c163b9bb516913624db92c7",
+    "ja_python.f32": "b917d2dc73b65ff548cdfda9f0bb595724f88ea4dab8c7f286c90eedca58e4d8",
+    "ja_reading.f32": "6ef3b1cb84003915b3fb470cbfe30753d29ee6fe619d2497d1ecbcc5b3e8ff3c",
+    "ja_reasoning.f32": "9e978fb3bdfc37f5bda3a6db9047e94ebbb4d5180a152d34b7ed20cdc02dc19f",
+    "ja_story.f32": "7bdf0b9617e7b22b239118391c8fd90725f476d17eb3ce88a62d21f348c74e79",
+    "ja_story_repeat.f32": "7bdf0b9617e7b22b239118391c8fd90725f476d17eb3ce88a62d21f348c74e79",
+    "ja_summary.f32": "bd89abd75b76fc744cfefbbb2e3c0efedb6842666afb7303926941ab7be80fd5",
+    "ja_translation.f32": "a355d2f5a32cd63e7ba1fc0ec7a28140410cc409432f97d8b978b81234056975",
+    "ja_units.f32": "295c2b40f363cb2c70820f33464503f1b6e86d6c081e8e31f7883720a6bac0a1",
+    "q00_code_merge.f32": "13043ee72ebf12a413b8c68af4a3f8199934dc09837ca5d2206837cc26830e94",
+    "q00_code_merge_repeat.f32": "13043ee72ebf12a413b8c68af4a3f8199934dc09837ca5d2206837cc26830e94",
+    "q01_net_tcp_udp.f32": "14d486687cc23b15dd0135ccae93fc143a1ebe75a56795d888cf39b75736401b",
+    "q02_hist_french_rev.f32": "84062709815426e0aec470bb4f62afe86c896dcf836694377b3d2c180a6db886",
+    "q03_story_lighthouse.f32": "1e721559d19d33b423a950cc577ab51d2f3c19e642ffbb4855814f2503971928",
+    "q04_sql_top_customers.f32": "2454e4a159f4b88449dd029c125652fa69b60958274def8392970ae6cd7b720b",
+    "q05_arch_microservices.f32": "8870f43925cd0d3e1f99f5da4dd5a494d259de090b0562b1d600b9c1439e51d4",
+    "q06_translate_fr.f32": "fcb26cfa0ff665d2ada3c44d8f4f9ef737e1b2ebceb8ad5101eecc2406666b63",
+    "q07_poem_autumn.f32": "887a52bced3ac308f02c6658bc998945bd5f6e357b0e15fc92eb37b00ee3c57f",
+    "q08_cs_hashmap.f32": "485b912720deb1daa1bbc43006241fd65a16ab270668c689a98bc407cf7ba4d8",
+    "q09_travel_kyoto.f32": "4cf2b4fb4aa8f2c5c5eca6d1d09cd2020d35be38ef97eb6de6782480219cf956",
+    "q10_ml_gradient.f32": "ef93652e0a9f943c87f638955b6e69ff9a68a8d22a708b98f93fc7fedea3ec16",
+    "q11_json_schema.f32": "0c24bd5e272e7950bd1ac614af86b1cf254af54f264327793f4ac7b54feea885"
+  },
+  "lean_score_sha256": "f6308f243a0fff98803bc383425050996062173c26e6ab4b4bbbe025680b503d",
+  "native_receipt_sha256": "8a8e37d79984b73b715db2f8390a6d5e1e3c9feed3c3aff54a274689ff898742",
+  "native_token_sha256": {
+    "q00_code_merge": {
+      "prefix": "bfe3ba10db63ffc303e75f6e6bc9d141eb84a5e053edc142adeb5f9e2e891c7a",
+      "answer": "053c5f7f22100ea23e573911d2ba250ac643263717449158f39e107cbb4b5750"
+    },
+    "q01_net_tcp_udp": {
+      "prefix": "f8df8a19e87c1ac61e75c30ba2036ed727871db1fdff24802e111a2009d11cd6",
+      "answer": "6f2bf2f0297991c4675b9d033d4ea958ec2785034bf84ebcbf43f25d1c83ebf3"
+    },
+    "q02_hist_french_rev": {
+      "prefix": "8c3e552a373967edf319f5b2ae44e5750075c6df342ba9f22707d490e0638e5c",
+      "answer": "982af96a6ea75633e4b71cc4ba4d357c9e9d46fbec82c736c625b0bcd7786542"
+    },
+    "q03_story_lighthouse": {
+      "prefix": "7f5991b8e3d3ba00311c781abccd10a76fae4caa3b56ad5b5afba8034606c882",
+      "answer": "047c2f6cc4ecee46d0e3cb60bb3c2db04cb507bc9d54479e7403866ef1036a51"
+    },
+    "q04_sql_top_customers": {
+      "prefix": "03301f3b98edd911c8c3ed1f61c8a26606dded3f5806bc9cb933f5f0fa349e45",
+      "answer": "500ce20dd211d1f9b0482d0773226e6bab45eb1f4a894ace205696511afb0cec"
+    },
+    "q05_arch_microservices": {
+      "prefix": "7cef6b76cbedf0bd05b93e2488f2067e70062078e7faedc12d93db1df6e2d771",
+      "answer": "b0b93dd033ddfcc9b9e678bfa7b7faa3026a5b5326e94c66877e1d5ada333f03"
+    },
+    "q06_translate_fr": {
+      "prefix": "b252472b98806b4f91333739443bb345ceb589db2f181fa3ea789968852f05f4",
+      "answer": "1eeb8116b45884ab7bb45861aeedae3a7d6a0d51f1cae693b00ccfd7d7d03d18"
+    },
+    "q07_poem_autumn": {
+      "prefix": "0a4c8957a052bffed5e24146a644da43fe3a2d5e75bf7fcbffef723b88243403",
+      "answer": "f0c6858670bf72bf3a36b1bc952f27052a034bebfc823e725d44a2caa8a58646"
+    },
+    "q08_cs_hashmap": {
+      "prefix": "c6130206ef04ad8e1561db4e4b65c9f2c26db2a25dc51b3a54889acbeb3ad041",
+      "answer": "4ed6c36e86f6a2fcda0625e55de52535e89e0c44b8dea1b25550819d082d06b3"
+    },
+    "q09_travel_kyoto": {
+      "prefix": "ca5722ecee8396e938a9b6825bf91dedb0fbd62db86d12408ff16b830331c435",
+      "answer": "3a15a15e73463a894084afa181e2f5181724ca83883d409ee2c3fe83b23c420f"
+    },
+    "q10_ml_gradient": {
+      "prefix": "97ba90701345c770722614a07b7e6037042ef621b4f40b0d4173ea6776095d00",
+      "answer": "4bb2a5d91ef83d52a8da3834cc80f1921090a41b5e5520211cd8d71fefc020ec"
+    },
+    "q11_json_schema": {
+      "prefix": "f959bdab27c52924cd0d8f1aefee0b1fee7fa248ce5df14371dda87f8d33d3b0",
+      "answer": "8331a52ab81bf2ca5e78aba3a1ad2e16c24646ead965419a0578a78d2b35b20f"
+    },
+    "ja_allocation": {
+      "prefix": "f645714c659c6a4d1b08c6ed021c6e065470ce6b7a55ef36e80c86bf7677c0ab",
+      "answer": "7ecd6d30dca2e981bbe4029795ea2dcdda3bb8fd4e76505ac7595803d9e272fa"
+    },
+    "ja_reading": {
+      "prefix": "fd56b4268ee0f1a69738d2231a87addafc118dcdd879fe31f95442ab14c58246",
+      "answer": "35b9b9d6ba8be0989d6b44f2e6807192d799aafdd2621e64617a7e4beecd9771"
+    },
+    "ja_translation": {
+      "prefix": "285e65e3e168e4a3bef0d0c251e7f3ff8dc9c2d065e179cf473185d2a9ee42f9",
+      "answer": "264ebc1d89bf2199461314ef6a2c9a4c909cf434c2b0b4a5b76a66f0395b277f"
+    },
+    "ja_python": {
+      "prefix": "5fbdc30e9784eb359c4f521342946d0e4594a31af3970fee912f07cea0c2fa9b",
+      "answer": "b6b58186297220df3464a3a9edee8bc25fe45fb2520c2f5acad4b150865f2645"
+    },
+    "ja_reasoning": {
+      "prefix": "465a367a342052201858f02c6fd7d2259d0248d0c05c22bd133830112154aa1b",
+      "answer": "0ec7c942403983a28f75b21c4f4bda4bffebc9dfd928182246ed89f2502ebff2"
+    },
+    "ja_summary": {
+      "prefix": "53db297ec7d1458bd179ec85aad45ba38dd118c9bc09af7143976866b01e02fc",
+      "answer": "2e40fae2b4a8350f1f7991ffe8a2bc3e2df20d74c6201007b22240eb996439fb"
+    },
+    "ja_units": {
+      "prefix": "edd3309e93d3852786e63c2607e8801fef455f2170237c2810ab9f39d36e66ff",
+      "answer": "b06e25ec85663f9ad5a82e12f3980148df61decb63edd36f8fee3c552598c679"
+    },
+    "ja_story": {
+      "prefix": "2b581af2b0db3a5f6bb0d74e87fc5947a3d4ea0197847ed48015de41f600162a",
+      "answer": "e14e728255ff427ae3f9717b74e586c1b2790080f02d5ddeb66c96fbe280f302"
+    }
+  }
+}

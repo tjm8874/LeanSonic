@@ -1,0 +1,24 @@
+--- direct/verify.rs
++++ four/verify.rs
+@@ -1,5 +1,7 @@
+ //! Compare decoded expert blocks read directly from the three shipped safetensors.
+-use leansonic_core::inkling_mxfp8::{unpack_mean8_scale_codes, unpack_scale_direct};
++use leansonic_core::inkling_mxfp8::{
++    unpack_four_scale_banks, unpack_mean8_scale_codes, unpack_scale_direct,
++};
+ use std::{
+     env,
+     error::Error,
+@@ -35,7 +37,11 @@
+         let w = frame(&mut file, group[1].parse()?, group[2].parse()?)?;
+         let s = frame(&mut file, group[3].parse()?, group[4].parse()?)?;
+         let scales = unpack_mean8_scale_codes(&s, 128 * stride, width)?;
+-        let weights = unpack_scale_direct(&w, scales.clone())?;
++        let weights = if decoded.len() == 2 {
++            unpack_four_scale_banks(&w, scales.clone())?
++        } else {
++            unpack_scale_direct(&w, scales.clone())?
++        };
+         assert_eq!(weights.len(), 128 * stride * 8);
+         assert_eq!(scales.len(), 128 * stride);
+         decoded.push((weights, scales));

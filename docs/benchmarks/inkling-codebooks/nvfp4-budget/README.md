@@ -17,10 +17,15 @@ The first fit underestimated the full package by 15,795,030 B. The second fit co
 | test | compact | 0.0137735 | 0.7519345 (69/353) | 24,289/25,500 | 7.131377 |
 | test | first | 0.0100459 | 1.8819803 (99/398) | 24,338/25,500 | 7.092837 |
 | test | recalibrated | 0.0100863 | 1.8988259 (99/398) | 24,362/25,500 | 7.091487 |
+| valid | middle | 0.0033250 | 0.3668402 (46/379) | 24,893/25,500 | 6.506839 |
+| valid | compact | 0.0131739 | 0.9835867 (7/467) | 24,341/25,500 | 6.564200 |
+| valid | recalibrated | 0.0088730 | 2.3469483 (46/379) | 24,476/25,500 | 6.522603 |
 
 On test, the first candidate improves mean KL, top-1 and PPL over compact, but worst KL increases at chunk 99, position 398. Keep the existing production model.
 
 The recalibrated model saves 3,093,592 B against compact. It gains 73 matching BF16 predictions on test, but reaches worst KL 1.8988259 at 99/398. Both independently built packages have the same worst position on this split.
+
+Bilingual (first, PRO 5000): mean KL 0.0093348, worst 0.1847861, top-1 599/613, PPL 3.857292.
 
 ## Reproduce
 

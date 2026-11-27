@@ -1,0 +1,15 @@
+{
+  "shape": [
+    20,
+    128,
+    2304
+  ],
+  "bytes": 47185920,
+  "sha256": "0fb38dda4cb68ca889b1783aeb597ff58fbe9c25bc1f3ec80bd042c798b2542c",
+  "routed_selections": 5767168,
+  "experts_seen": 2535,
+  "predictions_identical": true,
+  "routing_identical": true,
+  "train_only": true,
+  "median_channel_p90_over_p10": 2.359398563228759
+}

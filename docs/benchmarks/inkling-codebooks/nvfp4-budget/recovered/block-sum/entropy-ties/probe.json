@@ -1,0 +1,14 @@
+{
+  "model.llm.layers.0.mlp.experts.w2_weight": {
+    "previous_trim": 149252008,
+    "new_trim": 148609120,
+    "changed": 65098061,
+    "proxy": "maps [12709643, 1108854, 2897354, 0] original_absolute_sum_error=25616539 new_absolute_sum_error=16470787"
+  },
+  "model.llm.layers.11.mlp.experts.w13_weight": {
+    "previous_trim": 324692064,
+    "new_trim": 324275416,
+    "changed": 30672300,
+    "proxy": "maps [6974421, 629704, 1378432, 0] original_absolute_sum_error=12844898 new_absolute_sum_error=8373898"
+  }
+}
