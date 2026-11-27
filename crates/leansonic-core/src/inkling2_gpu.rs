@@ -49,6 +49,7 @@ pub const MAX_BATCH_TOKENS: usize = 2048;
 pub const MAX_MS_ROWS: usize = 64;
 const NVFP4_LAYERS: usize = 20;
 const EXPERT_PAGE: usize = 64;
+const TC_MIN_ROWS: usize = 32;
 pub const MAX_SPEC_TOKENS: usize = 8;
 pub const TAP_SLOTS: [usize; 3] = [4, 28, 46];
 const CONV_SEQ_STEPS: usize = MAX_SPEC_TOKENS + 3; // 11
@@ -1137,6 +1138,21 @@ fn extend_expert_placement(
         }
     }
     resident
+}
+
+// Keep both sides of a workspace boundary large enough for the Tensor Core kernels.
+// A one-token suffix retains the existing single-token decode shortcut on every workspace.
+fn next_prefill_chunk(remaining: usize, capacity: usize) -> usize {
+    if remaining <= capacity {
+        if remaining > EXPERT_PAGE && remaining % EXPERT_PAGE == 1 {
+            return remaining - 1;
+        }
+        return remaining;
+    }
+    if (2..TC_MIN_ROWS).contains(&(remaining - capacity)) {
+        return remaining - TC_MIN_ROWS;
+    }
+    capacity
 }
 
 fn known_prompt_limit(tokens: usize) -> usize {
@@ -4519,6 +4535,19 @@ impl Inkling2GpuEngine {
         Ok(out_tok as u32)
     }
 
+    /// Run one decode round and read all FP32 vocabulary rows in the requested slot order.
+    /// This synchronizing diagnostic deliberately lives outside the timed serving path.
+    pub fn decode_round_with_logits(
+        &mut self,
+        seqs: &[usize],
+        tokens: &[u32],
+    ) -> Result<(Vec<u32>, Vec<f32>), String> {
+        let ids = self.decode_round(seqs, tokens)?;
+        let mut logits = vec![0.0; ids.len() * VOCAB];
+        self.d_spec_logits.copy_to_host_f32(&mut logits)?;
+        Ok((ids, logits))
+    }
+
     pub fn read_last_logits(&self) -> Result<Vec<f32>, String> {
         self.ctx.sync_compute()?;
         let mut host = vec![0.0f32; VOCAB];
@@ -4588,11 +4617,7 @@ impl Inkling2GpuEngine {
         let mut next_tok = 0u32;
         while offset < tokens.len() {
             let rem = tokens.len() - offset;
-            let chunk_len = if rem > 1 && rem <= self.prefill.capacity && rem % EXPERT_PAGE == 1 {
-                rem - 1
-            } else {
-                rem.min(self.prefill.capacity)
-            };
+            let chunk_len = next_prefill_chunk(rem, self.prefill.capacity);
             let is_last = offset + chunk_len == tokens.len();
 
             if is_last && chunk_len == 1 {
@@ -4683,7 +4708,7 @@ impl Inkling2GpuEngine {
     /// Tensor Core batch paths (>= 32 rows) are off in multi-sequence rounds, whose rows must
     /// match B = 1 decode arithmetic for any batch size.
     fn tc_rows(&self, b_len: usize) -> bool {
-        b_len >= 32 && self.ms_rows.get() == 0
+        b_len >= TC_MIN_ROWS && self.ms_rows.get() == 0
     }
     /// Decode / verify-style rows: `<= MAX_SPEC_TOKENS`, or any multi-sequence round.
     fn small_rows(&self, b_len: usize) -> bool {
@@ -8075,6 +8100,28 @@ impl Inkling2GpuEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prefill_boundary_avoids_small_second_batches() {
+        for capacity in [64, 128, 256, 512, 1024, 2048] {
+            for length in 1..=4097 {
+                let mut left = length;
+                while left > 0 {
+                    let take = next_prefill_chunk(left, capacity);
+                    assert!((1..=left.min(capacity)).contains(&take));
+                    if length >= TC_MIN_ROWS && !(take == 1 && length % EXPERT_PAGE == 1) {
+                        assert!(take >= TC_MIN_ROWS);
+                    }
+                    left -= take;
+                }
+            }
+        }
+        assert_eq!(next_prefill_chunk(65, 64), 64);
+        assert_eq!(next_prefill_chunk(66, 64), 34);
+        assert_eq!(next_prefill_chunk(66, 128), 66);
+        assert_eq!(next_prefill_chunk(95, 64), 63);
+        assert_eq!(next_prefill_chunk(96, 64), 64);
+    }
 
     #[test]
     fn known_prompt_rounds_up_to_a_supported_workspace() {
