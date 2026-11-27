@@ -1,0 +1,29 @@
+{
+  "microbench": {
+    "digests": [
+      "7759ea0ebd67a228a1668128cdeaec45462fd1975d8722b5f9e823e0f4f9c432  prior.cubin",
+      "c126cd9bb28fd24383e2660dd89360e8da14b530a39cb8ff2c3953e1f0a232b6  trial.cubin",
+      "56600e428a1047a0d6e329cdf371fe09f244284f42e5dbd2268fd78d65217d6d  tiles"
+    ],
+    "gpu": "NVIDIA GeForce RTX 5060 Ti, 595.99.02, 180.00 W",
+    "recode": {
+      "selector_bytes": 169869312,
+      "raw_bytes": 339738624,
+      "selector_sha256": "ff81d206dd12671456da37dfeda56c2651b1813d5a290226bb65c1c40a141277",
+      "exhaustive_words": 6561
+    }
+  },
+  "integrated": {
+    "gpu": "NVIDIA RTX PRO 4500 Blackwell, 595.99.02, 200.00 W",
+    "digests": [
+      "4207789b1b3fbc8e673fa950b3fc40eb9068bcdb7d879d39e39ef6c15acc590b  engine.cubin",
+      "485a58c06c0c72caf34b6f88b220380d0af2a9c25e4f24cbc169499bc4a3e13d  bench",
+      "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843  prompt.ids"
+    ],
+    "outputs": [
+      "d4bb08da8b641dcb55f5020e8037357c29d678ef304c2fcbc6758426268226aa  trial.f32",
+      "a11a3b3e4ee5993fe5b23b9708a08d226b0c5ef7462b95475e05745c8fbf728a  trial.ids"
+    ],
+    "crossed_pair_error": "Error: \"missing ternary expansion kernel in the selected CUDA module\""
+  }
+}
