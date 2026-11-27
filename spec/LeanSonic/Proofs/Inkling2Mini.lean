@@ -294,6 +294,18 @@ def kInk2MoeNvfp4Dp4aUpHalfPacked : KernelResourceSpec :=
     rawRegsPerThread := 40
     ctasPerSm := 12 }
 
+def kInk2MoeNvfp4Dp4aUpStaged : KernelResourceSpec :=
+  { kInk2MoeNvfp4Dp4aUpHalf with name := "ink2_moe_nvfp4_dp4a_up_half_staged" }
+
+def kInk2MoeNvfp4Dp4aUpStagedPacked : KernelResourceSpec :=
+  { kInk2MoeNvfp4Dp4aUpHalfPacked with name := "ink2_moe_nvfp4_dp4a_up_half_staged_packed_scales" }
+
+def kInk2GatherNvfp4Up192 : KernelResourceSpec :=
+  { kInk2MoeNvfp4Dp4aUpSitu with
+    name := "ink2_gather_nvfp4_up_192"
+    rawRegsPerThread := 17
+    userSmemPerCtaBytes := 0 }
+
 /-- Wide `uint4` (`16B` `LDG.E.128`) `__dp4a` NVFP4 MoE Down (`39` regs, `4` CTAs/SM -> `64` KiB L1!). -/
 def kInk2MoeNvfp4Dp4aDown : KernelResourceSpec :=
   { name := "ink2_moe_nvfp4_dp4a_down"
@@ -367,6 +379,9 @@ def wave1Inkling2KernelSuite : List KernelResourceSpec :=
   , kInk2MoeNvfp4Dp4aUpSitu
   , kInk2MoeNvfp4Dp4aUpHalf
   , kInk2MoeNvfp4Dp4aUpHalfPacked
+  , kInk2MoeNvfp4Dp4aUpStaged
+  , kInk2MoeNvfp4Dp4aUpStagedPacked
+  , kInk2GatherNvfp4Up192
   , kInk2MoeNvfp4Dp4aDown
   , kInk2MoeNvfp4Dp4aDownXw
   , kInk2MoeMxfp8Down
