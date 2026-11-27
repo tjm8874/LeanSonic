@@ -322,6 +322,54 @@ pub fn unpack_four_scale_banks(frame: &[u8], scales: Vec<u8>) -> Result<Vec<u8>,
     unpack_codes(Matrix::parse_four_scale_banks(frame, count, scales)?, count)
 }
 
+/// Decode two independent four-bank streams, scattered back into expert order.
+pub(crate) fn unpack_class_scale_banks(frame: &[u8], scales: &[u8]) -> Result<Vec<u8>, String> {
+    const EXPERTS: usize = 128;
+    if frame.len() < 40
+        || frame.get(..8) != Some(b"INKCL2V1")
+        || scales.is_empty()
+        || !scales.len().is_multiple_of(EXPERTS)
+    {
+        return Err("invalid class-separated NVFP4 header or scale extent".into());
+    }
+    let experts = &frame[8..24];
+    let u64_at = |offset: usize| u64::from_le_bytes(frame[offset..offset + 8].try_into().unwrap());
+    let first_len = usize::try_from(u64_at(24)).map_err(|_| "class frame too large")?;
+    let second_len = usize::try_from(u64_at(32)).map_err(|_| "class frame too large")?;
+    let (first, second) = frame[40..]
+        .split_at_checked(first_len)
+        .ok_or("truncated first class frame")?;
+    if second.len() != second_len
+        || experts.iter().all(|&b| b == 0)
+        || experts.iter().all(|&b| b == 255)
+    {
+        return Err("invalid second class frame or empty class".into());
+    }
+    let stride = scales.len() / EXPERTS;
+    let bytes = scales
+        .len()
+        .checked_mul(8)
+        .ok_or("class weight extent overflow")?;
+    let mut raw = vec![0u8; bytes];
+    for (class, encoded) in [first, second].into_iter().enumerate() {
+        let ids: Vec<usize> = (0..EXPERTS)
+            .filter(|&e| usize::from((experts[e / 8] >> (e % 8)) & 1) == class)
+            .collect();
+        let mut class_scales = Vec::with_capacity(ids.len() * stride);
+        for &e in &ids {
+            class_scales.extend_from_slice(&scales[e * stride..(e + 1) * stride]);
+        }
+        let decoded = unpack_four_scale_banks(encoded, class_scales)?;
+        if decoded.len() != ids.len() * stride * 8 {
+            return Err("wrong decoded expert-class extent".into());
+        }
+        for (e, data) in ids.into_iter().zip(decoded.chunks_exact(stride * 8)) {
+            raw[e * stride * 8..(e + 1) * stride * 8].copy_from_slice(data);
+        }
+    }
+    Ok(raw)
+}
+
 fn pack_nvfp4_tables<const SPLIT: bool>(
     raw: &[u8],
     banks: &[u8],
