@@ -8,6 +8,7 @@ LeanSonic uses its a200846 release host with bc526e3 cubin, RTX PRO 4500, spec 0
 | test | ternary | 7,718,950,382 | 0.2341477 | 7.5035677 (90/424) | 20,385 (79.94%) | 8.566626 |
 | test | scale refit | 7,734,665,510 | 0.5942670 | 9.7883801 (1/260) | 17,668 (69.29%) | 12.167307 |
 | test | rate-constrained | 7,679,612,078 | 0.7000745 | 10.0854794 (1/260) | 17,118 (67.13%) | 13.475101 |
+| test | energy refit | 7,748,141,470 | 0.2770098 | 9.2712852 (90/424) | 19,995 (78.41%) | 8.947962 |
 | valid | 13.48 GB control | 13,479,710,294 | 0.0069527 | 0.7446714 (12/317) | 24,645 (96.65%) | 6.530797 |
 | valid | ternary | 7,718,950,382 | 0.2161375 | 6.5853805 (10/471) | 20,643 (80.95%) | 7.904899 |
 | valid | scale refit | 7,734,665,510 | 0.5779062 | 12.2230370 (76/476) | 17,813 (69.85%) | 11.258599 |
@@ -21,6 +22,8 @@ scale refit / test: fails the four-metric nonregression criterion against the 13
 scale refit / valid: fails the four-metric nonregression criterion against the 13.48 GB control.
 
 rate-constrained / test: fails the four-metric nonregression criterion against the 13.48 GB control.
+
+energy refit / test: fails the four-metric nonregression criterion against the 13.48 GB control.
 
 Native IQ1_S corpus scores are pending. The size comparison alone does not establish equivalent quality.
 
