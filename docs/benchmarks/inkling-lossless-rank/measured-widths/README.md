@@ -14,3 +14,11 @@ All four frames were physically written and decoded by the same unmodified PR re
 To reproduce, use the [encoder, pack example and assembly instructions](../README.md#reproduce). Its default selects the smallest file. Use `--low-bits 8` for the byte-aligned alternative or another explicit width to reproduce a table entry. For CPU times build [decode.rs](../decode.rs) as a release leansonic-core example and run `rank_decode rank FRAME /dev/null` as a new process per leg. For cycles 1–4 rotate the initial order 5,6,7,8 by one position per cycle and append its reverse. Repeat the first order for the fifth cycle. Compare the complete decoded output and source hash separately.
 
 A prototype specializing just the five-bit unpack loop in Rust took 113.32 ms versus 114.65 ms with the ordinary reader in a separate experiment. The paired 95% ratio interval, 0.960–1.018, crosses one. The default loader retains its existing generic loop. [Separate process timings](fixed-five.json).
+
+The [small encoder check](check_widths.py) exhaustively compared automatic selection with every explicitly requested feasible width for two generated inputs. The first includes positive and negative zero, infinities and signed NaNs, with all eight widths tested. The second covers every possible BF16 bit pattern and exercises the 65,536-entry table at width eight. Every frame was reconstructed and compared byte for byte. Run in an empty directory with Python, NumPy, the rank packer and the [raw rANS readback example](../column-groups/unpack.rs):
+
+```sh
+python3 /path/to/check_widths.py /path/to/encode.py /path/to/rank_pack /path/to/context_unpack
+```
+
+[Per-width file sizes and reconstructed hashes](encoder-checks.json).
