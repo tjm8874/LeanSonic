@@ -40,6 +40,15 @@ def expert_scale_tensors():
     return tensors
 
 
+def mxfp8_expert_weights():
+    tensors = {}
+    for layer in range(20, 24):
+        prefix = f"model.llm.layers.{layer}.mlp.experts."
+        tensors[prefix + "w13_weight"] = [128, 2304, 2304]
+        tensors[prefix + "w2_weight"] = [128, 2304, 1152]
+    return tensors
+
+
 def build_packer():
     manifest = Path(__file__).resolve().parents[1] / "Cargo.toml"
     build = subprocess.run([
@@ -58,7 +67,7 @@ EMBED_SHAPE = [201_024, 2304]
 
 
 def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack_attention: bool = False,
-         prepack_scales: bool = False, prepack_embedding: bool = False) -> tuple[int, int]:
+         prepack_scales: bool = False, prepack_embedding: bool = False, prepack_mxfp8: bool = False) -> tuple[int, int]:
     """Publish a complete shard atomically without replacing an existing file."""
     if destination.exists():
         raise FileExistsError(f"destination exists: {destination}")
@@ -108,6 +117,11 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
             if name not in header or name + ".range_v1" in header:
                 raise ValueError(f"missing or conflicting source expert scales for {name}")
         lossless = {name: (dtype, shape, "scale", ".range_v1") for name, (dtype, shape) in scales.items()}
+        if prepack_mxfp8:
+            for name, shape in mxfp8_expert_weights().items():
+                if name not in header or name + ".rans_v1" in header:
+                    raise ValueError(f"missing or conflicting MXFP8 weight {name}")
+                lossless[name] = ("F8_E4M3", shape, "mxfp8", ".rans_v1")
         if prepack_embedding and packed_embed is None:
             lossless[EMBED_NAME] = ("BF16", EMBED_SHAPE, "embedding", ".prefix_v1")
         packer = build_packer() if matrices or lossless else None
@@ -213,10 +227,11 @@ def main() -> None:
     parser.add_argument("--prepack-attention", action="store_true", help="store native Q8_64 attention projections (requires Cargo)")
     parser.add_argument("--prepack-scales", action="store_true", help="store lossless packed MoE expert scales (requires Cargo)")
     parser.add_argument("--prepack-embedding", action="store_true", help="store the BF16 input embedding losslessly (requires Cargo)")
+    parser.add_argument("--prepack-mxfp8", action="store_true", help="store MXFP8 expert weights losslessly (requires Cargo)")
     args = parser.parse_args()
     try:
         removed, saved = pack(args.source, args.destination, prepack_head=args.prepack_head, prepack_attention=args.prepack_attention,
-                              prepack_scales=args.prepack_scales, prepack_embedding=args.prepack_embedding)
+                              prepack_scales=args.prepack_scales, prepack_embedding=args.prepack_embedding, prepack_mxfp8=args.prepack_mxfp8)
     except (OSError, ValueError, TypeError, KeyError, subprocess.CalledProcessError) as exc:
         parser.exit(1, f"pack failed: {exc}\n")
     print(f"Omitted {removed} vision tensors. Saved {saved:,} bytes.")

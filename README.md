@@ -154,6 +154,8 @@ Add `--prepack-scales` to store the 48 expert scale tensors losslessly. With all
 
 Use `--prepack-embedding` to store the BF16 input embedding losslessly. You can pass all four flags when converting the official checkpoint or add just this flag when converting the three-flag package. The resulting official text shard occupies **16,932,881,536 bytes**. The loader restores the original BF16 bytes directly into pinned host memory at startup. This format requires a LeanSonic reader with input embedding support.
 
+Add `--prepack-mxfp8` to losslessly encode the eight MXFP8 expert weight tensors. It can be applied to the previous package or combined with the other flags on the official checkpoint. With all five flags the text shard occupies **16,195,210,184 bytes**. This format requires a compatible reader. At startup the loader places the restored weights using their original byte counts. Weights assigned to host memory decode into their pinned allocation. GPU-resident weights decode in batches of up to 16 MiB before upload.
+
 ### 2. Query the OpenAI-Compatible Server (`GET /v1/models`, `POST /v1/chat/completions`, SSE)
 
 ```bash

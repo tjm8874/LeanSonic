@@ -156,6 +156,28 @@ class PackInklingTextTest(unittest.TestCase):
                 pack(src, other, prepack_embedding=True)
             self.assertFalse(other.exists())
 
+    def test_mxfp8_encoding_is_optional_per_matrix(self):
+        weights = {"mx.a": [1024], "mx.b": [256]}
+        data = b"EEHH" + bytes([63])*1024 + bytes(range(256)) + b"TAIL"
+        header = {
+            "model.llm.embed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [0, 2]},
+            "model.llm.unembed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [2, 4]},
+            "mx.a": {"dtype": "F8_E4M3", "shape": [1024], "data_offsets": [4, 1028]},
+            "mx.b": {"dtype": "F8_E4M3", "shape": [256], "data_offsets": [1028, 1284]},
+            "end": {"dtype": "F32", "shape": [1], "data_offsets": [1284, 1288]}}
+        with tempfile.TemporaryDirectory() as tmp, patch("pack_inkling_text.mxfp8_expert_weights", return_value=weights):
+            src, dst = Path(tmp)/"src", Path(tmp)/"dst"
+            encoded = json.dumps(header).encode()
+            src.write_bytes(struct.pack("<Q",len(encoded)) + encoded + data)
+            pack(src,dst,prepack_mxfp8=True)
+            with dst.open("rb") as f:
+                new = json.loads(f.read(struct.unpack("<Q",f.read(8))[0]))
+                payload = f.read()
+            self.assertNotIn("mx.a", new)
+            self.assertEqual(new["mx.a.rans_v1"]["shape"], [536])
+            self.assertEqual(new["mx.b"]["dtype"], "F8_E4M3")
+            self.assertEqual(payload[540:], bytes(range(256)) + b"TAIL")
+
     def test_attention_projection_catalog(self):
         matrices = attention_matrices()
         self.assertEqual(len(matrices), 176)
