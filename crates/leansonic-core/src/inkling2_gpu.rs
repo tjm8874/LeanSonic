@@ -2010,13 +2010,25 @@ impl Inkling2GpuEngine {
 
         // Scales, dense weights, KV, drafting state and scratch are already allocated.
         // The two graph executions consumed 8 MiB in the 16 GB Blackwell measurements.
+        // The reserve only limits optional expert, workspace and prefetch allocations.
+        // Model state and the mandatory minimum workspace have already been allocated.
+        let user_reserve = match std::env::var("LEANSONIC_VRAM_RESERVE_MIB") {
+            Ok(raw) => raw
+                .parse::<usize>()
+                .ok()
+                .and_then(|mib| mib.checked_mul(1024 * 1024))
+                .ok_or("invalid LEANSONIC_VRAM_RESERVE_MIB")?,
+            Err(std::env::VarError::NotPresent) => 0,
+            Err(e) => return Err(e.to_string()),
+        };
         let (free, _) = eng.ctx.mem_info()?;
         let graph_reserve = if enable_cuda_graph {
             16 * 1024 * 1024
         } else {
             0
         };
-        let budget = free.saturating_sub(graph_reserve);
+        let placement_reserve = user_reserve.saturating_add(graph_reserve);
+        let budget = free.saturating_sub(placement_reserve);
         let mut resident = plan_expert_placement(&expert_views, budget);
         let all_experts_resident = resident.iter().all(|pair| *pair == [true, true]);
         let explicit_chunk = match std::env::var("LEANSONIC_PREFILL_CHUNK") {
@@ -2061,8 +2073,10 @@ impl Inkling2GpuEngine {
                         Err(e) => return Err(e),
                     }
                     let (now_free, _) = eng.ctx.mem_info()?;
-                    if plan_expert_placement(&expert_views, now_free.saturating_sub(graph_reserve))
-                        == resident
+                    if plan_expert_placement(
+                        &expert_views,
+                        now_free.saturating_sub(placement_reserve),
+                    ) == resident
                     {
                         eng.max_prefill_chunk = width;
                         break;
@@ -2099,7 +2113,7 @@ impl Inkling2GpuEngine {
                             Err(e) => return Err(e),
                         }
                         let (now_free, _) = eng.ctx.mem_info()?;
-                        let available = now_free.saturating_sub(graph_reserve);
+                        let available = now_free.saturating_sub(placement_reserve);
                         if available >= tier1_bytes {
                             resident = extend_expert_placement(
                                 &expert_views,
@@ -2146,7 +2160,9 @@ impl Inkling2GpuEngine {
         if eng.spilled_expert_layers > 0 {
             const EXP_W13_BYTES: usize = 2 * FF * (D / 2);
             let (free_pre, _) = eng.ctx.mem_info()?;
-            let pf_exps = (free_pre.saturating_sub(48 * 1024 * 1024) / EXP_W13_BYTES).min(N_EXP);
+            let pf_exps = (free_pre.saturating_sub(user_reserve.saturating_add(48 * 1024 * 1024))
+                / EXP_W13_BYTES)
+                .min(N_EXP);
             if pf_exps >= 8 {
                 if let Ok(buf) = DeviceBuf::alloc_zeroed(&eng.ctx, pf_exps * EXP_W13_BYTES) {
                     let mut ready_ev: CUevent = core::ptr::null_mut();
