@@ -1,0 +1,217 @@
+{
+  "cap": 11663309504,
+  "package_bytes": 11648582790,
+  "parent_bytes": 11577239270,
+  "frame_bytes_added": 71343520,
+  "train_objective_parent": 360348.69818741526,
+  "train_objective_candidate": 343710.63993060606,
+  "selected": [
+    "model.llm.layers.11.mlp.experts.w2_weight",
+    "model.llm.layers.13.mlp.experts.w2_weight"
+  ],
+  "offers": [
+    {
+      "plane": "model.llm.layers.0.mlp.experts.w13_weight",
+      "extra_bytes": 66254712,
+      "training_gain": 7250.563982870546
+    },
+    {
+      "plane": "model.llm.layers.0.mlp.experts.w2_weight",
+      "extra_bytes": 33035088,
+      "training_gain": 3609.4247441537864
+    },
+    {
+      "plane": "model.llm.layers.1.mlp.experts.w13_weight",
+      "extra_bytes": 67014304,
+      "training_gain": 7285.676548105903
+    },
+    {
+      "plane": "model.llm.layers.1.mlp.experts.w2_weight",
+      "extra_bytes": 33393464,
+      "training_gain": 3624.4901684577844
+    },
+    {
+      "plane": "model.llm.layers.10.mlp.experts.w13_weight",
+      "extra_bytes": 70177384,
+      "training_gain": 16274.329979420585
+    },
+    {
+      "plane": "model.llm.layers.10.mlp.experts.w2_weight",
+      "extra_bytes": 35198192,
+      "training_gain": 8237.66112222733
+    },
+    {
+      "plane": "model.llm.layers.11.mlp.experts.w13_weight",
+      "extra_bytes": 71248272,
+      "training_gain": 16390.41085472486
+    },
+    {
+      "plane": "model.llm.layers.11.mlp.experts.w2_weight",
+      "extra_bytes": 36074240,
+      "training_gain": 8384.198416010313
+    },
+    {
+      "plane": "model.llm.layers.12.mlp.experts.w13_weight",
+      "extra_bytes": 70518384,
+      "training_gain": 16258.857407887132
+    },
+    {
+      "plane": "model.llm.layers.12.mlp.experts.w2_weight",
+      "extra_bytes": 18060384,
+      "training_gain": 3928.1040722366047
+    },
+    {
+      "plane": "model.llm.layers.13.mlp.experts.w13_weight",
+      "extra_bytes": 69936656,
+      "training_gain": 16203.402789138774
+    },
+    {
+      "plane": "model.llm.layers.13.mlp.experts.w2_weight",
+      "extra_bytes": 35269280,
+      "training_gain": 8253.859840798877
+    },
+    {
+      "plane": "model.llm.layers.14.mlp.experts.w13_weight",
+      "extra_bytes": 70592192,
+      "training_gain": 16352.605840594304
+    },
+    {
+      "plane": "model.llm.layers.14.mlp.experts.w2_weight",
+      "extra_bytes": 17887152,
+      "training_gain": 4010.380353220022
+    },
+    {
+      "plane": "model.llm.layers.15.mlp.experts.w13_weight",
+      "extra_bytes": 69825296,
+      "training_gain": 16256.125539916142
+    },
+    {
+      "plane": "model.llm.layers.15.mlp.experts.w2_weight",
+      "extra_bytes": 17804968,
+      "training_gain": 4120.955068878455
+    },
+    {
+      "plane": "model.llm.layers.16.mlp.experts.w13_weight",
+      "extra_bytes": 70565704,
+      "training_gain": 16510.10193730506
+    },
+    {
+      "plane": "model.llm.layers.17.mlp.experts.w13_weight",
+      "extra_bytes": 34421248,
+      "training_gain": 7862.3638893796015
+    },
+    {
+      "plane": "model.llm.layers.18.mlp.experts.w13_weight",
+      "extra_bytes": 65810656,
+      "training_gain": 7188.124746299653
+    },
+    {
+      "plane": "model.llm.layers.18.mlp.experts.w2_weight",
+      "extra_bytes": 32955920,
+      "training_gain": 3617.08177544723
+    },
+    {
+      "plane": "model.llm.layers.19.mlp.experts.w13_weight",
+      "extra_bytes": 65856240,
+      "training_gain": 7201.635088662537
+    },
+    {
+      "plane": "model.llm.layers.19.mlp.experts.w2_weight",
+      "extra_bytes": 32976872,
+      "training_gain": 3610.7897091326245
+    },
+    {
+      "plane": "model.llm.layers.2.mlp.experts.w13_weight",
+      "extra_bytes": 66741928,
+      "training_gain": 7212.576304714485
+    },
+    {
+      "plane": "model.llm.layers.2.mlp.experts.w2_weight",
+      "extra_bytes": 33265512,
+      "training_gain": 3588.982122957725
+    },
+    {
+      "plane": "model.llm.layers.3.mlp.experts.w13_weight",
+      "extra_bytes": 67291304,
+      "training_gain": 7232.065309919069
+    },
+    {
+      "plane": "model.llm.layers.3.mlp.experts.w2_weight",
+      "extra_bytes": 33602128,
+      "training_gain": 3590.2431063068434
+    },
+    {
+      "plane": "model.llm.layers.4.mlp.experts.w13_weight",
+      "extra_bytes": 67279720,
+      "training_gain": 7237.207772693153
+    },
+    {
+      "plane": "model.llm.layers.4.mlp.experts.w2_weight",
+      "extra_bytes": 33553952,
+      "training_gain": 3589.9885276045275
+    },
+    {
+      "plane": "model.llm.layers.5.mlp.experts.w13_weight",
+      "extra_bytes": 67208848,
+      "training_gain": 7251.088054383759
+    },
+    {
+      "plane": "model.llm.layers.5.mlp.experts.w2_weight",
+      "extra_bytes": 33598256,
+      "training_gain": 3622.186244409225
+    },
+    {
+      "plane": "model.llm.layers.6.mlp.experts.w13_weight",
+      "extra_bytes": 70550312,
+      "training_gain": 16309.205170225478
+    },
+    {
+      "plane": "model.llm.layers.6.mlp.experts.w2_weight",
+      "extra_bytes": 35298952,
+      "training_gain": 8179.677015788827
+    },
+    {
+      "plane": "model.llm.layers.7.mlp.experts.w13_weight",
+      "extra_bytes": 71374160,
+      "training_gain": 16366.670162563007
+    },
+    {
+      "plane": "model.llm.layers.7.mlp.experts.w2_weight",
+      "extra_bytes": 35550424,
+      "training_gain": 8141.4136895412985
+    },
+    {
+      "plane": "model.llm.layers.8.mlp.experts.w13_weight",
+      "extra_bytes": 70992616,
+      "training_gain": 16338.488831218134
+    },
+    {
+      "plane": "model.llm.layers.8.mlp.experts.w2_weight",
+      "extra_bytes": 17883640,
+      "training_gain": 3852.9116958317713
+    },
+    {
+      "plane": "model.llm.layers.9.mlp.experts.w13_weight",
+      "extra_bytes": 70955552,
+      "training_gain": 16325.225102969951
+    },
+    {
+      "plane": "model.llm.layers.9.mlp.experts.w2_weight",
+      "extra_bytes": 17876168,
+      "training_gain": 3871.93990844569
+    }
+  ],
+  "files": {
+    "model-00001-of-00001.safetensors": {
+      "bytes": 11645196296,
+      "sha256": "8face58f457ed146adba7b5dcddfc03a9097c35f649432d88ede4d43efb7db8f"
+    },
+    "tiktoken/tokenizer.model": {
+      "bytes": 3386494,
+      "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+    }
+  },
+  "changed_tensors": 4,
+  "verified_tensors": 999,
+  "plan_sha256": "2168dcd6023fd189ae7228d795411657f893a722bfd762eeb3b4524859cb485c"
+}
