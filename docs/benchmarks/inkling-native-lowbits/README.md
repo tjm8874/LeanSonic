@@ -7,12 +7,21 @@ The Unsloth public release contains models smaller than original Q3_K_XL and the
 | Inkling-2-Mini-UD-IQ3_XXS.gguf | 11,663,309,504 | 1,963,436,470 |
 | Inkling-2-Mini-UD-IQ1_S.gguf | 7,764,291,776 | 5,862,454,198 |
 
+The three original GGUFs (Q3_K_XL, IQ3_XXS, IQ1_S) have identical names and logical dimensions for all 734 tensors. The 12 tokenizer fields and 35 architecture-specific fields match byte for byte. Use [the standalone metadata check](verify_layout.py) with the three GGUF paths in that order. The receipt includes the individual field hashes.
+
 ## Quality on RTX PRO 5000
 
 | Fixture | Engine | Mean KL | Worst KL | BF16 top-1 | PPL |
 |---|---|---:|---:|---:|---:|
 | test | Original IQ3 | 0.027728 | 4.049091 | 23,655/25,500 | 7.188809 |
 | valid | Original IQ3 | 0.025635 | 2.807837 | 23,785/25,500 | 6.613878 |
+
+For the same corpus oracles, compact LeanSonic used RTX PRO 4500 and the original native packages used RTX PRO 5000. The bilingual runs used RTX PRO 5000 for both. The following are the [pinned compact results](https://github.com/tjm8874/LeanSonic/blob/10425ae/docs/benchmarks/inkling-codebooks/results.json).
+
+| Fixture | LeanSonic compact mean KL | Worst KL | BF16 top-1 | PPL |
+|---|---:|---:|---:|---:|
+| test | 0.0137735 | 0.7519345 | 24,289/25,500 | 7.131377 |
+| valid | 0.0131739 | 0.9835867 | 24,341/25,500 | 6.564200 |
 
 The native corpus scorer requested 99 GPU layers. Its default corpus log reports CUDA and batch dimensions but omits the actual layer count. The matched latency driver separately checks full offload for each native process.
 
