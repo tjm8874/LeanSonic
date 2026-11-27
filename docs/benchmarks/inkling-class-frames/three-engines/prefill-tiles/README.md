@@ -35,3 +35,18 @@ The prefill trace spans 118.915 ms across 1,324 kernels, with 0.0049 ms between 
 | `ink2_flash_attn_tc_q8_b` | 48 | 5.664 | 4.8% |
 
 [Full prefill kernel totals](prefill.json). These are instrumented GPU times. The process latencies above come from the unprofiled replay.
+
+The decode trace spans 271.865 ms across 23,328 kernels, with 14.2650 ms between kernel intervals. Largest contributors:
+
+| Kernel | Launches | Total ms | Fraction of span |
+|---|---:|---:|---:|
+| `ink2_q8_dp4a_gemv_c3072_r1` | 1536 | 94.995 | 34.9% |
+| `ink2_gqa_attn_g1_q8_decode` | 1536 | 94.452 | 34.7% |
+| `ink2_moe_nvfp4_dp4a_up_half_q8_packed_scales` | 1152 | 36.671 | 13.5% |
+| `ink2_q8_dp4a_qkv3_gemv_r1` | 896 | 24.692 | 9.1% |
+| `ink2_moe_nvfp4_dp4a_down_xw_conv_packed_scales` | 1152 | 21.006 | 7.7% |
+| `ink2_q8_dp4a_gemv_c2304` | 32 | 19.078 | 7.0% |
+
+[Full decode kernel totals](decode.json). These are instrumented GPU times. The process latencies above come from the unprofiled replay.
+
+Some decode kernels run concurrently. The summed durations in the table can exceed the wall-clock span. In this trace two or more kernels were active for **132.670 ms**. The longest intervals with just one active kernel belong to `ink2_moe_nvfp4_dp4a_up_half_q8_packed_scales` (35.121 ms) and `ink2_q8_dp4a_gemv_c2304` (18.591 ms). Single-kernel occupancy is a scheduling observation; it does not give the latency saved by optimizing that kernel. [Decode overlap](decode-overlap.json) · [Prefill overlap](prefill-overlap.json) · [SQLite interval analysis](overlap.py).

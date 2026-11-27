@@ -1,0 +1,138 @@
+{
+  "launches": 23328,
+  "span_ms": 271.865116,
+  "kernel_busy_ms": 257.600122,
+  "uncovered_ms": 14.264994,
+  "kernels": [
+    {
+      "name": "ink2_q8_dp4a_gemv_c3072_r1",
+      "count": 1536,
+      "total_ms": 94.995316
+    },
+    {
+      "name": "ink2_gqa_attn_g1_q8_decode",
+      "count": 1536,
+      "total_ms": 94.452165
+    },
+    {
+      "name": "ink2_moe_nvfp4_dp4a_up_half_q8_packed_scales",
+      "count": 1152,
+      "total_ms": 36.671229
+    },
+    {
+      "name": "ink2_q8_dp4a_qkv3_gemv_r1",
+      "count": 896,
+      "total_ms": 24.691737
+    },
+    {
+      "name": "ink2_moe_nvfp4_dp4a_down_xw_conv_packed_scales",
+      "count": 1152,
+      "total_ms": 21.005992
+    },
+    {
+      "name": "ink2_q8_dp4a_gemv_c2304",
+      "count": 32,
+      "total_ms": 19.078006
+    },
+    {
+      "name": "ink2_q8_dp4a_gemv_c2304_r1",
+      "count": 640,
+      "total_ms": 17.397227
+    },
+    {
+      "name": "ink2_ctrl_down_r4_fast",
+      "count": 1536,
+      "total_ms": 8.731812
+    },
+    {
+      "name": "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+      "count": 768,
+      "total_ms": 8.676291
+    },
+    {
+      "name": "ink2_rmsnorm_quant_q8_64",
+      "count": 800,
+      "total_ms": 8.623112
+    },
+    {
+      "name": "ink2_moe_mixed_even_dp4a_up_half_q8_packed_scales",
+      "count": 256,
+      "total_ms": 6.961098
+    },
+    {
+      "name": "ink2_ctrl_apply_coalesced_b",
+      "count": 1536,
+      "total_ms": 6.752966
+    },
+    {
+      "name": "ink2_bf16_gemv",
+      "count": 1536,
+      "total_ms": 6.56653
+    },
+    {
+      "name": "ink2_depth_mix_inv",
+      "count": 1600,
+      "total_ms": 6.225763
+    },
+    {
+      "name": "ink2_moe_mxfp8_up_situ_u4_packed_scales",
+      "count": 128,
+      "total_ms": 5.374147
+    },
+    {
+      "name": "ink2_moe_mixed_even_dp4a_down_xw_conv_packed_scales",
+      "count": 256,
+      "total_ms": 4.117293
+    },
+    {
+      "name": "ink2_router_topk8_par",
+      "count": 1536,
+      "total_ms": 3.952773
+    },
+    {
+      "name": "ink2_depth_mix_rmsnorm_d_quant_q8_16_b",
+      "count": 768,
+      "total_ms": 3.138471
+    },
+    {
+      "name": "ink2_moe_mxfp8_down_xw_conv_u4_packed_scales",
+      "count": 128,
+      "total_ms": 2.912318
+    },
+    {
+      "name": "ink2_prep_qkv_and_cache",
+      "count": 1536,
+      "total_ms": 2.806684
+    },
+    {
+      "name": "ink2_rmsnorm_d_quant_q8_16_b",
+      "count": 768,
+      "total_ms": 2.542712
+    },
+    {
+      "name": "ink2_short_conv4_save",
+      "count": 1536,
+      "total_ms": 1.986401
+    },
+    {
+      "name": "ink2_short_conv4_kv2",
+      "count": 1536,
+      "total_ms": 1.947516
+    },
+    {
+      "name": "ink2_loop_pass_setup_b",
+      "count": 96,
+      "total_ms": 0.303237
+    },
+    {
+      "name": "ink2_embed_rmsnorm",
+      "count": 32,
+      "total_ms": 0.199426
+    },
+    {
+      "name": "ink2_argmax_par_and_inc_pos",
+      "count": 32,
+      "total_ms": 0.160193
+    }
+  ]
+}
