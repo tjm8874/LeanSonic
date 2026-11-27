@@ -9203,77 +9203,63 @@ __device__ __forceinline__ void cp_async4_ca(void* smem_dst, const void* gmem_sr
     asm volatile("cp.async.ca.shared.global [%0], [%1], 4;\n" :: "r"(smem_u32_ptr(smem_dst)), "l"(gmem_src) : "memory");
 }
 
+// One warp reads all 128 counts. Its lanes own four consecutive experts
+// each. Exactly one lane publishes the result, including for excess tiles.
 template <int TileTokens>
 __device__ __forceinline__ bool resolve_flat_expert_tile(
     const int32_t* __restrict__ exp_counts,
-    int32_t (&sm_blk_off)[129],
-    int32_t (&sm_row_off)[129],
+    int4& shared_tile,
     int& out_expert,
     int& out_first,
     int& out_count,
     size_t& out_sorted_base) {
-    __shared__ int32_t sm_warp_b[4];
-    __shared__ int32_t sm_warp_r[4];
-    const int tid = threadIdx.x;
-    if (tid < 128) {
-        const int lane = tid & 31;
-        const int wid = tid >> 5;
-        const int c = exp_counts[tid];
-        int b_scan = (c + TileTokens - 1) / TileTokens;
-        int r_scan = c;
+    const int lane = threadIdx.x;
+    if (lane < 32) {
+        const int4 c = reinterpret_cast<const int4*>(exp_counts)[lane];
+        const int counts[] = {c.x, c.y, c.z, c.w};
+        int tiles[4];
+        int group_tiles = 0;
         #pragma unroll
-        for (int o = 1; o < 32; o <<= 1) {
-            const int nb = __shfl_up_sync(0xFFFFFFFFu, b_scan, o);
-            const int nr = __shfl_up_sync(0xFFFFFFFFu, r_scan, o);
-            if (lane >= o) {
-                b_scan += nb;
-                r_scan += nr;
+        for (int i = 0; i < 4; ++i) {
+            tiles[i] = (counts[i] + TileTokens - 1) / TileTokens;
+            group_tiles += tiles[i];
+        }
+        const int group_rows = c.x + c.y + c.z + c.w;
+        int end_tile = group_tiles;
+        int end_row = group_rows;
+        #pragma unroll
+        for (int stride = 1; stride < 32; stride <<= 1) {
+            const int prev_tiles = __shfl_up_sync(0xffffffffu, end_tile, stride);
+            const int prev_rows = __shfl_up_sync(0xffffffffu, end_row, stride);
+            if (lane >= stride) {
+                end_tile += prev_tiles;
+                end_row += prev_rows;
             }
         }
-        sm_blk_off[tid + 1] = b_scan;
-        sm_row_off[tid + 1] = r_scan;
-        if (lane == 31) {
-            sm_warp_b[wid] = b_scan;
-            sm_warp_r[wid] = r_scan;
-        }
-    } else if (tid == 128) {
-        sm_blk_off[0] = 0;
-        sm_row_off[0] = 0;
-    }
-    __syncthreads();
-    if (tid >= 32 && tid < 128) {
-        const int wid = tid >> 5;
-        int add_b = 0;
-        int add_r = 0;
-        #pragma unroll
-        for (int w = 0; w < 3; ++w) {
-            if (w < wid) {
-                add_b += sm_warp_b[w];
-                add_r += sm_warp_r[w];
+        const int target = static_cast<int>(blockIdx.y);
+        int tile = end_tile - group_tiles;
+        int row = end_row - group_rows;
+        if (tile <= target && target < end_tile) {
+            #pragma unroll
+            for (int i = 0; i < 4; ++i) {
+                if (target < tile + tiles[i]) {
+                    const int first = (target - tile) * TileTokens;
+                    shared_tile = make_int4(4 * lane + i, first, counts[i], row + first);
+                    break;
+                }
+                tile += tiles[i];
+                row += counts[i];
             }
+        } else if (lane == 31 && target >= end_tile) {
+            shared_tile = make_int4(-1, 0, 0, 0);
         }
-        sm_blk_off[tid + 1] += add_b;
-        sm_row_off[tid + 1] += add_r;
     }
     __syncthreads();
-    const int tile_y = static_cast<int>(blockIdx.y);
-    if (tile_y >= sm_blk_off[128]) {
-        return false;
-    }
-    int lo = 0;
-    int hi = 128;
-    #pragma unroll
-    for (int step = 0; step < 7; ++step) {
-        const int mid = (lo + hi) >> 1;
-        if (sm_blk_off[mid] <= tile_y) lo = mid;
-        else hi = mid;
-    }
-    out_expert = lo;
-    const int tp = tile_y - sm_blk_off[lo];
-    out_first = tp * TileTokens;
-    out_count = sm_row_off[lo + 1] - sm_row_off[lo];
-    out_sorted_base = static_cast<size_t>(sm_row_off[lo] + out_first);
-    return true;
+    out_expert = shared_tile.x;
+    out_first = shared_tile.y;
+    out_count = shared_tile.z;
+    out_sorted_base = static_cast<size_t>(shared_tile.w);
+    return out_expert >= 0;
 }
 
 __device__ __forceinline__ void cp_async4_ca_pred(void* smem_dst, const void* gmem_src, bool valid) {
@@ -10008,15 +9994,14 @@ extern "C" __global__ void ink2_gather_nvfp4_sorted_b(
     uint4* __restrict__ dst_sc_u128,          // [B * 8, 18]
     float* __restrict__ dst_gs) {             // [B * 8]
     pdl_wait();
-    __shared__ int32_t sm_blk_off[129];
-    __shared__ int32_t sm_row_off[129];
+    __shared__ int4 shared_tile;
     __shared__ int32_t sm_toks[128];
 
     int expert = 0;
     int first = 0;
     int count = 0;
     size_t sorted_base = 0;
-    if (!resolve_flat_expert_tile<128>(exp_counts, sm_blk_off, sm_row_off, expert, first, count, sorted_base)) {
+    if (!resolve_flat_expert_tile<128>(exp_counts, shared_tile, expert, first, count, sorted_base)) {
         return;
     }
     const int tid = threadIdx.x;
@@ -10054,9 +10039,8 @@ struct Nvfp4TcSmem256x128_3Stage {
     uint2 sm_xsc[3][128];      //  3,072 B
     float sm_xgs[128];         //    512 B
     int32_t sm_out_pairs[128]; //    512 B
-    int32_t sm_blk_off[129];   //    516 B
-    int32_t sm_row_off[129];   //    516 B
-}; // Total = 62,472 B (`+ 32 + 1,024 = 63,528 B <= 64 KiB` -> `16` warps/SM + `64 KiB` full L1!)
+    int4 shared_tile;
+};
 
 template <bool GateUp, bool PackedScales>
 __device__ __forceinline__ void grouped_nvfp4_tc_impl(
@@ -10085,7 +10069,7 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
     int first = 0;
     int count = 0;
     size_t sorted_base = 0;
-    if (!resolve_flat_expert_tile<128>(exp_counts, s->sm_blk_off, s->sm_row_off, expert, first, count, sorted_base)) {
+    if (!resolve_flat_expert_tile<128>(exp_counts, s->shared_tile, expert, first, count, sorted_base)) {
         return;
     }
     if (expert < exp_begin || expert >= exp_end) {
@@ -10412,9 +10396,8 @@ struct Nvfp4TcSmem192x160_3Stage {
     uint32_t sm_wsc[3][192];   //  2,304 B
     float sm_xgs[160];         //    640 B
     int32_t sm_out_pairs[160]; //    640 B
-    int32_t sm_blk_off[129];   //    516 B
-    int32_t sm_row_off[129];   //    516 B
-}; // Total = 57,608 B (`+ 32 B + 1,024 B sys <= 64 KiB` carveout -> `64 KiB` full L1 preserved!)
+    int4 shared_tile;
+};
 
 template <bool GateUp, bool PackedScales>
 __device__ __forceinline__ void grouped_nvfp4_tc_t160_impl(
@@ -10443,7 +10426,7 @@ __device__ __forceinline__ void grouped_nvfp4_tc_t160_impl(
     int first = 0;
     int count = 0;
     size_t sorted_base = 0;
-    if (!resolve_flat_expert_tile<160>(exp_counts, s->sm_blk_off, s->sm_row_off, expert, first, count, sorted_base)) {
+    if (!resolve_flat_expert_tile<160>(exp_counts, s->shared_tile, expert, first, count, sorted_base)) {
         return;
     }
     if (expert < exp_begin || expert >= exp_end) {
@@ -10824,9 +10807,8 @@ struct Mxfp8TcSmem128x128 {
     uint32_t smem_bsc[2][128];  //  1,024 B
     int32_t smem_in_ids[128];   //    512 B
     int32_t smem_out_pairs[128];//    512 B
-    int32_t sm_blk_off[129];    //    516 B
-    int32_t sm_row_off[129];    //    516 B
-}; // Total = 77,832 B (`<= 99 KiB`, `1` CTA x `16` warps/SM!)
+    int4 shared_tile;
+};
 
 template <bool GateUp, bool PackedScales, bool Indexed = false>
 __device__ __forceinline__ void grouped_mxfp8_tc_impl(
@@ -10849,7 +10831,7 @@ __device__ __forceinline__ void grouped_mxfp8_tc_impl(
     int first = 0;
     int count = 0;
     size_t sorted_base = 0;
-    if (!resolve_flat_expert_tile<128>(exp_counts, s->sm_blk_off, s->sm_row_off, expert, first, count, sorted_base)) {
+    if (!resolve_flat_expert_tile<128>(exp_counts, s->shared_tile, expert, first, count, sorted_base)) {
         return;
     }
 
@@ -11162,9 +11144,8 @@ struct Mxfp8TcSmem160x128 {
     uint32_t smem_bsc[2][128];   //  1,024 B
     int32_t smem_in_ids[160];    //    640 B
     int32_t smem_out_pairs[160]; //    640 B
-    int32_t sm_blk_off[129];     //    516 B
-    int32_t sm_row_off[129];     //    516 B
-}; // Total = 87,560 B (`<= 99 KiB`, `1` CTA/SM!)
+    int4 shared_tile;
+};
 
 template <bool GateUp, bool PackedScales, bool Indexed = false>
 __device__ __forceinline__ void grouped_mxfp8_tc_t160_impl(
@@ -11187,7 +11168,7 @@ __device__ __forceinline__ void grouped_mxfp8_tc_t160_impl(
     int first = 0;
     int count = 0;
     size_t sorted_base = 0;
-    if (!resolve_flat_expert_tile<160>(exp_counts, s->sm_blk_off, s->sm_row_off, expert, first, count, sorted_base)) {
+    if (!resolve_flat_expert_tile<160>(exp_counts, s->shared_tile, expert, first, count, sorted_base)) {
         return;
     }
 
