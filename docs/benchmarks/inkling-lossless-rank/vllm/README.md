@@ -2,12 +2,12 @@
 
 LeanSonic 9bc4d48 uses the lossless ranked embedding and four expert banks. vLLM 8c17e469 uses the publisher model b85c3cfa. Both use FP16 KV, a 2,048-token context, one sequence, 1,024 identical input tokens, and the same 32-token decode history. Each phase produces the next token. The LeanSonic CLI reports all 24 expert layers resident. GPU driver 595.99.02 and 200 W power limit.
 
-**1 of five mirrored cycles complete**, with 14 warm requests per engine. Each cycle uses four fresh processes. The initial request of every process is excluded. Speeds are the token counts divided by the mean phase duration. Peak GPU bytes are sampled over each process tree, including model loading. vLLM reserves 2,415,919,104 bytes for its KV cache.
+**2 of five mirrored cycles complete**, with 28 warm requests per engine. Each cycle uses four fresh processes. The initial request of every process is excluded. Speeds are the token counts divided by the mean phase duration. Peak GPU bytes are sampled over each process tree, including model loading. vLLM reserves 2,415,919,104 bytes for its KV cache.
 
 | Engine | Prefill tok/s | Decode tok/s | Peak GPU bytes | Distribution bytes |
 | --- | ---: | ---: | ---: | ---: |
-| LeanSonic rank | 8,612.67 | 123.61 | 15,590,227,968 | 13,438,517,744 |
-| vLLM native | 8,626.07 | 107.60 | 22,756,196,352 | 19,555,785,477 |
+| LeanSonic rank | 8,639.61 | 123.68 | 15,590,227,968 | 13,438,517,744 |
+| vLLM native | 8,660.98 | 107.65 | 22,756,196,352 | 19,555,785,477 |
 
 The publisher count includes the official tokenizer and configuration and excludes the optional 635,801,416-byte MTP file. The LeanSonic package is the shard and tokenizer in the [physical package receipt](../receipt.json). Each engine disables speculative decoding. vLLM records scheduled-to-first-token and first-to-last-token times. LeanSonic records synchronous in-process phase times.
 
@@ -19,8 +19,12 @@ The normal LeanSonic CLI was rebuilt at the timed source revision. vLLM scores c
 | --- | --- | ---: | ---: | ---: | ---: |
 | test | LeanSonic rank | 0.0077481 | 1.4620404 | 24,537 | 7.083731 |
 | test | vLLM native | 0.0101532 | 3.1885196 | 24,395 | 7.085312 |
+| valid | LeanSonic rank | 0.0069527 | 0.7446714 | 24,645 | 6.530797 |
+| valid | vLLM native | 0.0092906 | 2.8943274 | 24,490 | 6.533192 |
 
 On test, rank has lower mean KL in 92/100 chunks. A paired bootstrap over whole chunks (10,000 draws) gives a 95% interval of [-0.0028989, -0.0019751] for rank minus vLLM mean KL, [0.286, 0.835] percentage points for top-1, and [-0.262%, 0.216%] for relative PPL. [Largest row differences and paired results](paired-test.json). Regenerate with [paired_quality.py](paired_quality.py) on rank then vLLM score rows.
+
+On valid, rank has lower mean KL in 93/100 chunks. A paired bootstrap over whole chunks (10,000 draws) gives a 95% interval of [-0.0027786, -0.0019346] for rank minus vLLM mean KL, [0.349, 0.871] percentage points for top-1, and [-0.265%, 0.192%] for relative PPL. [Largest row differences and paired results](paired-valid.json). Regenerate with [paired_quality.py](paired_quality.py) on rank then vLLM score rows.
 
 ## Reproduce
 
