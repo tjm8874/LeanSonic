@@ -9,6 +9,7 @@ The same release CLI loads either the control or candidate cubin. Inputs are the
 | PRO4500 | 131,072 | 21585.658 → 21525.268 | 6,089.2 | -60.390 [-79.813, -36.302] | 1483.899 → 1484.019 |
 | PRO5000 | 2,048 | 136.883 → 136.058 | 15,052.4 | -0.825 [-0.869, -0.793] | 156.067 → 156.100 |
 | PRO5000 | 16,384 | 1208.809 → 1202.113 | 13,629.3 | -6.696 [-7.175, -6.177] | 676.901 → 677.092 |
+| PRO5000 | 131,072 | 14750.883 → 14700.180 | 8,916.4 | -50.703 [-114.695, +8.614] | 1068.749 → 1068.604 |
 
 Rebuild both sources at the commits in the [receipt](release-lengths.json) using CUDA 13.0.88, `nvcc -arch=sm_120a -std=c++17 -O3 --cubin kernels/inkling2_sm120.cu`. Use the same candidate release CLI for both arms. Set LEANSONIC_CUBIN_PATH separately for each cubin. Use the canonical LeanSonic model directory for MODEL.
 
