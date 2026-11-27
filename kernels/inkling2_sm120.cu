@@ -1605,8 +1605,15 @@ __device__ __forceinline__ unsigned expand_four_indices(uint4 table, unsigned in
     return (upper & hi) | (~upper & lo);
 }
 
+__device__ __forceinline__ uint4 load_indexed_mxfp8(const uint4* plane, uint4 table, size_t index) {
+    const uint2 packed = reinterpret_cast<const uint2*>(plane + 1)[index];
+    return make_uint4(expand_four_indices(table, packed.x), expand_four_indices(table, packed.x >> 16),
+                      expand_four_indices(table, packed.y), expand_four_indices(table, packed.y >> 16));
+}
+
 template<bool PackedScales, bool Indexed>
-__device__ __forceinline__ void mxfp8_up_situ_body(    const uint4* __restrict__ w13_u128,    // [128, 2304, 144]
+__device__ __forceinline__ void mxfp8_up_situ_body(
+    const uint4* __restrict__ w13_u128,    // [128, 2304, 144]
     const uint32_t* __restrict__ s13_u32,  // [128, 2304, 18]
     const float4* __restrict__ x4,         // [576]
     const int32_t* __restrict__ sel_ids,   // [8]
@@ -1638,9 +1645,7 @@ __device__ __forceinline__ void mxfp8_up_situ_body(    const uint4* __restrict__
     auto load_weight = [&](unsigned column) -> uint4 {
         const size_t idx = row_idx * 144u + column;
         if constexpr (Indexed) {
-            const uint2 packed = reinterpret_cast<const uint2*>(w13_u128 + 1)[idx];
-            return make_uint4(expand_four_indices(table, packed.x), expand_four_indices(table, packed.x >> 16),
-                              expand_four_indices(table, packed.y), expand_four_indices(table, packed.y >> 16));
+            return load_indexed_mxfp8(w13_u128, table, idx);
         } else {
             return w13_u128[idx];
         }
@@ -10455,7 +10460,7 @@ struct Mxfp8TcSmem128x128 {
     int32_t sm_row_off[129];    //    516 B
 }; // Total = 77,832 B (`<= 99 KiB`, `1` CTA x `16` warps/SM!)
 
-template <bool GateUp, bool PackedScales>
+template <bool GateUp, bool PackedScales, bool Indexed = false>
 __device__ __forceinline__ void grouped_mxfp8_tc_impl(
     const uint4* __restrict__ w_u128,       // [128, out_rows, cols / 16]
     const uint32_t* __restrict__ w_sc_u32,  // [128, out_rows, cols / 128]
@@ -10514,6 +10519,9 @@ __device__ __forceinline__ void grouped_mxfp8_tc_impl(
     }
     __syncthreads();
 
+    uint4 weight_table;
+    if constexpr (Indexed) weight_table = w_u128[0];
+
     auto issue_stage = [&](int st, int kt) {
         #pragma unroll
         for (int p = 0; p < 2; ++p) {
@@ -10526,9 +10534,12 @@ __device__ __forceinline__ void grouped_mxfp8_tc_impl(
                 x_u128 + src_tok * kU128 + kt * 8 + q,
                 r < live);
             const size_t grow = exp_base_row + map_w_row(r);
-            cp_async16_cg(
-                &s->smem_b[st][r][q],
-                w_u128 + grow * kU128 + kt * 8 + q);
+            const size_t weight_index = grow * kU128 + kt * 8 + q;
+            if constexpr (Indexed) {
+                s->smem_b[st][r][q] = load_indexed_mxfp8(w_u128, weight_table, weight_index);
+            } else {
+                cp_async16_cg(&s->smem_b[st][r][q], w_u128 + weight_index);
+            }
         }
         if (tid < 128) {
             const size_t src_tok = static_cast<size_t>(s->smem_in_ids[tid]);
@@ -10687,6 +10698,18 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_up_situ(
     grouped_mxfp8_tc_impl<true, false>(w13_u128, s13_u32, x_u128, x_sc_u32, exp_counts, exp_toks, exp_pairs, act_out);
 }
 
+extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_up_situ_u4(
+    const uint4* __restrict__ w13_u128,
+    const uint32_t* __restrict__ s13_u32,
+    const uint4* __restrict__ x_u128,
+    const uint32_t* __restrict__ x_sc_u32,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_toks,
+    const int32_t* __restrict__ exp_pairs,
+    float* __restrict__ act_out) {
+    grouped_mxfp8_tc_impl<true, false, true>(w13_u128, s13_u32, x_u128, x_sc_u32, exp_counts, exp_toks, exp_pairs, act_out);
+}
+
 extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_up_situ_packed_scales(
     const uint4* __restrict__ w13_u128,
     const uint32_t* __restrict__ s13_u32,
@@ -10697,6 +10720,18 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_up_situ_p
     const int32_t* __restrict__ exp_pairs,
     float* __restrict__ act_out) {
     grouped_mxfp8_tc_impl<true, true>(w13_u128, s13_u32, x_u128, x_sc_u32, exp_counts, exp_toks, exp_pairs, act_out);
+}
+
+extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_up_situ_u4_packed_scales(
+    const uint4* __restrict__ w13_u128,
+    const uint32_t* __restrict__ s13_u32,
+    const uint4* __restrict__ x_u128,
+    const uint32_t* __restrict__ x_sc_u32,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_toks,
+    const int32_t* __restrict__ exp_pairs,
+    float* __restrict__ act_out) {
+    grouped_mxfp8_tc_impl<true, true, true>(w13_u128, s13_u32, x_u128, x_sc_u32, exp_counts, exp_toks, exp_pairs, act_out);
 }
 
 extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_down(
@@ -10710,6 +10745,17 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_down(
     grouped_mxfp8_tc_impl<false, false>(w2_u128, s2_u32, act_u128, act_sc_u32, exp_counts, exp_pairs, exp_pairs, pair_y_f16);
 }
 
+extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_down_u4(
+    const uint4* __restrict__ w2_u128,
+    const uint32_t* __restrict__ s2_u32,
+    const uint4* __restrict__ act_u128,
+    const uint32_t* __restrict__ act_sc_u32,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_pairs,
+    void* __restrict__ pair_y_f16) {
+    grouped_mxfp8_tc_impl<false, false, true>(w2_u128, s2_u32, act_u128, act_sc_u32, exp_counts, exp_pairs, exp_pairs, pair_y_f16);
+}
+
 extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_down_packed_scales(
     const uint4* __restrict__ w2_u128,
     const uint32_t* __restrict__ s2_u32,
@@ -10719,6 +10765,17 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_down_pack
     const int32_t* __restrict__ exp_pairs,
     void* __restrict__ pair_y_f16) {
     grouped_mxfp8_tc_impl<false, true>(w2_u128, s2_u32, act_u128, act_sc_u32, exp_counts, exp_pairs, exp_pairs, pair_y_f16);
+}
+
+extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_down_u4_packed_scales(
+    const uint4* __restrict__ w2_u128,
+    const uint32_t* __restrict__ s2_u32,
+    const uint4* __restrict__ act_u128,
+    const uint32_t* __restrict__ act_sc_u32,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_pairs,
+    void* __restrict__ pair_y_f16) {
+    grouped_mxfp8_tc_impl<false, true, true>(w2_u128, s2_u32, act_u128, act_sc_u32, exp_counts, exp_pairs, exp_pairs, pair_y_f16);
 }
 
 // V13 (`#79`): `TileTokens = 160 x 128` Grouped MXFP8 MoE TC (`Block = 256`, `86,664 B <= 99 KiB` SMEM!)
@@ -10733,7 +10790,7 @@ struct Mxfp8TcSmem160x128 {
     int32_t sm_row_off[129];     //    516 B
 }; // Total = 87,560 B (`<= 99 KiB`, `1` CTA/SM!)
 
-template <bool GateUp, bool PackedScales>
+template <bool GateUp, bool PackedScales, bool Indexed = false>
 __device__ __forceinline__ void grouped_mxfp8_tc_t160_impl(
     const uint4* __restrict__ w_u128,
     const uint32_t* __restrict__ w_sc_u32,
@@ -10792,6 +10849,9 @@ __device__ __forceinline__ void grouped_mxfp8_tc_t160_impl(
     }
     __syncthreads();
 
+    uint4 weight_table;
+    if constexpr (Indexed) weight_table = w_u128[0];
+
     auto issue_stage = [&](int st, int kt) {
         #pragma unroll
         for (int p = 0; p < 5; ++p) {
@@ -10805,9 +10865,12 @@ __device__ __forceinline__ void grouped_mxfp8_tc_t160_impl(
                 r < live);
             if (p < 4) {
                 const size_t grow = exp_base_row + map_w_row(r);
-                cp_async16_cg(
-                    &s->smem_b[st][r][q],
-                    w_u128 + grow * kU128 + kt * 8 + q);
+                const size_t weight_index = grow * kU128 + kt * 8 + q;
+                if constexpr (Indexed) {
+                    s->smem_b[st][r][q] = load_indexed_mxfp8(w_u128, weight_table, weight_index);
+                } else {
+                    cp_async16_cg(&s->smem_b[st][r][q], w_u128 + weight_index);
+                }
             }
         }
         if (tid < 160) {
@@ -10970,6 +11033,18 @@ extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_up_situ_t
     grouped_mxfp8_tc_t160_impl<true, false>(w13_u128, s13_u32, x_u128, x_sc_u32, exp_counts, exp_toks, exp_pairs, act_out);
 }
 
+extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_up_situ_t160_u4(
+    const uint4* __restrict__ w13_u128,
+    const uint32_t* __restrict__ s13_u32,
+    const uint4* __restrict__ x_u128,
+    const uint32_t* __restrict__ x_sc_u32,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_toks,
+    const int32_t* __restrict__ exp_pairs,
+    float* __restrict__ act_out) {
+    grouped_mxfp8_tc_t160_impl<true, false, true>(w13_u128, s13_u32, x_u128, x_sc_u32, exp_counts, exp_toks, exp_pairs, act_out);
+}
+
 extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_up_situ_t160_packed_scales(
     const uint4* __restrict__ w13_u128,
     const uint32_t* __restrict__ s13_u32,
@@ -10980,6 +11055,18 @@ extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_up_situ_t
     const int32_t* __restrict__ exp_pairs,
     float* __restrict__ act_out) {
     grouped_mxfp8_tc_t160_impl<true, true>(w13_u128, s13_u32, x_u128, x_sc_u32, exp_counts, exp_toks, exp_pairs, act_out);
+}
+
+extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_up_situ_t160_u4_packed_scales(
+    const uint4* __restrict__ w13_u128,
+    const uint32_t* __restrict__ s13_u32,
+    const uint4* __restrict__ x_u128,
+    const uint32_t* __restrict__ x_sc_u32,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_toks,
+    const int32_t* __restrict__ exp_pairs,
+    float* __restrict__ act_out) {
+    grouped_mxfp8_tc_t160_impl<true, true, true>(w13_u128, s13_u32, x_u128, x_sc_u32, exp_counts, exp_toks, exp_pairs, act_out);
 }
 
 extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_down_t160(
@@ -10993,6 +11080,17 @@ extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_down_t160
     grouped_mxfp8_tc_t160_impl<false, false>(w2_u128, s2_u32, act_u128, act_sc_u32, exp_counts, exp_pairs, exp_pairs, pair_y_f16);
 }
 
+extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_down_t160_u4(
+    const uint4* __restrict__ w2_u128,
+    const uint32_t* __restrict__ s2_u32,
+    const uint4* __restrict__ act_u128,
+    const uint32_t* __restrict__ act_sc_u32,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_pairs,
+    void* __restrict__ pair_y_f16) {
+    grouped_mxfp8_tc_t160_impl<false, false, true>(w2_u128, s2_u32, act_u128, act_sc_u32, exp_counts, exp_pairs, exp_pairs, pair_y_f16);
+}
+
 extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_down_t160_packed_scales(
     const uint4* __restrict__ w2_u128,
     const uint32_t* __restrict__ s2_u32,
@@ -11002,6 +11100,17 @@ extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_down_t160
     const int32_t* __restrict__ exp_pairs,
     void* __restrict__ pair_y_f16) {
     grouped_mxfp8_tc_t160_impl<false, true>(w2_u128, s2_u32, act_u128, act_sc_u32, exp_counts, exp_pairs, exp_pairs, pair_y_f16);
+}
+
+extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_down_t160_u4_packed_scales(
+    const uint4* __restrict__ w2_u128,
+    const uint32_t* __restrict__ s2_u32,
+    const uint4* __restrict__ act_u128,
+    const uint32_t* __restrict__ act_sc_u32,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_pairs,
+    void* __restrict__ pair_y_f16) {
+    grouped_mxfp8_tc_t160_impl<false, true, true>(w2_u128, s2_u32, act_u128, act_sc_u32, exp_counts, exp_pairs, exp_pairs, pair_y_f16);
 }
 
 // 18.5 GQA `3:1` + `64`-Query Shared-KV (`192` Query-Heads/KV Load!) FP16/INT8 Tensor Core FlashAttention + `Q8_64` Epilogue
