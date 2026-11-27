@@ -43,5 +43,7 @@ Same canonical BF16 oracle, context 512, greedy, FP16 KV, PDL. Each row covers 1
 |---|---|---:|---:|---:|---:|---|
 | test | parent | 0.003158426 | 0.680977332 | 24,865 | 7.07295554 | 69, 353 |
 | test | last | 0.003405436 | 0.691573425 | 24,822 | 7.07310191 | 69, 353 |
+| valid | parent | 0.002760741 | 0.352436097 | 24,963 | 6.50462099 | 46, 379 |
+| valid | last | 0.003007726 | 0.379497650 | 24,942 | 6.50520427 | 46, 379 |
 
 Run `LEANSONIC_PDL=1 LEANSONIC_KV=fp16 LEANSONIC_CUBIN_PATH="$CUBIN" leansonic eval-kld --weights "$OUTPUT/last" --ref "$ORACLE" --chunks 100`, then repeat for `all`. Scoring uses CLI `64200ed` and cubin source `48b7ec2`. The [full metrics](inkling-rounded-corpus.json) also include the reference PPL, median and p99 KL. The layer-23-only candidate lost top-1 matches and increased mean and worst KL on test; it is not proposed as a quality-equivalent replacement.
