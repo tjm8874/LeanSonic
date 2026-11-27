@@ -1799,7 +1799,7 @@ fewer registers). -/
 def kInk2PrepQkvAndCacheMs : KernelResourceSpec :=
   { name := "ink2_prep_qkv_and_cache_ms"
     threadsPerCta := 256
-    rawRegsPerThread := 28          -- 7,168 regs/CTA; 6 CTAs = 43,008 <= 65,536
+    rawRegsPerThread := 29          -- 7,424 regs/CTA; 6 CTAs = 44,544 <= 65,536 (`pdl_wait`, #152)
     userSmemPerCtaBytes := 0
     smemAlignPadBytes := 0
     ctasPerSm := 6

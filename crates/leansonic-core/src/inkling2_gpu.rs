@@ -568,6 +568,9 @@ struct KernelFns {
     depth_mix_multi_ctrl_norm_bf16_b: Option<CUfunction>,
     // v0.8.0 Solo & Spec Decode PDL + Hoisted Kernels (`Issue #11` / `#104` / `#106`)
     depth_mix_inv: Option<CUfunction>,
+    /// Present when every kernel in the cubin waits on `griddepcontrol.wait` before its first
+    /// global access, so every launch may use programmatic dependent launch (#152 P0-B).
+    pdl_all_marker: Option<CUfunction>,
     ctrl_down_r4_fast: Option<CUfunction>,
     q8_dp4a_gemm_b8_fast: Option<CUfunction>,
     q8_dp4a_gemm_b_ms4: Option<CUfunction>,
@@ -820,6 +823,8 @@ pub struct Inkling2GpuEngine {
     tc_bf16: bool,
     par_conv: bool,
     pdl: bool,
+    /// Launch every kernel with PDL, not only the single-sequence decode chain.
+    pdl_all: bool,
     max_prefill_chunk: usize,
     // Persistent device scratch buffers
     d_token_in: DeviceBuf,
@@ -928,6 +933,54 @@ fn concat_slices(slices: &[&[u8]]) -> Vec<u8> {
         out.extend_from_slice(s);
     }
     out
+}
+
+/// `LEANSONIC_PDL_ALL=0` (or `LEANSONIC_PDL=0`) keeps PDL on the single-sequence decode chain only.
+/// Otherwise every launch uses PDL when the cubin carries `ink2_pdl_all_marker`, i.e. every
+/// kernel executes `griddepcontrol.wait` before touching global memory (#152 P0-B).
+pub(crate) fn pdl_all_enabled(ctx: &CudaContextHandle, marker: Option<CUfunction>) -> bool {
+    let on = |k: &str| std::env::var(k).map(|v| v != "0").unwrap_or(true);
+    on("LEANSONIC_PDL")
+        && on("LEANSONIC_PDL_ALL")
+        && ctx.api.cuLaunchKernelEx.is_some()
+        && marker.is_some()
+}
+
+/// Programmatic dependent launch: the kernel may be scheduled while its stream predecessor drains.
+pub(crate) fn launch_pdl_3d(
+    ctx: &CudaContextHandle,
+    stream: CUstream,
+    func: CUfunction,
+    grid: (u32, u32, u32),
+    block: u32,
+    shared_mem_bytes: u32,
+    params: &mut [*mut c_void],
+) -> Result<(), String> {
+    let launch_ex = ctx
+        .api
+        .cuLaunchKernelEx
+        .ok_or_else(|| "cuLaunchKernelEx unavailable".to_string())?;
+    let mut attr = CUlaunchAttribute::programmatic_stream_serialization();
+    let cfg = CUlaunchConfig {
+        gridDimX: grid.0,
+        gridDimY: grid.1,
+        gridDimZ: grid.2,
+        blockDimX: block,
+        blockDimY: 1,
+        blockDimZ: 1,
+        sharedMemBytes: shared_mem_bytes,
+        _pad0: 0,
+        hStream: stream,
+        attrs: &mut attr,
+        numAttrs: 1,
+        _pad1: 0,
+    };
+    unsafe {
+        check_cu(
+            launch_ex(&cfg, func, params.as_mut_ptr(), core::ptr::null_mut()),
+            &format!("cuLaunchKernelEx(grid={grid:?}, block={block}, smem={shared_mem_bytes})"),
+        )
+    }
 }
 
 /// Multi-threaded load-time repack of row-major `BF16 [rows, cols]` (`cols % 64 == 0`)
@@ -1536,6 +1589,7 @@ impl Inkling2GpuEngine {
                 markov_step_q8: fns.mtp_markov_step_q8,
                 fold_mv_q8: fns.mtp_fold_mv_q8,
                 fold_fin: fns.mtp_fold_fin,
+                pdl_all: pdl_all_enabled(&ctx, fns.pdl_all_marker),
             };
             Some(DsparkDrafterGpu::load_from_file(
                 &ctx,
@@ -1961,6 +2015,7 @@ impl Inkling2GpuEngine {
             .unwrap_or(true)
             && ctx.api.cuLaunchKernelEx.is_some()
             && fns.depth_mix_inv.is_some();
+        let pdl_all = pdl && pdl_all_enabled(&ctx, fns.pdl_all_marker);
         let d_ms_rows = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 8)?;
         let d_ms_j = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 4)?;
         let d_ms_runs = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 16)?;
@@ -2091,6 +2146,7 @@ impl Inkling2GpuEngine {
             tc_bf16,
             par_conv,
             pdl,
+            pdl_all,
             max_prefill_chunk: EXPERT_PAGE,
             host_pos: 0,
             decode_graph: None,
@@ -2674,6 +2730,7 @@ impl Inkling2GpuEngine {
             flash_attn_split_combine_q8_b: get_fn("ink2_flash_attn_split_combine_q8_b").ok(),
             depth_mix_multi_ctrl_norm_bf16_b: get_fn("ink2_depth_mix_multi_ctrl_norm_bf16_b").ok(),
             depth_mix_inv: get_fn("ink2_depth_mix_inv").ok(),
+            pdl_all_marker: get_fn("ink2_pdl_all_marker").ok(),
             ctrl_down_r4_fast: get_fn("ink2_ctrl_down_r4_fast").ok(),
             q8_dp4a_gemm_b8_fast: get_fn("ink2_q8_dp4a_gemm_b8_fast").ok(),
             q8_dp4a_gemm_b_ms4: get_fn("ink2_q8_dp4a_gemm_b_ms4").ok(),
@@ -2745,6 +2802,17 @@ impl Inkling2GpuEngine {
         shared_mem_bytes: u32,
         params: &mut [*mut c_void],
     ) -> Result<(), String> {
+        if self.pdl_all {
+            return launch_pdl_3d(
+                &self.ctx,
+                stream,
+                func,
+                grid,
+                block,
+                shared_mem_bytes,
+                params,
+            );
+        }
         unsafe {
             check_cu(
                 (self.ctx.api.cuLaunchKernel)(
@@ -8911,6 +8979,60 @@ impl Inkling2GpuEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every kernel may be launched with PDL (`pdl_all`), so each one must reach `pdl_wait()`
+    /// before it touches memory a preceding kernel may write (#152 P0-B).
+    #[test]
+    fn every_kernel_waits_on_its_pdl_predecessor() {
+        let src = CUDA_KERNEL_SRC;
+        let mut missing = Vec::new();
+        let mut seen = 0;
+        for (at, _) in src.match_indices("extern \"C\" __global__") {
+            let line_start = src[..at].rfind('\n').map_or(0, |i| i + 1);
+            let prev_line_end = line_start.saturating_sub(1);
+            let prev_line_start = src[..prev_line_end].rfind('\n').map_or(0, |i| i + 1);
+            if src[prev_line_start..prev_line_end]
+                .trim_end()
+                .ends_with('\\')
+            {
+                // Inside `INK2_SCALE_KERNEL*`; the macro body is checked below.
+                continue;
+            }
+            let open = at + src[at..].find('{').expect("kernel body");
+            let mut depth = 0usize;
+            let mut close = open;
+            for (i, c) in src[open..].char_indices() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            close = open + i;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            seen += 1;
+            if !src[open..close].contains("pdl_wait()") {
+                missing.push(
+                    src[at..open]
+                        .split('(')
+                        .next()
+                        .unwrap_or_default()
+                        .to_string(),
+                );
+            }
+        }
+        assert!(seen > 100, "parsed only {seen} kernels");
+        assert!(
+            missing.is_empty(),
+            "kernels without pdl_wait(): {missing:?}"
+        );
+        assert_eq!(src.matches("{ pdl_wait(); name##_impl<").count(), 4);
+        assert!(src.contains("void ink2_pdl_all_marker()"));
+    }
 
     #[test]
     fn known_prompt_rounds_up_to_a_supported_workspace() {
