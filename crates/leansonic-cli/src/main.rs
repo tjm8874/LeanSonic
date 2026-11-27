@@ -1,5 +1,6 @@
 mod bench_matrix;
 mod eval_kld;
+mod multiseq;
 
 use std::env;
 use std::io::{self, Write};
@@ -1349,6 +1350,13 @@ fn main() -> ExitCode {
             }
         },
         Some("eval-kld") => match eval_kld::run(&args[2..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("[ERROR] {e}");
+                ExitCode::FAILURE
+            }
+        },
+        Some("multiseq") => match multiseq::run(&args[2..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("[ERROR] {e}");

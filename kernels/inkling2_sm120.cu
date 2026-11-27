@@ -3244,8 +3244,10 @@ extern "C" __global__ void ink2_short_conv4_b(
     h[2] = h2;
 }
 
-// Grid: `(5, B)`, Block: `256`
-extern "C" __global__ void ink2_prep_qkv_and_cache_b(
+// Row `b` of a multi-sequence batch (#107): `ms_rows[b] = {pos, seq}`; sequence `seq`'s KV
+// cache / scale plane starts `seq * seq_kv_bytes` / `seq * seq_scale_floats` after sequence 0.
+template <bool kMs>
+__device__ __forceinline__ void prep_qkv_and_cache_b_body(
     float* __restrict__ qrgs_base,             // [B, qrgs_stride]
     int32_t qrgs_stride,
     const float* __restrict__ k_in_base,       // [B, 1024]
@@ -3258,11 +3260,26 @@ extern "C" __global__ void ink2_prep_qkv_and_cache_b(
     float* __restrict__ v_scale,               // [kv_cap, 8] INT8 KV scales, or nullptr (FP16)
     const int32_t* __restrict__ pos_ptr,
     int32_t kv_cap,
-    int32_t is_global) {
+    int32_t is_global,
+    const int2* __restrict__ ms_rows = nullptr,
+    long long seq_kv_bytes = 0,
+    int32_t seq_scale_floats = 0) {
     const int g_warp = blockIdx.x * 8 + (threadIdx.x >> 5);
     const int b = blockIdx.y;
     const int lane = threadIdx.x & 31;
-    const int pos = (*pos_ptr) + b;
+    int pos;
+    if constexpr (kMs) {
+        const int2 row = ms_rows[b];
+        pos = row.x;
+        k_cache_fp16 = reinterpret_cast<uint16_t*>(reinterpret_cast<char*>(k_cache_fp16) + row.y * seq_kv_bytes);
+        v_cache_fp16 = reinterpret_cast<uint16_t*>(reinterpret_cast<char*>(v_cache_fp16) + row.y * seq_kv_bytes);
+        if (k_scale != nullptr) {
+            k_scale += static_cast<size_t>(row.y) * seq_scale_floats;
+            v_scale += static_cast<size_t>(row.y) * seq_scale_floats;
+        }
+    } else {
+        pos = (*pos_ptr) + b;
+    }
     const int cache_row = is_global ? pos : (pos % kv_cap);
 
     float* qrgs = qrgs_base + static_cast<size_t>(b) * qrgs_stride;
@@ -3341,6 +3358,82 @@ extern "C" __global__ void ink2_prep_qkv_and_cache_b(
         kv_store4(v_cache_fp16, v_scale, cache_row, vh, lane,
                   vv0 * v_inv, vv1 * v_inv, vv2 * v_inv, vv3 * v_inv);
     }
+}
+
+// Multi-sequence rows (#107): grid `(channels / 256, B)`. Row `b` belongs to sequence
+// `ms_rows[b].y` and steps that sequence's own history exactly like the B = 1 decode kernel.
+template <bool kSave>
+__device__ __forceinline__ void short_conv4_ms_body(
+    const float* __restrict__ cur_base, int32_t in_stride, const float4* __restrict__ w_conv4,
+    const float4* __restrict__ dyn_base, int32_t dyn_f4_stride, float* __restrict__ hist3,
+    float* out_base, int32_t out_stride, const float* res_base, int32_t res_stride,
+    float* __restrict__ save_prev_base, const int2* __restrict__ ms_rows, int32_t channels,
+    int32_t has_dyn, int32_t do_res_add, int32_t hist_seq_floats) {
+    const int c = blockIdx.x * blockDim.x + threadIdx.x;
+    const int b = blockIdx.y;
+    if (c >= channels) return;
+    const size_t ob = static_cast<size_t>(b) * out_stride + c;
+    if (kSave && save_prev_base != nullptr) {
+        save_prev_base[ob] = out_base[ob];
+    }
+    float* h = hist3 + static_cast<size_t>(ms_rows[b].y) * hist_seq_floats + c * 3;
+    const float h0 = h[0];
+    const float h1 = h[1];
+    const float h2 = h[2];
+    const float4 w = w_conv4[c];
+    const int head = c >> 7;
+    const float x = cur_base[static_cast<size_t>(b) * in_stride + c];
+    const float4 d = has_dyn ? dyn_base[static_cast<size_t>(b) * dyn_f4_stride + head] : make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+    const float res = do_res_add ? res_base[static_cast<size_t>(b) * res_stride + c] : 0.0f;
+    const float y = eval_conv4_step(w, h0, h1, h2, x, has_dyn, d, do_res_add, res);
+    h[0] = h1;
+    h[1] = h2;
+    h[2] = x;
+    out_base[ob] = y;
+}
+extern "C" __global__ void ink2_short_conv4_ms(
+    const float* __restrict__ cur_base, int32_t in_stride, const float4* __restrict__ w_conv4,
+    const float4* __restrict__ dyn_base, int32_t dyn_f4_stride, float* __restrict__ hist3,
+    float* out_base, int32_t out_stride, const float* res_base, int32_t res_stride,
+    const int2* __restrict__ ms_rows, int32_t channels, int32_t has_dyn, int32_t do_res_add,
+    int32_t hist_seq_floats) {
+    short_conv4_ms_body<false>(cur_base, in_stride, w_conv4, dyn_base, dyn_f4_stride, hist3, out_base,
+        out_stride, res_base, res_stride, nullptr, ms_rows, channels, has_dyn, do_res_add, hist_seq_floats);
+}
+extern "C" __global__ void ink2_short_conv4_save_ms(
+    const float* __restrict__ cur_base, int32_t in_stride, const float4* __restrict__ w_conv4,
+    const float4* __restrict__ dyn_base, int32_t dyn_f4_stride, float* __restrict__ hist3,
+    float* out_base, int32_t out_stride, const float* res_base, int32_t res_stride,
+    float* __restrict__ save_prev_base, const int2* __restrict__ ms_rows, int32_t channels,
+    int32_t has_dyn, int32_t do_res_add, int32_t hist_seq_floats) {
+    short_conv4_ms_body<true>(cur_base, in_stride, w_conv4, dyn_base, dyn_f4_stride, hist3, out_base,
+        out_stride, res_base, res_stride, save_prev_base, ms_rows, channels, has_dyn, do_res_add, hist_seq_floats);
+}
+
+// Grid: `(5, B)`, Block: `256`
+extern "C" __global__ void ink2_prep_qkv_and_cache_b(
+    float* __restrict__ qrgs_base, int32_t qrgs_stride,
+    const float* __restrict__ k_in_base, const float* __restrict__ v_in_base,
+    const uint32_t* __restrict__ q_clip_bf16, const uint32_t* __restrict__ r_clip_bf16,
+    uint16_t* __restrict__ k_cache_fp16, uint16_t* __restrict__ v_cache_fp16,
+    float* __restrict__ k_scale, float* __restrict__ v_scale,
+    const int32_t* __restrict__ pos_ptr, int32_t kv_cap, int32_t is_global) {
+    prep_qkv_and_cache_b_body<false>(qrgs_base, qrgs_stride, k_in_base, v_in_base, q_clip_bf16,
+        r_clip_bf16, k_cache_fp16, v_cache_fp16, k_scale, v_scale, pos_ptr, kv_cap, is_global);
+}
+
+// Multi-sequence rows (#107): each row writes its own sequence's KV at its own position.
+extern "C" __global__ void ink2_prep_qkv_and_cache_ms(
+    float* __restrict__ qrgs_base, int32_t qrgs_stride,
+    const float* __restrict__ k_in_base, const float* __restrict__ v_in_base,
+    const uint32_t* __restrict__ q_clip_bf16, const uint32_t* __restrict__ r_clip_bf16,
+    uint16_t* __restrict__ k_cache_fp16, uint16_t* __restrict__ v_cache_fp16,
+    float* __restrict__ k_scale, float* __restrict__ v_scale,
+    const int2* __restrict__ ms_rows, int32_t kv_cap, int32_t is_global,
+    long long seq_kv_bytes, int32_t seq_scale_floats) {
+    prep_qkv_and_cache_b_body<true>(qrgs_base, qrgs_stride, k_in_base, v_in_base, q_clip_bf16,
+        r_clip_bf16, k_cache_fp16, v_cache_fp16, k_scale, v_scale, nullptr, kv_cap, is_global,
+        ms_rows, seq_kv_bytes, seq_scale_floats);
 }
 
 // Grid: `(24, B)`, Block: `256`
@@ -4984,7 +5077,7 @@ extern "C" __global__ void mtp_fold_fin(
 // ============================================================================
 // kPipe: depth-1 pipelined FP16 row loop, used for decode / verify rows only (prefill keeps the
 // lower-register generic loop). Same arithmetic either way.
-template <bool kInt8, bool kPipe = false>
+template <bool kInt8, bool kPipe = false, bool kMs = false>
 __device__ __forceinline__ void gqa_attn_split_body(
     const float* __restrict__ qrgs_base,        // [B, qrgs_stride] (`q@0, r@3072, gate@3456, sinks@6528`)
     int32_t qrgs_stride,
@@ -4997,7 +5090,10 @@ __device__ __forceinline__ void gqa_attn_split_body(
     int32_t kv_cap,
     int32_t is_global,
     float* __restrict__ part_ml,                // [B, 24, G, 2]
-    float* __restrict__ part_o) {               // [B, 24, G, 128]
+    float* __restrict__ part_o,                 // [B, 24, G, 128]
+    const int2* __restrict__ ms_rows = nullptr, // kMs: per-row {pos, seq} (#107)
+    long long seq_kv_bytes = 0,
+    int32_t seq_scale_floats = 0) {
     constexpr int kChunk = 64;
     __shared__ float smem_q[3][kHd];
     __shared__ float smem_r[3][kRel];
@@ -5022,7 +5118,19 @@ __device__ __forceinline__ void gqa_attn_split_body(
     k_scale = pdl_in(k_scale);
     v_scale = pdl_in(v_scale);
 
-    const int pos = (*pos_ptr) + b;
+    int pos;
+    if constexpr (kMs) {
+        const int2 row = ms_rows[b];
+        pos = row.x;
+        k_cache_fp16 = reinterpret_cast<const uint16_t*>(reinterpret_cast<const char*>(k_cache_fp16) + row.y * seq_kv_bytes);
+        v_cache_fp16 = reinterpret_cast<const uint16_t*>(reinterpret_cast<const char*>(v_cache_fp16) + row.y * seq_kv_bytes);
+        if constexpr (kInt8) {
+            k_scale += static_cast<size_t>(row.y) * seq_scale_floats;
+            v_scale += static_cast<size_t>(row.y) * seq_scale_floats;
+        }
+    } else {
+        pos = (*pos_ptr) + b;
+    }
     const int n = pos + 1;
     const int first = is_global ? 0 : ((n > kExtent) ? (n - kExtent) : 0);
     const int total_early = n - first;
@@ -5329,6 +5437,24 @@ extern "C" __global__ void __launch_bounds__(256, 4) ink2_gqa_attn_split_i8(
     float* __restrict__ part_o) {
     gqa_attn_split_body<true>(qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_fp16, v_cache_fp16, k_scale, v_scale, pos_ptr, kv_cap, is_global, part_ml, part_o);
 }
+
+// Multi-sequence decode rows (#107): row `b` attends its own sequence's KV up to its own
+// position (`ms_rows[b] = {pos, seq}`). Same per-row arithmetic as the instantiations above.
+#define INK2_SPLIT_MS_PARAMS \
+    const float* __restrict__ qrgs_base, int32_t qrgs_stride, const uint32_t* __restrict__ rel_proj_bf16, \
+    const uint16_t* __restrict__ k_cache_fp16, const uint16_t* __restrict__ v_cache_fp16, \
+    const float* __restrict__ k_scale, const float* __restrict__ v_scale, \
+    const int2* __restrict__ ms_rows, int32_t kv_cap, int32_t is_global, \
+    float* __restrict__ part_ml, float* __restrict__ part_o, long long seq_kv_bytes, int32_t seq_scale_floats
+extern "C" __global__ void ink2_gqa_attn_split_dec_ms(INK2_SPLIT_MS_PARAMS) {
+    gqa_attn_split_body<false, true, true>(qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_fp16, v_cache_fp16,
+        k_scale, v_scale, nullptr, kv_cap, is_global, part_ml, part_o, ms_rows, seq_kv_bytes, seq_scale_floats);
+}
+extern "C" __global__ void __launch_bounds__(256, 4) ink2_gqa_attn_split_i8_ms(INK2_SPLIT_MS_PARAMS) {
+    gqa_attn_split_body<true, false, true>(qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_fp16, v_cache_fp16,
+        k_scale, v_scale, nullptr, kv_cap, is_global, part_ml, part_o, ms_rows, seq_kv_bytes, seq_scale_floats);
+}
+#undef INK2_SPLIT_MS_PARAMS
 
 // Merge `G` split partials per head + sigmoid gate. Grid: `(24, B)`, Block: `128`.
 extern "C" __global__ void ink2_gqa_attn_combine(
@@ -6308,13 +6434,14 @@ extern "C" __global__ void ink2_gqa_attn_combine_q8(
 // Reads ONLY the `active_g = clamp(ceil((n - first) / 64), 1, G)` non-empty splits produced by
 // `gqa_attn_split_body`, eliminating up to `31/32` (`97%`) empty DRAM partial reads at short context
 // while remaining `0-ULP` bit-for-bit identical across Solo (`B=1`) and Speculative Verify (`B<=8`)!
-extern "C" __global__ void ink2_gqa_attn_combine_q8_dyn(
+template <bool kMs>
+__device__ __forceinline__ void gqa_attn_combine_q8_dyn_body(
     const float* __restrict__ part_ml,   // [B, 24, G, 2]
     const float* __restrict__ part_o,    // [B, 24, G, 128]
     const float* __restrict__ qrgs_base, // [B, qrgs_stride] (`gate @ 3456`)
     int32_t qrgs_stride,
     int32_t G,
-    const int32_t* __restrict__ pos_ptr,
+    const int32_t* __restrict__ pos_ptr, // kMs: `int2 {pos, seq}` per row (#107)
     int32_t is_global,
     uint32_t* __restrict__ out_q8_u32,   // [B, 768]
     float* __restrict__ out_sc64) {      // [B, 48]
@@ -6332,7 +6459,7 @@ extern "C" __global__ void ink2_gqa_attn_combine_q8_dyn(
     qrgs_base = pdl_in(qrgs_base);
     pos_ptr = pdl_in(pos_ptr);
 
-    const int pos = (*pos_ptr) + b;
+    const int pos = kMs ? reinterpret_cast<const int2*>(pos_ptr)[b].x : (*pos_ptr) + b;
     const int n = pos + 1;
     const int first = is_global ? 0 : ((n > kExtent) ? (n - kExtent) : 0);
     const int n_chunks = ((n - first) + 63) >> 6;
@@ -6354,6 +6481,20 @@ extern "C" __global__ void ink2_gqa_attn_combine_q8_dyn(
     const float out_val = (sum_d * ptx_rcp(fmaxf(denom, 1e-20f))) * gt;
     quant_head128_epilogue_q8_64(dd, h, b, out_val, smem_qmax, smem_qinv, out_q8_u32, out_sc64);
 }
+
+#define INK2_COMBINE_DYN_PARAMS \
+    const float* __restrict__ part_ml, const float* __restrict__ part_o, \
+    const float* __restrict__ qrgs_base, int32_t qrgs_stride, int32_t G, \
+    const int32_t* __restrict__ pos_ptr, int32_t is_global, \
+    uint32_t* __restrict__ out_q8_u32, float* __restrict__ out_sc64
+extern "C" __global__ void ink2_gqa_attn_combine_q8_dyn(INK2_COMBINE_DYN_PARAMS) {
+    gqa_attn_combine_q8_dyn_body<false>(part_ml, part_o, qrgs_base, qrgs_stride, G, pos_ptr, is_global, out_q8_u32, out_sc64);
+}
+// Multi-sequence rows (#107): `pos_ptr` points at the `int2 {pos, seq}` row table.
+extern "C" __global__ void ink2_gqa_attn_combine_q8_dyn_ms(INK2_COMBINE_DYN_PARAMS) {
+    gqa_attn_combine_q8_dyn_body<true>(part_ml, part_o, qrgs_base, qrgs_stride, G, pos_ptr, is_global, out_q8_u32, out_sc64);
+}
+#undef INK2_COMBINE_DYN_PARAMS
 
 // Causal 4-Tap Short-Conv + Fused Pre-Overwrite Block Save (`save_prev_out` nullable):
 extern "C" __global__ void ink2_short_conv4_save(

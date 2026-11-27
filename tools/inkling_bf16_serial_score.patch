@@ -1,0 +1,58 @@
+--- a/tools/perplexity/perplexity.cpp
++++ b/tools/perplexity/perplexity.cpp
+@@ -499,7 +499,20 @@
+     double nll = 0.0;
+     double nll2 = 0.0;
+ 
+-    const int num_batches = (n_ctx + n_batch - 1) / n_batch;
++    const bool score_serial = std::getenv("LEANSONIC_BF16_SERIAL_SCORE") != nullptr;
++    if (score_serial && (n_batch != n_ctx || n_ctx != 512 || params.n_ubatch < n_ctx / 2 || add_bos)) {
++        throw std::runtime_error("serial scoring requires a 512-token single sequence, ubatch >= 256 and no added BOS");
++    }
++    std::ofstream serial_layout;
++    if (score_serial) {
++        if (const char * path = std::getenv("LEANSONIC_BF16_SERIAL_LAYOUT")) {
++            serial_layout.open(path);
++            if (!serial_layout) {
++                throw std::runtime_error("could not open serial layout trace");
++            }
++        }
++    }
++    const int num_batches = score_serial ? n_ctx / 2 : (n_ctx + n_batch - 1) / n_batch;
+     const int n_seq = std::max(1, n_batch / n_ctx);
+ 
+     GGML_ASSERT(n_batch < n_ctx || n_batch % n_ctx == 0);
+@@ -551,8 +564,10 @@
+         llama_memory_clear(llama_get_memory(ctx), true);
+ 
+         for (int j = 0; j < num_batches; ++j) {
+-            const int batch_start = start + j * n_batch;
+-            const int batch_size  = std::min(end - batch_start, n_batch);
++            // Evaluate the prefix once, then teacher-force positions 256..510 singly.
++            const int offset = score_serial ? (j == 0 ? 0 : first + j - 1) : j * n_batch;
++            const int batch_start = start + offset;
++            const int batch_size = score_serial ? (j == 0 ? first : 1) : std::min(end - batch_start, n_batch);
+ 
+             int n_outputs = 0;
+ 
+@@ -569,7 +584,7 @@
+                 }
+ 
+                 for (int k = 0; k < batch_size; ++k) {
+-                    const llama_pos pos = j*n_batch + k;
++                    const llama_pos pos = offset + k;
+                     const bool need_logits = pos >= first;
+                     batch.add(tokens[seq_start + k], pos, seq, need_logits);
+                     n_outputs += need_logits;
+@@ -582,6 +597,11 @@
+             if (llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get())) {
+                 LOG_INF("%s : failed to decode\n", __func__);
+                 return {tokens, -1, logit_history, prob_history};
++            }
++
++            if (i == 0 && serial_layout.is_open()) {
++                const llama_pos first_pos = batch.tokens.front().pos[0];
++                serial_layout << first_pos << ' ' << batch.size() << '\n';
+             }
+ 
+             if (num_batches > 1 && n_outputs > 0) {
