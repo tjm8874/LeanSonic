@@ -27,8 +27,10 @@ Ten fresh processes per engine ran in five mirrored ABBA/BAAB cycles, with one w
 |---|---|---:|---:|---:|---:|---:|
 | RTX 5070Ti | LeanSonic compact | 121.960 (8,396.2) | 192.392 (166.33) | 16,118,710,272 | 13,626,745,974 | 32/32 |
 | RTX 5070Ti | Unsloth llama.cpp Q3_K_XL | 526.094 (1,946.4) | 402.464 (79.51) | 16,150,167,552 | 13,631,778,016 | 31/32 |
+| RTX 5060Ti | LeanSonic compact | 257.696 (3,973.7) | 339.703 (94.20) | 16,020,144,128 | 13,626,745,974 | 32/32 |
+| RTX 5060Ti | Unsloth llama.cpp Q3_K_XL | 881.869 (1,161.2) | 573.839 (55.76) | 16,030,629,888 | 13,631,778,016 | 30/32 |
 
-LeanSonic speedup over native Q3. RTX 5070Ti prefill 4.314× (95% 4.311–4.316), RTX 5070Ti decode 2.092× (95% 2.089–2.095).
+LeanSonic speedup over native Q3. RTX 5070Ti prefill 4.314× (95% 4.311–4.316), RTX 5070Ti decode 2.092× (95% 2.089–2.095), RTX 5060Ti prefill 3.422× (95% 3.421–3.423), RTX 5060Ti decode 1.689× (95% 1.688–1.690).
 
 The compact distribution includes its tokenizer and is 5,032,042 bytes smaller than the GGUF, which embeds its tokenizer. The original IQ3_XXS and IQ1_S GGUFs are smaller at 11,663,309,504 and 7,764,291,776 bytes. See the [native Q3 driver, release and model fingerprint](../../inkling-original-q3-timing.md) and [smaller public formats](https://github.com/tjm8874/LeanSonic/pull/161).
 
@@ -41,6 +43,11 @@ The same compact model, full-PDL build and fixed 512-row prefill width score Wik
 | Mode | Mean KL | Worst KL | BF16 top-1 | PPL |
 |---|---:|---:|---:|---:|
 | expansion | 0.01378376 | 0.70781849 | 24,298/25,500 | 7.1274818 |
+| direct | 0.01378376 | 0.70781849 | 24,298/25,500 | 7.1274818 |
+
+All reported 100-chunk BF16 metrics, including the worst position, were identical in the expansion and scratch-free paths. The distribution still has the bilingual tail discrepancy above.
+
+[Instrumented kernel timings on the same fixed inputs](profile/README.md).
 
 ## Reproduce
 

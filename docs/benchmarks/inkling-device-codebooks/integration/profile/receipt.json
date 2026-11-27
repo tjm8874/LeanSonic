@@ -1,0 +1,2402 @@
+{
+  "5070Ti": {
+    "source": "a567839d925a70dc7fbd2c4d943ed77d60ec9f78",
+    "sha256": {
+      "profile": "381358de62b1d2cc2d7a48c48deaadaae0adda2c92d7f38abfc3d3ae59db31fc",
+      "libactivity.so": "99dfa74b9340bf7ad36783809c4a8b7bb7be6e0811b52c6cadd271ee8b7d7e0b",
+      "matched.cubin": "1da6c4736568784cc0b0d2c1ffcbc55132db9e519221b102609849991ed3e227"
+    },
+    "trace_sha256": "fd2af646aeeda03ad7e89942447a5dca10a9499b9c0735f5f1e1d278e2d70dc3",
+    "ranges": [
+      "0 1795781523454912077 1795781523583612954 1795781523788381553 145026,220,39446,220,19,154978,152792,189134,149860,185136,198,84375,149859,23033,220,137294,196997,13,1157,63,150406,903,25,196997,30841,57335,12,1339,903,63,197005,196997",
+      "1 1795781523788423694 1795781523910553119 1795781524117642340 145026,220,39446,220,19,154978,152792,189134,149860,185136,198,84375,149859,23033,220,137294,196997,13,1157,63,150406,903,25,196997,30841,57335,12,1339,903,63,197005,196997",
+      "2 1795781524117680940 1795781524239917037 1795781524446885618 145026,220,39446,220,19,154978,152792,189134,149860,185136,198,84375,149859,23033,220,137294,196997,13,1157,63,150406,903,25,196997,30841,57335,12,1339,903,63,197005,196997"
+    ],
+    "loader": [
+      "[LeanSonic GPU] Packed 48 expert scale planes, saving 398131008 device bytes",
+      "[LeanSonic GPU] NVIDIA GeForce RTX 5070 Ti | VRAM used: 14.47 GiB / 15.47 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 64..2048 | Loaded in 11.79s",
+      "dropped=0"
+    ],
+    "requests": [
+      {
+        "run": 0,
+        "predictions": [
+          145026,
+          220,
+          39446,
+          220,
+          19,
+          154978,
+          152792,
+          189134,
+          149860,
+          185136,
+          198,
+          84375,
+          149859,
+          23033,
+          220,
+          137294,
+          196997,
+          13,
+          1157,
+          63,
+          150406,
+          903,
+          25,
+          196997,
+          30841,
+          57335,
+          12,
+          1339,
+          903,
+          63,
+          197005,
+          196997
+        ],
+        "phases": {
+          "prefill": {
+            "kernels": 1324,
+            "graph_nodes": 0,
+            "span_ms": 122.244878,
+            "union_ms": 122.236236,
+            "wall_ms": 128.700877,
+            "by_kernel": {
+              "ink2_moe_nvfp4_tc_up_situ_packed_scales": {
+                "calls": 44,
+                "total_ms": 43.77077,
+                "registers": 128,
+                "dynamic_shared": 62480
+              },
+              "ink2_moe_nvfp4_tc_down_packed_scales": {
+                "calls": 44,
+                "total_ms": 17.562783,
+                "registers": 127,
+                "dynamic_shared": 62480
+              },
+              "ink2_q8_tc_gemm_b": {
+                "calls": 68,
+                "total_ms": 11.065547,
+                "registers": 105,
+                "dynamic_shared": 64512
+              },
+              "ink2_q8_tc_qkv3_gemm_b": {
+                "calls": 28,
+                "total_ms": 6.995085,
+                "registers": 101,
+                "dynamic_shared": 64512
+              },
+              "ink2_flash_attn_tc_q8_b": {
+                "calls": 48,
+                "total_ms": 6.613998,
+                "registers": 168,
+                "dynamic_shared": 64384
+              },
+              "ink2_depth_mix_multi_ctrl_norm_bf16_b": {
+                "calls": 48,
+                "total_ms": 5.112458,
+                "registers": 74,
+                "dynamic_shared": 0
+              },
+              "ink2_bf16_tc_gemm_b": {
+                "calls": 96,
+                "total_ms": 4.324704,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_tc_up_situ_u4_packed_scales": {
+                "calls": 4,
+                "total_ms": 4.154718,
+                "registers": 124,
+                "dynamic_shared": 77840
+              },
+              "ink2_short_conv4_save_par_b": {
+                "calls": 192,
+                "total_ms": 3.669339,
+                "registers": 56,
+                "dynamic_shared": 0
+              },
+              "ink2_ctrl_apply_tc_b": {
+                "calls": 48,
+                "total_ms": 3.491063,
+                "registers": 55,
+                "dynamic_shared": 0
+              },
+              "ink2_quant_nvfp4_2term_1p_b": {
+                "calls": 88,
+                "total_ms": 2.231337,
+                "registers": 39,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_tc_down_u4_packed_scales": {
+                "calls": 4,
+                "total_ms": 2.09003,
+                "registers": 120,
+                "dynamic_shared": 77840
+              },
+              "ink2_moe_combine_top8_f16_b": {
+                "calls": 48,
+                "total_ms": 1.815534,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_prep_qkv_and_cache_b": {
+                "calls": 48,
+                "total_ms": 1.810543,
+                "registers": 24,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_multi_b": {
+                "calls": 24,
+                "total_ms": 1.637514,
+                "registers": 56,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_quant_q8_64_b": {
+                "calls": 24,
+                "total_ms": 0.891916,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_gather_nvfp4_sorted_b": {
+                "calls": 44,
+                "total_ms": 0.885192,
+                "registers": 38,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_d_quant_q8_16_b": {
+                "calls": 24,
+                "total_ms": 0.833857,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_quant_q8_64_b": {
+                "calls": 25,
+                "total_ms": 0.789893,
+                "registers": 28,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c2304": {
+                "calls": 1,
+                "total_ms": 0.595204,
+                "registers": 63,
+                "dynamic_shared": 0
+              },
+              "ink2_embed_rmsnorm_b": {
+                "calls": 1,
+                "total_ms": 0.579652,
+                "registers": 20,
+                "dynamic_shared": 0
+              },
+              "ink2_f32_to_bf16_b": {
+                "calls": 48,
+                "total_ms": 0.318337,
+                "registers": 18,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_commit_hist_b": {
+                "calls": 192,
+                "total_ms": 0.285805,
+                "registers": 18,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_d_b": {
+                "calls": 24,
+                "total_ms": 0.264097,
+                "registers": 22,
+                "dynamic_shared": 0
+              },
+              "ink2_build_expert_groups_par_b": {
+                "calls": 48,
+                "total_ms": 0.260322,
+                "registers": 32,
+                "dynamic_shared": 0
+              },
+              "ink2_quant_mxfp8_b": {
+                "calls": 8,
+                "total_ms": 0.221921,
+                "registers": 17,
+                "dynamic_shared": 0
+              },
+              "ink2_loop_pass_setup_b": {
+                "calls": 3,
+                "total_ms": 0.165921,
+                "registers": 20,
+                "dynamic_shared": 0
+              },
+              "ink2_router_topk8_b": {
+                "calls": 48,
+                "total_ms": 0.159906,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_argmax_b": {
+                "calls": 1,
+                "total_ms": 0.017344,
+                "registers": 39,
+                "dynamic_shared": 0
+              },
+              "ink2_inc_pos_by": {
+                "calls": 1,
+                "total_ms": 0.00144,
+                "registers": 16,
+                "dynamic_shared": 0
+              }
+            }
+          },
+          "decode32": {
+            "kernels": 26400,
+            "graph_nodes": 26400,
+            "span_ms": 204.306023,
+            "union_ms": 193.440446,
+            "wall_ms": 204.768599,
+            "by_kernel": {
+              "ink2_moe_nvfp4_dp4a_up_half_q8_packed_scales": {
+                "calls": 1408,
+                "total_ms": 44.994592,
+                "registers": 61,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_qkv3_gemv_r1": {
+                "calls": 896,
+                "total_ms": 24.14576,
+                "registers": 46,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_nvfp4_dp4a_down_xw_packed_scales": {
+                "calls": 1408,
+                "total_ms": 22.957732,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c2304": {
+                "calls": 32,
+                "total_ms": 18.459458,
+                "registers": 63,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c2304_r1": {
+                "calls": 640,
+                "total_ms": 17.069273,
+                "registers": 47,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c3072_r1": {
+                "calls": 1536,
+                "total_ms": 16.539399,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_gqa_attn_combine_q8_dyn": {
+                "calls": 1536,
+                "total_ms": 14.875447,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_gqa_attn_split_dec": {
+                "calls": 1536,
+                "total_ms": 14.828207,
+                "registers": 64,
+                "dynamic_shared": 0
+              },
+              "ink2_ctrl_down_r4_fast": {
+                "calls": 1536,
+                "total_ms": 7.976379,
+                "registers": 72,
+                "dynamic_shared": 0
+              },
+              "ink2_ctrl_apply_coalesced_b": {
+                "calls": 1536,
+                "total_ms": 7.965731,
+                "registers": 56,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_quant_q8_64": {
+                "calls": 800,
+                "total_ms": 6.875067,
+                "registers": 36,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_quant_q8_64_b": {
+                "calls": 768,
+                "total_ms": 6.606333,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_bf16_gemv": {
+                "calls": 1536,
+                "total_ms": 6.146179,
+                "registers": 60,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_up_situ_u4_packed_scales": {
+                "calls": 128,
+                "total_ms": 5.509255,
+                "registers": 47,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_inv": {
+                "calls": 1600,
+                "total_ms": 4.85471,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_router_topk8": {
+                "calls": 1536,
+                "total_ms": 3.648525,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_d_quant_q8_16_b": {
+                "calls": 768,
+                "total_ms": 2.960465,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_down_xw_u4_packed_scales": {
+                "calls": 128,
+                "total_ms": 2.765935,
+                "registers": 72,
+                "dynamic_shared": 0
+              },
+              "ink2_prep_qkv_and_cache": {
+                "calls": 1536,
+                "total_ms": 2.675897,
+                "registers": 24,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_d_quant_q8_16_b": {
+                "calls": 768,
+                "total_ms": 2.230396,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_save": {
+                "calls": 1536,
+                "total_ms": 1.878939,
+                "registers": 30,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4": {
+                "calls": 1536,
+                "total_ms": 1.824742,
+                "registers": 26,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_kv2": {
+                "calls": 1536,
+                "total_ms": 1.786106,
+                "registers": 24,
+                "dynamic_shared": 0
+              },
+              "ink2_argmax_and_inc_pos": {
+                "calls": 32,
+                "total_ms": 0.684743,
+                "registers": 39,
+                "dynamic_shared": 0
+              },
+              "ink2_loop_pass_setup_b": {
+                "calls": 96,
+                "total_ms": 0.166499,
+                "registers": 20,
+                "dynamic_shared": 0
+              },
+              "ink2_embed_rmsnorm": {
+                "calls": 32,
+                "total_ms": 0.079233,
+                "registers": 28,
+                "dynamic_shared": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "run": 1,
+        "predictions": [
+          145026,
+          220,
+          39446,
+          220,
+          19,
+          154978,
+          152792,
+          189134,
+          149860,
+          185136,
+          198,
+          84375,
+          149859,
+          23033,
+          220,
+          137294,
+          196997,
+          13,
+          1157,
+          63,
+          150406,
+          903,
+          25,
+          196997,
+          30841,
+          57335,
+          12,
+          1339,
+          903,
+          63,
+          197005,
+          196997
+        ],
+        "phases": {
+          "prefill": {
+            "kernels": 1324,
+            "graph_nodes": 0,
+            "span_ms": 122.108718,
+            "union_ms": 122.101352,
+            "wall_ms": 122.129425,
+            "by_kernel": {
+              "ink2_moe_nvfp4_tc_up_situ_packed_scales": {
+                "calls": 44,
+                "total_ms": 43.755438,
+                "registers": 128,
+                "dynamic_shared": 62480
+              },
+              "ink2_moe_nvfp4_tc_down_packed_scales": {
+                "calls": 44,
+                "total_ms": 17.574233,
+                "registers": 127,
+                "dynamic_shared": 62480
+              },
+              "ink2_q8_tc_gemm_b": {
+                "calls": 68,
+                "total_ms": 11.073644,
+                "registers": 105,
+                "dynamic_shared": 64512
+              },
+              "ink2_q8_tc_qkv3_gemm_b": {
+                "calls": 28,
+                "total_ms": 6.994702,
+                "registers": 101,
+                "dynamic_shared": 64512
+              },
+              "ink2_flash_attn_tc_q8_b": {
+                "calls": 48,
+                "total_ms": 6.614128,
+                "registers": 168,
+                "dynamic_shared": 64384
+              },
+              "ink2_depth_mix_multi_ctrl_norm_bf16_b": {
+                "calls": 48,
+                "total_ms": 5.113285,
+                "registers": 74,
+                "dynamic_shared": 0
+              },
+              "ink2_bf16_tc_gemm_b": {
+                "calls": 96,
+                "total_ms": 4.328823,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_tc_up_situ_u4_packed_scales": {
+                "calls": 4,
+                "total_ms": 4.146942,
+                "registers": 124,
+                "dynamic_shared": 77840
+              },
+              "ink2_short_conv4_save_par_b": {
+                "calls": 192,
+                "total_ms": 3.670084,
+                "registers": 56,
+                "dynamic_shared": 0
+              },
+              "ink2_ctrl_apply_tc_b": {
+                "calls": 48,
+                "total_ms": 3.495768,
+                "registers": 55,
+                "dynamic_shared": 0
+              },
+              "ink2_quant_nvfp4_2term_1p_b": {
+                "calls": 88,
+                "total_ms": 2.232358,
+                "registers": 39,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_tc_down_u4_packed_scales": {
+                "calls": 4,
+                "total_ms": 2.083951,
+                "registers": 120,
+                "dynamic_shared": 77840
+              },
+              "ink2_moe_combine_top8_f16_b": {
+                "calls": 48,
+                "total_ms": 1.81636,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_prep_qkv_and_cache_b": {
+                "calls": 48,
+                "total_ms": 1.814761,
+                "registers": 24,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_multi_b": {
+                "calls": 24,
+                "total_ms": 1.635886,
+                "registers": 56,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_quant_q8_64_b": {
+                "calls": 24,
+                "total_ms": 0.894375,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_gather_nvfp4_sorted_b": {
+                "calls": 44,
+                "total_ms": 0.882281,
+                "registers": 38,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_d_quant_q8_16_b": {
+                "calls": 24,
+                "total_ms": 0.831746,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_quant_q8_64_b": {
+                "calls": 25,
+                "total_ms": 0.787331,
+                "registers": 28,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c2304": {
+                "calls": 1,
+                "total_ms": 0.593764,
+                "registers": 63,
+                "dynamic_shared": 0
+              },
+              "ink2_embed_rmsnorm_b": {
+                "calls": 1,
+                "total_ms": 0.449092,
+                "registers": 20,
+                "dynamic_shared": 0
+              },
+              "ink2_f32_to_bf16_b": {
+                "calls": 48,
+                "total_ms": 0.317822,
+                "registers": 18,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_commit_hist_b": {
+                "calls": 192,
+                "total_ms": 0.285133,
+                "registers": 18,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_d_b": {
+                "calls": 24,
+                "total_ms": 0.263394,
+                "registers": 22,
+                "dynamic_shared": 0
+              },
+              "ink2_build_expert_groups_par_b": {
+                "calls": 48,
+                "total_ms": 0.260285,
+                "registers": 32,
+                "dynamic_shared": 0
+              },
+              "ink2_quant_mxfp8_b": {
+                "calls": 8,
+                "total_ms": 0.221983,
+                "registers": 17,
+                "dynamic_shared": 0
+              },
+              "ink2_loop_pass_setup_b": {
+                "calls": 3,
+                "total_ms": 0.165346,
+                "registers": 20,
+                "dynamic_shared": 0
+              },
+              "ink2_router_topk8_b": {
+                "calls": 48,
+                "total_ms": 0.159617,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_argmax_b": {
+                "calls": 1,
+                "total_ms": 0.017536,
+                "registers": 39,
+                "dynamic_shared": 0
+              },
+              "ink2_inc_pos_by": {
+                "calls": 1,
+                "total_ms": 0.001344,
+                "registers": 16,
+                "dynamic_shared": 0
+              }
+            }
+          },
+          "decode32": {
+            "kernels": 26400,
+            "graph_nodes": 26400,
+            "span_ms": 206.726071,
+            "union_ms": 193.510812,
+            "wall_ms": 207.089221,
+            "by_kernel": {
+              "ink2_moe_nvfp4_dp4a_up_half_q8_packed_scales": {
+                "calls": 1408,
+                "total_ms": 44.998236,
+                "registers": 61,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_qkv3_gemv_r1": {
+                "calls": 896,
+                "total_ms": 24.143481,
+                "registers": 46,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_nvfp4_dp4a_down_xw_packed_scales": {
+                "calls": 1408,
+                "total_ms": 22.966911,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c2304": {
+                "calls": 32,
+                "total_ms": 18.461056,
+                "registers": 63,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c2304_r1": {
+                "calls": 640,
+                "total_ms": 17.083557,
+                "registers": 47,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c3072_r1": {
+                "calls": 1536,
+                "total_ms": 16.552204,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_gqa_attn_combine_q8_dyn": {
+                "calls": 1536,
+                "total_ms": 14.886709,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_gqa_attn_split_dec": {
+                "calls": 1536,
+                "total_ms": 14.843701,
+                "registers": 64,
+                "dynamic_shared": 0
+              },
+              "ink2_ctrl_down_r4_fast": {
+                "calls": 1536,
+                "total_ms": 7.986925,
+                "registers": 72,
+                "dynamic_shared": 0
+              },
+              "ink2_ctrl_apply_coalesced_b": {
+                "calls": 1536,
+                "total_ms": 7.967029,
+                "registers": 56,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_quant_q8_64": {
+                "calls": 800,
+                "total_ms": 6.877104,
+                "registers": 36,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_quant_q8_64_b": {
+                "calls": 768,
+                "total_ms": 6.611406,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_bf16_gemv": {
+                "calls": 1536,
+                "total_ms": 6.150128,
+                "registers": 60,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_up_situ_u4_packed_scales": {
+                "calls": 128,
+                "total_ms": 5.508323,
+                "registers": 47,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_inv": {
+                "calls": 1600,
+                "total_ms": 4.854618,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_router_topk8": {
+                "calls": 1536,
+                "total_ms": 3.647837,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_d_quant_q8_16_b": {
+                "calls": 768,
+                "total_ms": 2.966112,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_down_xw_u4_packed_scales": {
+                "calls": 128,
+                "total_ms": 2.770571,
+                "registers": 72,
+                "dynamic_shared": 0
+              },
+              "ink2_prep_qkv_and_cache": {
+                "calls": 1536,
+                "total_ms": 2.678201,
+                "registers": 24,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_d_quant_q8_16_b": {
+                "calls": 768,
+                "total_ms": 2.232422,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_save": {
+                "calls": 1536,
+                "total_ms": 1.882459,
+                "registers": 30,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4": {
+                "calls": 1536,
+                "total_ms": 1.824404,
+                "registers": 26,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_kv2": {
+                "calls": 1536,
+                "total_ms": 1.792068,
+                "registers": 24,
+                "dynamic_shared": 0
+              },
+              "ink2_argmax_and_inc_pos": {
+                "calls": 32,
+                "total_ms": 0.683204,
+                "registers": 39,
+                "dynamic_shared": 0
+              },
+              "ink2_loop_pass_setup_b": {
+                "calls": 96,
+                "total_ms": 0.166687,
+                "registers": 20,
+                "dynamic_shared": 0
+              },
+              "ink2_embed_rmsnorm": {
+                "calls": 32,
+                "total_ms": 0.081859,
+                "registers": 28,
+                "dynamic_shared": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "run": 2,
+        "predictions": [
+          145026,
+          220,
+          39446,
+          220,
+          19,
+          154978,
+          152792,
+          189134,
+          149860,
+          185136,
+          198,
+          84375,
+          149859,
+          23033,
+          220,
+          137294,
+          196997,
+          13,
+          1157,
+          63,
+          150406,
+          903,
+          25,
+          196997,
+          30841,
+          57335,
+          12,
+          1339,
+          903,
+          63,
+          197005,
+          196997
+        ],
+        "phases": {
+          "prefill": {
+            "kernels": 1324,
+            "graph_nodes": 0,
+            "span_ms": 122.212366,
+            "union_ms": 122.204751,
+            "wall_ms": 122.236097,
+            "by_kernel": {
+              "ink2_moe_nvfp4_tc_up_situ_packed_scales": {
+                "calls": 44,
+                "total_ms": 43.79352,
+                "registers": 128,
+                "dynamic_shared": 62480
+              },
+              "ink2_moe_nvfp4_tc_down_packed_scales": {
+                "calls": 44,
+                "total_ms": 17.584214,
+                "registers": 127,
+                "dynamic_shared": 62480
+              },
+              "ink2_q8_tc_gemm_b": {
+                "calls": 68,
+                "total_ms": 11.082828,
+                "registers": 105,
+                "dynamic_shared": 64512
+              },
+              "ink2_q8_tc_qkv3_gemm_b": {
+                "calls": 28,
+                "total_ms": 7.015922,
+                "registers": 101,
+                "dynamic_shared": 64512
+              },
+              "ink2_flash_attn_tc_q8_b": {
+                "calls": 48,
+                "total_ms": 6.628457,
+                "registers": 168,
+                "dynamic_shared": 64384
+              },
+              "ink2_depth_mix_multi_ctrl_norm_bf16_b": {
+                "calls": 48,
+                "total_ms": 5.102407,
+                "registers": 74,
+                "dynamic_shared": 0
+              },
+              "ink2_bf16_tc_gemm_b": {
+                "calls": 96,
+                "total_ms": 4.326489,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_tc_up_situ_u4_packed_scales": {
+                "calls": 4,
+                "total_ms": 4.160316,
+                "registers": 124,
+                "dynamic_shared": 77840
+              },
+              "ink2_short_conv4_save_par_b": {
+                "calls": 192,
+                "total_ms": 3.675101,
+                "registers": 56,
+                "dynamic_shared": 0
+              },
+              "ink2_ctrl_apply_tc_b": {
+                "calls": 48,
+                "total_ms": 3.494747,
+                "registers": 55,
+                "dynamic_shared": 0
+              },
+              "ink2_quant_nvfp4_2term_1p_b": {
+                "calls": 88,
+                "total_ms": 2.232977,
+                "registers": 39,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_tc_down_u4_packed_scales": {
+                "calls": 4,
+                "total_ms": 2.092461,
+                "registers": 120,
+                "dynamic_shared": 77840
+              },
+              "ink2_moe_combine_top8_f16_b": {
+                "calls": 48,
+                "total_ms": 1.812236,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_prep_qkv_and_cache_b": {
+                "calls": 48,
+                "total_ms": 1.802474,
+                "registers": 24,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_multi_b": {
+                "calls": 24,
+                "total_ms": 1.63925,
+                "registers": 56,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_quant_q8_64_b": {
+                "calls": 24,
+                "total_ms": 0.895365,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_gather_nvfp4_sorted_b": {
+                "calls": 44,
+                "total_ms": 0.88468,
+                "registers": 38,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_d_quant_q8_16_b": {
+                "calls": 24,
+                "total_ms": 0.83473,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_quant_q8_64_b": {
+                "calls": 25,
+                "total_ms": 0.790243,
+                "registers": 28,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c2304": {
+                "calls": 1,
+                "total_ms": 0.594052,
+                "registers": 63,
+                "dynamic_shared": 0
+              },
+              "ink2_embed_rmsnorm_b": {
+                "calls": 1,
+                "total_ms": 0.447555,
+                "registers": 20,
+                "dynamic_shared": 0
+              },
+              "ink2_f32_to_bf16_b": {
+                "calls": 48,
+                "total_ms": 0.315939,
+                "registers": 18,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_commit_hist_b": {
+                "calls": 192,
+                "total_ms": 0.286093,
+                "registers": 18,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_d_b": {
+                "calls": 24,
+                "total_ms": 0.263842,
+                "registers": 22,
+                "dynamic_shared": 0
+              },
+              "ink2_build_expert_groups_par_b": {
+                "calls": 48,
+                "total_ms": 0.260732,
+                "registers": 32,
+                "dynamic_shared": 0
+              },
+              "ink2_quant_mxfp8_b": {
+                "calls": 8,
+                "total_ms": 0.222531,
+                "registers": 17,
+                "dynamic_shared": 0
+              },
+              "ink2_loop_pass_setup_b": {
+                "calls": 3,
+                "total_ms": 0.166048,
+                "registers": 20,
+                "dynamic_shared": 0
+              },
+              "ink2_router_topk8_b": {
+                "calls": 48,
+                "total_ms": 0.160543,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_argmax_b": {
+                "calls": 1,
+                "total_ms": 0.01712,
+                "registers": 39,
+                "dynamic_shared": 0
+              },
+              "ink2_inc_pos_by": {
+                "calls": 1,
+                "total_ms": 0.001344,
+                "registers": 16,
+                "dynamic_shared": 0
+              }
+            }
+          },
+          "decode32": {
+            "kernels": 26400,
+            "graph_nodes": 26400,
+            "span_ms": 206.610647,
+            "union_ms": 193.543133,
+            "wall_ms": 206.968581,
+            "by_kernel": {
+              "ink2_moe_nvfp4_dp4a_up_half_q8_packed_scales": {
+                "calls": 1408,
+                "total_ms": 44.990717,
+                "registers": 61,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_qkv3_gemv_r1": {
+                "calls": 896,
+                "total_ms": 24.142027,
+                "registers": 46,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_nvfp4_dp4a_down_xw_packed_scales": {
+                "calls": 1408,
+                "total_ms": 22.98273,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c2304": {
+                "calls": 32,
+                "total_ms": 18.460928,
+                "registers": 63,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c2304_r1": {
+                "calls": 640,
+                "total_ms": 17.071185,
+                "registers": 47,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c3072_r1": {
+                "calls": 1536,
+                "total_ms": 16.542611,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_gqa_attn_combine_q8_dyn": {
+                "calls": 1536,
+                "total_ms": 14.879298,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_gqa_attn_split_dec": {
+                "calls": 1536,
+                "total_ms": 14.852069,
+                "registers": 64,
+                "dynamic_shared": 0
+              },
+              "ink2_ctrl_down_r4_fast": {
+                "calls": 1536,
+                "total_ms": 7.983194,
+                "registers": 72,
+                "dynamic_shared": 0
+              },
+              "ink2_ctrl_apply_coalesced_b": {
+                "calls": 1536,
+                "total_ms": 7.971626,
+                "registers": 56,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_quant_q8_64": {
+                "calls": 800,
+                "total_ms": 6.871219,
+                "registers": 36,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_quant_q8_64_b": {
+                "calls": 768,
+                "total_ms": 6.613619,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_bf16_gemv": {
+                "calls": 1536,
+                "total_ms": 6.155161,
+                "registers": 60,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_up_situ_u4_packed_scales": {
+                "calls": 128,
+                "total_ms": 5.521291,
+                "registers": 47,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_inv": {
+                "calls": 1600,
+                "total_ms": 4.855968,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_router_topk8": {
+                "calls": 1536,
+                "total_ms": 3.651882,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_d_quant_q8_16_b": {
+                "calls": 768,
+                "total_ms": 2.963384,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_down_xw_u4_packed_scales": {
+                "calls": 128,
+                "total_ms": 2.773742,
+                "registers": 72,
+                "dynamic_shared": 0
+              },
+              "ink2_prep_qkv_and_cache": {
+                "calls": 1536,
+                "total_ms": 2.683408,
+                "registers": 24,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_d_quant_q8_16_b": {
+                "calls": 768,
+                "total_ms": 2.233935,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_save": {
+                "calls": 1536,
+                "total_ms": 1.880396,
+                "registers": 30,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4": {
+                "calls": 1536,
+                "total_ms": 1.832259,
+                "registers": 26,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_kv2": {
+                "calls": 1536,
+                "total_ms": 1.792352,
+                "registers": 24,
+                "dynamic_shared": 0
+              },
+              "ink2_argmax_and_inc_pos": {
+                "calls": 32,
+                "total_ms": 0.688836,
+                "registers": 39,
+                "dynamic_shared": 0
+              },
+              "ink2_loop_pass_setup_b": {
+                "calls": 96,
+                "total_ms": 0.166689,
+                "registers": 20,
+                "dynamic_shared": 0
+              },
+              "ink2_embed_rmsnorm": {
+                "calls": 32,
+                "total_ms": 0.079875,
+                "registers": 28,
+                "dynamic_shared": 0
+              }
+            }
+          }
+        }
+      }
+    ]
+  },
+  "5060Ti": {
+    "source": "a567839d925a70dc7fbd2c4d943ed77d60ec9f78",
+    "sha256": {
+      "profile": "381358de62b1d2cc2d7a48c48deaadaae0adda2c92d7f38abfc3d3ae59db31fc",
+      "libactivity.so": "99dfa74b9340bf7ad36783809c4a8b7bb7be6e0811b52c6cadd271ee8b7d7e0b",
+      "matched.cubin": "1da6c4736568784cc0b0d2c1ffcbc55132db9e519221b102609849991ed3e227"
+    },
+    "trace_sha256": "9494becd8ffa27543e9743d3b9b226dfaf6000775d21eb1e50b639e3422fea03",
+    "ranges": [
+      "0 1795781770374494223 1795781770639487100 1795781770993005803 145026,220,39446,220,19,154978,152792,189134,149860,185136,198,84375,149859,23033,220,137294,196997,13,1157,63,150406,903,25,196997,30841,57335,12,1339,903,63,197005,196997",
+      "1 1795781770993049206 1795781771250810302 1795781771607089781 145026,220,39446,220,19,154978,152792,189134,149860,185136,198,84375,149859,23033,220,137294,196997,13,1157,63,150406,903,25,196997,30841,57335,12,1339,903,63,197005,196997",
+      "2 1795781771607132958 1795781771865135935 1795781772220861133 145026,220,39446,220,19,154978,152792,189134,149860,185136,198,84375,149859,23033,220,137294,196997,13,1157,63,150406,903,25,196997,30841,57335,12,1339,903,63,197005,196997"
+    ],
+    "loader": [
+      "[LeanSonic GPU] Packed 48 expert scale planes, saving 398131008 device bytes",
+      "[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 14.37 GiB / 15.48 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 64..2048 | Loaded in 12.25s",
+      "dropped=0"
+    ],
+    "requests": [
+      {
+        "run": 0,
+        "predictions": [
+          145026,
+          220,
+          39446,
+          220,
+          19,
+          154978,
+          152792,
+          189134,
+          149860,
+          185136,
+          198,
+          84375,
+          149859,
+          23033,
+          220,
+          137294,
+          196997,
+          13,
+          1157,
+          63,
+          150406,
+          903,
+          25,
+          196997,
+          30841,
+          57335,
+          12,
+          1339,
+          903,
+          63,
+          197005,
+          196997
+        ],
+        "phases": {
+          "prefill": {
+            "kernels": 1324,
+            "graph_nodes": 0,
+            "span_ms": 257.944997,
+            "union_ms": 257.937574,
+            "wall_ms": 264.992877,
+            "by_kernel": {
+              "ink2_moe_nvfp4_tc_up_situ_packed_scales": {
+                "calls": 44,
+                "total_ms": 104.092178,
+                "registers": 128,
+                "dynamic_shared": 62480
+              },
+              "ink2_moe_nvfp4_tc_down_packed_scales": {
+                "calls": 44,
+                "total_ms": 36.600359,
+                "registers": 127,
+                "dynamic_shared": 62480
+              },
+              "ink2_q8_tc_gemm_b": {
+                "calls": 68,
+                "total_ms": 19.296885,
+                "registers": 105,
+                "dynamic_shared": 64512
+              },
+              "ink2_q8_tc_qkv3_gemm_b": {
+                "calls": 28,
+                "total_ms": 14.874814,
+                "registers": 101,
+                "dynamic_shared": 64512
+              },
+              "ink2_flash_attn_tc_q8_b": {
+                "calls": 48,
+                "total_ms": 13.573876,
+                "registers": 168,
+                "dynamic_shared": 64384
+              },
+              "ink2_depth_mix_multi_ctrl_norm_bf16_b": {
+                "calls": 48,
+                "total_ms": 10.381732,
+                "registers": 74,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_tc_up_situ_u4_packed_scales": {
+                "calls": 4,
+                "total_ms": 8.483928,
+                "registers": 124,
+                "dynamic_shared": 77840
+              },
+              "ink2_ctrl_apply_tc_b": {
+                "calls": 48,
+                "total_ms": 7.320813,
+                "registers": 55,
+                "dynamic_shared": 0
+              },
+              "ink2_bf16_tc_gemm_b": {
+                "calls": 96,
+                "total_ms": 6.053092,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_save_par_b": {
+                "calls": 192,
+                "total_ms": 5.780097,
+                "registers": 56,
+                "dynamic_shared": 0
+              },
+              "ink2_quant_nvfp4_2term_1p_b": {
+                "calls": 88,
+                "total_ms": 4.443294,
+                "registers": 39,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_tc_down_u4_packed_scales": {
+                "calls": 4,
+                "total_ms": 4.30758,
+                "registers": 120,
+                "dynamic_shared": 77840
+              },
+              "ink2_moe_combine_top8_f16_b": {
+                "calls": 48,
+                "total_ms": 3.974232,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_prep_qkv_and_cache_b": {
+                "calls": 48,
+                "total_ms": 3.670777,
+                "registers": 24,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_multi_b": {
+                "calls": 24,
+                "total_ms": 3.299285,
+                "registers": 56,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_quant_q8_64_b": {
+                "calls": 25,
+                "total_ms": 2.532846,
+                "registers": 28,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_quant_q8_64_b": {
+                "calls": 24,
+                "total_ms": 1.732621,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_d_quant_q8_16_b": {
+                "calls": 24,
+                "total_ms": 1.685066,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_gather_nvfp4_sorted_b": {
+                "calls": 44,
+                "total_ms": 1.292586,
+                "registers": 38,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c2304": {
+                "calls": 1,
+                "total_ms": 1.186663,
+                "registers": 63,
+                "dynamic_shared": 0
+              },
+              "ink2_embed_rmsnorm_b": {
+                "calls": 1,
+                "total_ms": 1.163304,
+                "registers": 20,
+                "dynamic_shared": 0
+              },
+              "ink2_f32_to_bf16_b": {
+                "calls": 48,
+                "total_ms": 0.459241,
+                "registers": 18,
+                "dynamic_shared": 0
+              },
+              "ink2_quant_mxfp8_b": {
+                "calls": 8,
+                "total_ms": 0.446049,
+                "registers": 17,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_d_b": {
+                "calls": 24,
+                "total_ms": 0.406818,
+                "registers": 22,
+                "dynamic_shared": 0
+              },
+              "ink2_loop_pass_setup_b": {
+                "calls": 3,
+                "total_ms": 0.39133,
+                "registers": 20,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_commit_hist_b": {
+                "calls": 192,
+                "total_ms": 0.338396,
+                "registers": 18,
+                "dynamic_shared": 0
+              },
+              "ink2_build_expert_groups_par_b": {
+                "calls": 48,
+                "total_ms": 0.319328,
+                "registers": 32,
+                "dynamic_shared": 0
+              },
+              "ink2_router_topk8_b": {
+                "calls": 48,
+                "total_ms": 0.270402,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_argmax_b": {
+                "calls": 1,
+                "total_ms": 0.020992,
+                "registers": 39,
+                "dynamic_shared": 0
+              },
+              "ink2_inc_pos_by": {
+                "calls": 1,
+                "total_ms": 0.001312,
+                "registers": 16,
+                "dynamic_shared": 0
+              }
+            }
+          },
+          "decode32": {
+            "kernels": 26400,
+            "graph_nodes": 26400,
+            "span_ms": 353.056865,
+            "union_ms": 341.700727,
+            "wall_ms": 353.518703,
+            "by_kernel": {
+              "ink2_moe_nvfp4_dp4a_up_half_q8_packed_scales": {
+                "calls": 1408,
+                "total_ms": 83.475009,
+                "registers": 61,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_qkv3_gemv_r1": {
+                "calls": 896,
+                "total_ms": 45.612482,
+                "registers": 46,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_nvfp4_dp4a_down_xw_packed_scales": {
+                "calls": 1408,
+                "total_ms": 42.667569,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c2304": {
+                "calls": 32,
+                "total_ms": 36.84225,
+                "registers": 63,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c2304_r1": {
+                "calls": 640,
+                "total_ms": 32.851571,
+                "registers": 47,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c3072_r1": {
+                "calls": 1536,
+                "total_ms": 30.261876,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_gqa_attn_split_dec": {
+                "calls": 1536,
+                "total_ms": 23.083854,
+                "registers": 64,
+                "dynamic_shared": 0
+              },
+              "ink2_gqa_attn_combine_q8_dyn": {
+                "calls": 1536,
+                "total_ms": 20.620612,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_up_situ_u4_packed_scales": {
+                "calls": 128,
+                "total_ms": 10.704608,
+                "registers": 47,
+                "dynamic_shared": 0
+              },
+              "ink2_ctrl_down_r4_fast": {
+                "calls": 1536,
+                "total_ms": 10.399196,
+                "registers": 72,
+                "dynamic_shared": 0
+              },
+              "ink2_ctrl_apply_coalesced_b": {
+                "calls": 1536,
+                "total_ms": 8.493955,
+                "registers": 56,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_quant_q8_64": {
+                "calls": 800,
+                "total_ms": 6.684743,
+                "registers": 36,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_quant_q8_64_b": {
+                "calls": 768,
+                "total_ms": 6.515316,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_bf16_gemv": {
+                "calls": 1536,
+                "total_ms": 6.209484,
+                "registers": 60,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_inv": {
+                "calls": 1600,
+                "total_ms": 5.321225,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_down_xw_u4_packed_scales": {
+                "calls": 128,
+                "total_ms": 5.075198,
+                "registers": 72,
+                "dynamic_shared": 0
+              },
+              "ink2_router_topk8": {
+                "calls": 1536,
+                "total_ms": 3.814353,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_d_quant_q8_16_b": {
+                "calls": 768,
+                "total_ms": 3.191489,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_prep_qkv_and_cache": {
+                "calls": 1536,
+                "total_ms": 2.720654,
+                "registers": 24,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_d_quant_q8_16_b": {
+                "calls": 768,
+                "total_ms": 2.380755,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_save": {
+                "calls": 1536,
+                "total_ms": 1.975396,
+                "registers": 30,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4": {
+                "calls": 1536,
+                "total_ms": 1.945237,
+                "registers": 26,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_kv2": {
+                "calls": 1536,
+                "total_ms": 1.815197,
+                "registers": 24,
+                "dynamic_shared": 0
+              },
+              "ink2_argmax_and_inc_pos": {
+                "calls": 32,
+                "total_ms": 0.697377,
+                "registers": 39,
+                "dynamic_shared": 0
+              },
+              "ink2_embed_rmsnorm": {
+                "calls": 32,
+                "total_ms": 0.23373,
+                "registers": 28,
+                "dynamic_shared": 0
+              },
+              "ink2_loop_pass_setup_b": {
+                "calls": 96,
+                "total_ms": 0.182624,
+                "registers": 20,
+                "dynamic_shared": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "run": 1,
+        "predictions": [
+          145026,
+          220,
+          39446,
+          220,
+          19,
+          154978,
+          152792,
+          189134,
+          149860,
+          185136,
+          198,
+          84375,
+          149859,
+          23033,
+          220,
+          137294,
+          196997,
+          13,
+          1157,
+          63,
+          150406,
+          903,
+          25,
+          196997,
+          30841,
+          57335,
+          12,
+          1339,
+          903,
+          63,
+          197005,
+          196997
+        ],
+        "phases": {
+          "prefill": {
+            "kernels": 1324,
+            "graph_nodes": 0,
+            "span_ms": 257.730276,
+            "union_ms": 257.724681,
+            "wall_ms": 257.761096,
+            "by_kernel": {
+              "ink2_moe_nvfp4_tc_up_situ_packed_scales": {
+                "calls": 44,
+                "total_ms": 104.046294,
+                "registers": 128,
+                "dynamic_shared": 62480
+              },
+              "ink2_moe_nvfp4_tc_down_packed_scales": {
+                "calls": 44,
+                "total_ms": 36.61281,
+                "registers": 127,
+                "dynamic_shared": 62480
+              },
+              "ink2_q8_tc_gemm_b": {
+                "calls": 68,
+                "total_ms": 19.315393,
+                "registers": 105,
+                "dynamic_shared": 64512
+              },
+              "ink2_q8_tc_qkv3_gemm_b": {
+                "calls": 28,
+                "total_ms": 14.867166,
+                "registers": 101,
+                "dynamic_shared": 64512
+              },
+              "ink2_flash_attn_tc_q8_b": {
+                "calls": 48,
+                "total_ms": 13.571862,
+                "registers": 168,
+                "dynamic_shared": 64384
+              },
+              "ink2_depth_mix_multi_ctrl_norm_bf16_b": {
+                "calls": 48,
+                "total_ms": 10.357313,
+                "registers": 74,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_tc_up_situ_u4_packed_scales": {
+                "calls": 4,
+                "total_ms": 8.477942,
+                "registers": 124,
+                "dynamic_shared": 77840
+              },
+              "ink2_ctrl_apply_tc_b": {
+                "calls": 48,
+                "total_ms": 7.319789,
+                "registers": 55,
+                "dynamic_shared": 0
+              },
+              "ink2_bf16_tc_gemm_b": {
+                "calls": 96,
+                "total_ms": 6.0643,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_save_par_b": {
+                "calls": 192,
+                "total_ms": 5.78936,
+                "registers": 56,
+                "dynamic_shared": 0
+              },
+              "ink2_quant_nvfp4_2term_1p_b": {
+                "calls": 88,
+                "total_ms": 4.443516,
+                "registers": 39,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_tc_down_u4_packed_scales": {
+                "calls": 4,
+                "total_ms": 4.303228,
+                "registers": 120,
+                "dynamic_shared": 77840
+              },
+              "ink2_moe_combine_top8_f16_b": {
+                "calls": 48,
+                "total_ms": 3.974324,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_prep_qkv_and_cache_b": {
+                "calls": 48,
+                "total_ms": 3.65212,
+                "registers": 24,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_multi_b": {
+                "calls": 24,
+                "total_ms": 3.297363,
+                "registers": 56,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_quant_q8_64_b": {
+                "calls": 25,
+                "total_ms": 2.534828,
+                "registers": 28,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_quant_q8_64_b": {
+                "calls": 24,
+                "total_ms": 1.737325,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_d_quant_q8_16_b": {
+                "calls": 24,
+                "total_ms": 1.688459,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_gather_nvfp4_sorted_b": {
+                "calls": 44,
+                "total_ms": 1.293892,
+                "registers": 38,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c2304": {
+                "calls": 1,
+                "total_ms": 1.183943,
+                "registers": 63,
+                "dynamic_shared": 0
+              },
+              "ink2_embed_rmsnorm_b": {
+                "calls": 1,
+                "total_ms": 1.007431,
+                "registers": 20,
+                "dynamic_shared": 0
+              },
+              "ink2_f32_to_bf16_b": {
+                "calls": 48,
+                "total_ms": 0.458628,
+                "registers": 18,
+                "dynamic_shared": 0
+              },
+              "ink2_quant_mxfp8_b": {
+                "calls": 8,
+                "total_ms": 0.445155,
+                "registers": 17,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_d_b": {
+                "calls": 24,
+                "total_ms": 0.406082,
+                "registers": 22,
+                "dynamic_shared": 0
+              },
+              "ink2_loop_pass_setup_b": {
+                "calls": 3,
+                "total_ms": 0.39114,
+                "registers": 20,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_commit_hist_b": {
+                "calls": 192,
+                "total_ms": 0.334788,
+                "registers": 18,
+                "dynamic_shared": 0
+              },
+              "ink2_build_expert_groups_par_b": {
+                "calls": 48,
+                "total_ms": 0.319427,
+                "registers": 32,
+                "dynamic_shared": 0
+              },
+              "ink2_router_topk8_b": {
+                "calls": 48,
+                "total_ms": 0.270911,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_argmax_b": {
+                "calls": 1,
+                "total_ms": 0.020993,
+                "registers": 39,
+                "dynamic_shared": 0
+              },
+              "ink2_inc_pos_by": {
+                "calls": 1,
+                "total_ms": 0.001376,
+                "registers": 16,
+                "dynamic_shared": 0
+              }
+            }
+          },
+          "decode32": {
+            "kernels": 26400,
+            "graph_nodes": 26400,
+            "span_ms": 355.901043,
+            "union_ms": 341.777947,
+            "wall_ms": 356.279479,
+            "by_kernel": {
+              "ink2_moe_nvfp4_dp4a_up_half_q8_packed_scales": {
+                "calls": 1408,
+                "total_ms": 83.472057,
+                "registers": 61,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_qkv3_gemv_r1": {
+                "calls": 896,
+                "total_ms": 45.61364,
+                "registers": 46,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_nvfp4_dp4a_down_xw_packed_scales": {
+                "calls": 1408,
+                "total_ms": 42.666853,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c2304": {
+                "calls": 32,
+                "total_ms": 36.834375,
+                "registers": 63,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c2304_r1": {
+                "calls": 640,
+                "total_ms": 32.862425,
+                "registers": 47,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c3072_r1": {
+                "calls": 1536,
+                "total_ms": 30.282,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_gqa_attn_split_dec": {
+                "calls": 1536,
+                "total_ms": 23.084022,
+                "registers": 64,
+                "dynamic_shared": 0
+              },
+              "ink2_gqa_attn_combine_q8_dyn": {
+                "calls": 1536,
+                "total_ms": 20.636929,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_up_situ_u4_packed_scales": {
+                "calls": 128,
+                "total_ms": 10.734379,
+                "registers": 47,
+                "dynamic_shared": 0
+              },
+              "ink2_ctrl_down_r4_fast": {
+                "calls": 1536,
+                "total_ms": 10.394043,
+                "registers": 72,
+                "dynamic_shared": 0
+              },
+              "ink2_ctrl_apply_coalesced_b": {
+                "calls": 1536,
+                "total_ms": 8.483426,
+                "registers": 56,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_quant_q8_64": {
+                "calls": 800,
+                "total_ms": 6.700626,
+                "registers": 36,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_quant_q8_64_b": {
+                "calls": 768,
+                "total_ms": 6.513906,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_bf16_gemv": {
+                "calls": 1536,
+                "total_ms": 6.209757,
+                "registers": 60,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_inv": {
+                "calls": 1600,
+                "total_ms": 5.324317,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_down_xw_u4_packed_scales": {
+                "calls": 128,
+                "total_ms": 5.080317,
+                "registers": 72,
+                "dynamic_shared": 0
+              },
+              "ink2_router_topk8": {
+                "calls": 1536,
+                "total_ms": 3.816677,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_d_quant_q8_16_b": {
+                "calls": 768,
+                "total_ms": 3.190005,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_prep_qkv_and_cache": {
+                "calls": 1536,
+                "total_ms": 2.716085,
+                "registers": 24,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_d_quant_q8_16_b": {
+                "calls": 768,
+                "total_ms": 2.383053,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_save": {
+                "calls": 1536,
+                "total_ms": 1.975894,
+                "registers": 30,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4": {
+                "calls": 1536,
+                "total_ms": 1.943139,
+                "registers": 26,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_kv2": {
+                "calls": 1536,
+                "total_ms": 1.811234,
+                "registers": 24,
+                "dynamic_shared": 0
+              },
+              "ink2_argmax_and_inc_pos": {
+                "calls": 32,
+                "total_ms": 0.700869,
+                "registers": 39,
+                "dynamic_shared": 0
+              },
+              "ink2_embed_rmsnorm": {
+                "calls": 32,
+                "total_ms": 0.251045,
+                "registers": 28,
+                "dynamic_shared": 0
+              },
+              "ink2_loop_pass_setup_b": {
+                "calls": 96,
+                "total_ms": 0.180388,
+                "registers": 20,
+                "dynamic_shared": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "run": 2,
+        "predictions": [
+          145026,
+          220,
+          39446,
+          220,
+          19,
+          154978,
+          152792,
+          189134,
+          149860,
+          185136,
+          198,
+          84375,
+          149859,
+          23033,
+          220,
+          137294,
+          196997,
+          13,
+          1157,
+          63,
+          150406,
+          903,
+          25,
+          196997,
+          30841,
+          57335,
+          12,
+          1339,
+          903,
+          63,
+          197005,
+          196997
+        ],
+        "phases": {
+          "prefill": {
+            "kernels": 1324,
+            "graph_nodes": 0,
+            "span_ms": 257.96663,
+            "union_ms": 257.961194,
+            "wall_ms": 258.002977,
+            "by_kernel": {
+              "ink2_moe_nvfp4_tc_up_situ_packed_scales": {
+                "calls": 44,
+                "total_ms": 104.193304,
+                "registers": 128,
+                "dynamic_shared": 62480
+              },
+              "ink2_moe_nvfp4_tc_down_packed_scales": {
+                "calls": 44,
+                "total_ms": 36.639175,
+                "registers": 127,
+                "dynamic_shared": 62480
+              },
+              "ink2_q8_tc_gemm_b": {
+                "calls": 68,
+                "total_ms": 19.359447,
+                "registers": 105,
+                "dynamic_shared": 64512
+              },
+              "ink2_q8_tc_qkv3_gemm_b": {
+                "calls": 28,
+                "total_ms": 14.873722,
+                "registers": 101,
+                "dynamic_shared": 64512
+              },
+              "ink2_flash_attn_tc_q8_b": {
+                "calls": 48,
+                "total_ms": 13.587485,
+                "registers": 168,
+                "dynamic_shared": 64384
+              },
+              "ink2_depth_mix_multi_ctrl_norm_bf16_b": {
+                "calls": 48,
+                "total_ms": 10.378978,
+                "registers": 74,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_tc_up_situ_u4_packed_scales": {
+                "calls": 4,
+                "total_ms": 8.514936,
+                "registers": 124,
+                "dynamic_shared": 77840
+              },
+              "ink2_ctrl_apply_tc_b": {
+                "calls": 48,
+                "total_ms": 7.322861,
+                "registers": 55,
+                "dynamic_shared": 0
+              },
+              "ink2_bf16_tc_gemm_b": {
+                "calls": 96,
+                "total_ms": 6.063299,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_save_par_b": {
+                "calls": 192,
+                "total_ms": 5.784708,
+                "registers": 56,
+                "dynamic_shared": 0
+              },
+              "ink2_quant_nvfp4_2term_1p_b": {
+                "calls": 88,
+                "total_ms": 4.441785,
+                "registers": 39,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_tc_down_u4_packed_scales": {
+                "calls": 4,
+                "total_ms": 4.317498,
+                "registers": 120,
+                "dynamic_shared": 77840
+              },
+              "ink2_moe_combine_top8_f16_b": {
+                "calls": 48,
+                "total_ms": 3.975867,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_prep_qkv_and_cache_b": {
+                "calls": 48,
+                "total_ms": 3.659478,
+                "registers": 24,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_multi_b": {
+                "calls": 24,
+                "total_ms": 3.296435,
+                "registers": 56,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_quant_q8_64_b": {
+                "calls": 25,
+                "total_ms": 2.532976,
+                "registers": 28,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_quant_q8_64_b": {
+                "calls": 24,
+                "total_ms": 1.72945,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_d_quant_q8_16_b": {
+                "calls": 24,
+                "total_ms": 1.68779,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_gather_nvfp4_sorted_b": {
+                "calls": 44,
+                "total_ms": 1.293956,
+                "registers": 38,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c2304": {
+                "calls": 1,
+                "total_ms": 1.184391,
+                "registers": 63,
+                "dynamic_shared": 0
+              },
+              "ink2_embed_rmsnorm_b": {
+                "calls": 1,
+                "total_ms": 0.934278,
+                "registers": 20,
+                "dynamic_shared": 0
+              },
+              "ink2_f32_to_bf16_b": {
+                "calls": 48,
+                "total_ms": 0.459876,
+                "registers": 18,
+                "dynamic_shared": 0
+              },
+              "ink2_quant_mxfp8_b": {
+                "calls": 8,
+                "total_ms": 0.446755,
+                "registers": 17,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_d_b": {
+                "calls": 24,
+                "total_ms": 0.40698,
+                "registers": 22,
+                "dynamic_shared": 0
+              },
+              "ink2_loop_pass_setup_b": {
+                "calls": 3,
+                "total_ms": 0.394947,
+                "registers": 20,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_commit_hist_b": {
+                "calls": 192,
+                "total_ms": 0.33709,
+                "registers": 18,
+                "dynamic_shared": 0
+              },
+              "ink2_build_expert_groups_par_b": {
+                "calls": 48,
+                "total_ms": 0.319654,
+                "registers": 32,
+                "dynamic_shared": 0
+              },
+              "ink2_router_topk8_b": {
+                "calls": 48,
+                "total_ms": 0.269607,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_argmax_b": {
+                "calls": 1,
+                "total_ms": 0.020959,
+                "registers": 39,
+                "dynamic_shared": 0
+              },
+              "ink2_inc_pos_by": {
+                "calls": 1,
+                "total_ms": 0.001344,
+                "registers": 16,
+                "dynamic_shared": 0
+              }
+            }
+          },
+          "decode32": {
+            "kernels": 26400,
+            "graph_nodes": 26400,
+            "span_ms": 355.349712,
+            "union_ms": 341.79225,
+            "wall_ms": 355.725198,
+            "by_kernel": {
+              "ink2_moe_nvfp4_dp4a_up_half_q8_packed_scales": {
+                "calls": 1408,
+                "total_ms": 83.462164,
+                "registers": 61,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_qkv3_gemv_r1": {
+                "calls": 896,
+                "total_ms": 45.61374,
+                "registers": 46,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_nvfp4_dp4a_down_xw_packed_scales": {
+                "calls": 1408,
+                "total_ms": 42.669327,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c2304": {
+                "calls": 32,
+                "total_ms": 36.836612,
+                "registers": 63,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c2304_r1": {
+                "calls": 640,
+                "total_ms": 32.87052,
+                "registers": 47,
+                "dynamic_shared": 0
+              },
+              "ink2_q8_dp4a_gemv_c3072_r1": {
+                "calls": 1536,
+                "total_ms": 30.276612,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_gqa_attn_split_dec": {
+                "calls": 1536,
+                "total_ms": 23.098938,
+                "registers": 64,
+                "dynamic_shared": 0
+              },
+              "ink2_gqa_attn_combine_q8_dyn": {
+                "calls": 1536,
+                "total_ms": 20.641212,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_up_situ_u4_packed_scales": {
+                "calls": 128,
+                "total_ms": 10.708091,
+                "registers": 47,
+                "dynamic_shared": 0
+              },
+              "ink2_ctrl_down_r4_fast": {
+                "calls": 1536,
+                "total_ms": 10.410962,
+                "registers": 72,
+                "dynamic_shared": 0
+              },
+              "ink2_ctrl_apply_coalesced_b": {
+                "calls": 1536,
+                "total_ms": 8.497694,
+                "registers": 56,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_quant_q8_64": {
+                "calls": 800,
+                "total_ms": 6.699628,
+                "registers": 36,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_quant_q8_64_b": {
+                "calls": 768,
+                "total_ms": 6.516289,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_bf16_gemv": {
+                "calls": 1536,
+                "total_ms": 6.2174,
+                "registers": 60,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_inv": {
+                "calls": 1600,
+                "total_ms": 5.327801,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_moe_mxfp8_down_xw_u4_packed_scales": {
+                "calls": 128,
+                "total_ms": 5.078846,
+                "registers": 72,
+                "dynamic_shared": 0
+              },
+              "ink2_router_topk8": {
+                "calls": 1536,
+                "total_ms": 3.81948,
+                "registers": 48,
+                "dynamic_shared": 0
+              },
+              "ink2_depth_mix_rmsnorm_d_quant_q8_16_b": {
+                "calls": 768,
+                "total_ms": 3.191125,
+                "registers": 80,
+                "dynamic_shared": 0
+              },
+              "ink2_prep_qkv_and_cache": {
+                "calls": 1536,
+                "total_ms": 2.721006,
+                "registers": 24,
+                "dynamic_shared": 0
+              },
+              "ink2_rmsnorm_d_quant_q8_16_b": {
+                "calls": 768,
+                "total_ms": 2.388482,
+                "registers": 40,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_save": {
+                "calls": 1536,
+                "total_ms": 1.978061,
+                "registers": 30,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4": {
+                "calls": 1536,
+                "total_ms": 1.947947,
+                "registers": 26,
+                "dynamic_shared": 0
+              },
+              "ink2_short_conv4_kv2": {
+                "calls": 1536,
+                "total_ms": 1.818942,
+                "registers": 24,
+                "dynamic_shared": 0
+              },
+              "ink2_argmax_and_inc_pos": {
+                "calls": 32,
+                "total_ms": 0.695106,
+                "registers": 39,
+                "dynamic_shared": 0
+              },
+              "ink2_embed_rmsnorm": {
+                "calls": 32,
+                "total_ms": 0.24656,
+                "registers": 28,
+                "dynamic_shared": 0
+              },
+              "ink2_loop_pass_setup_b": {
+                "calls": 96,
+                "total_ms": 0.181026,
+                "registers": 20,
+                "dynamic_shared": 0
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}
