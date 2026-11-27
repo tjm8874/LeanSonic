@@ -1,0 +1,44 @@
+{
+  "matched": {
+    "matched_changed": 0,
+    "historical_changed": 255,
+    "matched_top_changes": 0,
+    "historical_top_changes": 4,
+    "sha256": "333b668068a07a16169410242ab64e69d0f4bc43478754a7d316af709a335db7"
+  },
+  "no_attn": {
+    "matched_changed": 255,
+    "historical_changed": 0,
+    "matched_top_changes": 4,
+    "historical_top_changes": 0,
+    "sha256": "16c1a572089d0efdaffde7286e6851c9998348b26ed84f961049ce07b2b092ef"
+  },
+  "no_router": {
+    "matched_changed": 0,
+    "historical_changed": 255,
+    "matched_top_changes": 0,
+    "historical_top_changes": 4,
+    "sha256": "333b668068a07a16169410242ab64e69d0f4bc43478754a7d316af709a335db7"
+  },
+  "no_down": {
+    "matched_changed": 0,
+    "historical_changed": 255,
+    "matched_top_changes": 0,
+    "historical_top_changes": 4,
+    "sha256": "333b668068a07a16169410242ab64e69d0f4bc43478754a7d316af709a335db7"
+  },
+  "no_ctrl": {
+    "matched_changed": 0,
+    "historical_changed": 255,
+    "matched_top_changes": 0,
+    "historical_top_changes": 4,
+    "sha256": "333b668068a07a16169410242ab64e69d0f4bc43478754a7d316af709a335db7"
+  },
+  "all_legacy": {
+    "matched_changed": 255,
+    "historical_changed": 0,
+    "matched_top_changes": 4,
+    "historical_top_changes": 0,
+    "sha256": "16c1a572089d0efdaffde7286e6851c9998348b26ed84f961049ce07b2b092ef"
+  }
+}
