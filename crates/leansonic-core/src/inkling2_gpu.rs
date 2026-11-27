@@ -360,11 +360,14 @@ struct ExpertKernels {
     /// Expert-parallel decode MoE down (bit-identical to `nvfp4_dp4a_down`).
     nvfp4_dp4a_down_xw: Option<CUfunction>,
     nvfp4_dp4a_down_xw_conv: Option<CUfunction>,
+    mixed_up: Option<CUfunction>,
     ternary_up: Option<CUfunction>,
     ternary_down: Option<CUfunction>,
     ternary_down_conv: Option<CUfunction>,
     ternary_tc_up: Option<CUfunction>,
+    mixed_even_tc_up: Option<CUfunction>,
     ternary_tc_up_t160: Option<CUfunction>,
+    mixed_even_tc_up_t160: Option<CUfunction>,
     ternary_tc_down: Option<CUfunction>,
     ternary_tc_down_t160: Option<CUfunction>,
     mxfp8_up_situ: CUfunction,
@@ -589,6 +592,7 @@ struct KernelFns {
     quant_nvfp4_2term_b: Option<CUfunction>,
     gather_nvfp4_sorted_b: Option<CUfunction>,
     expand_mxfp8_indices: Option<CUfunction>,
+    expand_mixed_up: Option<CUfunction>,
     expand_ternary_nibbles: Option<CUfunction>,
     quant_mxfp8_b: Option<CUfunction>,
     flash_attn_tc_q8_b: Option<CUfunction>,
@@ -828,6 +832,8 @@ pub struct Inkling2GpuEngine {
     d_all_msg_queries: DeviceBuf,
     layers: Vec<LayerGpu>,
     expert_weights: Vec<[TierBuf; 2]>,
+    mixed_up_ptrs: Vec<CUdeviceptr>,
+    mixed_up_scratch: Option<PinnedHostBuf>,
     ternary_up_scratch: Option<DeviceBuf>,
     ternary_down_scratch: Option<DeviceBuf>,
     device_codebook_scratch: Option<DeviceBuf>,
@@ -1369,6 +1375,72 @@ impl<'a> ExpertMatrix<'a> {
             Ok(())
         })?;
         Ok(result)
+    }
+
+    fn place_mixed_even_up(
+        self,
+        ctx: &Arc<CudaContextHandle>,
+    ) -> Result<Option<(TierBuf, bool)>, String> {
+        let Self::ScaleSplit {
+            ternary: false,
+            format: ScaleFormat::FourBanks,
+            bytes,
+            scale_frame,
+            count,
+            scale_width,
+        } = self
+        else {
+            return Ok(None);
+        };
+        let scales =
+            crate::inkling_mxfp8::unpack_mean8_scale_codes(scale_frame, count / 8, scale_width)?;
+        let raw = crate::inkling_mxfp8::unpack_four_scale_banks(bytes, scales)?;
+        let stride = count / N_EXP;
+        let compact_experts: Vec<bool> = raw
+            .chunks_exact(stride)
+            .map(|expert| expert.iter().all(|nibbles| nibbles & 0x11 == 0))
+            .collect();
+        let header = N_EXP * 4;
+        let frame_len =
+            header + count - compact_experts.iter().filter(|&&v| v).count() * (stride / 4);
+        if frame_len >= count {
+            return Ok(Some((ExpertMatrix::Raw(&raw).place(ctx, true)?, false)));
+        }
+        // Each descriptor stores a u32 offset and an even-nibble flag. Within a
+        // 32-cell tile, three aligned 128-byte planes also carry the fourth word.
+        let mut frame = Vec::with_capacity(frame_len);
+        frame.resize(header, 0u8);
+        for (expert, (slice, compact)) in raw.chunks_exact(stride).zip(compact_experts).enumerate()
+        {
+            let descriptor = ((frame.len() / 4) as u32) | (u32::from(compact) << 31);
+            frame[4 * expert..4 * expert + 4].copy_from_slice(&descriptor.to_le_bytes());
+            if !compact {
+                frame.extend_from_slice(slice);
+                continue;
+            }
+            for tile in slice.chunks_exact(512) {
+                let mut planes = [0u8; 384];
+                for (i, group) in tile.chunks_exact(16).enumerate() {
+                    let d = u32::from_le_bytes(group[12..16].try_into().unwrap());
+                    for j in 0..3 {
+                        let a = u32::from_le_bytes(group[4 * j..4 * j + 4].try_into().unwrap());
+                        let word = a | ((d >> (j + 1)) & 0x11111111);
+                        let pos = 128 * j + 4 * i;
+                        planes[pos..pos + 4].copy_from_slice(&word.to_le_bytes());
+                    }
+                }
+                frame.extend_from_slice(&planes);
+            }
+        }
+        debug_assert_eq!(frame.len(), frame_len);
+        match DeviceBuf::from_host_bytes(ctx, &frame) {
+            Ok(buf) => Ok(Some((TierBuf::Vram(buf), true))),
+            Err(e) if e.starts_with("CUDA error 2 in `cuMemAlloc_v2`") => Ok(Some((
+                TierBuf::HostPinned(PinnedHostBuf::from_bytes(ctx, &raw)?),
+                false,
+            ))),
+            Err(e) => Err(e),
+        }
     }
 
     fn place(self, ctx: &Arc<CudaContextHandle>, on_device: bool) -> Result<TierBuf, String> {
@@ -2479,6 +2551,8 @@ impl Inkling2GpuEngine {
             direct_device_tc,
             direct_device_up: direct_all
                 || (device_u4 && std::env::var("LEANSONIC_MXFP8_LOOKUP_UP").as_deref() == Ok("1")),
+            mixed_up_ptrs: Vec::new(),
+            mixed_up_scratch: None,
             ternary_up_scratch,
             ternary_down_scratch,
             device_codebook_scratch,
@@ -2680,6 +2754,16 @@ impl Inkling2GpuEngine {
         // The dense tensors now live in their final buffers. Release their source pages
         // before copying the larger expert matrices into VRAM or pinned host memory.
         st.discard_resident_pages();
+        let mixed_up = std::env::var("LEANSONIC_MIXED_EVEN_UP").as_deref() == Ok("1");
+        if mixed_up
+            && (eng.n_seqs != 1
+                || eng.ternary_up_scratch.is_some()
+                || eng.fns.expand_mixed_up.is_none())
+        {
+            return Err(
+                "mixed-even pilot requires one sequence and the matched expansion module".into(),
+            );
+        }
         let mut mixed_layers = 0;
         for ([mut up, down], [up_on_device, down_on_device]) in
             expert_views.into_iter().zip(resident)
@@ -2690,10 +2774,21 @@ impl Inkling2GpuEngine {
                     *ternary = false;
                 }
             }
-            let pair = [
-                up.place(&eng.ctx, up_on_device)?,
-                down.place(&eng.ctx, down_on_device)?,
-            ];
+            let compact = if mixed_up && up_on_device {
+                up.place_mixed_even_up(&eng.ctx)?
+            } else {
+                None
+            };
+            let up_buffer = match compact {
+                Some((buffer, compact)) => {
+                    if compact {
+                        eng.mixed_up_ptrs.push(buffer.ptr());
+                    }
+                    buffer
+                }
+                None => up.place(&eng.ctx, up_on_device)?,
+            };
+            let pair = [up_buffer, down.place(&eng.ctx, down_on_device)?];
             match &pair {
                 [TierBuf::Vram(_), TierBuf::Vram(_)] => eng.resident_expert_layers += 1,
                 [TierBuf::HostPinned(_), TierBuf::HostPinned(_)] => eng.spilled_expert_layers += 1,
@@ -2706,6 +2801,15 @@ impl Inkling2GpuEngine {
             st.discard_resident_pages();
         }
 
+        if !eng.mixed_up_ptrs.is_empty() {
+            // Generic CUDA readers expand into a shared mapped host buffer on the same stream.
+            // Direct gate/up kernels only read the compact device weights.
+            eng.mixed_up_scratch = Some(PinnedHostBuf::alloc_uninit(&eng.ctx, N_EXP * D * FF)?);
+            eprintln!(
+                "[LeanSonic GPU] mixed-even up planes {}",
+                eng.mixed_up_ptrs.len()
+            );
+        }
         drop(device_codebooks);
         eng.stage_host_up = eng.select_host_up_staging()?;
         if eng.stage_host_up {
@@ -3016,11 +3120,17 @@ impl Inkling2GpuEngine {
                     .zip(load("nvfp4_dp4a_up_half_staged").ok()),
                 nvfp4_dp4a_down: load("nvfp4_dp4a_down")?,
                 nvfp4_dp4a_down_xw: load("nvfp4_dp4a_down_xw").ok(),
+                mixed_up: load("mixed_even_dp4a_up_half_q8").ok(),
                 ternary_up: load("ternary_dp4a_up_half_q8").ok(),
                 ternary_down: load("ternary_dp4a_down_xw").ok(),
                 ternary_down_conv: load("ternary_dp4a_down_xw_conv").ok(),
                 ternary_tc_up: set_dyn_smem(load("ternary_tc_up_situ").ok(), 62_976)?,
+                mixed_even_tc_up: set_dyn_smem(load("mixed_even_tc_up_situ").ok(), 62_976)?,
                 ternary_tc_up_t160: set_dyn_smem(load("ternary_tc_up_situ_t160").ok(), 58_112)?,
+                mixed_even_tc_up_t160: set_dyn_smem(
+                    load("mixed_even_tc_up_situ_t160").ok(),
+                    58_112,
+                )?,
                 ternary_tc_down: set_dyn_smem(load("ternary_tc_down").ok(), 62_976)?,
                 ternary_tc_down_t160: set_dyn_smem(load("ternary_tc_down_t160").ok(), 58_112)?,
                 nvfp4_dp4a_down_xw_conv: load("nvfp4_dp4a_down_xw_conv").ok(),
@@ -3182,6 +3292,7 @@ impl Inkling2GpuEngine {
             q8_tc_qkv3_gemm_b,
             quant_nvfp4_2term_b: get_fn("ink2_quant_nvfp4_2term_b").ok(),
             gather_nvfp4_sorted_b: get_fn("ink2_gather_nvfp4_sorted_b").ok(),
+            expand_mixed_up: get_fn("ink2_expand_mixed_up").ok(),
             expand_ternary_nibbles: get_fn("ink2_expand_ternary_nibbles").ok(),
             expand_mxfp8_indices: get_fn("ink2_expand_mxfp8_indices").ok(),
             quant_mxfp8_b: get_fn("ink2_quant_mxfp8_b").ok(),
@@ -3380,6 +3491,28 @@ impl Inkling2GpuEngine {
     }
 
     fn raw_nvfp4_up(&self, stream: CUstream, weight: &TierBuf) -> Result<CUdeviceptr, String> {
+        if self.mixed_up_ptrs.contains(&weight.ptr()) {
+            let mut src = weight.ptr();
+            let mut dst = self
+                .mixed_up_scratch
+                .as_ref()
+                .ok_or("missing mixed-even scratch")?
+                .dev_ptr;
+            let mut args = [
+                (&mut src as *mut _) as *mut c_void,
+                (&mut dst as *mut _) as *mut c_void,
+            ];
+            self.launch(
+                stream,
+                self.fns
+                    .expand_mixed_up
+                    .ok_or("missing mixed-even expansion")?,
+                (128, N_EXP as u32),
+                256,
+                &mut args,
+            )?;
+            return Ok(dst);
+        }
         let scratch = self
             .ternary_up_scratch
             .as_ref()
@@ -4038,12 +4171,15 @@ impl Inkling2GpuEngine {
         use_staging: bool,
     ) -> Result<bool, String> {
         let ternary = self.ternary_up_scratch.is_some() && matches!(w13, TierBuf::Vram(_));
-        let fused = if ternary {
+        let mixed = self.mixed_up_ptrs.contains(&w13.ptr());
+        let fused = if mixed {
+            s13.kernels.mixed_up
+        } else if ternary {
             s13.kernels.ternary_up
         } else {
             s13.kernels.nvfp4_dp4a_up_half_q8
         };
-        let mut pw13 = if ternary && fused.is_none() {
+        let mut pw13 = if (mixed || ternary) && fused.is_none() {
             self.raw_nvfp4_up(stream, w13)?
         } else {
             w13.ptr()
@@ -9022,7 +9158,13 @@ impl Inkling2GpuEngine {
                             exp_begin = exp_end;
                         }
                     } else {
-                        let direct = if self.ternary_up_scratch.is_none()
+                        let direct = if self.mixed_up_ptrs.contains(&w13.ptr()) {
+                            if nvfp4_tile_toks == 160 {
+                                s13.kernels.mixed_even_tc_up_t160
+                            } else {
+                                s13.kernels.mixed_even_tc_up
+                            }
+                        } else if self.ternary_up_scratch.is_none()
                             || !matches!(w13, TierBuf::Vram(_))
                         {
                             None
