@@ -916,7 +916,11 @@ pub fn pack_q8_rows(bf16_bytes: &[u8], cols: usize, codes: &mut [u8], scales_byt
 #[derive(Clone, Copy)]
 enum ExpertMatrix<'a> {
     Raw(&'a [u8]),
-    Packed { bytes: &'a [u8], count: usize },
+    Packed {
+        bytes: &'a [u8],
+        count: usize,
+        contextual: bool,
+    },
 }
 
 impl<'a> ExpertMatrix<'a> {
@@ -927,14 +931,32 @@ impl<'a> ExpertMatrix<'a> {
         shape: &[usize],
     ) -> Result<Self, String> {
         let count = shape.iter().product();
-        match (st.get(name), st.get(&format!("{name}.rans_v1"))) {
-            (Some(t), None) if t.dtype == dtype && t.shape == shape && t.data.len() == count => {
+        match (
+            st.get(name),
+            st.get(&format!("{name}.rans_v1")),
+            st.get(&format!("{name}.nvctx_v1")),
+        ) {
+            (Some(t), None, None)
+                if t.dtype == dtype && t.shape == shape && t.data.len() == count =>
+            {
                 Ok(Self::Raw(t.data))
             }
-            (None, Some(t)) if t.dtype == "U8" && t.shape == [t.data.len()] => Ok(Self::Packed {
-                bytes: t.data,
-                count,
-            }),
+            (None, Some(t), None) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                Ok(Self::Packed {
+                    bytes: t.data,
+                    count,
+                    contextual: false,
+                })
+            }
+            (None, None, Some(t))
+                if dtype == "U8" && t.dtype == "U8" && t.shape == [t.data.len()] =>
+            {
+                Ok(Self::Packed {
+                    bytes: t.data,
+                    count,
+                    contextual: true,
+                })
+            }
             _ => Err(format!(
                 "missing, ambiguous or invalid {dtype} expert matrix {name}"
             )),
@@ -956,8 +978,16 @@ impl<'a> ExpertMatrix<'a> {
                 }
                 Ok(TierBuf::HostPinned(PinnedHostBuf::from_bytes(ctx, bytes)?))
             }
-            Self::Packed { bytes, count } => {
-                let matrix = crate::inkling_mxfp8::Matrix::parse(bytes, count)?;
+            Self::Packed {
+                bytes,
+                count,
+                contextual,
+            } => {
+                let matrix = if contextual {
+                    crate::inkling_mxfp8::Matrix::parse_nvfp4(bytes, count)?
+                } else {
+                    crate::inkling_mxfp8::Matrix::parse(bytes, count)?
+                };
                 if on_device {
                     match DeviceBuf::alloc_zeroed(ctx, count) {
                         Ok(buf) => {
@@ -7500,6 +7530,7 @@ mod tests {
         let matrix = ExpertMatrix::Packed {
             bytes: &packed,
             count: raw.len(),
+            contextual: false,
         };
         let ctx = CudaContextHandle::init(0)?;
         for on_device in [false, true] {
@@ -7559,10 +7590,12 @@ mod tests {
             ExpertMatrix::Packed {
                 bytes: &[],
                 count: up.len(),
+                contextual: false,
             },
             ExpertMatrix::Packed {
                 bytes: &[],
                 count: down.len(),
+                contextual: false,
             },
         ]; N_LAYER];
         assert_eq!(plan_expert_placement(&packed, 12 * 3 + 1), placement);

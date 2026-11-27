@@ -15,7 +15,17 @@ fn frequencies(bytes: &[u8]) -> [u16; 256] {
     for &b in bytes {
         histogram[b as usize] += 1;
     }
-    let count = bytes.len() as i64;
+    normalize(&histogram)
+}
+
+fn normalize(histogram: &[i64; 256]) -> [u16; 256] {
+    let count: i64 = histogram.iter().sum();
+    if count == 0 {
+        // An unreachable NVFP4 context still has a complete on-disk table.
+        let mut f = [0; 256];
+        f[0] = TOTAL as u16;
+        return f;
+    }
     let mut freq = [0u16; 256];
     let mut error = [0i64; 256];
     for (i, &n) in histogram.iter().enumerate() {
@@ -53,6 +63,16 @@ pub fn pack(raw: &[u8], mut output: impl Write) -> io::Result<usize> {
         return Err(io::Error::other("invalid MXFP8 matrix size"));
     }
     let freq = frequencies(raw);
+    let base = write_table(&freq, &mut output)?;
+    write_frames(raw, output, 512, |tile, states, payload| {
+        for (i, &value) in tile.iter().enumerate().rev() {
+            let idx = value as usize;
+            encode_symbol(&mut states[i % 4], freq[idx], base[idx], payload);
+        }
+    })
+}
+
+fn write_table(freq: &[u16; 256], output: &mut impl Write) -> io::Result<[u32; 256]> {
     let mut base = [0u32; 256];
     let mut cum = 0u32;
     for (i, &f) in freq.iter().enumerate() {
@@ -60,21 +80,30 @@ pub fn pack(raw: &[u8], mut output: impl Write) -> io::Result<usize> {
         base[i] = cum;
         cum += u32::from(f);
     }
-    let mut written = 512;
+    Ok(base)
+}
+
+#[inline]
+fn encode_symbol(x: &mut u32, frequency: u16, start: u32, payload: &mut Vec<u8>) {
+    let f = u32::from(frequency);
+    while *x >= ((LOWER >> PRECISION) << 8) * f {
+        payload.push(*x as u8);
+        *x >>= 8;
+    }
+    *x = ((*x / f) << PRECISION) + *x % f + start;
+}
+
+fn write_frames(
+    raw: &[u8],
+    mut output: impl Write,
+    mut written: usize,
+    encode: impl Fn(&[u8], &mut [u32; 4], &mut Vec<u8>),
+) -> io::Result<usize> {
     let mut payload = Vec::with_capacity(TILE);
     for tile in raw.chunks(TILE) {
         payload.clear();
         let mut states = [LOWER; 4];
-        for (i, &value) in tile.iter().enumerate().rev() {
-            let idx = value as usize;
-            let f = u32::from(freq[idx]);
-            let x = &mut states[i % 4];
-            while *x >= ((LOWER >> PRECISION) << 8) * f {
-                payload.push(*x as u8);
-                *x >>= 8;
-            }
-            *x = ((*x / f) << PRECISION) + *x % f + base[idx];
-        }
+        encode(tile, &mut states, &mut payload);
         let len = 16 + payload.len();
         output.write_all(&(len as u32).to_le_bytes())?;
         for x in states {
@@ -89,34 +118,101 @@ pub fn pack(raw: &[u8], mut output: impl Write) -> io::Result<usize> {
     Ok(written + pad)
 }
 
+const NVFP4_CONTEXTS: usize = 64;
+
+#[inline]
+fn update_max(previous: u8, value: u8) -> u8 {
+    previous.max(value & 7).max((value >> 4) & 7)
+}
+
+/// Four independent eight-byte NVFP4 blocks are interleaved. The column and
+/// previous largest E2M1 magnitude select a table; both sign bits are retained.
+pub fn pack_nvfp4_context(raw: &[u8], mut output: impl Write) -> io::Result<usize> {
+    if raw.is_empty() || !raw.len().is_multiple_of(32) || raw.len() > u32::MAX as usize {
+        return Err(io::Error::other("invalid contextual NVFP4 matrix size"));
+    }
+    let mut hist = vec![[0i64; 256]; NVFP4_CONTEXTS];
+    for block in raw.as_chunks::<8>().0 {
+        let mut prev = 0;
+        for (column, &v) in block.iter().enumerate() {
+            hist[column * 8 + usize::from(prev)][usize::from(v)] += 1;
+            prev = update_max(prev, v);
+        }
+    }
+    let mut tables = Vec::with_capacity(NVFP4_CONTEXTS);
+    for h in &hist {
+        let freq = normalize(h);
+        let base = write_table(&freq, &mut output)?;
+        tables.push((freq, base));
+    }
+    write_frames(
+        raw,
+        output,
+        512 * NVFP4_CONTEXTS,
+        |tile, states, payload| {
+            for group in tile.as_chunks::<32>().0.iter().rev() {
+                let mut contexts = [0; 32];
+                for (lane, block) in group.as_chunks::<8>().0.iter().enumerate() {
+                    let mut prev = 0;
+                    for (j, &v) in block.iter().enumerate() {
+                        contexts[8 * lane + j] = 8 * j + usize::from(prev);
+                        prev = update_max(prev, v);
+                    }
+                }
+                for j in (0..8).rev() {
+                    for lane in (0..4).rev() {
+                        let i = 8 * lane + j;
+                        let v = usize::from(group[i]);
+                        let (freq, base) = &tables[contexts[i]];
+                        encode_symbol(&mut states[lane], freq[v], base[v], payload);
+                    }
+                }
+            }
+        },
+    )
+}
+
 pub(crate) struct Matrix<'a> {
-    lookup: Box<[u32; 4096]>,
+    lookup: Vec<[u32; 4096]>,
     frames: Vec<&'a [u8]>,
     count: usize,
 }
 
 impl<'a> Matrix<'a> {
     pub(crate) fn parse(data: &'a [u8], count: usize) -> Result<Self, String> {
+        Self::parse_tables(data, count, 1)
+    }
+
+    pub(crate) fn parse_nvfp4(data: &'a [u8], count: usize) -> Result<Self, String> {
+        if !count.is_multiple_of(32) {
+            return Err("invalid contextual NVFP4 matrix size".into());
+        }
+        Self::parse_tables(data, count, NVFP4_CONTEXTS)
+    }
+
+    fn parse_tables(data: &'a [u8], count: usize, tables: usize) -> Result<Self, String> {
         if count == 0 || !data.len().is_multiple_of(8) {
-            return Err("invalid MXFP8 matrix dimensions".into());
+            return Err("invalid rANS matrix dimensions".into());
         }
-        let (table, mut rest) = data
-            .split_at_checked(512)
-            .ok_or("missing MXFP8 frequency table")?;
-        let mut pos = 0;
-        let mut lookup = Box::new([0; 4096]);
-        for (symbol, &f) in table.as_chunks::<2>().0.iter().enumerate() {
-            let freq = u16::from_le_bytes(f) as usize;
-            let entries = lookup
-                .get_mut(pos..pos + freq)
-                .ok_or("invalid MXFP8 frequency sum")?;
-            for (slot, e) in entries.iter_mut().enumerate() {
-                *e = ((symbol as u32) << 24) | ((slot as u32) << 12) | (freq as u32 - 1);
+        let (header, mut rest) = data
+            .split_at_checked(tables * 512)
+            .ok_or("missing rANS frequency table")?;
+        let mut lookup = vec![[0; 4096]; tables];
+        for (table, dst) in header.as_chunks::<512>().0.iter().zip(&mut lookup) {
+            let mut pos = 0;
+            for (symbol, &f) in table.as_chunks::<2>().0.iter().enumerate() {
+                let freq = u16::from_le_bytes(f) as usize;
+                let entries = dst
+                    .get_mut(pos..pos + freq)
+                    .ok_or("invalid rANS frequency sum")?;
+                for (slot, e) in entries.iter_mut().enumerate() {
+                    *e = ((symbol as u32) << 24) | ((slot as u32) << 12) | (freq as u32 - 1);
+                }
+                pos += freq;
             }
-            pos += freq;
-        }
-        if pos != TOTAL as usize {
-            return Err("incomplete MXFP8 frequency table".into());
+            if pos != TOTAL as usize {
+                return Err("incomplete rANS frequency table".into());
+            }
         }
         let mut frames = Vec::with_capacity(count.div_ceil(TILE));
         for first in (0..count).step_by(TILE) {
@@ -150,6 +246,10 @@ impl<'a> Matrix<'a> {
                 return Err("invalid MXFP8 rANS state".into());
             }
         }
+        if self.lookup.len() == NVFP4_CONTEXTS {
+            return self.decode_nvfp4(bytes, states, dst);
+        }
+        let lookup = &self.lookup[0];
         let mut cursor = 0;
         // Four independent states share one byte stream. Each symbol needs at
         // most two normalization bytes. With eight input bytes in hand we can
@@ -160,7 +260,7 @@ impl<'a> Matrix<'a> {
             output.first_chunk_mut::<4>(),
         ) {
             for (state, byte) in states.iter_mut().zip(group) {
-                let entry = self.lookup[(*state & (TOTAL - 1)) as usize];
+                let entry = lookup[(*state & (TOTAL - 1)) as usize];
                 byte.write((entry >> 24) as u8);
                 *state = ((entry & 4095) + 1) * (*state >> PRECISION) + ((entry >> 12) & 4095);
             }
@@ -178,7 +278,7 @@ impl<'a> Matrix<'a> {
         // The final bytes and any partial four-symbol group need exact bounds checks.
         for (i, out) in output.iter_mut().enumerate() {
             let x = &mut states[i % 4];
-            let entry = self.lookup[(*x & (TOTAL - 1)) as usize];
+            let entry = lookup[(*x & (TOTAL - 1)) as usize];
             out.write((entry >> 24) as u8);
             *x = ((entry & 4095) + 1) * (*x >> PRECISION) + ((entry >> 12) & 4095);
             // Most symbols consume zero or one normalization byte. A zero
@@ -197,6 +297,37 @@ impl<'a> Matrix<'a> {
         }
         if cursor != bytes.len() || states != [LOWER; 4] {
             return Err("invalid terminal MXFP8 state".into());
+        }
+        Ok(())
+    }
+
+    fn decode_nvfp4(
+        &self,
+        bytes: &[u8],
+        mut states: [u32; 4],
+        dst: &mut [MaybeUninit<u8>],
+    ) -> Result<(), String> {
+        let mut cursor = 0;
+        for group in dst.as_chunks_mut::<32>().0 {
+            let mut prev = [0u8; 4];
+            for column in 0..8 {
+                for (lane, state) in states.iter_mut().enumerate() {
+                    let table = &self.lookup[8 * column + usize::from(prev[lane])];
+                    let entry = table[(*state & (TOTAL - 1)) as usize];
+                    let v = (entry >> 24) as u8;
+                    group[8 * lane + column].write(v);
+                    prev[lane] = update_max(prev[lane], v);
+                    *state = ((entry & 4095) + 1) * (*state >> PRECISION) + ((entry >> 12) & 4095);
+                    while *state < LOWER {
+                        let byte = bytes.get(cursor).ok_or("short contextual NVFP4 payload")?;
+                        *state = (*state << 8) | u32::from(*byte);
+                        cursor += 1;
+                    }
+                }
+            }
+        }
+        if cursor != bytes.len() || states != [LOWER; 4] {
+            return Err("invalid terminal contextual NVFP4 state".into());
         }
         Ok(())
     }
@@ -259,6 +390,34 @@ impl<'a> Matrix<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn nvfp4_context_restores_signed_nibbles_and_rejects_truncated_frames() {
+        let raw: Vec<u8> = (0..TILE + 96)
+            .map(|i| match i % 32 {
+                0..=7 => 0x80,
+                8..=15 => 0xf7,
+                _ => (i.wrapping_mul(104729) ^ (i >> 11)) as u8,
+            })
+            .collect();
+        let mut packed = Vec::new();
+        assert_eq!(pack_nvfp4_context(&raw, &mut packed).unwrap(), packed.len());
+        let m = Matrix::parse_nvfp4(&packed, raw.len()).unwrap();
+        let mut out = Vec::new();
+        m.for_each_chunk(|_, tile| {
+            out.extend_from_slice(tile);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(out, raw);
+        assert!(Matrix::parse_nvfp4(&packed, raw.len() - 1).is_err());
+        assert!(Matrix::parse_nvfp4(&packed[..packed.len() - 8], raw.len()).is_err());
+        packed[512 * NVFP4_CONTEXTS + 4..512 * NVFP4_CONTEXTS + 8].fill(0);
+        assert!(Matrix::parse_nvfp4(&packed, raw.len())
+            .unwrap()
+            .for_each_chunk(|_, _| Ok(()))
+            .is_err());
+    }
+
     #[test]
     fn missing_normalization_byte_is_rejected_even_with_valid_framing() {
         // The table, states, frame length and padding still parse after truncation.
