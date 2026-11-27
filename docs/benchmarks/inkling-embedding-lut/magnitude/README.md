@@ -11,6 +11,10 @@ The 217-expert model with a sign/magnitude embedding weighs 11,661,986,038 bytes
 
 The fitter uses only the original BF16 tensor histogram. It greedily joins adjacent absolute values by the increase in squared error per empirical entropy bit saved. Each representative is rounded to BF16. The selected fit uses 452 magnitudes and keeps all sign bits, including negative zero. Its primary stream directly encodes 255 frequent magnitudes; 6,405,035 occurrences use the secondary stream. Both streams use the existing tiled four-lane rANS codec. The Rust release decoder wrote all 926,318,592 bytes with the same SHA-256 as the independent Python reconstruction. One CPU decode took 497 ms.
 
+## First corpus result
+
+On RTX PRO 4500 the 452-magnitude model scored 25,500 test positions: mean KL 0.0196107, worst KL 3.1903083 (chunk 23 position 330), 23,973 BF16 top-token matches and PPL 7.140181. The 217-expert refit with the previous embedding scored 0.0197682, 3.4155332, 23,938 and 7.130266 on RTX 5070 Ti. This comparison across GPUs favors the new candidate on mean/worst KL and top-1 but favors the prior refit on PPL. Validation and the comparison on one GPU remain open. [Complete scorer output](corpus.json) · [Previous refit on RTX 5070 Ti](https://github.com/tjm8874/LeanSonic/tree/6d1b853/docs/benchmarks/inkling-embedding-lut/refit/native-corpus)
+
 ## Reproduce
 
 1. Build the model and source in the [previous 217-expert refit](../refit). Use the original official safetensors shard from the same model revision. At source 726b6f2, copy pack.rs and decode.rs into crates/leansonic-core/examples as mag_pack.rs and mag_decode.rs, then run `cargo build --release -p leansonic-core --example mag_pack --example mag_decode`.
