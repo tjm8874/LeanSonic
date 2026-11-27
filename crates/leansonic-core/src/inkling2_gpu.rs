@@ -179,6 +179,31 @@ fn load_output_head(
     }
 }
 
+/// Loads a prepacked `{prefix}.q8_64.codes` / `{prefix}.q8_64.scales` pair (raw or
+/// entropy-coded planes) straight into a planar Q8_64 matrix. `Ok(None)` means
+/// neither plane is present so the caller falls back to its BF16 source; a lone
+/// or mis-shaped plane is an error.
+pub(crate) fn load_native_planar_q8_64(
+    ctx: &Arc<CudaContextHandle>,
+    st: &MappedSafeTensors,
+    prefix: &str,
+    rows: usize,
+    cols: usize,
+) -> Result<Option<PlanarQ8Gpu>, String> {
+    let codes = NativeQ8Codes::lookup(st, &format!("{prefix}.q8_64.codes"), rows, cols)?;
+    let scales = native_q8_scales(st, &format!("{prefix}.q8_64.scales"), rows, cols)?;
+    match (codes, scales) {
+        (None, None) => Ok(None),
+        (Some(c), Some(s)) => {
+            let matrix = allocate_planar_q8(ctx, rows, cols)?;
+            c.upload(&matrix.codes, 0)?;
+            matrix.scales64.copy_from_host_bytes(&s)?;
+            Ok(Some(matrix))
+        }
+        _ => Err(format!("{prefix}: incomplete native Q8_64 pair")),
+    }
+}
+
 // Components occupy successive rows of the GPU matrix in kernel ABI order.
 fn load_attention_matrix(
     ctx: &Arc<CudaContextHandle>,
