@@ -5,6 +5,28 @@ use std::io::{self, Read, Write};
 
 fn main() -> io::Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if let [mode, size, width] = args.as_slice() {
+        if matches!(mode.as_str(), "neighbor-size" | "neighbor-pack") {
+            let n: usize = size.parse().map_err(io::Error::other)?;
+            let width = width.parse().map_err(io::Error::other)?;
+            if n > 128 * 2304 * 144 {
+                return Err(io::Error::other("invalid scale matrix size"));
+            }
+            let mut raw = vec![0; n];
+            io::stdin().lock().read_exact(&mut raw)?;
+            if mode == "neighbor-size" {
+                println!(
+                    "{}",
+                    leansonic_core::inkling_mxfp8::pack_scale_context(&raw, width, io::sink())?
+                );
+            } else {
+                let mut out = io::BufWriter::new(io::stdout().lock());
+                leansonic_core::inkling_mxfp8::pack_scale_context(&raw, width, &mut out)?;
+                out.flush()?;
+            }
+            return Ok(());
+        }
+    }
     if let [mode, size] = args.as_slice() {
         if matches!(mode.as_str(), "q8dict-size" | "q8dict-pack") {
             let n: usize = size.parse().map_err(io::Error::other)?;
