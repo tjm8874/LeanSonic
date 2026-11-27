@@ -7,6 +7,9 @@ All completed measurements below use the RTX PRO 4500, the same WikiText BF16 or
 | test | vllm | 0.0101532 | 3.1885196 | 24,395 | 7.085312 |
 | test | lean | 0.0172238 | 6.1395663 | 24,071 | 7.128123 |
 | test | llama | 0.0276770 | 4.5351470 | 23,633 | 7.179674 |
+| valid | vllm | 0.0092906 | 2.8943274 | 24,490 | 6.533192 |
+| valid | lean | 0.0157144 | 2.6382777 | 24,192 | 6.565670 |
+| valid | llama | 0.0253780 | 2.4890140 | 23,800 | 6.611390 |
 
 LeanSonic uses direct prefill width 512 and both mixed device projections. Native llama.cpp uses `llama-perplexity --kl-divergence --kl-divergence-base ORACLE -f CORPUS -m GGUF -c 512 -b 512 -ub 512 -ctk f16 -ctv f16 -ngl 99 -t 8 --no-warmup --chunks 100`. vLLM uses the same pinned wheel, BF16 activation dtype, FP16 KV, per-request score observation, one sequence and its 2,048 maximum context. Its collector reads FP32 logits before forcing each next oracle token. It verifies the first captured top ID against an unconstrained greedy request and checks the complete generated token history of every chunk. Prefill starts with 257 IDs and the following 255 distributions are scored. Use the same executable for the LeanSonic run and CPU scoring of vLLM logits.
 
@@ -15,3 +18,5 @@ In a fresh directory containing capture.py and wiki.py, set OFFICIAL and PYTHONP
 To reproduce ordered rows, apply row_scorer.py to crates/leansonic-cli/src/eval_kld.rs in a disposable a1592f3 checkout and build leansonic-cli in release mode. Set DIAG_ROWS to a new file before each invocation.
 
 On test, LeanSonic alone matches BF16 at 584 positions, vLLM alone at 908, both at 23,487, and neither at 521. LeanSonic exceeds the paired vLLM KL by more than one nat at 5 positions, and vLLM exceeds LeanSonic by more than one nat at 2. [Ten largest differences in each direction](test-delta.json).
+
+On valid, LeanSonic alone matches BF16 at 530 positions, vLLM alone at 828, both at 23,662, and neither at 480. LeanSonic exceeds the paired vLLM KL by more than one nat at 8 positions, and vLLM exceeds LeanSonic by more than one nat at 2. [Ten largest differences in each direction](valid-delta.json).

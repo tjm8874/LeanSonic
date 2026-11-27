@@ -88,6 +88,87 @@
           }
         }
       ]
+    },
+    "valid": {
+      "oracle_sha256": "b3d804824373950c9b6d7cd37e5607d132d2f3caca6f80ffd26739b2776a2ca0",
+      "engines": {
+        "vllm": {
+          "chunks": 100,
+          "context": 512,
+          "rows": 25500,
+          "ppl": 6.533192299690702,
+          "ref_ppl": 6.498588819010602,
+          "mean_kld": 0.00929058518511632,
+          "median_kld": 0.004105230235421087,
+          "p99_kld": 0.08377294926996717,
+          "max_kld": 2.8943274289422294,
+          "start_chunk": 0,
+          "max_kld_chunk": 64,
+          "max_kld_position": 494,
+          "ref_floor_targets": 10,
+          "top1_matches": 24490,
+          "top1_agreement": 0.9603921568627451,
+          "rows_sha256": "29825ba42c425150b74d87cfaaad52efe3076c4f7b1fccf1245f702d2a6582e6"
+        },
+        "lean": {
+          "chunks": 100,
+          "context": 512,
+          "rows": 25500,
+          "ppl": 6.565670166178593,
+          "ref_ppl": 6.498588819010602,
+          "mean_kld": 0.015714403495723606,
+          "median_kld": 0.00674056402783569,
+          "p99_kld": 0.14728166119804237,
+          "max_kld": 2.63827770139034,
+          "start_chunk": 0,
+          "max_kld_chunk": 85,
+          "max_kld_position": 317,
+          "ref_floor_targets": 10,
+          "top1_matches": 24192,
+          "top1_agreement": 0.9487058823529412,
+          "rows_sha256": "f241787d87f5599bc502b8818dd379864f905f42952f2cbbdfcfb8afb7c26753"
+        },
+        "llama": {
+          "rows": 25500,
+          "mean_kld": 0.025378,
+          "max_kld": 2.489014,
+          "ppl": 6.61139,
+          "top1_matches": 23800,
+          "stdout_sha256": "a383252fd4a2fc8290992a248035732299c402b8425f4bdab8c69b8a5095d381"
+        }
+      },
+      "aligned_worst_rows": [
+        {
+          "chunk": 64,
+          "position": 494,
+          "target": 68033,
+          "lean": {
+            "top": 68033,
+            "kl": 0.606703654503,
+            "bf16_agrees": false
+          },
+          "vllm": {
+            "top": 68033,
+            "kl": 2.894327428942,
+            "bf16_agrees": false
+          }
+        },
+        {
+          "chunk": 85,
+          "position": 317,
+          "target": 196977,
+          "lean": {
+            "top": 196977,
+            "kl": 2.63827770139,
+            "bf16_agrees": false
+          },
+          "vllm": {
+            "top": 197045,
+            "kl": 0.001868181388,
+            "bf16_agrees": true
+          }
+        }
+      ]
     }
   }
 }
