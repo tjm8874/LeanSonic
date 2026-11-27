@@ -1,0 +1,1766 @@
+{
+  "leansonic_commit": "7a02b538048d819fa76d2efb084b734d4c3bf2cb",
+  "basalt_commit": "5fe1928d",
+  "basalt_text_sha256": "0f589432ce7ec1d18bb7a77f105fb11ccb19a68dd41f6711145e84f7c7ba6b1c",
+  "dict_shard_sha256": "0fde715a53bfbd9bad98769663c2d088bd6ffee6397c72f62824c0f21af6c472",
+  "cuda_cubin_sha256": "8771508cc25cc5896aa0f2456a6260921f85d6d3ab071b8d7c1b8283cd8a087b",
+  "method": "Five rotating, mirrored six-leg cycles. Each leg uses a fresh process per prompt. Both engines greedy, FP16 KV, context 8192, speculation disabled. Prompt lengths 32 and 1024 from the same README token file. Lean --gen 16 performs 16 decode forwards and returns the first 16 IDs; Basalt --max-new 17 performs 16 decode forwards and returns 17 IDs including the prefill prediction. Recorded Basalt phases have whole-millisecond resolution. Process peak VRAM sampled via NVML every ~4 ms. Mean elapsed phases include only complete cycles.",
+  "inputs": "docs/benchmarks/inputs/inkling-readme1024.ids",
+  "results": {
+    "5060Ti-32": {
+      "completed_cycles": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "mean": {
+        "raw": {
+          "prefill_ms": 246.319,
+          "decode16_ms": 335.692,
+          "peak": 16559112192
+        },
+        "dict": {
+          "prefill_ms": 246.341,
+          "decode16_ms": 335.719,
+          "peak": 16559112192
+        },
+        "basalt": {
+          "prefill_ms": 293.6,
+          "decode16_ms": 377.3,
+          "peak": 15525216256
+        }
+      },
+      "peak_max": {
+        "raw": 16559112192,
+        "dict": 16559112192,
+        "basalt": 15525216256
+      },
+      "greedy_first16_all_equal": true,
+      "dict_vs_basalt_time_saved_pct_paired_bootstrap_95": {
+        "prefill_ms": [
+          15.286107290233842,
+          16.891363022941963
+        ],
+        "decode16_ms": [
+          10.745812283967037,
+          11.313523507659795
+        ]
+      }
+    },
+    "5060Ti-1024": {
+      "completed_cycles": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "mean": {
+        "raw": {
+          "prefill_ms": 388.848,
+          "decode16_ms": 392.599,
+          "peak": 16554917888
+        },
+        "dict": {
+          "prefill_ms": 388.825,
+          "decode16_ms": 392.601,
+          "peak": 16554917888
+        },
+        "basalt": {
+          "prefill_ms": 1284.5,
+          "decode16_ms": 393.6,
+          "peak": 15527313408
+        }
+      },
+      "peak_max": {
+        "raw": 16554917888,
+        "dict": 16554917888,
+        "basalt": 15527313408
+      },
+      "greedy_first16_all_equal": true,
+      "dict_vs_basalt_time_saved_pct_paired_bootstrap_95": {
+        "prefill_ms": [
+          69.70708330086495,
+          69.76327450827957
+        ],
+        "decode16_ms": [
+          -0.1849961724929905,
+          0.5788807292985587
+        ]
+      }
+    }
+  },
+  "runs": [
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 0,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 389.24,
+      "decode16_ms": 392.6,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 0,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 246.18,
+      "decode16_ms": 335.78,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 1,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 389.19,
+      "decode16_ms": 392.63,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 1,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 246.19,
+      "decode16_ms": 335.8,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 2,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 1284.0,
+      "decode16_ms": 394.0,
+      "peak": 15527313408,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 2,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 296.0,
+      "decode16_ms": 380.0,
+      "peak": 15525216256,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 3,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 1292.0,
+      "decode16_ms": 387.0,
+      "peak": 15527313408,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 3,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 297.0,
+      "decode16_ms": 379.0,
+      "peak": 15525216256,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 4,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 388.94,
+      "decode16_ms": 392.7,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 4,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 246.29,
+      "decode16_ms": 335.81,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 5,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 389.11,
+      "decode16_ms": 392.7,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 5,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 246.29,
+      "decode16_ms": 335.71,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 0,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 388.75,
+      "decode16_ms": 392.67,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 0,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 246.43,
+      "decode16_ms": 335.73,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 1,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 1284.0,
+      "decode16_ms": 394.0,
+      "peak": 15527313408,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 1,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 298.0,
+      "decode16_ms": 378.0,
+      "peak": 15525216256,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 2,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 388.84,
+      "decode16_ms": 392.6,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 2,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 246.26,
+      "decode16_ms": 335.81,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 3,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 388.72,
+      "decode16_ms": 392.65,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 3,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 246.28,
+      "decode16_ms": 335.7,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 4,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 1284.0,
+      "decode16_ms": 396.0,
+      "peak": 15527313408,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 4,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 298.0,
+      "decode16_ms": 379.0,
+      "peak": 15525216256,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 5,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 388.87,
+      "decode16_ms": 392.61,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 5,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 246.32,
+      "decode16_ms": 335.74,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 0,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 1283.0,
+      "decode16_ms": 393.0,
+      "peak": 15527313408,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 0,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 287.0,
+      "decode16_ms": 375.0,
+      "peak": 15525216256,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 1,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 388.8,
+      "decode16_ms": 392.66,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 1,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 246.31,
+      "decode16_ms": 335.64,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 2,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 388.79,
+      "decode16_ms": 392.53,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 2,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 246.22,
+      "decode16_ms": 335.62,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 3,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 388.75,
+      "decode16_ms": 392.61,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 3,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 246.47,
+      "decode16_ms": 335.75,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 4,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 388.7,
+      "decode16_ms": 392.57,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 4,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 246.32,
+      "decode16_ms": 335.71,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 5,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 1283.0,
+      "decode16_ms": 396.0,
+      "peak": 15527313408,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 5,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 293.0,
+      "decode16_ms": 377.0,
+      "peak": 15525216256,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": 0,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 388.8,
+      "decode16_ms": 392.6,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": 0,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 246.39,
+      "decode16_ms": 335.66,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": 1,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 388.74,
+      "decode16_ms": 392.54,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": 1,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 246.38,
+      "decode16_ms": 335.63,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": 2,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 1285.0,
+      "decode16_ms": 392.0,
+      "peak": 15527313408,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": 2,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 290.0,
+      "decode16_ms": 375.0,
+      "peak": 15525216256,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": 3,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 1283.0,
+      "decode16_ms": 394.0,
+      "peak": 15527313408,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": 3,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 296.0,
+      "decode16_ms": 378.0,
+      "peak": 15525216256,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": 4,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 388.75,
+      "decode16_ms": 392.5,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": 4,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 246.5,
+      "decode16_ms": 335.74,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": 5,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 388.7,
+      "decode16_ms": 392.53,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": 5,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 246.28,
+      "decode16_ms": 335.64,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": 0,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 388.69,
+      "decode16_ms": 392.7,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": 0,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 246.31,
+      "decode16_ms": 335.68,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": 1,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 1283.0,
+      "decode16_ms": 394.0,
+      "peak": 15527313408,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": 1,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 297.0,
+      "decode16_ms": 378.0,
+      "peak": 15525216256,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": 2,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 388.8,
+      "decode16_ms": 392.56,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": 2,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 246.51,
+      "decode16_ms": 335.65,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": 3,
+      "arm": "raw",
+      "n": 1024,
+      "prefill_ms": 388.77,
+      "decode16_ms": 392.52,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": 3,
+      "arm": "raw",
+      "n": 32,
+      "prefill_ms": 246.37,
+      "decode16_ms": 335.62,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": 4,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 1284.0,
+      "decode16_ms": 396.0,
+      "peak": 15527313408,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": 4,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 284.0,
+      "decode16_ms": 374.0,
+      "peak": 15525216256,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": 5,
+      "arm": "dict",
+      "n": 1024,
+      "prefill_ms": 388.78,
+      "decode16_ms": 392.52,
+      "peak": 16554917888,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": 5,
+      "arm": "dict",
+      "n": 32,
+      "prefill_ms": 246.3,
+      "decode16_ms": 335.69,
+      "peak": 16559112192,
+      "output_ids_index": 1
+    }
+  ],
+  "output_id_lists": [
+    [
+      145026,
+      220,
+      39446,
+      220,
+      19,
+      154978,
+      152792,
+      189134,
+      149860,
+      185136,
+      198,
+      84375,
+      149859,
+      23033,
+      220,
+      137294
+    ],
+    [
+      9,
+      9,
+      68014,
+      58,
+      0,
+      58,
+      39446,
+      220,
+      19,
+      60,
+      7,
+      68713,
+      25,
+      145055,
+      3247,
+      13
+    ],
+    [
+      145026,
+      220,
+      39446,
+      220,
+      19,
+      154978,
+      152792,
+      189134,
+      149860,
+      185136,
+      198,
+      84375,
+      149859,
+      23033,
+      220,
+      137294,
+      196997
+    ],
+    [
+      9,
+      9,
+      68014,
+      58,
+      0,
+      58,
+      39446,
+      220,
+      19,
+      60,
+      7,
+      68713,
+      25,
+      145055,
+      3247,
+      13,
+      32291
+    ]
+  ],
+  "long_input_sha256": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843",
+  "short_input_sha256": "c5f1c3ed9799636a9aea30b1caf7e8657cb834d6bba5195f512cf04895442e30",
+  "distribution_bytes": {
+    "lean_native_text_with_tokenizer": 16090031830,
+    "lean_dict_text_with_tokenizer": 16038568990,
+    "basalt_text_with_embedded_tokenizer": 18327104737,
+    "llama_bf16_gguf_with_tokenizer": 52226509568
+  },
+  "quality_100_chunks": {
+    "corpus": "WikiText 100 chunks, 512 tokens, 25,500 teacher-forced positions. Same BF16 oracle and scoring formula. See Inkling #35 and the external-logit replay report.",
+    "oracle_sha256": "895fac2136c06dce1854568c83eb76a0225a05fab3c37897a12fec1d56949b97",
+    "default_v12_dictionary": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.072582283191336,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.003175525720314373,
+      "median_kld": 0.0012816721567639787,
+      "p99_kld": 0.030938605542115,
+      "max_kld": 0.674715904066122,
+      "start_chunk": 0,
+      "max_kld_chunk": 69,
+      "max_kld_position": 353,
+      "ref_floor_targets": 14,
+      "top1_matches": 24879,
+      "top1_agreement": 0.9756470588235294
+    },
+    "basalt_5fe1928d": {
+      "rows": 25500,
+      "ppl": 7.068541562952749,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.0029839665828458165,
+      "median_kld": 0.0012179829129947946,
+      "p99_kld": 0.027942197018293202,
+      "max_kld": 0.3306116121147838,
+      "max_kld_chunk": 2,
+      "max_kld_position": 476,
+      "top1_matches": 24948,
+      "ref_floor_targets": 14,
+      "row_csv_sha256": "456362edd7f96082b98580f5e717d8bdf031a5c876533efbc1763da00ab5fc6b",
+      "top1_agreement": 0.9783529411764705
+    }
+  },
+  "llama_bf16": {
+    "cycles": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "summary": {
+      "lean": {
+        "prefill_ms": 94.65074249999999,
+        "decode32_ms": 196.62139,
+        "peak_bytes": 18257805312
+      },
+      "llama": {
+        "prefill_ms": 598.6858525,
+        "decode32_ms": 566.3837725,
+        "peak_bytes": 55578722304
+      }
+    },
+    "matched_requests": 100,
+    "method": "ABBA x5, PRO 5000, one sequence, FP16 KV, 8,192 context, greedy. Each fresh process scores five fixed requests. Discard first request for timing; check all 32 predicted IDs each time (forced continuation). NVML per-PID VRAM polling at 4 ms target.",
+    "lean_commit": "7a02b538048d819fa76d2efb084b734d4c3bf2cb",
+    "llama_commit": "29b52d398b294509746ec0a3f28948a3107c0213",
+    "gguf_bytes": 52226509568,
+    "gguf_sha256": "d4b5181aeb49acf2b08acaa2ad5e0f9f9710e8030d589b3c6e9f43150cf10804",
+    "runs": [
+      {
+        "cycle": 1,
+        "arm": "lean",
+        "leg": 0,
+        "peak": 18077450240,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 101.9111,
+            "decode32_ms": 196.4196,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 94.7235,
+            "decode32_ms": 196.3541,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 94.7463,
+            "decode32_ms": 196.3326,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 94.7349,
+            "decode32_ms": 196.3751,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 94.7215,
+            "decode32_ms": 196.3336,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 1,
+        "arm": "llama",
+        "leg": 1,
+        "peak": 55578722304,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 726.5354,
+            "decode32_ms": 581.224,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 605.4137,
+            "decode32_ms": 566.9603,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 601.7509,
+            "decode32_ms": 566.1793,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 595.8924,
+            "decode32_ms": 566.9179,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 594.9661,
+            "decode32_ms": 566.8475,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 1,
+        "arm": "llama",
+        "leg": 2,
+        "peak": 55578722304,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 690.0445,
+            "decode32_ms": 579.2806,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 601.4665,
+            "decode32_ms": 566.0,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 600.0507,
+            "decode32_ms": 566.3144,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 596.4569,
+            "decode32_ms": 566.9106,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 596.7896,
+            "decode32_ms": 566.7901,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 1,
+        "arm": "lean",
+        "leg": 3,
+        "peak": 18131976192,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 101.8147,
+            "decode32_ms": 196.5224,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 94.6708,
+            "decode32_ms": 196.3718,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 94.6505,
+            "decode32_ms": 196.3622,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 94.6308,
+            "decode32_ms": 196.3754,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 94.7006,
+            "decode32_ms": 196.3902,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 2,
+        "arm": "lean",
+        "leg": 0,
+        "peak": 18243125248,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 103.1233,
+            "decode32_ms": 196.5065,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 94.6262,
+            "decode32_ms": 196.3755,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 94.711,
+            "decode32_ms": 196.2911,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 94.6897,
+            "decode32_ms": 196.3073,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 94.7328,
+            "decode32_ms": 196.3548,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 2,
+        "arm": "llama",
+        "leg": 1,
+        "peak": 55578722304,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 701.3399,
+            "decode32_ms": 577.7383,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 602.7365,
+            "decode32_ms": 566.2555,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 599.585,
+            "decode32_ms": 566.7332,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 596.2661,
+            "decode32_ms": 566.2735,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 595.5661,
+            "decode32_ms": 566.4709,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 2,
+        "arm": "llama",
+        "leg": 2,
+        "peak": 55578722304,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 692.6829,
+            "decode32_ms": 577.1461,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 601.6962,
+            "decode32_ms": 566.9981,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 599.9319,
+            "decode32_ms": 566.6708,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 595.2971,
+            "decode32_ms": 566.8799,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 595.2473,
+            "decode32_ms": 566.9012,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 2,
+        "arm": "lean",
+        "leg": 3,
+        "peak": 18257805312,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 101.8433,
+            "decode32_ms": 196.7413,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 94.6294,
+            "decode32_ms": 196.6618,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 94.6385,
+            "decode32_ms": 196.7016,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 94.6606,
+            "decode32_ms": 196.7133,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 94.6285,
+            "decode32_ms": 196.7405,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 3,
+        "arm": "lean",
+        "leg": 0,
+        "peak": 18140364800,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 102.7449,
+            "decode32_ms": 196.8332,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 94.5688,
+            "decode32_ms": 196.6287,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 94.646,
+            "decode32_ms": 196.6823,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 94.6427,
+            "decode32_ms": 196.7167,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 94.6717,
+            "decode32_ms": 196.7531,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 3,
+        "arm": "llama",
+        "leg": 1,
+        "peak": 55578722304,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 695.1367,
+            "decode32_ms": 577.6661,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 602.412,
+            "decode32_ms": 566.3129,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 599.5647,
+            "decode32_ms": 565.9481,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 595.1234,
+            "decode32_ms": 566.0229,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 594.7132,
+            "decode32_ms": 567.0122,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 3,
+        "arm": "llama",
+        "leg": 2,
+        "peak": 55578722304,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 689.3141,
+            "decode32_ms": 576.4454,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 605.0028,
+            "decode32_ms": 565.3863,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 600.0674,
+            "decode32_ms": 565.5415,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 596.2024,
+            "decode32_ms": 566.693,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 596.6093,
+            "decode32_ms": 565.6963,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 3,
+        "arm": "lean",
+        "leg": 3,
+        "peak": 18077450240,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 101.8848,
+            "decode32_ms": 196.7233,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 94.6169,
+            "decode32_ms": 196.6533,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 94.6139,
+            "decode32_ms": 196.7019,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 94.6601,
+            "decode32_ms": 196.7103,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 94.6339,
+            "decode32_ms": 196.7499,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 4,
+        "arm": "lean",
+        "leg": 0,
+        "peak": 18249416704,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 101.9411,
+            "decode32_ms": 196.7144,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 94.5739,
+            "decode32_ms": 196.6076,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 94.622,
+            "decode32_ms": 196.6885,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 94.616,
+            "decode32_ms": 196.7552,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 94.649,
+            "decode32_ms": 196.7404,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 4,
+        "arm": "llama",
+        "leg": 1,
+        "peak": 55578722304,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 687.5149,
+            "decode32_ms": 576.9804,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 601.3287,
+            "decode32_ms": 566.4895,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 599.3073,
+            "decode32_ms": 565.5955,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 595.0994,
+            "decode32_ms": 566.1407,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 596.2587,
+            "decode32_ms": 566.8266,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 4,
+        "arm": "llama",
+        "leg": 2,
+        "peak": 55578722304,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 687.3056,
+            "decode32_ms": 576.8356,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 602.9677,
+            "decode32_ms": 566.4788,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 602.5088,
+            "decode32_ms": 566.4877,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 596.1004,
+            "decode32_ms": 565.8525,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 596.5333,
+            "decode32_ms": 566.6802,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 4,
+        "arm": "lean",
+        "leg": 3,
+        "peak": 18060673024,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 102.807,
+            "decode32_ms": 196.9582,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 94.574,
+            "decode32_ms": 196.7392,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 94.6171,
+            "decode32_ms": 196.8159,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 94.655,
+            "decode32_ms": 196.7531,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 94.6537,
+            "decode32_ms": 196.8379,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 5,
+        "arm": "lean",
+        "leg": 0,
+        "peak": 18102616064,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 101.9905,
+            "decode32_ms": 196.7659,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 94.6187,
+            "decode32_ms": 196.7438,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 94.6112,
+            "decode32_ms": 196.7775,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 94.6412,
+            "decode32_ms": 196.8081,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 94.6508,
+            "decode32_ms": 196.8223,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 5,
+        "arm": "llama",
+        "leg": 1,
+        "peak": 55578722304,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 687.5853,
+            "decode32_ms": 576.9416,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 602.1347,
+            "decode32_ms": 565.96,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 602.2389,
+            "decode32_ms": 566.43,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 596.5429,
+            "decode32_ms": 566.3159,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 596.4612,
+            "decode32_ms": 566.6927,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 5,
+        "arm": "llama",
+        "leg": 2,
+        "peak": 55578722304,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 686.8977,
+            "decode32_ms": 576.8929,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 601.3796,
+            "decode32_ms": 566.6053,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 597.9334,
+            "decode32_ms": 565.7613,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 596.1518,
+            "decode32_ms": 566.0348,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 595.6791,
+            "decode32_ms": 566.283,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      },
+      {
+        "cycle": 5,
+        "arm": "lean",
+        "leg": 3,
+        "peak": 18077450240,
+        "requests": [
+          {
+            "run": 0,
+            "prefill_ms": 102.978,
+            "decode32_ms": 196.8907,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 1,
+            "prefill_ms": 94.6277,
+            "decode32_ms": 196.8397,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 2,
+            "prefill_ms": 94.6639,
+            "decode32_ms": 196.8082,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 3,
+            "prefill_ms": 94.6565,
+            "decode32_ms": 196.7546,
+            "matches": 32,
+            "first": 145026
+          },
+          {
+            "run": 4,
+            "prefill_ms": 94.6494,
+            "decode32_ms": 196.7265,
+            "matches": 32,
+            "first": 145026
+          }
+        ]
+      }
+    ]
+  }
+}
