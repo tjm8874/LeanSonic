@@ -80,3 +80,30 @@ leansonic eval-kld --ref inkling2-bf16-base.kld --start-chunk 69 --chunks 1 --lo
 ```
 
 Feed the reference token IDs to the engine in their original order, resetting its state at each chunk. For this 512-token oracle, export the distribution immediately after each input position from 256 through 510 inclusive. The target at position 510 is token 511. Each row contains 200,058 little-endian FP32 logits in vocabulary-ID order. Concatenate the 255 rows per chunk, then concatenate the requested chunks in increasing order, without headers or padding. A single chunk occupies 204,059,160 bytes. Pass `--logits-f32 -` to stream rows from a producer. The JSON fields and reference scoring rules are shared with GPU evaluation. Record the producer's model, vocabulary, prefill schedule and KV format alongside the result.
+
+## V12 with native Q8 scale dictionaries
+
+These runs use LeanSonic `7a02b538` (default Tensor Core prefill), a text-only Basalt `5fe1928d` package, and the pinned llama.cpp BF16 reference. The LeanSonic text shard plus tokenizer occupies 16,038,568,990 bytes. Basalt’s text-only package occupies 18,327,104,737 bytes. The BF16 reference GGUF occupies 52,226,509,568 bytes.
+
+| GPU / engine | Prompt tokens | Prefill (ms) | Decode steps | Decode (ms) | Highest sampled process VRAM (GiB) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| RTX 5060 Ti / LeanSonic | 32 | 246.34 | 16 | 335.72 | 15.422 |
+| RTX 5060 Ti / Basalt | 32 | 293.60 | 16 | 377.30 | 14.459 |
+| RTX 5060 Ti / LeanSonic | 1,024 | 388.83 | 16 | 392.60 | 15.418 |
+| RTX 5060 Ti / Basalt | 1,024 | 1,284.50 | 16 | 393.60 | 14.461 |
+| RTX PRO 5000 / LeanSonic | 1,024 | 94.65 | 32 | 196.62 | 17.004 |
+| RTX PRO 5000 / llama.cpp BF16 | 1,024 | 598.69 | 32 | 566.38 | 51.762 |
+
+The RTX 5060 Ti comparison uses the README prompt and its first 32 IDs, FP16 KV, context 8,192, greedy selection and speculation disabled. Each prompt ran once per fresh process. Five balanced cycles compared native Q8 scales, dictionary Q8 scales and Basalt in mirrored, rotating order. All three produced the same first 16 IDs at both lengths. For the 1,024-token prompt the dictionary package saved 69.73% of Basalt's prefill time. Its 16-step decode difference was within run-to-run variation (paired 95% interval for time saved −0.18% to +0.58%). LeanSonic used about 0.96 GiB more peak VRAM. Basalt's CLI reports its phase times to whole milliseconds.
+
+On PRO 5000, use the two fixed-continuation harnesses described above with the V12 revision and dictionary package. Each process ran five requests. All 100 requests predicted the 32 supplied IDs, and the timing excludes each process's first request. The two workloads in the table have different decode lengths and warm-up protocols.
+
+For the Basalt comparison, prepare the [text-only Basalt container](https://github.com/tjm8874/LeanSonic/tree/87e016b/docs/benchmarks/inkling-basalt-text), create the short prompt from the first 32 comma-separated IDs, and substitute either token file for `$PROMPT`. These settings run 16 decode forwards in both engines. Basalt counts the prefill prediction in its output limit.
+
+```bash
+export LEANSONIC_CTX=8192 LEANSONIC_KV=fp16 LEANSONIC_CUBIN_PATH="$PWD/inkling.cubin"
+target/release/leansonic bench --weights "$DICT" --tokens "@$PROMPT" --gen 16 --spec 0 --repeat 1
+"$BASALT" --model "$TEXT_BASALT" --tokens-file "$PROMPT" --gpu 0 --kv fp16 --max-context 8192 --spec 0 --temperature 0 --max-new 17
+```
+
+On the separate 25,500-position WikiText BF16 evaluation, V12 had mean KL 0.003176, worst KL 0.674716, 24,879 top-1 matches and PPL 7.072582. Basalt had mean KL 0.002984, worst KL 0.330612, 24,948 matches and PPL 7.068542. BF16 PPL was 7.064408. The [measurement file](benchmarks/inkling-v12-matched-engines.json) includes the run-level timings, sampled VRAM, token IDs, input hashes and quality results.
