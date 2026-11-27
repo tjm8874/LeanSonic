@@ -1,0 +1,182 @@
+{
+  "cards": {
+    "5060Ti": {
+      "summary": {
+        "prefill_ms": {
+          "control": 403.538725,
+          "candidate": 274.2583225,
+          "delta_ms": -129.2804025,
+          "ci95": [
+            -131.060455,
+            -128.30942000000002
+          ]
+        },
+        "decode32_ms": {
+          "control": 366.3792425,
+          "candidate": 366.4340925,
+          "delta_ms": 0.05485000000001037,
+          "ci95": [
+            0.009882499999991978,
+            0.09404000000002952
+          ]
+        },
+        "peak_bytes": {
+          "0": 16588472320,
+          "1": 16338911232
+        }
+      },
+      "instrumented": {
+        "auto": {
+          "initial_and_warm_widths": [
+            64,
+            512,
+            512,
+            512,
+            512
+          ],
+          "events": [
+            "workspace enter prompt=1024 active=64 limit=2048 free=506134528",
+            "workspace allocation failed width=1024 elapsed_us=4678",
+            "workspace resize OK width=512 elapsed_us=9622",
+            "workspace enter prompt=1024 active=512 limit=2048 free=392888320",
+            "workspace allocation failed width=1024 elapsed_us=3138",
+            "workspace enter prompt=1024 active=512 limit=2048 free=392888320",
+            "workspace allocation failed width=1024 elapsed_us=3252",
+            "workspace enter prompt=1024 active=512 limit=2048 free=392888320",
+            "workspace allocation failed width=1024 elapsed_us=3097",
+            "workspace enter prompt=1024 active=512 limit=2048 free=392888320",
+            "workspace allocation failed width=1024 elapsed_us=8376"
+          ]
+        },
+        "eager": {
+          "initial_and_warm_widths": [
+            1024,
+            1024,
+            1024,
+            1024,
+            1024
+          ],
+          "events": [
+            "workspace enter prompt=1024 active=1024 limit=1024 free=269156352",
+            "workspace enter prompt=1024 active=1024 limit=1024 free=269156352",
+            "workspace enter prompt=1024 active=1024 limit=1024 free=269156352",
+            "workspace enter prompt=1024 active=1024 limit=1024 free=269156352",
+            "workspace enter prompt=1024 active=1024 limit=1024 free=269156352"
+          ]
+        }
+      }
+    },
+    "5070Ti": {
+      "summary": {
+        "prefill_ms": {
+          "control": 539.9704475,
+          "candidate": 130.72391,
+          "delta_ms": -409.2465375,
+          "ci95": [
+            -409.3646575,
+            -409.12841749999995
+          ]
+        },
+        "decode32_ms": {
+          "control": 205.20721749999998,
+          "candidate": 205.260495,
+          "delta_ms": 0.05327750000000151,
+          "ci95": [
+            0.041122500000005856,
+            0.06807000000000585
+          ]
+        },
+        "peak_bytes": {
+          "0": 16596860928,
+          "1": 16437477376
+        }
+      },
+      "instrumented": {
+        "auto": {
+          "initial_and_warm_widths": [
+            64,
+            128,
+            128,
+            128,
+            128
+          ],
+          "events": [
+            "workspace enter prompt=1024 active=64 limit=1024 free=398983168",
+            "workspace allocation failed width=1024 elapsed_us=2943",
+            "workspace allocation failed width=512 elapsed_us=6769",
+            "workspace allocation failed width=256 elapsed_us=11109",
+            "workspace resize OK width=128 elapsed_us=15509",
+            "workspace enter prompt=1024 active=128 limit=1024 free=375914496",
+            "workspace allocation failed width=1024 elapsed_us=2499",
+            "workspace allocation failed width=512 elapsed_us=6002",
+            "workspace allocation failed width=256 elapsed_us=9975",
+            "workspace enter prompt=1024 active=128 limit=1024 free=375914496",
+            "workspace allocation failed width=1024 elapsed_us=2627",
+            "workspace allocation failed width=512 elapsed_us=6151",
+            "workspace allocation failed width=256 elapsed_us=10148",
+            "workspace enter prompt=1024 active=128 limit=1024 free=375914496",
+            "workspace allocation failed width=1024 elapsed_us=2463",
+            "workspace allocation failed width=512 elapsed_us=5900",
+            "workspace allocation failed width=256 elapsed_us=9856",
+            "workspace enter prompt=1024 active=128 limit=1024 free=375914496",
+            "workspace allocation failed width=1024 elapsed_us=2669",
+            "workspace allocation failed width=512 elapsed_us=8780",
+            "workspace allocation failed width=256 elapsed_us=12751"
+          ]
+        },
+        "eager": {
+          "initial_and_warm_widths": [
+            1024,
+            1024,
+            1024,
+            1024,
+            1024
+          ],
+          "events": [
+            "workspace enter prompt=1024 active=1024 limit=1024 free=162004992",
+            "workspace enter prompt=1024 active=1024 limit=1024 free=162004992",
+            "workspace enter prompt=1024 active=1024 limit=1024 free=162004992",
+            "workspace enter prompt=1024 active=1024 limit=1024 free=162004992",
+            "workspace enter prompt=1024 active=1024 limit=1024 free=162004992"
+          ]
+        }
+      }
+    }
+  },
+  "traces": {
+    "1": [
+      145026,
+      220,
+      39446,
+      220,
+      19,
+      154978,
+      152792,
+      189134,
+      149860,
+      185136,
+      198,
+      84375,
+      149859,
+      23033,
+      220,
+      137294,
+      196997,
+      13,
+      1157,
+      63,
+      150406,
+      903,
+      25,
+      196997,
+      30841,
+      57335,
+      12,
+      1339,
+      903,
+      63,
+      197005,
+      196997
+    ]
+  }
+}

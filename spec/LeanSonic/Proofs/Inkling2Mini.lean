@@ -674,11 +674,12 @@ def kInk2GqaAttnSplit : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
-/-- FP16 decode / verify instantiation with the pipelined row loop (`64` regs -> still `4` CTAs). -/
+/-- FP16 decode / verify instantiation with the pipelined row loop, keys in pairs (`72` regs -> `3` CTAs). -/
 def kInk2GqaAttnSplitDec : KernelResourceSpec :=
   { kInk2GqaAttnSplit with
     name := "ink2_gqa_attn_split_dec"
-    rawRegsPerThread := 64 }        -- 16,384 regs/CTA; 4 CTAs = 65,536 <= 65,536
+    rawRegsPerThread := 72          -- keys in pairs (two shuffle trees in flight, #152): 3 CTAs = 55,296
+    ctasPerSm := 3 }
 
 /-- Split-KV Online-Softmax Combine + Sigmoid Gate (`128` threads, `39` regs -> `12` CTAs = `48` warps/SM!). -/
 def kInk2GqaAttnCombine : KernelResourceSpec :=
@@ -715,10 +716,10 @@ theorem cycle4_splitkv_all_kernels_valid :
 def kInk2CtrlDownR8B : KernelResourceSpec :=
   { name := "ink2_ctrl_down_r8_b"
     threadsPerCta := 256
-    rawRegsPerThread := 48
+    rawRegsPerThread := 56          -- first weight pass loaded before `pdl_wait` (#152): 4 CTAs
     userSmemPerCtaBytes := 18760
     smemAlignPadBytes := 0
-    ctasPerSm := 5
+    ctasPerSm := 4
     clusterCtas := 1
     minRequiredL1KiB := 28
     hasStackSpill := false
@@ -1719,7 +1720,7 @@ def kInk2GqaAttnCombineQ8Dyn : KernelResourceSpec :=
 def kInk2Q8Dp4aGemmB8Fast : KernelResourceSpec :=
   { name := "ink2_q8_dp4a_gemm_b8_fast"
     threadsPerCta := 256
-    rawRegsPerThread := 89          -- aligns to 96 -> 24,576 regs/CTA; 2 CTAs = 49,152 <= 65,536
+    rawRegsPerThread := 122         -- weights loaded before `pdl_wait` (#152): aligns to 128 -> 32,768 regs/CTA; 2 CTAs = 65,536 <= 65,536
     userSmemPerCtaBytes := 26112    -- 2 * (26,112 + 1,024) = 54,272 B <= 64 KiB carveout -> 64 KiB L1!
     smemAlignPadBytes := 0
     ctasPerSm := 2
@@ -1799,7 +1800,7 @@ fewer registers). -/
 def kInk2PrepQkvAndCacheMs : KernelResourceSpec :=
   { name := "ink2_prep_qkv_and_cache_ms"
     threadsPerCta := 256
-    rawRegsPerThread := 28          -- 7,168 regs/CTA; 6 CTAs = 43,008 <= 65,536
+    rawRegsPerThread := 29          -- 7,424 regs/CTA; 6 CTAs = 44,544 <= 65,536 (`pdl_wait`, #152)
     userSmemPerCtaBytes := 0
     smemAlignPadBytes := 0
     ctasPerSm := 6
@@ -1809,7 +1810,9 @@ def kInk2PrepQkvAndCacheMs : KernelResourceSpec :=
     hasHotLoopLibmCall := false }
 
 def kInk2GqaAttnSplitDecMs : KernelResourceSpec :=
-  { kInk2GqaAttnSplitDec with name := "ink2_gqa_attn_split_dec_ms" }   -- 64 regs, 14,976 B
+  { kInk2GqaAttnSplit with
+    name := "ink2_gqa_attn_split_dec_ms"
+    rawRegsPerThread := 64 }        -- one key at a time: 16,384 regs/CTA; 4 CTAs = 65,536
 
 def kInk2GqaAttnSplitI8Ms : KernelResourceSpec :=
   { kInk2GqaAttnSplitI8 with name := "ink2_gqa_attn_split_i8_ms" }     -- 64 regs, 14,976 B
@@ -2041,19 +2044,18 @@ def kInk2WoConv4SaveC3072 : KernelResourceSpec :=
 def kInk2MoeNvfp4Dp4aDownXwConv : KernelResourceSpec :=
   { name := "ink2_moe_nvfp4_dp4a_down_xw_conv"
     threadsPerCta := 256
-    rawRegsPerThread := 55          -- aligns to 56 -> 14,336 regs/CTA; 4 CTAs = 57,344 <= 65,536
-    userSmemPerCtaBytes := 64
+    rawRegsPerThread := 48          -- 12,288 regs/CTA; 5 CTAs = 61,440 <= 65,536 (40 warps/SM!)
+    userSmemPerCtaBytes := 64       -- 5 * (64 + 1,024) = 5,440 B <= 8 KiB carveout -> 120 KiB L1!
     smemAlignPadBytes := 0
-    ctasPerSm := 4
+    ctasPerSm := 5
     clusterCtas := 1
-    minRequiredL1KiB := 96
+    minRequiredL1KiB := 120
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
 def kInk2MoeNvfp4Dp4aDownXwConvPacked : KernelResourceSpec :=
   { kInk2MoeNvfp4Dp4aDownXwConv with
-    name := "ink2_moe_nvfp4_dp4a_down_xw_conv_packed_scales"
-    rawRegsPerThread := 56 }
+    name := "ink2_moe_nvfp4_dp4a_down_xw_conv_packed_scales" }
 
 def kInk2MoeMxfp8DownXwConv : KernelResourceSpec :=
   { name := "ink2_moe_mxfp8_down_xw_conv"
@@ -2211,5 +2213,198 @@ def cycle9ConvFuseAndVerifyMoeSuite : List KernelResourceSpec :=
 
 theorem cycle9_conv_fuse_and_verify_moe_all_kernels_valid :
     (cycle9ConvFuseAndVerifyMoeSuite.all checkSm120Kernel) = true := by decide
+
+/-! ## Constant-weight prefetch under PDL (#152 P0-B)
+
+Speculative-verify and drafter kernels trigger their dependents right after `pdl_wait`, so the
+next kernel becomes resident early and loads its constant weights before its own wait. The verify
+router reads its 9 weight vectors per lane that way. -/
+
+/-- Verify router GEMV: one warp per expert row, `Grid (128, ceil(B / 4))`. -/
+def kInk2Bf16GemvRouterB : KernelResourceSpec :=
+  { name := "ink2_bf16_gemv_router_b"
+    threadsPerCta := 32
+    rawRegsPerThread := 112         -- 3,584 regs/CTA; 18 CTAs = 64,512 <= 65,536
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 18
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+theorem ink2_bf16_gemv_router_b_valid : ValidSm120Kernel kInk2Bf16GemvRouterB := by decide
+
+/-! ## Speculative-verify launch fusion (#152 P0-B)
+
+Each fused kernel runs the per-element arithmetic of the kernels it replaces in the same order:
+the K/V `short_conv4` pair (`blockIdx.y` picks K or V), router top-8 + active-expert grouping
+(one CTA, groups read from shared memory), and the top-8 combine + MLP `short_conv4`. -/
+
+def kInk2ShortConv4PairB : KernelResourceSpec :=
+  { name := "ink2_short_conv4_pair_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 34          -- aligns to 40 -> 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2RouterTopk8GroupsB : KernelResourceSpec :=
+  { name := "ink2_router_topk8_groups_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 48          -- 12,288 regs/CTA; a single CTA per launch
+    userSmemPerCtaBytes := 784
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2MoeCombineConv4B : KernelResourceSpec :=
+  { name := "ink2_moe_combine_conv4_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 38          -- aligns to 40 -> 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def verifyLaunchFusionSuite : List KernelResourceSpec :=
+  [ kInk2ShortConv4PairB
+  , kInk2RouterTopk8GroupsB
+  , kInk2MoeCombineConv4B ]
+
+theorem verify_launch_fusion_all_kernels_valid :
+    (verifyLaunchFusionSuite.all checkSm120Kernel) = true := by decide
+
+/-! ## Cycle 10: Solo Decode 220+ tok/s Breakthrough Kernels (`#152` P0-A / `#106`)
+
+Eliminates non-overlapped critical-path bottlenecks exposed by `WallInc(us)` frontier profiling:
+1. `ink2_router_topk8_par` / `_b`: 512-thread parallel counting-rank Top-8 (`1` warp -> `16` warps).
+2. `ink2_gqa_attn_g1_q8_decode` / `_i8`: 1-split (`Grid (8, B)`) GQA decode attention with immediate `pdl_trigger()` and zero-barrier 6-warp `Q8_64` epilogue (`pos < 2048` matched across solo & verify for `0-ULP` parity).
+3. `ink2_ctrl_down_r1_256_fast`: 1-row/CTA (`Grid (64, n_ctrls)`) controller down projection (`4x` SM spread for `n_ctrls = 1`).
+4. `ink2_sc_save_depth_mix_rmsnorm_d_quant_q8_16` / `ink2_sc_save_depth_mix_inv`: fuses `48` post-`wo` `short_conv4_save` launches/token directly into `depth_mix` prologues while keeping `288`-CTA `wo` GEMV! -/
+
+def kInk2RouterTopk8Par : KernelResourceSpec :=
+  { name := "ink2_router_topk8_par"
+    threadsPerCta := 512
+    rawRegsPerThread := 26          -- aligns to 32 -> 16,384 regs/CTA; 3 CTAs = 49,152 <= 65,536 (48 warps/SM!)
+    userSmemPerCtaBytes := 1088     -- 3 * (1,088 + 1,024) = 6,336 B <= 8 KiB carveout -> 120 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2RouterTopk8ParB : KernelResourceSpec :=
+  { kInk2RouterTopk8Par with
+    name := "ink2_router_topk8_par_b"
+    rawRegsPerThread := 30 }
+
+def kInk2GqaAttnG1Q8Decode : KernelResourceSpec :=
+  { name := "ink2_gqa_attn_g1_q8_decode"
+    threadsPerCta := 256
+    rawRegsPerThread := 64          -- 16,384 regs/CTA; 4 CTAs = 65,536 <= 65,536 (32 warps/SM!)
+    userSmemPerCtaBytes := 14208    -- 4 * (14,208 + 1,024) = 60,928 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2GqaAttnG1Q8DecodeI8 : KernelResourceSpec :=
+  { kInk2GqaAttnG1Q8Decode with
+    name := "ink2_gqa_attn_g1_q8_decode_i8" }
+
+def kInk2CtrlDownR1256Fast : KernelResourceSpec :=
+  { name := "ink2_ctrl_down_r1_256_fast"
+    threadsPerCta := 256
+    rawRegsPerThread := 40          -- 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536 (48 warps/SM!)
+    userSmemPerCtaBytes := 32       -- 6 * (32 + 1,024) = 6,336 B <= 8 KiB carveout -> 120 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2ScSaveDepthMixRmsnormDQ816 : KernelResourceSpec :=
+  { name := "ink2_sc_save_depth_mix_rmsnorm_d_quant_q8_16"
+    threadsPerCta := 256
+    rawRegsPerThread := 88          -- 22,528 regs/CTA; 2 CTAs = 45,056 <= 65,536
+    userSmemPerCtaBytes := 9712     -- 2 * (9,712 + 1,024) = 21,472 B <= 32 KiB carveout -> 96 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 2
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2ScSaveDepthMixInv : KernelResourceSpec :=
+  { name := "ink2_sc_save_depth_mix_inv"
+    threadsPerCta := 256
+    rawRegsPerThread := 92          -- aligns to 96 -> 24,576 regs/CTA; 2 CTAs = 49,152 <= 65,536
+    userSmemPerCtaBytes := 464      -- 2 * (464 + 1,024) = 2,976 B <= 8 KiB carveout -> 120 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 2
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2GqaAttnSplitFusedQ8Dec : KernelResourceSpec :=
+  { name := "ink2_gqa_attn_split_fused_q8_dec"
+    threadsPerCta := 256
+    rawRegsPerThread := 72          -- keys in pairs (two shuffle trees in flight, #169): 3 CTAs = 55,296 <= 65,536
+    userSmemPerCtaBytes := 14224    -- 3 * (14,224 + 1,024) = 45,744 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2GqaAttnSplitFusedQ8DecI8 : KernelResourceSpec :=
+  { kInk2GqaAttnSplitFusedQ8Dec with
+    name := "ink2_gqa_attn_split_fused_q8_dec_i8"
+    rawRegsPerThread := 64
+    ctasPerSm := 4 }
+
+def kInk2ArgmaxParAndIncPos : KernelResourceSpec :=
+  { name := "ink2_argmax_par_and_inc_pos"
+    threadsPerCta := 256
+    rawRegsPerThread := 23          -- aligns to 24 -> 6,144 regs/CTA; 6 CTAs = 36,864 <= 65,536 (48 warps/SM!)
+    userSmemPerCtaBytes := 80       -- 6 * (80 + 1,024) = 6,624 B <= 8 KiB carveout -> 120 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def cycle10DecodeBreakthroughSuite : List KernelResourceSpec :=
+  [ kInk2RouterTopk8Par
+  , kInk2RouterTopk8ParB
+  , kInk2GqaAttnG1Q8Decode
+  , kInk2GqaAttnG1Q8DecodeI8
+  , kInk2CtrlDownR1256Fast
+  , kInk2ScSaveDepthMixRmsnormDQ816
+  , kInk2ScSaveDepthMixInv
+  , kInk2GqaAttnSplitFusedQ8Dec
+  , kInk2GqaAttnSplitFusedQ8DecI8
+  , kInk2ArgmaxParAndIncPos ]
+
+theorem cycle10_decode_breakthrough_all_kernels_valid :
+    (cycle10DecodeBreakthroughSuite.all checkSm120Kernel) = true := by decide
 
 end LeanSonic.Proofs

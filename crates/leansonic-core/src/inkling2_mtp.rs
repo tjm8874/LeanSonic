@@ -54,6 +54,8 @@ fn concat_slices(slices: &[&[u8]]) -> Vec<u8> {
 }
 
 pub struct MtpKernelFns {
+    /// Launch drafter kernels with PDL (see `inkling2_gpu::pdl_all_enabled`).
+    pub pdl_all: bool,
     pub rmsnorm_d_b: CUfunction,
     pub rmsnorm_quant_q8_64_b: CUfunction,
     pub quant_q8_64_b: CUfunction,
@@ -646,6 +648,17 @@ impl DsparkDrafterGpu {
         block: u32,
         params: &mut [*mut c_void],
     ) -> Result<(), String> {
+        if self.fns.pdl_all {
+            return crate::inkling2_gpu::launch_pdl_3d(
+                &self.ctx,
+                stream,
+                func,
+                (grid.0, grid.1, 1),
+                block,
+                0,
+                params,
+            );
+        }
         unsafe {
             check_cu(
                 (self.ctx.api.cuLaunchKernel)(
@@ -701,9 +714,28 @@ impl DsparkDrafterGpu {
         cols: usize,
         b_len: usize,
     ) -> Result<(), String> {
+        self.enqueue_quant_q8_to(
+            stream,
+            x_ptr,
+            cols,
+            b_len,
+            self.scr.d_q8.ptr,
+            self.scr.d_sc64.ptr,
+        )
+    }
+
+    fn enqueue_quant_q8_to(
+        &self,
+        stream: CUstream,
+        x_ptr: CUdeviceptr,
+        cols: usize,
+        b_len: usize,
+        q_dst: CUdeviceptr,
+        s_dst: CUdeviceptr,
+    ) -> Result<(), String> {
         let mut px = x_ptr;
-        let mut pq = self.scr.d_q8.ptr;
-        let mut ps = self.scr.d_sc64.ptr;
+        let mut pq = q_dst;
+        let mut ps = s_dst;
         let mut c = cols as i32;
         let mut args: [*mut c_void; 4] = [
             (&mut px as *mut _) as *mut c_void,
@@ -905,6 +937,32 @@ impl DsparkDrafterGpu {
         next_tok: u32,
         max_k: usize,
     ) -> Result<(usize, f32), String> {
+        self.enqueue_draft_front(
+            stream,
+            embed_ptr,
+            embed_norm_ptr,
+            Some(unembed_q8),
+            next_tok,
+            max_k,
+            None,
+        )
+    }
+
+    /// `enqueue_draft` without the shared unembed and the Markov head when `batched` is set: the
+    /// quantized hidden rows `1..7` go to `batched = (codes, scales64)`, so the caller can run one
+    /// unembed GEMM over several sequences' rows (#107 stage 3e) and then call `enqueue_markov`
+    /// with this sequence's slice of the base logits.
+    #[allow(clippy::too_many_arguments)]
+    pub fn enqueue_draft_front(
+        &mut self,
+        stream: CUstream,
+        embed_ptr: CUdeviceptr,
+        embed_norm_ptr: CUdeviceptr,
+        unembed_q8: Option<&PlanarQ8Gpu>,
+        next_tok: u32,
+        max_k: usize,
+        batched: Option<(CUdeviceptr, CUdeviceptr)>,
+    ) -> Result<(usize, f32), String> {
         let max_k = max_k.min(B_DRAFT - 1);
         if max_k == 0 {
             return Ok((0, 0.0));
@@ -1072,8 +1130,12 @@ impl DsparkDrafterGpu {
             )?;
         }
         let hidden_1_7 = self.scr.d_hidden.ptr + (D * 4) as u64;
-        self.enqueue_quant_q8(stream, hidden_1_7, D, 7)?;
-        {
+        if let Some((q_dst, s_dst)) = batched {
+            self.enqueue_quant_q8_to(stream, hidden_1_7, D, 7, q_dst, s_dst)?;
+        } else {
+            self.enqueue_quant_q8(stream, hidden_1_7, D, 7)?;
+        }
+        if let (None, Some(unembed_q8)) = (batched, unembed_q8) {
             let mut pw = unembed_q8.codes.ptr;
             let mut pws = unembed_q8.scales64.ptr;
             let mut px = self.scr.d_q8.ptr;
@@ -1168,7 +1230,21 @@ impl DsparkDrafterGpu {
             self.launch(stream, self.fns.add_bias_rows, (gx, 1), 256, &mut args)?;
         }
 
-        // 3. 7-Step Autoregressive Markov RNN Head (100% on GPU, single 64B DtoH at the end!)
+        if batched.is_none() {
+            self.enqueue_markov(stream, max_k, tau, self.scr.d_base.ptr)?;
+        }
+        Ok((max_k, tau))
+    }
+
+    /// Step 3: the 7-step autoregressive Markov RNN head over base logits `[7, VOCAB]` at
+    /// `base_ptr`, entirely on the GPU with a single 64 B DtoH at the end.
+    pub fn enqueue_markov(
+        &self,
+        stream: CUstream,
+        max_k: usize,
+        tau: f32,
+        base_ptr: CUdeviceptr,
+    ) -> Result<(), String> {
         let nb = VOCAB.div_ceil(64) as i32;
         let cum_ptr = self.scr.d_res.ptr + 4;
         for step in 0..max_k {
@@ -1216,7 +1292,7 @@ impl DsparkDrafterGpu {
                 let mut plq = self.scr.d_lat_q8.ptr;
                 let mut pls = self.scr.d_lat_sc64.ptr;
                 let mut pfb = self.d_fold_b.ptr;
-                let mut pbase = self.scr.d_base.ptr + (step * VOCAB * 4) as u64;
+                let mut pbase = base_ptr + (step * VOCAB * 4) as u64;
                 let mut ppart = self.scr.d_fpart.ptr;
                 let mut pcum = cum_ptr;
                 let mut args: [*mut c_void; 8] = [
@@ -1251,8 +1327,7 @@ impl DsparkDrafterGpu {
                 self.launch(stream, self.fns.fold_fin, (1, 1), 256, &mut args)?;
             }
         }
-
-        Ok((max_k, tau))
+        Ok(())
     }
 
     /// Reads the draft enqueued by `enqueue_draft` (its stream must have completed).
