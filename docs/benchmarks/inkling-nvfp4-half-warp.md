@@ -42,3 +42,7 @@ for arm in stock candidate; do
 done
 cmp stock.f32 candidate.f32 && sha256sum candidate.f32
 ```
+
+## Matched end-to-end comparison
+
+On the RTX PRO 5000 72GB, the 1,024-token README prompt took 97.55 / 95.60 ms (prefill / 16 decode forwards) on V13, 97.53 / 94.87 ms on this branch, and 102.17 / 92.00 ms on Basalt. All runs used FP16 KV, ctx 8192, greedy sampling, speculation off, and the same first 16 output IDs. Three rotated mirrored cycles per card are in the [per-process data](inkling-nvfp4-half-warp-matched.json). The PRO 4500 and 5070 Ti separately reproduced all 200 greedy IDs with speculative width 7 and width 0 on the regression prompt (SHA-256 of ID list `0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6`).
