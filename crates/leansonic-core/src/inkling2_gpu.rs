@@ -10123,13 +10123,19 @@ mod tests {
         assert_eq!(core::mem::offset_of!(Conv4BArgs, do_res_add), 84);
     }
 
-    /// Every kernel may be launched with PDL (`pdl_all`), so each one must reach `pdl_wait()`
-    /// before it touches memory a preceding kernel may write (#152 P0-B).
-    #[test]
-    fn every_kernel_waits_on_its_pdl_predecessor() {
-        let src = CUDA_KERNEL_SRC;
+    /// Kernels, macro entries and indexed wrappers that `pdl_audit` checked.
+    #[derive(Debug)]
+    struct PdlCounts {
+        kernels: usize,
+        macro_entries: usize,
+        indexed: usize,
+    }
+
+    /// The PDL contract of a CUDA source: every kernel reaches `pdl_wait()` before it touches
+    /// memory a preceding kernel may write. Returns the first violation.
+    fn pdl_audit(src: &str) -> Result<PdlCounts, String> {
         let mut missing = Vec::new();
-        let mut seen = 0;
+        let mut kernels = 0;
         let mut macro_entries = 0;
         for (at, _) in src.match_indices("extern \"C\" __global__") {
             let line_start = src[..at].rfind('\n').map_or(0, |i| i + 1);
@@ -10139,19 +10145,23 @@ mod tests {
                 .trim_end()
                 .ends_with('\\')
             {
-                let entry = src[at..].lines().next().unwrap();
-                let (_, body) = entry.split_once('{').expect("kernel macro entry body");
-                assert!(
-                    body.trim_start().starts_with("pdl_wait();")
-                        || (src[..at].rfind("#define ").is_some_and(|start| {
-                            src[start..].starts_with("#define INK2_INDEXED_KERNEL(")
-                        }) && body.trim_start().starts_with("name##_impl<")),
-                    "kernel macro reads before waiting on its predecessor: {entry}"
-                );
+                let entry = src[at..].lines().next().unwrap_or_default();
+                let (_, body) = entry
+                    .split_once('{')
+                    .ok_or_else(|| format!("kernel macro entry without body: {entry}"))?;
+                let forwards_to_indexed = src[..at]
+                    .rfind("#define ")
+                    .is_some_and(|start| src[start..].starts_with("#define INK2_INDEXED_KERNEL("))
+                    && body.trim_start().starts_with("name##_impl<");
+                if !body.trim_start().starts_with("pdl_wait();") && !forwards_to_indexed {
+                    return Err(format!(
+                        "kernel macro reads before waiting on its predecessor: {entry}"
+                    ));
+                }
                 macro_entries += 1;
                 continue;
             }
-            let open = at + src[at..].find('{').expect("kernel body");
+            let open = at + src[at..].find('{').ok_or("kernel without body")?;
             let mut depth = 0usize;
             let mut close = open;
             for (i, c) in src[open..].char_indices() {
@@ -10167,34 +10177,38 @@ mod tests {
                     _ => {}
                 }
             }
-            seen += 1;
+            kernels += 1;
             if !src[open..close].contains("pdl_wait()") {
+                // `void [__launch_bounds__(..)] name(`: the identifier before the parameters.
+                let sig = &src[at..open];
+                let after_void = sig.split_once(" void ").map_or(sig, |(_, rest)| rest);
+                let after_bounds = after_void
+                    .strip_prefix("__launch_bounds__(")
+                    .and_then(|rest| rest.split_once(") "))
+                    .map_or(after_void, |(_, rest)| rest);
                 missing.push(
-                    src[at..open]
+                    after_bounds
                         .split('(')
                         .next()
                         .unwrap_or_default()
+                        .trim()
                         .to_string(),
                 );
             }
         }
-        assert!(seen > 100, "parsed only {seen} kernels");
-        assert!(
-            missing.is_empty(),
-            "kernels without pdl_wait(): {missing:?}"
-        );
-        assert!(
-            macro_entries >= 4,
-            "parsed only {macro_entries} macro entries"
-        );
+        if !missing.is_empty() {
+            return Err(format!("kernels without pdl_wait(): {missing:?}"));
+        }
         // These wrappers forward directly to an inlined template. Three down kernels
         // prefetch persistent weights before waiting for predecessor-produced activations.
         let mut indexed = 0;
         for definition in src.split("\nINK2_INDEXED_KERNEL(").skip(1) {
-            let (signature, rest) = definition.split_once(")) {").unwrap();
-            let (_, rest) = rest.split_once('\n').unwrap();
-            let body = rest.split_once("\n}").unwrap().0;
-            let name = signature.split(',').next().unwrap();
+            let (signature, rest) = definition
+                .split_once(")) {")
+                .ok_or("indexed kernel without body")?;
+            let (_, rest) = rest.split_once('\n').unwrap_or_default();
+            let body = rest.split_once("\n}").map_or(rest, |b| b.0);
+            let name = signature.split(',').next().unwrap_or_default();
             let inputs: &[&str] = match name {
                 "ink2_moe_mxfp8_down_xw" => &["act4", "sel_wts"],
                 "ink2_moe_mxfp8_down_xw_conv" => &["act4", "sel_wts", "hist3", "cur_inout"],
@@ -10202,28 +10216,81 @@ mod tests {
                 _ => &[],
             };
             if inputs.is_empty() {
-                assert!(body.trim_start().starts_with("pdl_wait();"), "{name}");
+                if !body.trim_start().starts_with("pdl_wait();") {
+                    return Err(format!("{name} does not start with pdl_wait()"));
+                }
             } else {
-                let (prefetch, _) = body.split_once("\n    pdl_wait();").expect(name);
-                for input in inputs {
-                    assert!(
-                        !prefetch.contains(input),
-                        "{name} reads {input} before waiting"
-                    );
+                let (prefetch, _) = body
+                    .split_once("\n    pdl_wait();")
+                    .ok_or_else(|| format!("{name} never waits"))?;
+                if let Some(input) = inputs.iter().find(|input| prefetch.contains(*input)) {
+                    return Err(format!("{name} reads {input} before waiting"));
                 }
                 for (branch, _) in prefetch.match_indices("return;") {
-                    assert!(
-                        prefetch[..branch]
-                            .trim_end()
-                            .ends_with("pdl_wait();\n        pdl_trigger();"),
-                        "{name}"
-                    );
+                    if !prefetch[..branch]
+                        .trim_end()
+                        .ends_with("pdl_wait();\n        pdl_trigger();")
+                    {
+                        return Err(format!("{name} returns before waiting"));
+                    }
                 }
             }
             indexed += 1;
         }
-        assert!(indexed >= 7, "parsed only {indexed} indexed kernels");
-        assert!(src.contains("void ink2_pdl_all_marker()"));
+        Ok(PdlCounts {
+            kernels,
+            macro_entries,
+            indexed,
+        })
+    }
+
+    /// Every kernel may be launched with PDL (`pdl_all`), so each one must reach `pdl_wait()`
+    /// before it touches memory a preceding kernel may write (#152 P0-B).
+    #[test]
+    fn every_kernel_waits_on_its_pdl_predecessor() {
+        let counts = pdl_audit(CUDA_KERNEL_SRC).unwrap();
+        assert!(counts.kernels > 100, "{counts:?}");
+        assert!(counts.macro_entries >= 4, "{counts:?}");
+        assert!(counts.indexed >= 7, "{counts:?}");
+        assert!(CUDA_KERNEL_SRC.contains("void ink2_pdl_all_marker()"));
+    }
+
+    /// Planted-fault controls for `pdl_audit` (#179): each minimal violation of the PDL
+    /// contract must fail the audit, so a regression in the checker cannot pass silently.
+    #[test]
+    fn pdl_audit_rejects_each_planted_violation() {
+        let good = concat!(
+            "extern \"C\" __global__ void ok_a(float* x) {\n    pdl_wait();\n    if (x) { x[0] = 1.f; }\n}\n",
+            "#define ENTRY(name) \\\n",
+            "extern \"C\" __global__ void name(float* x) { pdl_wait(); body(x); }\n",
+            "\nINK2_INDEXED_KERNEL(ink2_moe_mxfp8_down_xw, (const float* act4, const float* sel_wts)) {\n",
+            "    const float w = weights[0];\n    pdl_wait();\n    use(act4, sel_wts, w);\n}\n",
+        );
+        let counts = pdl_audit(good).unwrap();
+        assert_eq!(
+            (counts.kernels, counts.macro_entries, counts.indexed),
+            (1, 1, 1)
+        );
+
+        // 1. A kernel that never waits (nested braces must not end its body early).
+        let no_wait = good.replace("    pdl_wait();\n    if (x)", "    if (x)");
+        let err = pdl_audit(&no_wait).unwrap_err();
+        assert!(err.contains("\"ok_a\""), "{err}");
+        let bounded = no_wait.replace("void ok_a(", "void __launch_bounds__(256, 4) ok_a(");
+        let err = pdl_audit(&bounded).unwrap_err();
+        assert!(err.contains("\"ok_a\""), "{err}");
+        // 2. A macro entry that reads its input before waiting.
+        let macro_reads = good.replace("{ pdl_wait(); body(x); }", "{ body(x); pdl_wait(); }");
+        assert!(pdl_audit(&macro_reads).unwrap_err().contains("macro"));
+        // 3. A weight-prefetching wrapper that also touches a predecessor's activation.
+        let early_input = good.replace("const float w = weights[0];", "const float w = act4[0];");
+        assert!(pdl_audit(&early_input).unwrap_err().contains("reads act4"));
+        // 4. A prefetching wrapper that returns before it waits.
+        let early_return = good.replace(
+            "const float w = weights[0];",
+            "if (!weights) return;\n    const float w = weights[0];",
+        );
+        assert!(pdl_audit(&early_return).unwrap_err().contains("returns"));
     }
 
     #[test]
