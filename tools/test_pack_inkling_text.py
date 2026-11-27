@@ -116,6 +116,68 @@ class PackInklingTextTest(unittest.TestCase):
             self.assertEqual(data[b:], b"TAIL")
             self.assertEqual(b % 4, 0)
 
+    def test_prefix_embedding_conversion_and_padding(self):
+        raw = bytes([42, 63]) * 256
+        data = raw + b"HEAD"
+        header = {"model.llm.embed.weight": {"dtype": "BF16", "shape": [8, 32], "data_offsets": [0, len(raw)]},
+                  "model.llm.unembed.weight": {"dtype": "BF16", "shape": [2], "data_offsets": [len(raw), len(data)]}}
+        encoded = json.dumps(header).encode()
+        with tempfile.TemporaryDirectory() as tmp, patch("pack_inkling_text.EMBED_SHAPE", [8, 32]):
+            src, dst = Path(tmp) / "source", Path(tmp) / "packed"
+            src.write_bytes(struct.pack("<Q", len(encoded)) + encoded + data)
+            removed, saved = pack(src, dst, prepack_embedding=True)
+            self.assertEqual((removed, saved), (0, src.stat().st_size - dst.stat().st_size))
+            with dst.open("rb") as f:
+                h = json.loads(f.read(struct.unpack("<Q", f.read(8))[0]))
+                payload = f.read()
+            self.assertNotIn("model.llm.embed.weight", h)
+            self.assertEqual(h["model.llm.embed.weight.prefix_v1"]["shape"], [328])
+            self.assertEqual(payload, struct.pack("<I", 320) + bytes([42])*256 + bytes(68) + b"HEAD")
+
+    def test_rare_embedding_values_keep_raw_tensor_and_conflicts_do_not_publish(self):
+        raw = bytes(range(64))
+        header = {"model.llm.embed.weight": {"dtype": "BF16", "shape": [4, 8], "data_offsets": [0, 64]},
+                   "model.llm.unembed.weight": {"dtype": "BF16", "shape": [2], "data_offsets": [64, 68]}}
+        with tempfile.TemporaryDirectory() as tmp, patch("pack_inkling_text.EMBED_SHAPE", [4, 8]):
+            src, dst = Path(tmp) / "source", Path(tmp) / "raw"
+            def write_source(extra=b""):
+                encoded = json.dumps(header).encode()
+                src.write_bytes(struct.pack("<Q", len(encoded)) + encoded + raw + b"HEAD" + extra)
+            write_source()
+            pack(src, dst, prepack_embedding=True)
+            with dst.open("rb") as f:
+                info = json.loads(f.read(struct.unpack("<Q", f.read(8))[0]))
+                self.assertEqual(info["model.llm.embed.weight"], header["model.llm.embed.weight"])
+                self.assertEqual(f.read(), raw + b"HEAD")
+            header["model.llm.embed.weight.prefix_v1"] = {"dtype": "U8", "shape": [8], "data_offsets": [68, 76]}
+            write_source(bytes(8))
+            other = Path(tmp) / "conflict"
+            with self.assertRaisesRegex(ValueError, "ambiguous Inkling input embedding"):
+                pack(src, other, prepack_embedding=True)
+            self.assertFalse(other.exists())
+
+    def test_mxfp8_encoding_is_optional_per_matrix(self):
+        weights = {"mx.a": [1024], "mx.b": [256]}
+        data = b"EEHH" + bytes([63])*1024 + bytes(range(256)) + b"TAIL"
+        header = {
+            "model.llm.embed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [0, 2]},
+            "model.llm.unembed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [2, 4]},
+            "mx.a": {"dtype": "F8_E4M3", "shape": [1024], "data_offsets": [4, 1028]},
+            "mx.b": {"dtype": "F8_E4M3", "shape": [256], "data_offsets": [1028, 1284]},
+            "end": {"dtype": "F32", "shape": [1], "data_offsets": [1284, 1288]}}
+        with tempfile.TemporaryDirectory() as tmp, patch("pack_inkling_text.mxfp8_expert_weights", return_value=weights):
+            src, dst = Path(tmp)/"src", Path(tmp)/"dst"
+            encoded = json.dumps(header).encode()
+            src.write_bytes(struct.pack("<Q",len(encoded)) + encoded + data)
+            pack(src,dst,prepack_mxfp8=True)
+            with dst.open("rb") as f:
+                new = json.loads(f.read(struct.unpack("<Q",f.read(8))[0]))
+                payload = f.read()
+            self.assertNotIn("mx.a", new)
+            self.assertEqual(new["mx.a.rans_v1"]["shape"], [536])
+            self.assertEqual(new["mx.b"]["dtype"], "F8_E4M3")
+            self.assertEqual(payload[540:], bytes(range(256)) + b"TAIL")
+
     def test_attention_projection_catalog(self):
         matrices = attention_matrices()
         self.assertEqual(len(matrices), 176)
