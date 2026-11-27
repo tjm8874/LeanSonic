@@ -27,6 +27,35 @@ WikiText uses the canonical 512-context BF16 oracles and 100 chunks per split. T
 
 The smaller rate candidate gained 50 BF16 top-1 matches on the test split and lowered mean KL from 0.00315843 to 0.00313373. Worst KL rose from 0.680977 to 0.709592, at chunk 69, token 353. In bilingual chat it lost three top-1 matches while both mean and worst KL fell. Keep the canonical default pending wider quality evaluation.
 
+## Previously identified difficult positions
+
+Canonical and serial BF16 scores use the exact same engine logit vector at each position. These five locations were chosen before either attention candidate was built.
+
+| Split | Chunk / token | Model | Canonical KL | Serial KL | Engine / canonical / serial top ID |
+|---|---|---|---:|---:|---|
+| test | 29 / 443 | canonical | 0.175476 | 0.061269 | 149918 / 149918 / 149918 |
+| test | 69 / 353 | canonical | 0.680977 | 0.517345 | 1057 / 2952 / 1057 |
+| test | 80 / 452 | canonical | 0.031250 | 0.827418 | 197045 / 197045 / 196977 |
+| test | 29 / 443 | refine | 0.149895 | 0.047226 | 149918 / 149918 / 149918 |
+| test | 69 / 353 | refine | 0.016224 | 0.001586 | 1057 / 2952 / 1057 |
+| test | 80 / 452 | refine | 0.005418 | 0.424950 | 197045 / 197045 / 196977 |
+| valid | 30 / 331 | canonical | 0.272334 | 0.515020 | 20 / 18 / 18 |
+| valid | 46 / 379 | canonical | 0.352436 | 0.483306 | 17 / 170558 / 170558 |
+| valid | 30 / 331 | refine | 0.085468 | 0.201413 | 20 / 18 / 18 |
+| valid | 46 / 379 | refine | 0.032844 | 0.004860 | 170558 / 170558 / 170558 |
+
+[Reference schedules, same-row replay and score definitions](inkling-bf16-serial.md).
+
+## Post-hoc check on the new test maximum
+
+The weight-error candidate had its largest test divergence at chunk 36, token 319. This additional location was selected after measuring the complete corpus.
+
+| Model | Canonical KL | Serial KL | Engine / canonical / serial top ID |
+|---|---:|---:|---|
+| parent | 0.012806 | 0.010484 | 150080 / 150080 / 150080 |
+| refine | 1.217014 | 1.253998 | 149876 / 150080 / 150080 |
+| rate | 0.024680 | 0.017927 | 150080 / 150080 / 150080 |
+
 ## Reproduce
 
 Start from the official BF16 attention tensors and the complete [canonical expert-code package](inkling-storage-candidates.md). Use an empty output path. The example runs on CPU and the repacker verifies the expected canonical shard hash. The test workload and quality commands are available in the [corpus benchmark](inkling-storage-candidates.md).

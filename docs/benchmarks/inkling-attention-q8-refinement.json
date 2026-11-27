@@ -2506,7 +2506,126 @@
       }
     },
     "wiki_gpu": "PRO 4500",
-    "fixed_rows": {}
+    "fixed_rows": {
+      "test": [
+        {
+          "chunk": 29,
+          "position": 443,
+          "target": 149918,
+          "engine_logits_sha256": "45878598ef53f890bbd849acf0b56cf15dda6481f8017374f13bc1a9ef23b640",
+          "canonical": {
+            "kl": 0.14989511762813582,
+            "reference_top": 149918,
+            "engine_top": 149918
+          },
+          "serial": {
+            "kl": 0.04722583701052769,
+            "reference_top": 149918,
+            "engine_top": 149918
+          }
+        },
+        {
+          "chunk": 69,
+          "position": 353,
+          "target": 1057,
+          "engine_logits_sha256": "1000982c477b140adf0962905f56d6d3bffcb0b6856c561c61878bfe4554f50c",
+          "canonical": {
+            "kl": 0.016224228889865955,
+            "reference_top": 2952,
+            "engine_top": 1057
+          },
+          "serial": {
+            "kl": 0.0015855783380306536,
+            "reference_top": 1057,
+            "engine_top": 1057
+          }
+        },
+        {
+          "chunk": 80,
+          "position": 452,
+          "target": 197045,
+          "engine_logits_sha256": "dac29ab0ad5ca8e35fc752d8ec3464e7c569d37d96360d73df084d333ee0d07d",
+          "canonical": {
+            "kl": 0.005417561463451015,
+            "reference_top": 197045,
+            "engine_top": 197045
+          },
+          "serial": {
+            "kl": 0.42494961803676934,
+            "reference_top": 196977,
+            "engine_top": 197045
+          }
+        }
+      ],
+      "valid": [
+        {
+          "chunk": 30,
+          "position": 331,
+          "target": 20,
+          "engine_logits_sha256": "25dd62605b15dd974693c3513a9d0467c4fba941f2410e6bc84d91cb17d02842",
+          "canonical": {
+            "kl": 0.08546810625537547,
+            "reference_top": 18,
+            "engine_top": 20
+          },
+          "serial": {
+            "kl": 0.20141318134356062,
+            "reference_top": 18,
+            "engine_top": 20
+          }
+        },
+        {
+          "chunk": 46,
+          "position": 379,
+          "target": 220,
+          "engine_logits_sha256": "8b76a8097cf906d9a54188e504578ebc452e3ec3b75f69ad7ee761ad8f6109ae",
+          "canonical": {
+            "kl": 0.03284399149970088,
+            "reference_top": 170558,
+            "engine_top": 170558
+          },
+          "serial": {
+            "kl": 0.004859635824559366,
+            "reference_top": 170558,
+            "engine_top": 170558
+          }
+        }
+      ]
+    },
+    "post_hoc_test_36_319": {
+      "parent": {
+        "chunk": 36,
+        "position": 319,
+        "target": 149876,
+        "engine_logits_sha256": "f92fb95fbabe36866b835f986fb9e0cc27df6a706df5e3c08faf02d26bb4f645",
+        "canonical": {
+          "kl": 0.01280552872776694,
+          "reference_top": 150080,
+          "engine_top": 150080
+        },
+        "serial": {
+          "kl": 0.010484136303581281,
+          "reference_top": 150080,
+          "engine_top": 150080
+        }
+      },
+      "refine": {
+        "chunk": 36,
+        "position": 319,
+        "target": 149876,
+        "engine_logits_sha256": "62dbb98af8620935209af8cdbbe07c119b5c189a8c6761d7610e5a1d8682efb8",
+        "canonical": {
+          "kl": 1.2170136430712397,
+          "reference_top": 150080,
+          "engine_top": 149876
+        },
+        "serial": {
+          "kl": 1.253997710125901,
+          "reference_top": 150080,
+          "engine_top": 149876
+        }
+      }
+    }
   },
   "rate": {
     "receipt": {
@@ -4998,6 +5117,40 @@
       }
     },
     "wiki_gpu": "PRO 5000",
-    "fixed_rows": {}
+    "fixed_rows": {},
+    "post_hoc_test_36_319": {
+      "parent": {
+        "chunk": 36,
+        "position": 319,
+        "target": 149876,
+        "engine_logits_sha256": "f92fb95fbabe36866b835f986fb9e0cc27df6a706df5e3c08faf02d26bb4f645",
+        "canonical": {
+          "kl": 0.01280552872776694,
+          "reference_top": 150080,
+          "engine_top": 150080
+        },
+        "serial": {
+          "kl": 0.010484136303581281,
+          "reference_top": 150080,
+          "engine_top": 150080
+        }
+      },
+      "rate": {
+        "chunk": 36,
+        "position": 319,
+        "target": 149876,
+        "engine_logits_sha256": "38c70b095ccc5669db9ecd1bd0e699a942a6942f7dc45fdf6c5a5a8016d3a43c",
+        "canonical": {
+          "kl": 0.02468004761415311,
+          "reference_top": 150080,
+          "engine_top": 150080
+        },
+        "serial": {
+          "kl": 0.017927198178720065,
+          "reference_top": 150080,
+          "engine_top": 150080
+        }
+      }
+    }
   }
 }
