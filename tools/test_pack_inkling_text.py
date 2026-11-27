@@ -210,6 +210,32 @@ class PackInklingTextTest(unittest.TestCase):
             self.assertEqual(new["mx.b"]["dtype"], "F8_E4M3")
             self.assertEqual(payload[540:], bytes(range(256)) + b"TAIL")
 
+    def test_q8_dictionary_from_bf16_and_native_are_identical(self):
+        name = "projection.weight"
+        prefix = name + ".q8_64."
+        # A frequent scale compresses; 36 distinct scales in one short row expand.
+        for blocks, use_dict in [([0x3f80] * 36, True), (list(range(0x3f80, 0x3fa4)), False)]:
+            values = b"".join(struct.pack("<H", block) * 64 for block in blocks)
+            header = {
+                "model.llm.embed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [0, 2]},
+                "model.llm.unembed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [2, 4]},
+                name: {"dtype": "BF16", "shape": [1, 2304], "data_offsets": [4, 4 + len(values)]},
+            }
+            with self.subTest(use_dict=use_dict), tempfile.TemporaryDirectory() as tmp, patch(
+                "pack_inkling_text.attention_matrices", return_value={name: (1, 1, 2304, prefix)}
+            ):
+                src, raw, direct, staged = (Path(tmp) / n for n in ("src", "raw", "direct", "staged"))
+                encoded = json.dumps(header).encode()
+                src.write_bytes(struct.pack("<Q", len(encoded)) + encoded + b"EEHH" + values)
+                pack(src, raw, prepack_attention=True)
+                pack(src, direct, prepack_attention=True, compact_q8_scales=True)
+                pack(raw, staged, compact_q8_scales=True)
+                self.assertEqual(direct.read_bytes(), staged.read_bytes())
+                with direct.open("rb") as f:
+                    tensors = json.loads(f.read(struct.unpack("<Q", f.read(8))[0]))
+                self.assertEqual(prefix + "scales.dict_v1" in tensors, use_dict)
+                self.assertEqual(prefix + "scales" in tensors, not use_dict)
+
     def test_attention_projection_catalog(self):
         matrices = attention_matrices()
         self.assertEqual(len(matrices), 176)

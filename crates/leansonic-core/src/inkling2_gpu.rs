@@ -78,13 +78,38 @@ pub struct PlanarQ8Gpu {
     pub cols: i32,
 }
 
+fn native_q8_scales<'a>(
+    st: &'a MappedSafeTensors,
+    name: &str,
+    rows: usize,
+    cols: usize,
+) -> Result<Option<std::borrow::Cow<'a, [u8]>>, String> {
+    let blocks = cols / 64;
+    match (st.get(name), st.get(&format!("{name}.dict_v1"))) {
+        (None, None) => Ok(None),
+        (Some(s), None)
+            if s.dtype == "F32"
+                && s.shape == [rows, blocks]
+                && s.data.len() == rows * blocks * 4 =>
+        {
+            Ok(Some(std::borrow::Cow::Borrowed(s.data)))
+        }
+        (None, Some(s)) if s.dtype == "U8" && s.shape == [s.data.len()] => {
+            let raw = crate::inkling_q8_scales::unpack(s.data, rows * blocks)
+                .map_err(|error| format!("{name}: {error}"))?;
+            Ok(Some(std::borrow::Cow::Owned(raw)))
+        }
+        _ => Err(format!("invalid or conflicting Q8 scale planes for {name}")),
+    }
+}
+
 fn load_output_head(
     ctx: &Arc<CudaContextHandle>,
     st: &MappedSafeTensors,
 ) -> Result<PlanarQ8Gpu, String> {
     let dense = st.get("model.llm.unembed.weight");
     let codes = st.get("leansonic.unembed_q8_64.codes");
-    let scales = st.get("leansonic.unembed_q8_64.scales");
+    let scales = native_q8_scales(st, "leansonic.unembed_q8_64.scales", VOCAB, D)?;
     match (dense, codes, scales) {
         (Some(w), None, None)
             if w.dtype == "BF16"
@@ -94,16 +119,11 @@ fn load_output_head(
             repack_bf16_to_planar_q8_64(ctx, &w.data[..VOCAB * D * 2], VOCAB, D)
         }
         (None, Some(c), Some(s))
-            if c.dtype == "I8"
-                && c.shape == [VOCAB, D]
-                && c.data.len() == VOCAB * D
-                && s.dtype == "F32"
-                && s.shape == [VOCAB, D / 64]
-                && s.data.len() == VOCAB * (D / 64) * 4 =>
+            if c.dtype == "I8" && c.shape == [VOCAB, D] && c.data.len() == VOCAB * D =>
         {
             Ok(PlanarQ8Gpu {
                 codes: DeviceBuf::from_host_bytes(ctx, c.data)?,
-                scales64: DeviceBuf::from_host_bytes(ctx, s.data)?,
+                scales64: DeviceBuf::from_host_bytes(ctx, &s)?,
                 cols: D as i32,
             })
         }
@@ -130,7 +150,7 @@ fn load_attention_matrix(
         let name = format!("{prefix}attn.{suffix}");
         let dense = st.get(&name);
         let codes = st.get(&format!("{name}.q8_64.codes"));
-        let scales = st.get(&format!("{name}.q8_64.scales"));
+        let scales = native_q8_scales(st, &format!("{name}.q8_64.scales"), rows, cols)?;
         match (dense, codes, scales) {
             (Some(w), None, None)
                 if w.dtype == "BF16"
@@ -140,17 +160,10 @@ fn load_attention_matrix(
                 upload_bf16_rows(&result, w.data, row, rows, cols)?;
             }
             (None, Some(c), Some(s))
-                if c.dtype == "I8"
-                    && c.shape == [rows, cols]
-                    && c.data.len() == rows * cols
-                    && s.dtype == "F32"
-                    && s.shape == [rows, cols / 64]
-                    && s.data.len() == rows * scale_stride =>
+                if c.dtype == "I8" && c.shape == [rows, cols] && c.data.len() == rows * cols =>
             {
                 result.codes.copy_from_host_at(row * cols, c.data)?;
-                result
-                    .scales64
-                    .copy_from_host_at(row * scale_stride, s.data)?;
+                result.scales64.copy_from_host_at(row * scale_stride, &s)?;
             }
             _ => {
                 return Err(format!(
