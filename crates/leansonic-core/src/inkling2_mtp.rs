@@ -438,11 +438,22 @@ impl DsparkDrafterGpu {
         }
         let jb = DeviceBuf::from_host_bytes(ctx, &jb_bytes)?;
 
-        let w1_raw = crate::inkling2_gpu::read_bf16_weight(
-            &st,
-            "markov_head.markov_w1.weight",
-            &[PADDED_VOCAB, R_MARKOV],
-        )?;
+        let name = "markov_head.markov_w1.weight";
+        let w1_raw = if let Some(t) = st.get(&format!("{name}.row_exp_v1")) {
+            if st.get(name).is_some()
+                || st.get(&format!("{name}.bf16planes_v1")).is_some()
+                || t.dtype != "U8"
+                || t.shape != [t.data.len()]
+            {
+                return Err(format!("invalid or ambiguous row-exponent weight {name}"));
+            }
+            std::borrow::Cow::Owned(crate::inkling_bf16_planes::row_exponents::unpack(
+                t.data,
+                PADDED_VOCAB,
+            )?)
+        } else {
+            crate::inkling2_gpu::read_bf16_weight(&st, name, &[PADDED_VOCAB, R_MARKOV])?
+        };
         let (_free_vram, total_vram) = ctx.mem_info().unwrap_or((0, 0));
         let use_vram_w1 = std::env::var("LEANSONIC_MTP_W1_VRAM")
             .ok()
@@ -455,6 +466,8 @@ impl DsparkDrafterGpu {
             let buf = PinnedHostBuf::from_bytes(ctx, &w1_raw)?;
             (buf.dev_ptr, None, Some(buf))
         };
+
+        drop(w1_raw);
 
         // Precompute `fold_q8 [VOCAB, 256] = unembed_q8 @ hidden_out.weight` and
         // `d_fold_b [VOCAB] = unembed_q8 @ hidden_out.bias` on GPU in ~60 ms!

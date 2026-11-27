@@ -73,6 +73,17 @@ fn main() -> io::Result<()> {
         }
     }
     if let [mode, size] = args.as_slice() {
+        if mode == "markov-row-pack" {
+            let n: usize = size.parse().map_err(io::Error::other)?;
+            if n != 201_024 * 256 * 2 {
+                return Err(io::Error::other("invalid Markov row dimensions"));
+            }
+            let mut raw = vec![0; n];
+            io::stdin().lock().read_exact(&mut raw)?;
+            let frame = leansonic_core::inkling_bf16_planes::row_exponents::pack(&raw)?;
+            io::stdout().lock().write_all(&frame)?;
+            return Ok(());
+        }
         if matches!(mode.as_str(), "bf16planes-size" | "bf16planes-pack") {
             let n: usize = size.parse().map_err(io::Error::other)?;
             if n > 128 * 2304 * 2 && n != 201_024 * 256 * 2 {
