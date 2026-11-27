@@ -681,6 +681,36 @@ theorem cycle4_splitkv_all_kernels_valid :
     (cycle4SplitKvKernelSuite.all checkSm120Kernel) = true := by
   decide
 
+/-! ## Single-token controller product scheduling -/
+
+/-- Precomputing the pair values preserves the sequence of calls to the
+accumulator. No associativity or commutativity assumption about floating
+point arithmetic is needed. The CUDA implementation preserves the choice
+of RMS scale for each pair and keeps the original two warp reductions. -/
+theorem ctrl_precompute_pairs {α β σ : Type}
+    (pair : α → β) (step : σ → β → σ) (items : List α) (acc : σ) :
+    (items.map pair).foldl step acc =
+      items.foldl (fun state x => step state (pair x)) acc := by
+  induction items generalizing acc with
+  | nil => rfl
+  | cons x xs ih => exact ih (step acc (pair x))
+
+/-- Compiled sm_120a controller, including the full shared-memory figure
+reported by cuobjdump. -/
+def kInk2CtrlDownEarly : KernelResourceSpec :=
+  { name := "ink2_ctrl_down"
+    threadsPerCta := 256
+    rawRegsPerThread := 37
+    userSmemPerCtaBytes := 1104
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 112
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+theorem ink2_ctrl_down_early_valid : ValidSm120Kernel kInk2CtrlDownEarly := by decide
+
 /-! ## Batched controller tiles (256 threads per CTA, sm_120a) -/
 
 def kInk2CtrlDownR8B : KernelResourceSpec :=
