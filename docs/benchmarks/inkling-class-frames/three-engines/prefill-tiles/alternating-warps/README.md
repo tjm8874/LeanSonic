@@ -11,3 +11,7 @@ On RTX 5060 Ti the experiment reproduces all 26,407,656 FP32 logits across four 
 A baseline and trial capture on the same RTX PRO 4500, driver 595.99.02 at 200 W, each recorded 1,324 launches for the same warm 1,024-token prefill. The 36 gate/up calls took 35.407 ms in the baseline and 35.113 ms in the trial, a 0.83% reduction. The GPU span fell from 120.652 to 119.881 ms (0.64%). This is one profile per arm, in baseline-first order. The multiple-cycle uninstrumented comparison determines the end-to-end decision.
 
 Use the [parent prefill profiling runner](../README.md) with the baseline then trial cubin, leaving the model, input and executable fixed. [Baseline kernel totals](baseline.json) · [Trial kernel totals](trial.json) · [Baseline overlap](baseline-overlap.json) · [Trial overlap](trial-overlap.json).
+
+## Five matched cycles on RTX 5070 Ti
+
+The original and alternate mappings measured **8,267.01 / 8,281.81 prefill tok/s**, a 0.179% gain. The 95% paired cycle ratio interval was 1.00173–1.00186. Decode measured **129.276 / 129.249 tok/s**, ratio interval 0.99960–0.99994. Only the prefill gate/up kernel differs between cubins. Each arm has ten fresh processes and 70 warm requests with identical 1,024-token prefill and 32-token decode histories. The uninstrumented change is small on this SKU. [GPU, hashes, exact token IDs, all legs and intervals](rtx5070ti.json).
