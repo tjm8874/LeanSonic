@@ -14,3 +14,5 @@ python3 tools/inkling_storage_probe/trim_context/repack.py "$FOUR_BANK_MODEL" "$
 ```
 
 The expected model SHA-256 is `203593d3f83fb50c7e2019686ad53ccfb021ffd0f500f7d3e63905d9db93c1bc`. The independent assembly at e81a9ac records all nine trial sizes, chosen quartiles and full-plane byte counts. [Assembly receipt](receipt.json).
+
+The normal repacker at 585c2be independently rebuilt the package. Both complete files matched the initial assembly by length and SHA-256. [Verified repacker output](release.json).
