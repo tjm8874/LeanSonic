@@ -337,6 +337,7 @@ struct ExpertKernels {
     mxfp8_grouped_up_situ: CUfunction,
     mxfp8_grouped_down: CUfunction,
     nvfp4_tc_up_situ: Option<CUfunction>,
+    nvfp4_tc_up_situ_short: Option<CUfunction>,
     nvfp4_tc_down: Option<CUfunction>,
     nvfp4_tc_up_situ_t160: Option<CUfunction>,
     nvfp4_tc_down_t160: Option<CUfunction>,
@@ -2413,6 +2414,7 @@ impl Inkling2GpuEngine {
                 mxfp8_grouped_up_situ: load("mxfp8_grouped_up_situ")?,
                 mxfp8_grouped_down: load("mxfp8_grouped_down")?,
                 nvfp4_tc_up_situ: set_dyn_smem(load("nvfp4_tc_up_situ").ok(), 62_976)?,
+                nvfp4_tc_up_situ_short: load("nvfp4_tc_up_situ_short").ok(),
                 nvfp4_tc_down: set_dyn_smem(load("nvfp4_tc_down").ok(), 62_976)?,
                 nvfp4_tc_up_situ_t160: set_dyn_smem(load("nvfp4_tc_up_situ_t160").ok(), 58_112)?,
                 nvfp4_tc_down_t160: set_dyn_smem(load("nvfp4_tc_down_t160").ok(), 58_112)?,
@@ -6813,6 +6815,15 @@ impl Inkling2GpuEngine {
                     opt_up,
                     opt_dn,
                 ) {
+                    // Each routed expert has at most one row per input token.
+                    // Short suffixes fit 32 token lanes even if all select the same expert.
+                    let (f_up, up_grid_x, up_block, up_smem) =
+                        match s13.kernels.nvfp4_tc_up_situ_short {
+                            Some(short) if self.prefill_tc_tail && b_len <= 32 => {
+                                (short, 18, 256, 24_640)
+                            }
+                            _ => (f_up, nvfp4_grid_x, nvfp4_block, nvfp4_smem),
+                        };
                     // Quantize `mlp_hidden` (`[b_len, D]`) into 2-term `(codes, ue4m3_scales, gs)` inside `(d_b_act_codes, d_b_act_scales)`
                     let gs_up_ptr = self.prefill.d_b_act_scales.ptr + (b_len * (D / 8)) as u64;
                     {
@@ -6903,9 +6914,9 @@ impl Inkling2GpuEngine {
                             self.launch_smem(
                                 stream,
                                 f_up,
-                                (nvfp4_grid_x, nvfp4_tiles),
-                                nvfp4_block,
-                                nvfp4_smem,
+                                (up_grid_x, nvfp4_tiles),
+                                up_block,
+                                up_smem,
                                 &mut up_args,
                             )?;
                             unsafe {
@@ -6952,9 +6963,9 @@ impl Inkling2GpuEngine {
                             self.launch_smem(
                                 stream,
                                 f_up,
-                                (nvfp4_grid_x, nvfp4_tiles),
-                                nvfp4_block,
-                                nvfp4_smem,
+                                (up_grid_x, nvfp4_tiles),
+                                up_block,
+                                up_smem,
                                 &mut up_args,
                             )?;
                             let next2_begin = exp_begin + 2 * pingpong_exps;
@@ -7062,9 +7073,9 @@ impl Inkling2GpuEngine {
                             self.launch_smem(
                                 stream,
                                 f_up,
-                                (nvfp4_grid_x, nvfp4_tiles),
-                                nvfp4_block,
-                                nvfp4_smem,
+                                (up_grid_x, nvfp4_tiles),
+                                up_block,
+                                up_smem,
                                 &mut up_args,
                             )?;
                             exp_begin = exp_end;
@@ -7090,9 +7101,9 @@ impl Inkling2GpuEngine {
                         self.launch_smem(
                             stream,
                             f_up,
-                            (nvfp4_grid_x, nvfp4_tiles),
-                            nvfp4_block,
-                            nvfp4_smem,
+                            (up_grid_x, nvfp4_tiles),
+                            up_block,
+                            up_smem,
                             &mut up_args,
                         )?;
                     }

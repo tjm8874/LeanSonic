@@ -7950,18 +7950,19 @@ extern "C" __global__ void ink2_gather_nvfp4_sorted_b(
 
 // Grid: `(9, max_tiles_128)`, Block: `512` (`256 weight rows x 128 tokens`, 3-Stage `K_STAGE=64`, XOR-Swizzled `57,352` B SMEM!)
 // Halves `sorted_x` activation reads (`18x -> 9x`) while running `16` warps/SM AND keeping SMEM `<= 64 KiB` (`64 KiB` full L1 preserved)!
-struct Nvfp4TcSmem256x128_3Stage {
-    uint4 sm_w[3][256][2];     // 24,576 B (XOR swizzled `wq2 ^ ((r >> 2) & 1)` -> bank-conflict-free!)
-    uint4 sm_x[3][128][4];     // 24,576 B (XOR swizzled `xq4 ^ ((xr >> 1) & 3)` -> 32-bank bijection!)
-    uint32_t sm_wsc[8][256];   //  8,192 B (ping-pong 2x4-stage banks -> 512-thread 4-stage batch unpack, 0 race!)
-    uint2 sm_xsc[3][128];      //  3,072 B
-    float sm_xgs[128];         //    512 B
-    int32_t sm_out_pairs[128]; //    512 B
-    int32_t sm_blk_off[129];   //    516 B
-    int32_t sm_row_off[129];   //    516 B
-}; // Total = 62,472 B (`+ 32 + 1,024 = 63,528 B <= 64 KiB` -> `16` warps/SM + `64 KiB` full L1!)
+template <int Rows, int Tokens>
+struct Nvfp4TcSmem {
+    uint4 sm_w[3][Rows][2];
+    uint4 sm_x[3][Tokens][4];
+    uint32_t sm_wsc[8][Rows];
+    uint2 sm_xsc[3][Tokens];
+    float sm_xgs[Tokens];
+    int32_t sm_out_pairs[Tokens];
+    int32_t sm_blk_off[129];
+    int32_t sm_row_off[129];
+};
 
-template <bool GateUp, bool PackedScales>
+template <bool GateUp, bool PackedScales, bool Narrow = false>
 __device__ __forceinline__ void grouped_nvfp4_tc_impl(
     const uint4* __restrict__ weight_data,
     const uint32_t* __restrict__ weight_scales_u32,
@@ -7981,8 +7982,16 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
     constexpr int kXRowU128 = 2 * (kCols / 32);     // 144 or 72
     constexpr int kXScRowU64 = kCols / 64;          // 36 or 18 (`uint2`s)
 
+    static_assert(!Narrow || GateUp, "short tiles specialize only gate/up");
+    constexpr int rows = Narrow ? 128 : 256;
+    constexpr int tokens = Narrow ? 32 : 128;
+    constexpr int row_mmas = Narrow ? 1 : 2;
+    constexpr int token_mmas = Narrow ? 4 : 8;
+    using Smem = Nvfp4TcSmem<rows, tokens>;
+    static_assert(sizeof(Smem) <= (Narrow ? 24640 : 62480));
+
     extern __shared__ __align__(16) uint8_t dyn_nvfp4_smem[];
-    Nvfp4TcSmem256x128_3Stage* s = reinterpret_cast<Nvfp4TcSmem256x128_3Stage*>(dyn_nvfp4_smem);
+    Smem* s = reinterpret_cast<Smem*>(dyn_nvfp4_smem);
 
     int expert = 0;
     int first = 0;
@@ -7995,11 +8004,11 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
         return;
     }
 
-    const int tid = threadIdx.x; // 0..511 (`16` warps/CTA!)
+    const int tid = threadIdx.x;
     const int warp_id = tid >> 5;
     const int lane = tid & 31;
-    const int wr = warp_id >> 1; // 0..7 (`8` row-warps x `32` rows = `256` weight rows!)
-    const int wt = warp_id & 1;  // 0..1 (`2` token-warps x `64` tokens = `128` tokens!)
+    const int wr = Narrow ? warp_id : warp_id >> 1;
+    const int wt = Narrow ? 0 : warp_id & 1;
     const int g = lane >> 2;     // 0..7
     const int t = lane & 3;      // 0..3
     const int sfa_row = ((lane & 1) << 3) | (lane >> 2);
@@ -8010,24 +8019,24 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
         if constexpr (GateUp) {
             const int m_local = ((sr >> 4) << 3) | (sr & 7); // 0..127
             const int is_up = (sr >> 3) & 1;
-            return blockIdx.x * 256 + 2 * m_local + is_up;
+            return blockIdx.x * rows + 2 * m_local + is_up;
         } else {
-            return blockIdx.x * 256 + sr;
+            return blockIdx.x * rows + sr;
         }
     };
 
     const int local_exp = expert - exp_begin;
     const size_t exp_base_row = static_cast<size_t>(local_exp) * (GateUp ? 2 * kFf : kD);
     const size_t full_exp_base_row = static_cast<size_t>(expert) * (GateUp ? 2 * kFf : kD);
-    const int wr_r = tid >> 1;  // 0..255 (`2` lanes x `16B` = `32B` across all `512` threads!)
+    const int wr_r = tid >> 1;
     const int wq2 = tid & 1;    // 0..1
     const size_t grow_wr = exp_base_row + map_w_row(wr_r);
     const size_t grow_sc_wr = full_exp_base_row + map_w_row(wr_r);
-    const size_t grow_sc_tid256 = full_exp_base_row + map_w_row(tid & 255);
+    const size_t grow_sc_tid256 = full_exp_base_row + map_w_row(tid & (rows - 1));
     const float expert_scale = amax[expert] * (1.0f / 2688.0f);
 
-    const int live = min(128, count - first);
-    if (tid < 128) {
+    const int live = min(tokens, count - first);
+    if (tid < tokens) {
         const int clamped = min(tid, live - 1);
         const size_t seq_idx = sorted_base + static_cast<size_t>(clamped);
         s->sm_xgs[tid] = (tid < live) ? x_gs[seq_idx] : 0.0f;
@@ -8037,31 +8046,33 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
     }
     __syncthreads();
 
-    const int xr = tid >> 2;  // 0..127 (`512` threads load ALL `128 x 64B` in `1` single pass!)
+    const int xr = tid >> 2;
     const int xq4 = tid & 3;  // 0..3
     const size_t src_tok_xr = sorted_base + static_cast<size_t>(min(xr, live - 1));
-    const int xid = tid - 256;
+    const int xid = tid - rows;
     const size_t seq_tok_xid = sorted_base + static_cast<size_t>(min(max(0, xid), live - 1));
 
     auto issue_stage = [&](int st, int ks64) {
         cp_async16_cg(
             &s->sm_w[st][wr_r][wq2 ^ ((wr_r >> 2) & 1)],
             weight_data + grow_wr * kWRowU128 + ks64 * 2 + wq2);
-        cp_async16_cg_pred(
-            &s->sm_x[st][xr][xq4 ^ ((xr >> 1) & 3)],
-            x_codes_u128 + src_tok_xr * kXRowU128 + ks64 * 4 + xq4,
-            xr < live);
-        if (tid < 256) {
+        if (xr < tokens) {
+            cp_async16_cg_pred(
+                &s->sm_x[st][xr][xq4 ^ ((xr >> 1) & 3)],
+                x_codes_u128 + src_tok_xr * kXRowU128 + ks64 * 4 + xq4,
+                xr < live);
+        }
+        if (tid < rows) {
             if constexpr (!PackedScales) {
                 cp_async4_ca_pred(&s->sm_wsc[st][tid], weight_scales_u32 + grow_sc_tid256 * kWScRowU32 + ks64, true);
             }
-        } else if (tid < 384) {
+        } else if (tid < rows + tokens) {
             cp_async8_ca_pred(&s->sm_xsc[st][xid], x_sc_u64 + seq_tok_xid * kXScRowU64 + ks64, xid < live);
         }
         cp_async_commit_grp();
     };
 
-    float acc[2][8][4] = {};
+    float acc[row_mmas][token_mmas][4] = {};
     issue_stage(0, 0);
     issue_stage(1, 1);
     if constexpr (PackedScales) {
@@ -8118,8 +8129,8 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
             uint32_t sfa_r1_sw[2];
 
             #pragma unroll
-            for (int rm = 0; rm < 2; ++rm) {
-                const int r0 = wr * 32 + rm * 16 + g;
+            for (int rm = 0; rm < row_mmas; ++rm) {
+                const int r0 = wr * (16 * row_mmas) + rm * 16 + g;
                 const int r1 = r0 + 8;
                 const uint32_t* w0_lo = reinterpret_cast<const uint32_t*>(&s->sm_w[st][r0][0 ^ ((r0 >> 2) & 1)]);
                 const uint32_t* w0_hi = reinterpret_cast<const uint32_t*>(&s->sm_w[st][r0][1 ^ ((r0 >> 2) & 1)]);
@@ -8129,7 +8140,7 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
                 wa[rm][1] = interleave_nvfp4_sub_sel(w1_lo[sub01], w1_lo[sub01 + 1], prmt_sel);
                 wa[rm][2] = interleave_nvfp4_sub_sel(w0_hi[sub01], w0_hi[sub01 + 1], prmt_sel);
                 wa[rm][3] = interleave_nvfp4_sub_sel(w1_hi[sub01], w1_hi[sub01 + 1], prmt_sel);
-                wsfa[rm] = sanitize_ue4m3x4(s->sm_wsc[wsc_st][wr * 32 + rm * 16 + sfa_row]);
+                wsfa[rm] = sanitize_ue4m3x4(s->sm_wsc[wsc_st][wr * (16 * row_mmas) + rm * 16 + sfa_row]);
                 w0_lo_sw[rm] = w0_lo;
                 w0_hi_sw[rm] = w0_hi;
                 w1_lo_sw[rm] = w1_lo;
@@ -8139,7 +8150,7 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
             }
 
             #pragma unroll
-            for (int nt = 0; nt < 8; ++nt) {
+            for (int nt = 0; nt < token_mmas; ++nt) {
                 if (wt * 64 + nt * 8 < live) {
                     const int tok_row = wt * 64 + nt * 8 + g;
                     const int tc0 = wt * 64 + nt * 8 + 2 * t;
@@ -8163,7 +8174,7 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
                         const uint32_t* xb_c1_hi = reinterpret_cast<const uint32_t*>(&s->sm_x[st][tc1][(2 * u + 1) ^ ((tc1 >> 1) & 3)]);
 
                         #pragma unroll
-                        for (int rm = 0; rm < 2; ++rm) {
+                        for (int rm = 0; rm < row_mmas; ++rm) {
                             mma_nvfp4_m16n8k64(
                                 acc[rm][nt], wa[rm][0], wa[rm][1], wa[rm][2], wa[rm][3],
                                 b0, b1, wsfa[rm], sfb,
@@ -8189,9 +8200,9 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
 
     if (wt * 64 < live) {
         #pragma unroll
-        for (int rm = 0; rm < 2; ++rm) {
+        for (int rm = 0; rm < row_mmas; ++rm) {
             #pragma unroll
-            for (int nt = 0; nt < 8; ++nt) {
+            for (int nt = 0; nt < token_mmas; ++nt) {
                 #pragma unroll
                 for (int c = 0; c < 2; ++c) {
                     const int tok_local = wt * 64 + nt * 8 + 2 * t + c;
@@ -8204,7 +8215,7 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
                             const float uv = acc[rm][nt][2 + c] * tot_scale;
                             const float situ =
                                 4.0f * ptx_tanh(gv * 0.25f) * ptx_sigmoid(gv) * 25.0f * ptx_tanh(uv * 0.04f);
-                            const int m = blockIdx.x * 128 + wr * 16 + rm * 8 + g;
+                            const int m = blockIdx.x * (rows / 2) + wr * (8 * row_mmas) + rm * 8 + g;
                             output[dst_seq * kFf + m] = situ;
                         }
                     } else {
@@ -8215,7 +8226,7 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
                         if (tok_local < live && (g & 1) == 0) {
                             uint32_t* out_f16x2 = static_cast<uint32_t*>(output_raw);
                             const size_t dst_pair = static_cast<size_t>(s->sm_out_pairs[tok_local]);
-                            const int r0 = blockIdx.x * 256 + wr * 32 + rm * 16 + g;
+                            const int r0 = blockIdx.x * rows + wr * (16 * row_mmas) + rm * 16 + g;
                             out_f16x2[(dst_pair * kD + r0) >> 1] = pack_f16x2_rn(v0, v0_odd);
                             out_f16x2[(dst_pair * kD + r0 + 8) >> 1] = pack_f16x2_rn(v1, v1_odd);
                         }
@@ -8260,6 +8271,44 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_nvfp4_tc_up_situ_p
     float* __restrict__ act_out) {
     (void)exp_toks;
     grouped_nvfp4_tc_impl<true, true>(
+        w13_u128, s13_u32, a13, sorted_x_codes_u128, sorted_x_sc_u64, sorted_x_gs,
+        exp_counts, exp_pairs, exp_begin, exp_end, act_out);
+}
+
+extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_nvfp4_tc_up_situ_short(
+    const uint4* __restrict__ w13_u128,
+    const uint32_t* __restrict__ s13_u32,
+    const float* __restrict__ a13,
+    const uint4* __restrict__ sorted_x_codes_u128,
+    const uint2* __restrict__ sorted_x_sc_u64,
+    const float* __restrict__ sorted_x_gs,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_toks,
+    const int32_t* __restrict__ exp_pairs,
+    int32_t exp_begin,
+    int32_t exp_end,
+    float* __restrict__ act_out) {
+    (void)exp_toks;
+    grouped_nvfp4_tc_impl<true, false, true>(
+        w13_u128, s13_u32, a13, sorted_x_codes_u128, sorted_x_sc_u64, sorted_x_gs,
+        exp_counts, exp_pairs, exp_begin, exp_end, act_out);
+}
+
+extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_nvfp4_tc_up_situ_short_packed_scales(
+    const uint4* __restrict__ w13_u128,
+    const uint32_t* __restrict__ s13_u32,
+    const float* __restrict__ a13,
+    const uint4* __restrict__ sorted_x_codes_u128,
+    const uint2* __restrict__ sorted_x_sc_u64,
+    const float* __restrict__ sorted_x_gs,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_toks,
+    const int32_t* __restrict__ exp_pairs,
+    int32_t exp_begin,
+    int32_t exp_end,
+    float* __restrict__ act_out) {
+    (void)exp_toks;
+    grouped_nvfp4_tc_impl<true, true, true>(
         w13_u128, s13_u32, a13, sorted_x_codes_u128, sorted_x_sc_u64, sorted_x_gs,
         exp_counts, exp_pairs, exp_begin, exp_end, act_out);
 }
