@@ -24,3 +24,5 @@ python3 /path/to/check_widths.py /path/to/encode.py /path/to/rank_pack /path/to/
 [Per-width file sizes and reconstructed hashes](encoder-checks.json).
 
 The normal CLI at 9bc4d48 loaded the seven-bit package on RTX PRO 4500. All 1,530 per-position fingerprints and score rows, plus the complete scorer JSON, match the previously tested five-bit package. Mean/worst KL 0.0085970/0.6397660, top-1 1,469/1,530 and PPL 6.564087. Use the six-chunk [GPU replay procedure](../README.md#gpu-replay) with the seven-bit directory. [GPU, model, binary and row hashes](gpu-4500.json).
+
+The seven-bit package also reproduced the exact same 1,530 score/fingerprint rows and scorer JSON on RTX PRO 5000, including the complete-vocabulary fingerprint at every position. [Independent PRO 5000 readback](gpu-5000.json).
