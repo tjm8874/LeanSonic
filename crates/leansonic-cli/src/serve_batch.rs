@@ -209,16 +209,25 @@ fn spec_round(
     } else {
         ((MAX_MS_ROWS - n) / n).min(spec_k)
     };
-    let mut runs: Vec<(usize, Vec<u32>)> = Vec::with_capacity(n);
-    for a in &active[..n] {
-        let mut run = vec![a.cur];
-        // Never verify past the request's token budget.
-        let k = extra.min(a.max_new - a.emitted - 1);
-        if k > 0 {
-            run.extend(gpu.draft_for_seq(a.seq, a.cur, k)?);
-        }
-        runs.push((a.seq, run));
-    }
+    // Never verify past a request's token budget; all sequences draft concurrently.
+    let reqs: Vec<(usize, u32, usize)> = active[..n]
+        .iter()
+        .map(|a| (a.seq, a.cur, extra.min(a.max_new - a.emitted - 1)))
+        .collect();
+    let drafts = if extra > 0 {
+        gpu.draft_for_seqs(&reqs)?
+    } else {
+        vec![Vec::new(); n]
+    };
+    let runs: Vec<(usize, Vec<u32>)> = active[..n]
+        .iter()
+        .zip(drafts)
+        .map(|(a, d)| {
+            let mut run = vec![a.cur];
+            run.extend(d);
+            (a.seq, run)
+        })
+        .collect();
     let refs: Vec<(usize, &[u32])> = runs.iter().map(|(s, r)| (*s, r.as_slice())).collect();
     let preds = gpu.verify_round(&refs)?;
     let mut keep = Vec::with_capacity(n);
