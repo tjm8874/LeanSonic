@@ -1,0 +1,16 @@
+{
+  "parent_bytes": 12022225582,
+  "package_bytes": 11662655734,
+  "unchanged_payloads": 998,
+  "frame_sha256": "7e308b6ca49de97520fe339ec3083967a3992752c0a00f9d2d7245a85e5a30ed",
+  "files": {
+    "model-00001-of-00001.safetensors": {
+      "bytes": 11659269240,
+      "sha256": "fd79277edd2341320a68b6f61a8e6a22efa00b79a3658f069bc36b65dbcaf2b7"
+    },
+    "tiktoken/tokenizer.model": {
+      "bytes": 3386494,
+      "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+    }
+  }
+}
