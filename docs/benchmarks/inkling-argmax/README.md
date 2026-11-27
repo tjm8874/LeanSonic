@@ -12,6 +12,8 @@ The control host at `5f1c7ff` and candidate at `6544318` both used the same nati
 | 5070Ti | 1024 | 553.563 | 552.475 | -1.088 [-1.217, -0.959] |
 | PRO4500 | 32 | 390.066 | 388.792 | -1.273 [-1.381, -1.174] |
 | PRO4500 | 1024 | 401.718 | 400.476 | -1.242 [-1.339, -1.138] |
+| PRO5000 | 32 | 304.670 | 303.084 | -1.586 [-1.652, -1.519] |
+| PRO5000 | 1024 | 311.660 | 310.025 | -1.635 [-1.696, -1.580] |
 
 For every listed GPU, all emitted IDs and the terminal token matched across builds, repeats, and warmups for each prefix. The hash of the final full FP32 logit row also matched for each prefix. A separate GPU test compares CPU, one-block and tiled argmax over 80 synthetic vocabulary-sized rows, including ties spanning tiles, the last partial tile and all-zero rows. It checks the position after each invocation.
 
