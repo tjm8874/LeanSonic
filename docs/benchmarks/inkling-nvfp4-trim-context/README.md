@@ -24,3 +24,5 @@ python3 tools/inkling_storage_probe/trim_context/repack.py \
 ```
 
 [GPU runtime checks](runtime.md) include the complete BF16 test summary and available free-generation comparisons.
+
+[Matched public llama.cpp speed, process VRAM and corpus quality for this exact package](fixed-replay.md).
