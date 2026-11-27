@@ -943,7 +943,7 @@ fn bf16_to_f32(b: u16) -> f32 {
     f32::from_bits((b as u32) << 16)
 }
 
-fn read_control_weight<'a>(
+pub(crate) fn read_bf16_weight<'a>(
     st: &'a MappedSafeTensors,
     name: &str,
     shape: &[usize],
@@ -958,9 +958,7 @@ fn read_control_weight<'a>(
                 .map(std::borrow::Cow::Owned)
                 .map_err(|e| format!("{name}: {e}"))
         }
-        _ => Err(format!(
-            "missing, ambiguous or invalid control weight {name}"
-        )),
+        _ => Err(format!("missing, ambiguous or invalid BF16 weight {name}")),
     }
 }
 
@@ -1905,7 +1903,7 @@ impl Inkling2GpuEngine {
             // Keep tiny router (`128 x 2304 = 576 KB`) in exact BF16 to prevent top-8 router tie flips!
             let router_w = DeviceBuf::from_host_bytes(
                 &ctx,
-                &read_control_weight(&st, &format!("{pfx}mlp.gate.weight"), &[N_EXP, D])?,
+                &read_bf16_weight(&st, &format!("{pfx}mlp.gate.weight"), &[N_EXP, D])?,
             )?;
             let router_bias = DeviceBuf::from_host_bytes(
                 &ctx,
@@ -1916,9 +1914,9 @@ impl Inkling2GpuEngine {
             let ctrl_slices = |cname: &str| {
                 let prefix = format!("{pfx}controllers.{cname}.");
                 Ok::<_, String>([
-                    read_control_weight(&st, &format!("{prefix}down_weight"), &[RANK, 2 * D])?,
-                    read_control_weight(&st, &format!("{prefix}gain_weight"), &[D, RANK])?,
-                    read_control_weight(&st, &format!("{prefix}forget_weight"), &[D, RANK])?,
+                    read_bf16_weight(&st, &format!("{prefix}down_weight"), &[RANK, 2 * D])?,
+                    read_bf16_weight(&st, &format!("{prefix}gain_weight"), &[D, RANK])?,
+                    read_bf16_weight(&st, &format!("{prefix}forget_weight"), &[D, RANK])?,
                 ])
             };
 
