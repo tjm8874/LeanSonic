@@ -64,6 +64,7 @@ The follow-up keeps the compact codebook's output symbols and the original expon
 | Split | Mean KL | Worst KL | Top-1 / 25,500 | PPL |
 |---|---:|---:|---:|---:|
 | test | 0.0137804 | 0.7458703 | 24,278 | 7.131103 |
+| valid | 0.0131836 | 0.9998742 | 24,333 | 6.564179 |
 
 On test, the worst KL fell from 0.751935 to 0.745870, while top-1 matches fell from 24,289 to 24,278. Retain this as an offline experiment. [Eight frame hashes, per-plane weight distortion and corpus metrics](scale-conditioned.json).
 
