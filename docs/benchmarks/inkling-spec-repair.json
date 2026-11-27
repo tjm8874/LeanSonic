@@ -1,0 +1,296 @@
+{
+  "baseline": {
+    "commit": "b02cce093b3f1e4a1c9359242dcbe24680727e09",
+    "sha256": {
+      "current-cli": "a06f3b9d5c605637a081cdd5c5aa689a970197fa53bc293fa200ed518c707da7",
+      "current.cubin": "62cb5ec556de2361f27acec4d3012e1f65e4787627c8e5313d2a91a279f43ac9"
+    },
+    "results": {
+      "PRO4500": {
+        "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+        "generated": 200,
+        "spec_width": 7,
+        "regular_sha256": "f550aab913006c3c60db557ab3b2e31e400c8d4e27c80e34eec44eaa6c926c7d",
+        "speculative_sha256": "329c073b00b2e0601dd96a01894f1c6a1ffb58c16052a7c4cff7305a4416ef63",
+        "first_difference_zero_based": 136,
+        "regular_token": 68154,
+        "speculative_token": 68020
+      },
+      "PRO5000": {
+        "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+        "generated": 200,
+        "spec_width": 7,
+        "regular_sha256": "f550aab913006c3c60db557ab3b2e31e400c8d4e27c80e34eec44eaa6c926c7d",
+        "speculative_sha256": "329c073b00b2e0601dd96a01894f1c6a1ffb58c16052a7c4cff7305a4416ef63",
+        "first_difference_zero_based": 136,
+        "regular_token": 68154,
+        "speculative_token": 68020
+      },
+      "5070Ti": {
+        "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+        "generated": 200,
+        "spec_width": 7,
+        "regular_sha256": "f550aab913006c3c60db557ab3b2e31e400c8d4e27c80e34eec44eaa6c926c7d",
+        "speculative_sha256": "329c073b00b2e0601dd96a01894f1c6a1ffb58c16052a7c4cff7305a4416ef63",
+        "first_difference_zero_based": 136,
+        "regular_token": 68154,
+        "speculative_token": 68020
+      },
+      "5060Ti": {
+        "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+        "generated": 200,
+        "spec_width": 7,
+        "regular_sha256": "f550aab913006c3c60db557ab3b2e31e400c8d4e27c80e34eec44eaa6c926c7d",
+        "speculative_sha256": "329c073b00b2e0601dd96a01894f1c6a1ffb58c16052a7c4cff7305a4416ef63",
+        "first_difference_zero_based": 136,
+        "regular_token": 68154,
+        "speculative_token": 68020
+      }
+    }
+  },
+  "candidate_head": "06dd2976c67df91ef7782b36d8f8ab0c05736398",
+  "release_commit": "7d56a7a",
+  "cli_cubin_submit_sha256": {
+    "current-cli": "aada963a2573310834916a011e0a57c42d84df822ec5546af368c7ec21e60325",
+    "current.cubin": "a7eeed310a6ef13331ba47b399e32c725f1749db85a6192203ae1381b32e0e91"
+  },
+  "cli_cubin_release_sha256": {
+    "release-cli": "17113176ba61410c8a1b48b698a5e1a5daaaec1ec49fd146b4870af1f55f2f31",
+    "integrated.cubin": "b384536a09c1fd41f925082271d0af2f273a17fe02b4a128e950dc5559edd1eb"
+  },
+  "method": "Official Inkling model with MTP, FP16 KV and context 8192, greedy 200 generated tokens. Each comparison invokes the normal bench CLI twice using tools/check_inkling_spec_greedy.py. The head label measures the submitted PR. Merged label uses its CUDA changes on the b02cce0 host binary; release label uses the actual merged 7d56a7a build. The tested integrated CUDA source matches the merged file byte-for-byte. All three Basalt 5fe1928d public prompt files matched the reporter SHA-256.",
+  "prompt_sha256": {
+    "conv": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+    "prose": "3c5473675c247b0a5c770645a5abd8edc754501d33414f1942022368beaee5e2",
+    "struct": "fa33ccfcb39e98577245a6c321e3176abf93f41019d0da04d5d9e642b6c8d2e2"
+  },
+  "tests": {
+    "5060Ti-merged-conv-1": {
+      "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+      "generated": 200,
+      "spec_width": 1,
+      "regular_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "speculative_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "5060Ti-head-prose-7": {
+      "prompt_sha256": "3c5473675c247b0a5c770645a5abd8edc754501d33414f1942022368beaee5e2",
+      "generated": 200,
+      "spec_width": 7,
+      "regular_sha256": "1ca3339f4e1082181f12e70f604ed9867a9f59514bd46d55f233a7e0d0583f78",
+      "speculative_sha256": "1ca3339f4e1082181f12e70f604ed9867a9f59514bd46d55f233a7e0d0583f78",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "5060Ti-head-conv-7": {
+      "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+      "generated": 200,
+      "spec_width": 7,
+      "regular_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "speculative_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "5070Ti-merged-conv-3": {
+      "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+      "generated": 200,
+      "spec_width": 3,
+      "regular_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "speculative_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "release-5070Ti": {
+      "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+      "generated": 200,
+      "spec_width": 7,
+      "regular_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "speculative_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "5070Ti-merged-struct-7": {
+      "prompt_sha256": "fa33ccfcb39e98577245a6c321e3176abf93f41019d0da04d5d9e642b6c8d2e2",
+      "generated": 200,
+      "spec_width": 7,
+      "regular_sha256": "1c7a5b6206a68f90b15a9614d91e91ee8f565654096aedb0eb325300b0a24f8a",
+      "speculative_sha256": "1c7a5b6206a68f90b15a9614d91e91ee8f565654096aedb0eb325300b0a24f8a",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "5070Ti-merged-prose-7": {
+      "prompt_sha256": "3c5473675c247b0a5c770645a5abd8edc754501d33414f1942022368beaee5e2",
+      "generated": 200,
+      "spec_width": 7,
+      "regular_sha256": "1ca3339f4e1082181f12e70f604ed9867a9f59514bd46d55f233a7e0d0583f78",
+      "speculative_sha256": "1ca3339f4e1082181f12e70f604ed9867a9f59514bd46d55f233a7e0d0583f78",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "5060Ti-merged-prose-7": {
+      "prompt_sha256": "3c5473675c247b0a5c770645a5abd8edc754501d33414f1942022368beaee5e2",
+      "generated": 200,
+      "spec_width": 7,
+      "regular_sha256": "1ca3339f4e1082181f12e70f604ed9867a9f59514bd46d55f233a7e0d0583f78",
+      "speculative_sha256": "1ca3339f4e1082181f12e70f604ed9867a9f59514bd46d55f233a7e0d0583f78",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "release-5060Ti": {
+      "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+      "generated": 200,
+      "spec_width": 7,
+      "regular_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "speculative_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "5060Ti-merged-struct-7": {
+      "prompt_sha256": "fa33ccfcb39e98577245a6c321e3176abf93f41019d0da04d5d9e642b6c8d2e2",
+      "generated": 200,
+      "spec_width": 7,
+      "regular_sha256": "1c7a5b6206a68f90b15a9614d91e91ee8f565654096aedb0eb325300b0a24f8a",
+      "speculative_sha256": "1c7a5b6206a68f90b15a9614d91e91ee8f565654096aedb0eb325300b0a24f8a",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "5070Ti-head-struct-7": {
+      "prompt_sha256": "fa33ccfcb39e98577245a6c321e3176abf93f41019d0da04d5d9e642b6c8d2e2",
+      "generated": 200,
+      "spec_width": 7,
+      "regular_sha256": "1c7a5b6206a68f90b15a9614d91e91ee8f565654096aedb0eb325300b0a24f8a",
+      "speculative_sha256": "1c7a5b6206a68f90b15a9614d91e91ee8f565654096aedb0eb325300b0a24f8a",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "5070Ti-head-prose-7": {
+      "prompt_sha256": "3c5473675c247b0a5c770645a5abd8edc754501d33414f1942022368beaee5e2",
+      "generated": 200,
+      "spec_width": 7,
+      "regular_sha256": "1ca3339f4e1082181f12e70f604ed9867a9f59514bd46d55f233a7e0d0583f78",
+      "speculative_sha256": "1ca3339f4e1082181f12e70f604ed9867a9f59514bd46d55f233a7e0d0583f78",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "5070Ti-merged-conv-1": {
+      "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+      "generated": 200,
+      "spec_width": 1,
+      "regular_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "speculative_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "5070Ti-merged-conv-7": {
+      "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+      "generated": 200,
+      "spec_width": 7,
+      "regular_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "speculative_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "5060Ti-head-struct-7": {
+      "prompt_sha256": "fa33ccfcb39e98577245a6c321e3176abf93f41019d0da04d5d9e642b6c8d2e2",
+      "generated": 200,
+      "spec_width": 7,
+      "regular_sha256": "1c7a5b6206a68f90b15a9614d91e91ee8f565654096aedb0eb325300b0a24f8a",
+      "speculative_sha256": "1c7a5b6206a68f90b15a9614d91e91ee8f565654096aedb0eb325300b0a24f8a",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "5060Ti-merged-conv-7": {
+      "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+      "generated": 200,
+      "spec_width": 7,
+      "regular_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "speculative_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "5060Ti-merged-conv-3": {
+      "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+      "generated": 200,
+      "spec_width": 3,
+      "regular_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "speculative_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "5070Ti-head-conv-7": {
+      "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+      "generated": 200,
+      "spec_width": 7,
+      "regular_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "speculative_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    },
+    "release-PRO4500": {
+      "prompt_sha256": "a77b81cb16f94cdc8baee2073519fd1bf97a85e3533659eeec1c57d81105b373",
+      "generated": 200,
+      "spec_width": 7,
+      "regular_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "speculative_sha256": "0d4643170122373b2361b2cee3f9443527f4e5c305fcf2166c21ec3b6c4791c6",
+      "first_difference_zero_based": null,
+      "regular_token": null,
+      "speculative_token": null
+    }
+  },
+  "quality": {
+    "test-quality": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.072955538814124,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.003158425985163431,
+      "median_kld": 0.0012734924757468779,
+      "p99_kld": 0.030384473744206587,
+      "max_kld": 0.6809773323028823,
+      "start_chunk": 0,
+      "max_kld_chunk": 69,
+      "max_kld_position": 353,
+      "ref_floor_targets": 14,
+      "top1_matches": 24865,
+      "top1_agreement": 0.9750980392156863
+    },
+    "valid-quality": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 6.504620985971503,
+      "ref_ppl": 6.498588819010602,
+      "mean_kld": 0.0027607406235017986,
+      "median_kld": 0.0010193128624920618,
+      "p99_kld": 0.027633147959790057,
+      "max_kld": 0.352436096904504,
+      "start_chunk": 0,
+      "max_kld_chunk": 46,
+      "max_kld_position": 379,
+      "ref_floor_targets": 10,
+      "top1_matches": 24963,
+      "top1_agreement": 0.9789411764705882
+    }
+  },
+  "quality_method": "Same RTX PRO 5000, b02cce0 loader, #85 compact weights, FP16 KV, 100 chunks and 25,500 positions per split. Only the stock vs #94 integrated cubin changes. The KLD scoring rules and oracle hashes are recorded in inkling-bf16-schedules.json."
+}
