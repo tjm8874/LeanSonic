@@ -834,6 +834,7 @@ pub struct Inkling2GpuEngine {
     expert_weights: Vec<[TierBuf; 2]>,
     ternary_up_scratch: Option<DeviceBuf>,
     ternary_down_scratch: Option<DeviceBuf>,
+    ternary_down_layers: [bool; NVFP4_LAYERS],
     device_codebook_scratch: Option<DeviceBuf>,
     direct_device_up: bool,
     direct_device_tc: bool,
@@ -2302,19 +2303,28 @@ impl Inkling2GpuEngine {
         let d_ms_tokens = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 4)?;
         // Older modules and grouped/verify paths can still read full-width nibbles.
         let mut ternary_scratch = |slot: usize, setting: &str, bytes: usize| -> Result<_, String> {
-            if std::env::var(setting).as_deref() != Ok("1") {
+            let mode = std::env::var(setting).unwrap_or_default();
+            let auto = slot == 1 && mode == "auto";
+            if mode != "1" && !auto {
                 return Ok(None);
             }
-            if fns.expand_ternary_nibbles.is_none() {
-                return Err("missing ternary expansion kernel in the selected CUDA module".into());
-            }
+            let mut any = false;
             for pair in &mut expert_views[..NVFP4_LAYERS] {
                 match &mut pair[slot] {
                     ExpertMatrix::ScaleSplit {
-                        format: ScaleFormat::Direct | ScaleFormat::FourBanks,
+                        format: format @ (ScaleFormat::Direct | ScaleFormat::FourBanks),
+                        bytes: frame,
                         ternary,
                         ..
-                    } => *ternary = true,
+                    } => {
+                        *ternary = !auto
+                            || crate::inkling_mxfp8::ternary_scale_tables(
+                                frame,
+                                matches!(format, ScaleFormat::FourBanks),
+                            )?;
+                        any |= *ternary;
+                    }
+                    _ if auto => {}
                     _ => {
                         return Err(format!(
                             "{setting} requires direct or four-bank scale-coded NVFP4 weights"
@@ -2322,11 +2332,23 @@ impl Inkling2GpuEngine {
                     }
                 }
             }
+            if !any {
+                return Ok(None);
+            }
+            if fns.expand_ternary_nibbles.is_none() {
+                return Err("missing ternary expansion kernel in the selected CUDA module".into());
+            }
             Ok(Some(DeviceBuf::alloc_zeroed(&ctx, bytes)?))
         };
         let ternary_up_scratch = ternary_scratch(0, "LEANSONIC_TERNARY_UP", N_EXP * D * FF)?;
         let ternary_down_scratch =
             ternary_scratch(1, "LEANSONIC_TERNARY_DOWN", N_EXP * D * FF / 2)?;
+        let ternary_down_layers = std::array::from_fn(|i| {
+            matches!(
+                expert_views[i][1],
+                ExpertMatrix::ScaleSplit { ternary: true, .. }
+            )
+        });
         let mut device_codebooks = Vec::new();
         let device_codebook_scratch = if device_u4 {
             if !direct_all && fns.expand_mxfp8_indices.is_none() {
@@ -2461,6 +2483,7 @@ impl Inkling2GpuEngine {
                 || (device_u4 && std::env::var("LEANSONIC_MXFP8_LOOKUP_UP").as_deref() == Ok("1")),
             ternary_up_scratch,
             ternary_down_scratch,
+            ternary_down_layers,
             device_codebook_scratch,
             resident_expert_layers: 0,
             spilled_expert_layers: 0,
@@ -3359,11 +3382,18 @@ impl Inkling2GpuEngine {
         Ok(dst)
     }
 
-    fn raw_nvfp4_down(&self, stream: CUstream, weight: &TierBuf) -> Result<CUdeviceptr, String> {
+    fn raw_nvfp4_down(
+        &self,
+        il: usize,
+        stream: CUstream,
+        weight: &TierBuf,
+    ) -> Result<CUdeviceptr, String> {
         self.expand_nvfp4(
             stream,
             weight,
-            self.ternary_down_scratch.as_ref(),
+            self.ternary_down_scratch
+                .as_ref()
+                .filter(|_| self.ternary_down_layers[il]),
             N_EXP * D * FF / 16,
         )
     }
@@ -5036,7 +5066,7 @@ impl Inkling2GpuEngine {
                     let mut pwts = self.d_sel_wts.ptr;
                     let allow_xw = self.moe_down_xw == 2
                         || (self.moe_down_xw == 1 && matches!(w2, TierBuf::Vram(_)));
-                    let ternary = self.ternary_down_scratch.is_some();
+                    let ternary = self.ternary_down_layers[il];
                     let xw = if ternary {
                         s2.kernels.ternary_down
                     } else {
@@ -5051,7 +5081,7 @@ impl Inkling2GpuEngine {
                     let mut pw2 = if allow_xw && (xw.is_some() || (fuse && conv.is_some())) {
                         w2.ptr()
                     } else {
-                        self.raw_nvfp4_down(stream, w2)?
+                        self.raw_nvfp4_down(il, stream, w2)?
                     };
                     if let (true, true, Some(f_conv)) = (allow_xw, fuse, conv) {
                         let mut pwc = l.mlp_conv4.ptr;
@@ -5124,7 +5154,7 @@ impl Inkling2GpuEngine {
                         &mut up_args,
                     )?;
 
-                    let mut pw2 = self.raw_nvfp4_down(stream, w2)?;
+                    let mut pw2 = self.raw_nvfp4_down(il, stream, w2)?;
                     let mut ps2 = s2.buffer.ptr;
                     let mut pa2 = a2.ptr;
                     let mut pwts = self.d_sel_wts.ptr;
@@ -9117,10 +9147,9 @@ impl Inkling2GpuEngine {
                     let w2_stage_ptr = (ppy + (pair_rows * D * 2) as u64 + 4095) & !4095;
                     let w2_stage_exps =
                         (pair_end.saturating_sub(w2_stage_ptr) as usize / EXP_W2_BYTES).min(N_EXP);
-                    if let (TierBuf::HostPinned(hp2), true) = (
-                        w2,
-                        self.ternary_down_scratch.is_none() && w2_stage_exps >= 4,
-                    ) {
+                    if let (TierBuf::HostPinned(hp2), true) =
+                        (w2, !self.ternary_down_layers[il] && w2_stage_exps >= 4)
+                    {
                         let mut exp_begin = 0usize;
                         while exp_begin < N_EXP {
                             let exp_end = (exp_begin + w2_stage_exps).min(N_EXP);
@@ -9162,7 +9191,7 @@ impl Inkling2GpuEngine {
                             exp_begin = exp_end;
                         }
                     } else {
-                        let direct = if self.ternary_down_scratch.is_none() {
+                        let direct = if !self.ternary_down_layers[il] {
                             None
                         } else if nvfp4_tile_toks == 160 {
                             s2.kernels.ternary_tc_down_t160
@@ -9172,7 +9201,7 @@ impl Inkling2GpuEngine {
                         let (f_dn, mut pw2) = if let Some(kernel) = direct {
                             (kernel, w2.ptr())
                         } else {
-                            (f_dn, self.raw_nvfp4_down(stream, w2)?)
+                            (f_dn, self.raw_nvfp4_down(il, stream, w2)?)
                         };
                         let mut eb = 0i32;
                         let mut ee = N_EXP as i32;
@@ -9240,7 +9269,7 @@ impl Inkling2GpuEngine {
                     ];
                     self.launch(stream, f_vup, (72, max_active), 512, &mut up_args)?;
 
-                    let mut pw2 = self.raw_nvfp4_down(stream, w2)?;
+                    let mut pw2 = self.raw_nvfp4_down(il, stream, w2)?;
                     let mut ps2 = s2.buffer.ptr;
                     let mut pa2 = a2.ptr;
                     let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
@@ -9299,7 +9328,7 @@ impl Inkling2GpuEngine {
                         b_len * TOP_K,
                         FF,
                     )?;
-                    let mut pw2 = self.raw_nvfp4_down(stream, w2)?;
+                    let mut pw2 = self.raw_nvfp4_down(il, stream, w2)?;
                     let mut ps2 = s2.buffer.ptr;
                     let mut pa2 = a2.ptr;
                     let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
