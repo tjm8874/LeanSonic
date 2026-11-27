@@ -1,0 +1,20 @@
+{
+  "original_bytes": 19606374154,
+  "text_bytes": 18327104737,
+  "core_tensors": 656,
+  "drafter_tensors": 54,
+  "dense_before": 3257070592,
+  "dense_after": 2621628416,
+  "vision_bytes": 641805664,
+  "sections": {
+    "tokenizer/chat_template.jinja": 6868,
+    "tokenizer/merges.txt": 4643784,
+    "tokenizer/token_type.json": 600174,
+    "tokenizer/tokenizer.json": 659,
+    "tokenizer/vocab.json": 4195928,
+    "experts": 15670484992,
+    "experts.layout": 799,
+    "gguf": 2621628416,
+    "meta": 8482017
+  }
+}
