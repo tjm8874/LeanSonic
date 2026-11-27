@@ -1,6 +1,7 @@
 mod bench_matrix;
 mod eval_kld;
 mod multiseq;
+mod serve_batch;
 
 use std::env;
 use std::io::{self, Write};
@@ -1178,6 +1179,18 @@ fn cmd_serve(args: &[String]) -> Result<(), String> {
                     .and_then(|s| s.parse().ok())
             })
             .unwrap_or(default_spec);
+        let n_seqs = env::var("LEANSONIC_SEQS")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(1);
+        if n_seqs > 1 {
+            // Continuous batching over C sequence slots (#12 / #107); greedy, spec 0.
+            let gpu = Inkling2GpuEngine::load_from_dir_with_spec(dir, max_ctx, true, 0)?;
+            let backend: Arc<dyn ServingBackend> =
+                serve_batch::InklingBatchServingBackend::start(gpu, tok, effort);
+            return serve_openai_http_with_backend(&host, port, "inkling-2-mini", backend)
+                .map_err(|e| format!("server I/O error: {e}"));
+        }
         let gpu = Inkling2GpuEngine::load_from_dir_with_spec(dir, max_ctx, true, spec_k)?;
         let device_name = gpu.ctx.device_name.clone();
         let backend: Arc<dyn ServingBackend> = Arc::new(InklingGpuServingBackend {
