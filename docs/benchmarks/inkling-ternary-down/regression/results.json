@@ -1,0 +1,68 @@
+{
+  "tiles": {
+    "PRO5000": {
+      "outputs": "tile=128 active=1376 exact=3170304 guards=4608\ntile=160 active=1376 exact=3170304 guards=4608\n",
+      "memcheck": "========= COMPUTE-SANITIZER\ntile=128 active=1376 exact=3170304 guards=4608\ntile=160 active=1376 exact=3170304 guards=4608\n========= ERROR SUMMARY: 0 errors\n",
+      "digests": "a184779514276d7def28d94a66e59a235e674534653623f8bc5b1e1c13b880a2  tiles\nac92d0790fdf234b52f6fb3e16561e5ca730caa127f72b86dfec38fcc7c72c66  engine.cubin\n"
+    },
+    "5070Ti": {
+      "outputs": "tile=128 active=1376 exact=3170304 guards=4608\ntile=160 active=1376 exact=3170304 guards=4608\n",
+      "memcheck": "========= COMPUTE-SANITIZER\ntile=128 active=1376 exact=3170304 guards=4608\ntile=160 active=1376 exact=3170304 guards=4608\n========= ERROR SUMMARY: 0 errors\n",
+      "digests": "a184779514276d7def28d94a66e59a235e674534653623f8bc5b1e1c13b880a2  tiles\nac92d0790fdf234b52f6fb3e16561e5ca730caa127f72b86dfec38fcc7c72c66  engine.cubin\n"
+    }
+  },
+  "sequences": {
+    "PRO4500": {
+      "rows": [
+        "prefix 0 0 165643 6e5c61e0a5527804",
+        "prefix 0 1 151533 0164a3ee5656de25",
+        "prefix 0 2 3070 c1722adac5cf378b",
+        "prefix 0 3 302 67ae1aeb33986a12",
+        "sequence 0 2 [149916, 16, 12, 12, 63] 63 63 3d5dc2e8b5f22aa3 [149916, 16, 12, 12] 63 63 3d5dc2e8b5f22aa3",
+        "sequence 0 0 [9, 9, 9] 9 68014 6b4f16a3d1c9eacb [9] 9 68014 6b4f16a3d1c9eacb",
+        "sequence 0 3 [158041, 158041, 84800, 158041, 9, 13] 101464 196997 f52afe5285426a5f [158041, 158041] 101464 196997 f52afe5285426a5f",
+        "sequence 0 1 [151206, 302, 151206, 2890] 12 68014 4156bf0dad71f9ce [151206, 302, 151206] 12 68014 4156bf0dad71f9ce",
+        "prefix 1 0 165643 6e5c61e0a5527804",
+        "prefix 1 1 151533 0164a3ee5656de25",
+        "prefix 1 2 3070 c1722adac5cf378b",
+        "prefix 1 3 302 67ae1aeb33986a12",
+        "sequence 1 2 [149916, 16, 12, 12, 63] 63 63 3d5dc2e8b5f22aa3 [149916, 16, 12, 12] 63 63 3d5dc2e8b5f22aa3",
+        "sequence 1 0 [9, 9, 9] 9 68014 6b4f16a3d1c9eacb [9] 9 68014 6b4f16a3d1c9eacb",
+        "sequence 1 3 [158041, 158041, 84800, 158041, 9, 13] 101464 196997 f52afe5285426a5f [158041, 158041] 101464 196997 f52afe5285426a5f",
+        "sequence 1 1 [151206, 302, 151206, 2890] 12 68014 4156bf0dad71f9ce [151206, 302, 151206] 12 68014 4156bf0dad71f9ce"
+      ],
+      "digests": "ca014fd7bd5d39780bfcfd3ecda3f184750ae7f3fbc661ae78ba12b4abe57452  seqs\nac92d0790fdf234b52f6fb3e16561e5ca730caa127f72b86dfec38fcc7c72c66  engine.cubin\ne93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843  prompt.ids\n",
+      "loaders": [
+        "[LeanSonic GPU] Packed 48 expert scale planes, saving 398131008 device bytes\n[LeanSonic GPU] NVIDIA RTX PRO 4500 Blackwell | VRAM used: 14.52 GiB / 31.37 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 512 | Loaded in 8.85s\n",
+        "[LeanSonic GPU] Packed 48 expert scale planes, saving 398131008 device bytes\n[LeanSonic GPU] NVIDIA RTX PRO 4500 Blackwell | VRAM used: 13.12 GiB / 31.37 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 512 | Loaded in 9.26s\n"
+      ],
+      "serial_replays": 8
+    },
+    "5060Ti": {
+      "rows": [
+        "prefix 0 0 165643 6e5c61e0a5527804",
+        "prefix 0 1 151533 0164a3ee5656de25",
+        "prefix 0 2 3070 c1722adac5cf378b",
+        "prefix 0 3 302 67ae1aeb33986a12",
+        "sequence 0 2 [149916, 16, 12, 12, 63] 63 63 3d5dc2e8b5f22aa3 [149916, 16, 12, 12] 63 63 3d5dc2e8b5f22aa3",
+        "sequence 0 0 [9, 9, 9] 9 68014 6b4f16a3d1c9eacb [9] 9 68014 6b4f16a3d1c9eacb",
+        "sequence 0 3 [158041, 158041, 84800, 158041, 9, 13] 101464 196997 f52afe5285426a5f [158041, 158041] 101464 196997 f52afe5285426a5f",
+        "sequence 0 1 [151206, 302, 151206, 2890] 12 68014 4156bf0dad71f9ce [151206, 302, 151206] 12 68014 4156bf0dad71f9ce",
+        "prefix 1 0 165643 6e5c61e0a5527804",
+        "prefix 1 1 151533 0164a3ee5656de25",
+        "prefix 1 2 3070 c1722adac5cf378b",
+        "prefix 1 3 302 67ae1aeb33986a12",
+        "sequence 1 2 [149916, 16, 12, 12, 63] 63 63 3d5dc2e8b5f22aa3 [149916, 16, 12, 12] 63 63 3d5dc2e8b5f22aa3",
+        "sequence 1 0 [9, 9, 9] 9 68014 6b4f16a3d1c9eacb [9] 9 68014 6b4f16a3d1c9eacb",
+        "sequence 1 3 [158041, 158041, 84800, 158041, 9, 13] 101464 196997 f52afe5285426a5f [158041, 158041] 101464 196997 f52afe5285426a5f",
+        "sequence 1 1 [151206, 302, 151206, 2890] 12 68014 4156bf0dad71f9ce [151206, 302, 151206] 12 68014 4156bf0dad71f9ce"
+      ],
+      "digests": "ca014fd7bd5d39780bfcfd3ecda3f184750ae7f3fbc661ae78ba12b4abe57452  seqs\nac92d0790fdf234b52f6fb3e16561e5ca730caa127f72b86dfec38fcc7c72c66  engine.cubin\ne93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843  prompt.ids\n",
+      "loaders": [
+        "[LeanSonic GPU] Packed 48 expert scale planes, saving 398131008 device bytes\n[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 14.40 GiB / 15.48 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 512 | Loaded in 15.94s\n",
+        "[LeanSonic GPU] Packed 48 expert scale planes, saving 398131008 device bytes\n[LeanSonic GPU] NVIDIA GeForce RTX 5060 Ti | VRAM used: 13.00 GiB / 15.48 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 512 | Loaded in 17.72s\n"
+      ],
+      "serial_replays": 8
+    }
+  }
+}

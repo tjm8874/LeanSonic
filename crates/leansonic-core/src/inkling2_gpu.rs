@@ -360,6 +360,10 @@ struct ExpertKernels {
     /// Expert-parallel decode MoE down (bit-identical to `nvfp4_dp4a_down`).
     nvfp4_dp4a_down_xw: Option<CUfunction>,
     nvfp4_dp4a_down_xw_conv: Option<CUfunction>,
+    ternary_down: Option<CUfunction>,
+    ternary_down_conv: Option<CUfunction>,
+    ternary_tc_down: Option<CUfunction>,
+    ternary_tc_down_t160: Option<CUfunction>,
     mxfp8_up_situ: CUfunction,
     mxfp8_up_situ_u4: Option<CUfunction>,
     mxfp8_down: CUfunction,
@@ -582,6 +586,7 @@ struct KernelFns {
     quant_nvfp4_2term_b: Option<CUfunction>,
     gather_nvfp4_sorted_b: Option<CUfunction>,
     expand_mxfp8_indices: Option<CUfunction>,
+    expand_ternary_nibbles: Option<CUfunction>,
     quant_mxfp8_b: Option<CUfunction>,
     flash_attn_tc_q8_b: Option<CUfunction>,
     flash_attn_tc_q8_b_i8: Option<CUfunction>,
@@ -819,6 +824,7 @@ pub struct Inkling2GpuEngine {
     d_all_msg_queries: DeviceBuf,
     layers: Vec<LayerGpu>,
     expert_weights: Vec<[TierBuf; 2]>,
+    ternary_down_scratch: Option<DeviceBuf>,
     device_codebook_scratch: Option<DeviceBuf>,
     direct_device_up: bool,
     direct_device_tc: bool,
@@ -1206,6 +1212,7 @@ enum ScaleFormat {
 enum ExpertMatrix<'a> {
     Raw(&'a [u8]),
     ScaleSplit {
+        ternary: bool,
         format: ScaleFormat,
         bytes: &'a [u8],
         scale_frame: &'a [u8],
@@ -1294,6 +1301,7 @@ impl<'a> ExpertMatrix<'a> {
                     return Err(format!("invalid companion mean scale frame for {name}"));
                 }
                 Ok(Self::ScaleSplit {
+                    ternary: false,
                     format,
                     bytes: t.data,
                     scale_frame: scale.data,
@@ -1309,6 +1317,11 @@ impl<'a> ExpertMatrix<'a> {
     fn len(&self) -> usize {
         match self {
             Self::Raw(bytes) => bytes.len(),
+            Self::ScaleSplit {
+                count,
+                ternary: true,
+                ..
+            } => *count / 2,
             Self::Packed { count, .. } | Self::ScaleSplit { count, .. } => *count,
         }
     }
@@ -1363,6 +1376,7 @@ impl<'a> ExpertMatrix<'a> {
                 return Ok(TierBuf::HostPinned(PinnedHostBuf::from_bytes(ctx, bytes)?));
             }
             Self::ScaleSplit {
+                ternary,
                 format,
                 bytes,
                 scale_frame,
@@ -1375,7 +1389,7 @@ impl<'a> ExpertMatrix<'a> {
                     scale_width,
                 )?;
                 use crate::inkling_mxfp8::Matrix;
-                match format {
+                let matrix = match format {
                     ScaleFormat::Split => {
                         let raw = crate::inkling_mxfp8::unpack_scale_split(bytes, &scales)
                             .map_err(|e| e.to_string())?;
@@ -1383,7 +1397,45 @@ impl<'a> ExpertMatrix<'a> {
                     }
                     ScaleFormat::Direct => Matrix::parse_scale_direct(bytes, count, scales)?,
                     ScaleFormat::FourBanks => Matrix::parse_four_scale_banks(bytes, count, scales)?,
+                };
+                if ternary {
+                    let mut packed = Vec::with_capacity(count / 2);
+                    let table = std::array::from_fn::<_, 256, _>(|b| {
+                        let code = |n| match n {
+                            0 => 0,
+                            7 => 1,
+                            15 => 3,
+                            _ => 0xff,
+                        };
+                        let lo = code(b & 15);
+                        let hi = code(b >> 4);
+                        if lo == 0xff || hi == 0xff {
+                            0xff
+                        } else {
+                            lo | (hi << 2)
+                        }
+                    });
+                    matrix.for_each_chunk(|_, tile| {
+                        let (pairs, tail) = tile.as_chunks::<2>();
+                        if !tail.is_empty() {
+                            return Err("unaligned ternary weight tile".into());
+                        }
+                        for &[a, b] in pairs {
+                            let x = table[usize::from(a)];
+                            let y = table[usize::from(b)];
+                            if x == 255 || y == 255 {
+                                return Err(
+                                    "requested ternary down plane contains a non-ternary weight"
+                                        .into(),
+                                );
+                            }
+                            packed.push(x | (y << 4));
+                        }
+                        Ok(())
+                    })?;
+                    return ExpertMatrix::Raw(&packed).place(ctx, on_device);
                 }
+                matrix
             }
             Self::Packed {
                 bytes,
@@ -2247,6 +2299,27 @@ impl Inkling2GpuEngine {
         let d_ms_j = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 4)?;
         let d_ms_runs = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 16)?;
         let d_ms_tokens = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 4)?;
+        let ternary_down_scratch = if std::env::var("LEANSONIC_TERNARY_DOWN").as_deref() == Ok("1")
+        {
+            if fns.expand_ternary_nibbles.is_none() {
+                return Err("missing ternary expansion kernel in the selected CUDA module".into());
+            }
+            for [_, down] in &mut expert_views[..NVFP4_LAYERS] {
+                match down {
+                    ExpertMatrix::ScaleSplit {
+                        format: ScaleFormat::Direct,
+                        ternary,
+                        ..
+                    } => *ternary = true,
+                    _ => {
+                        return Err("ternary NVFP4 down requires a direct scale-coded model".into())
+                    }
+                }
+            }
+            Some(DeviceBuf::alloc_zeroed(&ctx, N_EXP * D * FF / 2)?)
+        } else {
+            None
+        };
         let mut device_codebooks = Vec::new();
         let device_codebook_scratch = if device_u4 {
             if !direct_all && fns.expand_mxfp8_indices.is_none() {
@@ -2378,6 +2451,7 @@ impl Inkling2GpuEngine {
             direct_device_tc,
             direct_device_up: direct_all
                 || (device_u4 && std::env::var("LEANSONIC_MXFP8_LOOKUP_UP").as_deref() == Ok("1")),
+            ternary_down_scratch,
             device_codebook_scratch,
             resident_expert_layers: 0,
             spilled_expert_layers: 0,
@@ -2895,6 +2969,10 @@ impl Inkling2GpuEngine {
                     .zip(load("nvfp4_dp4a_up_half_staged").ok()),
                 nvfp4_dp4a_down: load("nvfp4_dp4a_down")?,
                 nvfp4_dp4a_down_xw: load("nvfp4_dp4a_down_xw").ok(),
+                ternary_down: load("ternary_dp4a_down_xw").ok(),
+                ternary_down_conv: load("ternary_dp4a_down_xw_conv").ok(),
+                ternary_tc_down: set_dyn_smem(load("ternary_tc_down").ok(), 62_976)?,
+                ternary_tc_down_t160: set_dyn_smem(load("ternary_tc_down_t160").ok(), 58_112)?,
                 nvfp4_dp4a_down_xw_conv: load("nvfp4_dp4a_down_xw_conv").ok(),
                 mxfp8_up_situ: load("mxfp8_up_situ")?,
                 mxfp8_up_situ_u4: load("mxfp8_up_situ_u4").ok(),
@@ -3052,6 +3130,7 @@ impl Inkling2GpuEngine {
             q8_tc_qkv3_gemm_b,
             quant_nvfp4_2term_b: get_fn("ink2_quant_nvfp4_2term_b").ok(),
             gather_nvfp4_sorted_b: get_fn("ink2_gather_nvfp4_sorted_b").ok(),
+            expand_ternary_nibbles: get_fn("ink2_expand_ternary_nibbles").ok(),
             expand_mxfp8_indices: get_fn("ink2_expand_mxfp8_indices").ok(),
             quant_mxfp8_b: get_fn("ink2_quant_mxfp8_b").ok(),
             flash_attn_tc_q8_b,
@@ -3232,6 +3311,30 @@ impl Inkling2GpuEngine {
                 .expand_mxfp8_indices
                 .ok_or("missing device codebook kernel")?,
             (64, if selected { TOP_K } else { N_EXP } as u32),
+            256,
+            &mut args,
+        )?;
+        Ok(dst)
+    }
+
+    fn raw_nvfp4_down(&self, stream: CUstream, weight: &TierBuf) -> Result<CUdeviceptr, String> {
+        let Some(scratch) = &self.ternary_down_scratch else {
+            return Ok(weight.ptr());
+        };
+        let mut src = weight.ptr();
+        let mut dst = scratch.ptr;
+        let mut count = (N_EXP * D * FF / 16) as u32;
+        let mut args = [
+            (&mut src as *mut _) as *mut c_void,
+            (&mut dst as *mut _) as *mut c_void,
+            (&mut count as *mut _) as *mut c_void,
+        ];
+        self.launch(
+            stream,
+            self.fns
+                .expand_ternary_nibbles
+                .ok_or("missing ternary expansion kernel")?,
+            (4096, 1),
             256,
             &mut args,
         )?;
@@ -4847,17 +4950,29 @@ impl Inkling2GpuEngine {
                         (self.d_act_q8_16.ptr, self.d_act_sc_16.ptr)
                     };
                     let mut pids = self.d_sel_ids.ptr;
-                    let mut pw2 = w2.ptr();
                     let mut ps2 = s2.buffer.ptr;
                     let mut pa2 = a2.ptr;
                     let mut pwts = self.d_sel_wts.ptr;
                     let allow_xw = self.moe_down_xw == 2
                         || (self.moe_down_xw == 1 && matches!(w2, TierBuf::Vram(_)));
-                    if let (true, true, Some(f_conv)) = (
-                        allow_xw,
-                        self.down_conv_fuse || self.solo_conv_fuse,
-                        s2.kernels.nvfp4_dp4a_down_xw_conv,
-                    ) {
+                    let ternary = self.ternary_down_scratch.is_some();
+                    let xw = if ternary {
+                        s2.kernels.ternary_down
+                    } else {
+                        s2.kernels.nvfp4_dp4a_down_xw
+                    };
+                    let conv = if ternary {
+                        s2.kernels.ternary_down_conv
+                    } else {
+                        s2.kernels.nvfp4_dp4a_down_xw_conv
+                    };
+                    let fuse = self.down_conv_fuse || self.solo_conv_fuse;
+                    let mut pw2 = if allow_xw && (xw.is_some() || (fuse && conv.is_some())) {
+                        w2.ptr()
+                    } else {
+                        self.raw_nvfp4_down(stream, w2)?
+                    };
+                    if let (true, true, Some(f_conv)) = (allow_xw, fuse, conv) {
                         let mut pwc = l.mlp_conv4.ptr;
                         let mut phist = st.hist_mlp_at(self.cur_seq);
                         let mut pcur = self.d_cur.ptr;
@@ -4893,7 +5008,7 @@ impl Inkling2GpuEngine {
                             (&mut pwts as *mut _) as *mut c_void,
                             (&mut py as *mut _) as *mut c_void,
                         ];
-                        if let (true, Some(f)) = (allow_xw, s2.kernels.nvfp4_dp4a_down_xw) {
+                        if let (true, Some(f)) = (allow_xw, xw) {
                             self.launch_pdl(stream, f, ((D / 2) as u32, 1), 256, &mut dn_args)?;
                         } else {
                             self.launch(
@@ -4928,7 +5043,7 @@ impl Inkling2GpuEngine {
                         &mut up_args,
                     )?;
 
-                    let mut pw2 = w2.ptr();
+                    let mut pw2 = self.raw_nvfp4_down(stream, w2)?;
                     let mut ps2 = s2.buffer.ptr;
                     let mut pa2 = a2.ptr;
                     let mut pwts = self.d_sel_wts.ptr;
@@ -8862,7 +8977,10 @@ impl Inkling2GpuEngine {
                     let w2_stage_ptr = (ppy + (pair_rows * D * 2) as u64 + 4095) & !4095;
                     let w2_stage_exps =
                         (pair_end.saturating_sub(w2_stage_ptr) as usize / EXP_W2_BYTES).min(N_EXP);
-                    if let (TierBuf::HostPinned(hp2), true) = (w2, w2_stage_exps >= 4) {
+                    if let (TierBuf::HostPinned(hp2), true) = (
+                        w2,
+                        self.ternary_down_scratch.is_none() && w2_stage_exps >= 4,
+                    ) {
                         let mut exp_begin = 0usize;
                         while exp_begin < N_EXP {
                             let exp_end = (exp_begin + w2_stage_exps).min(N_EXP);
@@ -8904,7 +9022,18 @@ impl Inkling2GpuEngine {
                             exp_begin = exp_end;
                         }
                     } else {
-                        let mut pw2 = w2.ptr();
+                        let direct = if self.ternary_down_scratch.is_none() {
+                            None
+                        } else if nvfp4_tile_toks == 160 {
+                            s2.kernels.ternary_tc_down_t160
+                        } else {
+                            s2.kernels.ternary_tc_down
+                        };
+                        let (f_dn, mut pw2) = if let Some(kernel) = direct {
+                            (kernel, w2.ptr())
+                        } else {
+                            (f_dn, self.raw_nvfp4_down(stream, w2)?)
+                        };
                         let mut eb = 0i32;
                         let mut ee = N_EXP as i32;
                         let mut dn_args: [*mut c_void; 11] = [
@@ -8971,7 +9100,7 @@ impl Inkling2GpuEngine {
                     ];
                     self.launch(stream, f_vup, (72, max_active), 512, &mut up_args)?;
 
-                    let mut pw2 = w2.ptr();
+                    let mut pw2 = self.raw_nvfp4_down(stream, w2)?;
                     let mut ps2 = s2.buffer.ptr;
                     let mut pa2 = a2.ptr;
                     let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
@@ -9030,7 +9159,7 @@ impl Inkling2GpuEngine {
                         b_len * TOP_K,
                         FF,
                     )?;
-                    let mut pw2 = w2.ptr();
+                    let mut pw2 = self.raw_nvfp4_down(stream, w2)?;
                     let mut ps2 = s2.buffer.ptr;
                     let mut pa2 = a2.ptr;
                     let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
