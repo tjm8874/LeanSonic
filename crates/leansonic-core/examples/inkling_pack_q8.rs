@@ -6,6 +6,22 @@ use std::io::{self, Read, Write};
 fn main() -> io::Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if let [mode, size] = args.as_slice() {
+        if matches!(mode.as_str(), "embedding-size" | "embedding-pack") {
+            let n: usize = size.parse().map_err(io::Error::other)?;
+            if n > 201_024 * 2304 * 2 {
+                return Err(io::Error::other("invalid embedding length"));
+            }
+            let src = io::stdin().lock();
+            if mode == "embedding-size" {
+                let size = leansonic_core::inkling_embedding::pack_embedding(src, n, io::sink())?;
+                println!("{size}");
+            } else {
+                let mut dst = io::BufWriter::new(io::stdout().lock());
+                leansonic_core::inkling_embedding::pack_embedding(src, n, &mut dst)?;
+                dst.flush()?;
+            }
+            return Ok(());
+        }
         if matches!(mode.as_str(), "scale-size" | "scale-pack") {
             let n: usize = size.parse().map_err(io::Error::other)?;
             if n > 128 * 2304 * 144 {

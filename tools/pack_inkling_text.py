@@ -53,8 +53,12 @@ def build_packer():
     raise ValueError("Cargo did not report the Inkling packer executable")
 
 
+EMBED_NAME = "model.llm.embed.weight"
+EMBED_SHAPE = [201_024, 2304]
+
+
 def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack_attention: bool = False,
-         prepack_scales: bool = False) -> tuple[int, int]:
+         prepack_scales: bool = False, prepack_embedding: bool = False) -> tuple[int, int]:
     """Publish a complete shard atomically without replacing an existing file."""
     if destination.exists():
         raise FileExistsError(f"destination exists: {destination}")
@@ -80,7 +84,15 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
             for plane, dtype, dims in zip(native_head, ("I8", "F32"), ([200_058, 2304], [200_058, 36])):
                 if not isinstance(plane, dict) or plane.get("dtype") != dtype or plane.get("shape") != dims:
                     raise ValueError("invalid native Inkling output head")
-        if "model.llm.embed.weight" not in header or not (head_name in header or has_native_head):
+        packed_embed = header.get(EMBED_NAME + ".prefix_v1")
+        if packed_embed is not None:
+            if EMBED_NAME in header:
+                raise ValueError("ambiguous Inkling input embedding")
+            dims = packed_embed.get("shape") if isinstance(packed_embed, dict) else None
+            if (not isinstance(dims, list) or len(dims) != 1 or type(dims[0]) is not int
+                    or dims[0] <= 0 or dims[0] % 8 or packed_embed.get("dtype") != "U8"):
+                raise ValueError("invalid packed Inkling input embedding")
+        if (EMBED_NAME not in header and packed_embed is None) or not (head_name in header or has_native_head):
             raise ValueError("missing Inkling language model embeddings")
         matrices = attention_matrices() if prepack_attention else {}
         if prepack_head and not has_native_head:
@@ -95,7 +107,10 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
         for name in scales:
             if name not in header or name + ".range_v1" in header:
                 raise ValueError(f"missing or conflicting source expert scales for {name}")
-        packer = build_packer() if matrices or scales else None
+        lossless = {name: (dtype, shape, "scale", ".range_v1") for name, (dtype, shape) in scales.items()}
+        if prepack_embedding and packed_embed is None:
+            lossless[EMBED_NAME] = ("BF16", EMBED_SHAPE, "embedding", ".prefix_v1")
+        packer = build_packer() if matrices or lossless else None
         output_header = {}
         metadata = header.pop("__metadata__", None)
         if metadata is not None:
@@ -133,22 +148,22 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
                     new_end += size
                 spans.append((start, end, ([str(rows), str(cols)], rows * cols + rows * (cols // 64) * 4)))
                 continue
-            if name in scales:
-                expected_dtype, expected_shape = scales[name]
+            if name in lossless:
+                expected_dtype, expected_shape, mode, suffix = lossless[name]
                 if info["dtype"] != expected_dtype or shape != expected_shape:
                     raise ValueError(f"unexpected dimensions or dtype for {name}")
                 src.seek(8 + header_len + start)
                 length = str(end - start)
-                result = subprocess.run([packer, "scale-size", length], stdin=src,
+                result = subprocess.run([packer, mode + "-size", length], stdin=src,
                                         stdout=subprocess.PIPE, text=True, check=True)
                 size = int(result.stdout)
                 if size <= 0 or size % 8:
-                    raise ValueError(f"invalid packed scale length for {name}")
+                    raise ValueError(f"invalid packed tensor length for {name}")
                 if size < end - start:
-                    output_header[name + ".range_v1"] = {
+                    output_header[name + suffix] = {
                         "dtype": "U8", "shape": [size], "data_offsets": [new_end, new_end + size]
                     }
-                    spans.append((start, end, (["scale-pack", length], size)))
+                    spans.append((start, end, ([mode + "-pack", length], size)))
                     new_end += size
                     continue
             output_header[name] = {**info, "data_offsets": [new_end, new_end + end - start]}
@@ -159,7 +174,7 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
                 spans.append((start, end, None))
         if old_end != total - 8 - header_len:
             raise ValueError("unexpected trailing payload bytes")
-        if not removed and not matrices and not scales:
+        if not removed and not matrices and not lossless:
             raise ValueError("expected an Inkling shard with vision tensors")
         encoded = json.dumps(output_header, separators=(",", ":"), ensure_ascii=False).encode()
         encoded += b" " * (-len(encoded) % 8)
@@ -197,10 +212,11 @@ def main() -> None:
     parser.add_argument("--prepack-head", action="store_true", help="store LeanSonic native output-head weights (requires Cargo)")
     parser.add_argument("--prepack-attention", action="store_true", help="store native Q8_64 attention projections (requires Cargo)")
     parser.add_argument("--prepack-scales", action="store_true", help="store lossless packed MoE expert scales (requires Cargo)")
+    parser.add_argument("--prepack-embedding", action="store_true", help="store the BF16 input embedding losslessly (requires Cargo)")
     args = parser.parse_args()
     try:
         removed, saved = pack(args.source, args.destination, prepack_head=args.prepack_head, prepack_attention=args.prepack_attention,
-                              prepack_scales=args.prepack_scales)
+                              prepack_scales=args.prepack_scales, prepack_embedding=args.prepack_embedding)
     except (OSError, ValueError, TypeError, KeyError, subprocess.CalledProcessError) as exc:
         parser.exit(1, f"pack failed: {exc}\n")
     print(f"Omitted {removed} vision tensors. Saved {saved:,} bytes.")
