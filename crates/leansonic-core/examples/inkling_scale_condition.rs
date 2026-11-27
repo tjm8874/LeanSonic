@@ -16,6 +16,10 @@ fn section(file: &mut File, offset: &str, length: &str) -> Result<Vec<u8>, Box<d
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut args: Vec<_> = std::env::args().skip(1).collect();
+    let direct = args.last().is_some_and(|s| s == "--direct");
+    if direct {
+        args.pop();
+    }
     let destination = if args.len() == 9 { args.pop() } else { None };
     let [path, weight_off, weight_len, scale_off, scale_len, row_width, raw_len, cutoff_file] =
         args.as_slice()
@@ -36,9 +40,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     let cuts: [u8; 128] = fs::read(cutoff_file)?
         .try_into()
         .map_err(|_| "expected 128 cutoff bytes")?;
-    let frame = pack_scale_split(&raw, &scale, &cuts)?;
+    let frame = if direct {
+        let mut bytes = Vec::new();
+        leansonic_core::inkling_mxfp8::pack_scale_direct(&raw, scale.clone(), &cuts, &mut bytes)?;
+        bytes
+    } else {
+        pack_scale_split(&raw, &scale, &cuts)?
+    };
     let start = Instant::now();
-    let roundtrip = unpack_scale_split(&frame, &scale)?;
+    let roundtrip = if direct {
+        leansonic_core::inkling_mxfp8::unpack_scale_direct(&frame, scale)?
+    } else {
+        unpack_scale_split(&frame, &scale)?
+    };
     let elapsed = start.elapsed().as_secs_f64();
     if roundtrip != raw {
         return Err("changed a reconstructed byte".into());
