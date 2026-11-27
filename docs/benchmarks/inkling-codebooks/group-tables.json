@@ -10,8 +10,7 @@
   },
   "stock_runtime": {
     "base_bytes": 13626745974,
-    "sidecar_bytes": 3542004,
-    "distribution_bytes": 13630287978,
+    "unpacked_table_bytes": 3542004,
     "materialized_bytes": 13732128366,
     "shard_sha256": "d66000668300e2b016c51712d45cfa401aaa2face244fc7233ab953bd97cf01a"
   },

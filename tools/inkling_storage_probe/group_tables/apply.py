@@ -75,12 +75,12 @@ shutil.copytree(compact / "tiktoken", out / "tiktoken")
 with (out / name).open("rb") as f:
     digest = hashlib.file_digest(f, "sha256").hexdigest()
 logical = lambda d: sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
+base_bytes = src.stat().st_size + logical(compact / "tiktoken")
 print(
     json.dumps(
         dict(
-            base_bytes=logical(compact),
-            sidecar_bytes=logical(luts),
-            distribution_bytes=logical(compact) + logical(luts),
+            base_bytes=base_bytes,
+            unpacked_table_bytes=logical(luts),
             materialized_bytes=logical(out),
             shard_sha256=digest,
         )
