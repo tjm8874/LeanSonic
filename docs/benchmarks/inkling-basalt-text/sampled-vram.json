@@ -1,0 +1,250 @@
+{
+  "lean_main": "b207e5f4",
+  "lean_packed": "1c126bcc",
+  "basalt": "5fe1928d",
+  "model": "Inkling-2-Mini; both Lean arms used the same entropy text shard; Basalt used the original MXFP8 container.",
+  "workload": "1024 fixed README token IDs, 16 timed decode steps, spec 0, greedy, FP16 KV, context 8192. Each fresh process validated the continuation. Main, packed, Basalt, Basalt, packed, main on each GPU.",
+  "method": "Whole-process sampled peak from nvmlDeviceGetComputeRunningProcesses_v3, filtering by child PID. Sampled from before CUDA initialization through process exit. Requested interval 4 ms. Per-run median and maximum gaps included. Separate from the speed runs; driver accounting granularity and polling can miss brief allocations.",
+  "runs": [
+    {
+      "gpu": "5060Ti",
+      "arm": "main",
+      "run": 0,
+      "peak_bytes": 16565403648,
+      "polls": 1727,
+      "pid_observed": 1712,
+      "max_gap_ms": 18.253821,
+      "median_gap_ms": 4.1992259999999995
+    },
+    {
+      "gpu": "5060Ti",
+      "arm": "packed",
+      "run": 1,
+      "peak_bytes": 16332619776,
+      "polls": 1637,
+      "pid_observed": 1622,
+      "max_gap_ms": 37.600882,
+      "median_gap_ms": 4.121039
+    },
+    {
+      "gpu": "5060Ti",
+      "arm": "basalt",
+      "run": 2,
+      "peak_bytes": 15527313408,
+      "polls": 1641,
+      "pid_observed": 1571,
+      "max_gap_ms": 40.370203,
+      "median_gap_ms": 4.212834
+    },
+    {
+      "gpu": "5060Ti",
+      "arm": "basalt",
+      "run": 3,
+      "peak_bytes": 15527313408,
+      "polls": 1649,
+      "pid_observed": 1579,
+      "max_gap_ms": 52.99234,
+      "median_gap_ms": 4.167566
+    },
+    {
+      "gpu": "5060Ti",
+      "arm": "packed",
+      "run": 4,
+      "peak_bytes": 16332619776,
+      "polls": 1662,
+      "pid_observed": 1646,
+      "max_gap_ms": 16.597331,
+      "median_gap_ms": 4.160089
+    },
+    {
+      "gpu": "5060Ti",
+      "arm": "main",
+      "run": 5,
+      "peak_bytes": 16565403648,
+      "polls": 1755,
+      "pid_observed": 1740,
+      "max_gap_ms": 17.740386,
+      "median_gap_ms": 4.126385
+    },
+    {
+      "gpu": "5070Ti",
+      "arm": "main",
+      "run": 0,
+      "peak_bytes": 16045309952,
+      "polls": 1159,
+      "pid_observed": 1145,
+      "max_gap_ms": 18.960594999999998,
+      "median_gap_ms": 4.2105109999999994
+    },
+    {
+      "gpu": "5070Ti",
+      "arm": "packed",
+      "run": 1,
+      "peak_bytes": 16091447296,
+      "polls": 1178,
+      "pid_observed": 1166,
+      "max_gap_ms": 18.325246,
+      "median_gap_ms": 4.229436
+    },
+    {
+      "gpu": "5070Ti",
+      "arm": "basalt",
+      "run": 2,
+      "peak_bytes": 15038676992,
+      "polls": 1476,
+      "pid_observed": 1406,
+      "max_gap_ms": 43.418,
+      "median_gap_ms": 4.204286
+    },
+    {
+      "gpu": "5070Ti",
+      "arm": "basalt",
+      "run": 3,
+      "peak_bytes": 15038676992,
+      "polls": 1442,
+      "pid_observed": 1371,
+      "max_gap_ms": 44.523897,
+      "median_gap_ms": 4.228282
+    },
+    {
+      "gpu": "5070Ti",
+      "arm": "packed",
+      "run": 4,
+      "peak_bytes": 16091447296,
+      "polls": 1173,
+      "pid_observed": 1160,
+      "max_gap_ms": 18.415609,
+      "median_gap_ms": 4.2073719999999994
+    },
+    {
+      "gpu": "5070Ti",
+      "arm": "main",
+      "run": 5,
+      "peak_bytes": 16045309952,
+      "polls": 1171,
+      "pid_observed": 1159,
+      "max_gap_ms": 15.150896999999999,
+      "median_gap_ms": 4.222226
+    },
+    {
+      "gpu": "PRO4500",
+      "arm": "main",
+      "run": 0,
+      "peak_bytes": 18251513856,
+      "polls": 876,
+      "pid_observed": 850,
+      "max_gap_ms": 58.424777999999996,
+      "median_gap_ms": 4.082267
+    },
+    {
+      "gpu": "PRO4500",
+      "arm": "packed",
+      "run": 1,
+      "peak_bytes": 17823694848,
+      "polls": 907,
+      "pid_observed": 888,
+      "max_gap_ms": 21.726657,
+      "median_gap_ms": 4.110990999999999
+    },
+    {
+      "gpu": "PRO4500",
+      "arm": "basalt",
+      "run": 2,
+      "peak_bytes": 19430113280,
+      "polls": 1043,
+      "pid_observed": 985,
+      "max_gap_ms": 23.867102,
+      "median_gap_ms": 4.0781789999999996
+    },
+    {
+      "gpu": "PRO4500",
+      "arm": "basalt",
+      "run": 3,
+      "peak_bytes": 19430113280,
+      "polls": 1041,
+      "pid_observed": 987,
+      "max_gap_ms": 24.377261999999998,
+      "median_gap_ms": 4.071296
+    },
+    {
+      "gpu": "PRO4500",
+      "arm": "packed",
+      "run": 4,
+      "peak_bytes": 17823694848,
+      "polls": 891,
+      "pid_observed": 872,
+      "max_gap_ms": 21.713131999999998,
+      "median_gap_ms": 4.103326
+    },
+    {
+      "gpu": "PRO4500",
+      "arm": "main",
+      "run": 5,
+      "peak_bytes": 18251513856,
+      "polls": 883,
+      "pid_observed": 866,
+      "max_gap_ms": 31.665518,
+      "median_gap_ms": 4.119427
+    },
+    {
+      "gpu": "PRO5000",
+      "arm": "main",
+      "run": 0,
+      "peak_bytes": 18335399936,
+      "polls": 826,
+      "pid_observed": 807,
+      "max_gap_ms": 23.222858,
+      "median_gap_ms": 4.10433
+    },
+    {
+      "gpu": "PRO5000",
+      "arm": "packed",
+      "run": 1,
+      "peak_bytes": 17907580928,
+      "polls": 858,
+      "pid_observed": 839,
+      "max_gap_ms": 35.236762999999996,
+      "median_gap_ms": 4.110771
+    },
+    {
+      "gpu": "PRO5000",
+      "arm": "basalt",
+      "run": 2,
+      "peak_bytes": 19513999360,
+      "polls": 1046,
+      "pid_observed": 988,
+      "max_gap_ms": 23.492054,
+      "median_gap_ms": 4.073942
+    },
+    {
+      "gpu": "PRO5000",
+      "arm": "basalt",
+      "run": 3,
+      "peak_bytes": 19513999360,
+      "polls": 1032,
+      "pid_observed": 975,
+      "max_gap_ms": 23.860827,
+      "median_gap_ms": 4.078681
+    },
+    {
+      "gpu": "PRO5000",
+      "arm": "packed",
+      "run": 4,
+      "peak_bytes": 17907580928,
+      "polls": 848,
+      "pid_observed": 828,
+      "max_gap_ms": 23.431449,
+      "median_gap_ms": 4.1175939999999995
+    },
+    {
+      "gpu": "PRO5000",
+      "arm": "main",
+      "run": 5,
+      "peak_bytes": 18335399936,
+      "polls": 824,
+      "pid_observed": 804,
+      "max_gap_ms": 23.643679,
+      "median_gap_ms": 4.097707
+    }
+  ]
+}
