@@ -73,5 +73,158 @@
       }
     }
   },
-  "fixed_rows": {}
+  "fixed_rows": {
+    "valid": {
+      "trim": [
+        {
+          "chunk": 7,
+          "position": 467,
+          "target": 42063,
+          "engine_logits_sha256": "e6b51fe54c7b6b437cf7d0777de3d03be5e2bcf0ee59ec2db845218a4ff98d67",
+          "canonical": {
+            "kl": 0.036075758921631715,
+            "reference_top": 42063,
+            "engine_top": 42063
+          },
+          "serial": {
+            "kl": 0.03761967458055063,
+            "reference_top": 42063,
+            "engine_top": 42063
+          }
+        },
+        {
+          "chunk": 12,
+          "position": 317,
+          "target": 196977,
+          "engine_logits_sha256": "0d71188423b13c7613056197ea5febe34fbd6a0b5d6fb64083051303b1d42959",
+          "canonical": {
+            "kl": 1.9394758924763114,
+            "reference_top": 196977,
+            "engine_top": 197045
+          },
+          "serial": {
+            "kl": 1.0265164835098748,
+            "reference_top": 197045,
+            "engine_top": 197045
+          }
+        },
+        {
+          "chunk": 46,
+          "position": 379,
+          "target": 220,
+          "engine_logits_sha256": "e2cc11288577f295c565d49a7557ffd410bfbb95f373f503c506eaafe1d62b9f",
+          "canonical": {
+            "kl": 0.8818304651208149,
+            "reference_top": 170558,
+            "engine_top": 17
+          },
+          "serial": {
+            "kl": 1.1006073981555322,
+            "reference_top": 170558,
+            "engine_top": 17
+          }
+        }
+      ],
+      "recovered": [
+        {
+          "chunk": 7,
+          "position": 467,
+          "target": 42063,
+          "engine_logits_sha256": "a794c2badaf7f81ad8911d19af7a8ce64ed6a36d00ff6aa9eca0f4f46d3eb198",
+          "canonical": {
+            "kl": 0.02673743276892075,
+            "reference_top": 42063,
+            "engine_top": 42063
+          },
+          "serial": {
+            "kl": 0.032400103195947966,
+            "reference_top": 42063,
+            "engine_top": 42063
+          }
+        },
+        {
+          "chunk": 12,
+          "position": 317,
+          "target": 196977,
+          "engine_logits_sha256": "c254784acd4032ed7f1521b18ade3535c23352ce81047dff27b428e7ebe0d1e9",
+          "canonical": {
+            "kl": 0.8844182321432688,
+            "reference_top": 196977,
+            "engine_top": 197045
+          },
+          "serial": {
+            "kl": 0.3593228505444952,
+            "reference_top": 197045,
+            "engine_top": 197045
+          }
+        },
+        {
+          "chunk": 46,
+          "position": 379,
+          "target": 220,
+          "engine_logits_sha256": "6e3769f07465e466f340bf3e19e7e04d2d199993c042acb86809bcb7cae07641",
+          "canonical": {
+            "kl": 0.010676243459492016,
+            "reference_top": 170558,
+            "engine_top": 170558
+          },
+          "serial": {
+            "kl": 0.00800282987481779,
+            "reference_top": 170558,
+            "engine_top": 170558
+          }
+        }
+      ],
+      "official": [
+        {
+          "chunk": 7,
+          "position": 467,
+          "target": 42063,
+          "engine_logits_sha256": "d35a6f6d9951059282f4307a75eced2f664aad602964afcb6468505be62ffd90",
+          "canonical": {
+            "kl": 0.0024186233299404846,
+            "reference_top": 42063,
+            "engine_top": 42063
+          },
+          "serial": {
+            "kl": 0.01455812381675297,
+            "reference_top": 42063,
+            "engine_top": 42063
+          }
+        },
+        {
+          "chunk": 12,
+          "position": 317,
+          "target": 196977,
+          "engine_logits_sha256": "ccf8e1945b2abaadb2d69991c75979a7de76743b6a8af354fc5d485f61d425ac",
+          "canonical": {
+            "kl": 0.025582493528996664,
+            "reference_top": 196977,
+            "engine_top": 196977
+          },
+          "serial": {
+            "kl": 0.026585078980102497,
+            "reference_top": 197045,
+            "engine_top": 196977
+          }
+        },
+        {
+          "chunk": 46,
+          "position": 379,
+          "target": 220,
+          "engine_logits_sha256": "41ee8ae69e57480acc35230e21ba9919cd4b74ab2c41a7a7593c6d82292600d0",
+          "canonical": {
+            "kl": 0.3524361470972671,
+            "reference_top": 170558,
+            "engine_top": 17
+          },
+          "serial": {
+            "kl": 0.4833058620339594,
+            "reference_top": 170558,
+            "engine_top": 17
+          }
+        }
+      ]
+    }
+  }
 }

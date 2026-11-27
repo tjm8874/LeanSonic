@@ -11,4 +11,14 @@ The two packages are 13,445,948,726 and 13,608,770,734 bytes respectively. Both 
 
 On test the higher-precision package improves mean KL and top-1 agreement, while its worst KL and PPL increase. The previously largest divergence also moves from 99/398 to 36/319. A reduction in quantized weight error alone does not guarantee a smaller worst-row KL.
 
+## Fixed-row diagnosis
+
+The fixed-row driver replays the same input IDs with both the canonical and serial-prefill BF16 oracles. The table below quotes canonical KL for the fixed positions. Absolute values depend on the replay path.
+
+| Split | Row | Trim | Recovered | Official weights on LeanSonic |
+|---|---|---:|---:|---:|
+| valid | 7/467 | 0.0360758 | 0.0267374 | 0.0024186 |
+| valid | 12/317 | 1.9394759 | 0.8844182 | 0.0255825 |
+| valid | 46/379 | 0.8818305 | 0.0106762 | 0.3524361 |
+
 [Package build](README.md) · [Replay source and GPU settings](https://github.com/tjm8874/LeanSonic/tree/cc62564/docs/benchmarks/inkling-nvfp4-trim-context) · [Native scores and fixed-row output](quality.json).

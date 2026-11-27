@@ -6,6 +6,8 @@ The summed absolute block error in doubled E2M1 units fell from 856,058,287 to 5
 
 The trim distribution totals 13,656,270,126 bytes including tokenizer. Repacking the same weights with the direct scale-coded loader produces **13,529,187,270 bytes**, 102,590,746 below the public Q3_K_XL GGUF and 49,476,976 above the previous direct distribution. The repacker checked all 999 final tensors.
 
+The same a200846 executable and bc526e3 cubin loaded both candidate formats on PRO 4500. All eight 32/1,024-token prefix requests matched on the 64 generated IDs, next token and final FP32 logit hash. [Per-request evidence](direct-parity.json).
+
 Use the [recovered-precision assembly](../README.md) to prepare the source directory and selection.json. At integrated commit 8c77955, place encode.rs in crates/leansonic-core/examples/block_sum.rs and run:
 
 ```sh
