@@ -9,12 +9,22 @@ Run each of the six permutations of official/raw/compact once, a fresh process p
 | 5070Ti | q00_code_merge | 29 | 97/142 | 34.162 / 34.128 / 34.171 | 257.53 / 257.45 / 257.48 |
 | 5070Ti | q11_json_schema | 32 | 99/159 | 38.083 / 38.071 / 38.074 | 246.85 / 246.82 / 246.77 |
 | 5070Ti | ja_reasoning | 49 | 59/113 | 43.785 / 43.778 / 43.778 | 184.57 / 184.54 / 184.54 |
+| PRO4500 | q00_code_merge | 29 | 97/142 | 34.357 / 34.368 / 34.346 | 270.67 / 270.73 / 270.69 |
+| PRO4500 | q11_json_schema | 32 | 99/159 | 39.166 / 39.194 / 39.161 | 260.68 / 260.58 / 260.71 |
+| PRO4500 | ja_reasoning | 49 | 59/113 | 45.043 / 45.052 / 45.044 | 188.88 / 188.82 / 188.97 |
 
 5070Ti: maximum observed process VRAM (official / raw / compact) was 15,546,187,776 / 15,546,187,776 / 15,546,187,776 bytes. All 18 processes and both passes produced identical outputs and acceptance totals per fixture.
 
 5070Ti: per-round proposal IDs and accepted-prefix counts also matched at every round in all three arms, including the second pass after reset.
 
 [Raw requests, token IDs, hashes, confidence intervals and loader logs for 5070Ti](5070Ti-verified.json).
+
+
+PRO4500: maximum observed process VRAM (official / raw / compact) was 15,684,599,808 / 15,684,599,808 / 15,684,599,808 bytes. All 18 processes and both passes produced identical outputs and acceptance totals per fixture.
+
+PRO4500: per-round proposal IDs and accepted-prefix counts also matched at every round in all three arms, including the second pass after reset.
+
+[Raw requests, token IDs, hashes, confidence intervals and loader logs for PRO4500](PRO4500-verified.json).
 
 ## Reproduce
 
