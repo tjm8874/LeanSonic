@@ -715,10 +715,32 @@ impl Inkling2GpuEngine {
         let st = MappedSafeTensors::open(&st_path)
             .map_err(|e| format!("open {}: {e}", st_path.display()))?;
 
-        let embed_raw = st
-            .require("model.llm.embed.weight", "BF16", &[PADDED_VOCAB, D])
-            .data;
-        let embed = TierBuf::HostPinned(PinnedHostBuf::from_bytes(&ctx, embed_raw)?);
+        let embed = match (
+            st.get("model.llm.embed.weight"),
+            st.get("model.llm.embed.weight.prefix_v1"),
+        ) {
+            (Some(raw), None)
+                if raw.dtype == "BF16"
+                    && raw.shape == [PADDED_VOCAB, D]
+                    && raw.data.len() == PADDED_VOCAB * D * 2 =>
+            {
+                PinnedHostBuf::from_bytes(&ctx, raw.data)?
+            }
+            (None, Some(packed)) if packed.dtype == "U8" && packed.shape == [packed.data.len()] => {
+                let buf = PinnedHostBuf::alloc_uninit(&ctx, PADDED_VOCAB * D * 2)?;
+                // This allocation is exclusively owned until all tiles decode.
+                let dst = unsafe {
+                    std::slice::from_raw_parts_mut(
+                        buf.host_ptr.cast::<std::mem::MaybeUninit<u8>>(),
+                        buf.byte_len,
+                    )
+                };
+                crate::inkling_embedding::unpack_embedding(packed.data, dst)?;
+                buf
+            }
+            _ => return Err("invalid or ambiguous Inkling input embedding".into()),
+        };
+        let embed = TierBuf::HostPinned(embed);
         st.discard_resident_pages();
         let embed_norm = DeviceBuf::from_host_bytes(
             &ctx,

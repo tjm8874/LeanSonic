@@ -152,6 +152,8 @@ To prepack the 176 attention projections as well, run the same command with `--p
 
 Add `--prepack-scales` to store the 48 expert scale tensors losslessly. With all three packing flags, the official text shard occupies 17,240,610,424 bytes. You can also run `--prepack-scales` on the head-and-attention package. The loader restores the original scale bytes in 1 MiB tiles before inference. This option reduces on-disk size and requires a reader that supports the packed scales.
 
+Use `--prepack-embedding` to store the BF16 input embedding losslessly. You can pass all four flags when converting the official checkpoint or add just this flag when converting the three-flag package. The resulting official text shard occupies **16,932,881,536 bytes**. The loader restores the original BF16 bytes directly into pinned host memory at startup. This format requires a LeanSonic reader with input embedding support.
+
 ### 2. Query the OpenAI-Compatible Server (`GET /v1/models`, `POST /v1/chat/completions`, SSE)
 
 ```bash

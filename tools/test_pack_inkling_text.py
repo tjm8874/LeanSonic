@@ -116,6 +116,24 @@ class PackInklingTextTest(unittest.TestCase):
             self.assertEqual(data[b:], b"TAIL")
             self.assertEqual(b % 4, 0)
 
+    def test_prefix_embedding_conversion_and_padding(self):
+        raw = bytes([42, 63]) * 256
+        data = raw + b"HEAD"
+        header = {"model.llm.embed.weight": {"dtype": "BF16", "shape": [8, 32], "data_offsets": [0, len(raw)]},
+                  "model.llm.unembed.weight": {"dtype": "BF16", "shape": [2], "data_offsets": [len(raw), len(data)]}}
+        encoded = json.dumps(header).encode()
+        with tempfile.TemporaryDirectory() as tmp, patch("pack_inkling_text.EMBED_SHAPE", [8, 32]):
+            src, dst = Path(tmp) / "source", Path(tmp) / "packed"
+            src.write_bytes(struct.pack("<Q", len(encoded)) + encoded + data)
+            removed, saved = pack(src, dst, prepack_embedding=True)
+            self.assertEqual((removed, saved), (0, src.stat().st_size - dst.stat().st_size))
+            with dst.open("rb") as f:
+                h = json.loads(f.read(struct.unpack("<Q", f.read(8))[0]))
+                payload = f.read()
+            self.assertNotIn("model.llm.embed.weight", h)
+            self.assertEqual(h["model.llm.embed.weight.prefix_v1"]["shape"], [328])
+            self.assertEqual(payload, struct.pack("<I", 320) + bytes([42])*256 + bytes(68) + b"HEAD")
+
     def test_attention_projection_catalog(self):
         matrices = attention_matrices()
         self.assertEqual(len(matrices), 176)
