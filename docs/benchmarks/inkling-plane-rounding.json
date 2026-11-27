@@ -107,5 +107,24 @@
       }
     }
   },
-  "prior_bytes": 15396361558
+  "prior_bytes": 15396361558,
+  "wiki": {
+    "test": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.073634254264172,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.0031687233100891987,
+      "median_kld": 0.0012805699222247571,
+      "p99_kld": 0.030056255957108174,
+      "max_kld": 0.669908562053001,
+      "start_chunk": 0,
+      "max_kld_chunk": 69,
+      "max_kld_position": 353,
+      "ref_floor_targets": 14,
+      "top1_matches": 24859,
+      "top1_agreement": 0.9748627450980392
+    }
+  }
 }

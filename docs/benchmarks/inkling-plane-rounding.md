@@ -19,3 +19,15 @@ python3 tools/inkling_storage_probe/choose_plane_cutoffs.py curves.json plane.js
 cargo build --release -p leansonic-core --example inkling_mxfp8_round
 python3 tools/inkling_storage_probe/pack_mxfp8.py "$OFFICIAL" "$CANONICAL" "$OUTPUT" --cutoffs plane.json
 ```
+
+## WikiText held-out corpus
+
+Each split uses the same 25,500 predicted positions, BF16 reference, and 100 chunks. Lower KL and PPL are better. The top-1 column counts predictions matching BF16. See the [frozen corpus and reproduction commands](inkling-storage-candidates.md).
+
+| Split | Package | Mean KL | Worst KL | BF16 top-1 / 25,500 | PPL |
+|---|---|---:|---:|---:|---:|
+| test | Canonical | 0.00315843 | 0.68097733 | 24865 | 7.07296 |
+| test | Earlier budget | 0.00317531 | 0.67173614 | 24868 | 7.07393 |
+| test | Per-plane budget | 0.00316872 | 0.66990856 | 24859 | 7.07363 |
+
+The per-plane candidate improves the test worst KL relative to the canonical package, while its test mean KL and PPL increase and six fewer predictions match BF16. Keep the canonical package as the default.
