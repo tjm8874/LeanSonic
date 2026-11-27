@@ -233,5 +233,240 @@
         "new_top_agrees": true
       }
     ]
+  },
+  "valid": {
+    "old_and_new_source": [
+      "9f65bb2",
+      "bd048b8"
+    ],
+    "old_and_new_gpus": [
+      "RTX 5070 Ti",
+      "RTX PRO 4500"
+    ],
+    "rows": 25500,
+    "hashes": [
+      "5227430b860f2989ff870b2bcdf6d8748caaa3851b8ba25b0354b273eb0953ef",
+      "f241787d87f5599bc502b8818dd379864f905f42952f2cbbdfcfb8afb7c26753"
+    ],
+    "scores": [
+      {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 6.5665509440363605,
+        "ref_ppl": 6.498588819010602,
+        "mean_kld": 0.015734704183455954,
+        "median_kld": 0.006742465806678519,
+        "p99_kld": 0.15257332477052118,
+        "max_kld": 2.552449083698497,
+        "start_chunk": 0,
+        "max_kld_chunk": 85,
+        "max_kld_position": 317,
+        "ref_floor_targets": 10,
+        "top1_matches": 24200,
+        "top1_agreement": 0.9490196078431372
+      },
+      {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 6.565670166178593,
+        "ref_ppl": 6.498588819010602,
+        "mean_kld": 0.015714403495723606,
+        "median_kld": 0.00674056402783569,
+        "p99_kld": 0.14728166119804237,
+        "max_kld": 2.63827770139034,
+        "start_chunk": 0,
+        "max_kld_chunk": 85,
+        "max_kld_position": 317,
+        "ref_floor_targets": 10,
+        "top1_matches": 24192,
+        "top1_agreement": 0.9487058823529412
+      }
+    ],
+    "identical_logit_fingerprints": 0,
+    "same_prediction": 25076,
+    "loses_bf16_top1": 203,
+    "gains_bf16_top1": 195,
+    "largest_increases": [
+      {
+        "chunk": 25,
+        "position": 312,
+        "target": 150580,
+        "old_top": 150580,
+        "new_top": 153101,
+        "old_kl": 0.207244370209,
+        "new_kl": 1.333688385207,
+        "old_top_agrees": true,
+        "new_top_agrees": false
+      },
+      {
+        "chunk": 86,
+        "position": 375,
+        "target": 150983,
+        "old_top": 150983,
+        "new_top": 150983,
+        "old_kl": 0.051255112485,
+        "new_kl": 0.951391925773,
+        "old_top_agrees": true,
+        "new_top_agrees": true
+      },
+      {
+        "chunk": 76,
+        "position": 329,
+        "target": 149894,
+        "old_top": 196988,
+        "new_top": 149894,
+        "old_kl": 0.029400027743,
+        "new_kl": 0.48661991406,
+        "old_top_agrees": false,
+        "new_top_agrees": false
+      },
+      {
+        "chunk": 30,
+        "position": 331,
+        "target": 20,
+        "old_top": 20,
+        "new_top": 20,
+        "old_kl": 1.247402083161,
+        "new_kl": 1.597301716138,
+        "old_top_agrees": false,
+        "new_top_agrees": false
+      },
+      {
+        "chunk": 44,
+        "position": 426,
+        "target": 175578,
+        "old_top": 175578,
+        "new_top": 175578,
+        "old_kl": 0.289625645521,
+        "new_kl": 0.621844055535,
+        "old_top_agrees": true,
+        "new_top_agrees": true
+      },
+      {
+        "chunk": 24,
+        "position": 418,
+        "target": 258,
+        "old_top": 258,
+        "new_top": 258,
+        "old_kl": 0.847199625768,
+        "new_kl": 1.137837801347,
+        "old_top_agrees": true,
+        "new_top_agrees": true
+      },
+      {
+        "chunk": 39,
+        "position": 428,
+        "target": 157071,
+        "old_top": 157071,
+        "new_top": 151304,
+        "old_kl": 0.191675118176,
+        "new_kl": 0.481956045654,
+        "old_top_agrees": true,
+        "new_top_agrees": false
+      },
+      {
+        "chunk": 62,
+        "position": 506,
+        "target": 197045,
+        "old_top": 197045,
+        "new_top": 197045,
+        "old_kl": 0.000347989831,
+        "new_kl": 0.277489878825,
+        "old_top_agrees": true,
+        "new_top_agrees": true
+      }
+    ],
+    "largest_decreases": [
+      {
+        "chunk": 12,
+        "position": 317,
+        "target": 196977,
+        "old_top": 197045,
+        "new_top": 197045,
+        "old_kl": 1.815368748348,
+        "new_kl": 1.201311610413,
+        "old_top_agrees": false,
+        "new_top_agrees": false
+      },
+      {
+        "chunk": 74,
+        "position": 307,
+        "target": 149894,
+        "old_top": 149922,
+        "new_top": 149881,
+        "old_kl": 0.431081760545,
+        "new_kl": 0.019990414904,
+        "old_top_agrees": false,
+        "new_top_agrees": true
+      },
+      {
+        "chunk": 11,
+        "position": 374,
+        "target": 293,
+        "old_top": 1479,
+        "new_top": 293,
+        "old_kl": 0.819515448679,
+        "new_kl": 0.418601991078,
+        "old_top_agrees": false,
+        "new_top_agrees": true
+      },
+      {
+        "chunk": 92,
+        "position": 453,
+        "target": 64243,
+        "old_top": 68602,
+        "new_top": 68602,
+        "old_kl": 0.317256170021,
+        "new_kl": 0.099593377561,
+        "old_top_agrees": false,
+        "new_top_agrees": false
+      },
+      {
+        "chunk": 28,
+        "position": 322,
+        "target": 196988,
+        "old_top": 196988,
+        "new_top": 196988,
+        "old_kl": 1.02174389495,
+        "new_kl": 0.824979434868,
+        "old_top_agrees": false,
+        "new_top_agrees": false
+      },
+      {
+        "chunk": 3,
+        "position": 455,
+        "target": 149879,
+        "old_top": 32,
+        "new_top": 32,
+        "old_kl": 0.399169531132,
+        "new_kl": 0.202478784888,
+        "old_top_agrees": true,
+        "new_top_agrees": true
+      },
+      {
+        "chunk": 13,
+        "position": 409,
+        "target": 56219,
+        "old_top": 34767,
+        "new_top": 34767,
+        "old_kl": 0.612150238823,
+        "new_kl": 0.416378191019,
+        "old_top_agrees": false,
+        "new_top_agrees": false
+      },
+      {
+        "chunk": 30,
+        "position": 401,
+        "target": 74475,
+        "old_top": 73280,
+        "new_top": 73280,
+        "old_kl": 1.060309559796,
+        "new_kl": 0.864978682738,
+        "old_top_agrees": false,
+        "new_top_agrees": false
+      }
+    ]
   }
 }

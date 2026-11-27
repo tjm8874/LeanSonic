@@ -99,6 +99,91 @@
         }
       },
       "all_hashes_equal": true
+    },
+    "valid": {
+      "runs": {
+        "valid-0-0": {
+          "scores": {
+            "chunks": 100,
+            "context": 512,
+            "rows": 25500,
+            "ppl": 6.565670166178593,
+            "ref_ppl": 6.498588819010602,
+            "mean_kld": 0.015714403495723606,
+            "median_kld": 0.00674056402783569,
+            "p99_kld": 0.14728166119804237,
+            "max_kld": 2.63827770139034,
+            "start_chunk": 0,
+            "max_kld_chunk": 85,
+            "max_kld_position": 317,
+            "ref_floor_targets": 10,
+            "top1_matches": 24192,
+            "top1_agreement": 0.9487058823529412
+          },
+          "rows_sha256": "f241787d87f5599bc502b8818dd379864f905f42952f2cbbdfcfb8afb7c26753"
+        },
+        "valid-0-1": {
+          "scores": {
+            "chunks": 100,
+            "context": 512,
+            "rows": 25500,
+            "ppl": 6.565670166178593,
+            "ref_ppl": 6.498588819010602,
+            "mean_kld": 0.015714403495723606,
+            "median_kld": 0.00674056402783569,
+            "p99_kld": 0.14728166119804237,
+            "max_kld": 2.63827770139034,
+            "start_chunk": 0,
+            "max_kld_chunk": 85,
+            "max_kld_position": 317,
+            "ref_floor_targets": 10,
+            "top1_matches": 24192,
+            "top1_agreement": 0.9487058823529412
+          },
+          "rows_sha256": "f241787d87f5599bc502b8818dd379864f905f42952f2cbbdfcfb8afb7c26753"
+        },
+        "valid-1-0": {
+          "scores": {
+            "chunks": 100,
+            "context": 512,
+            "rows": 25500,
+            "ppl": 6.565670166178593,
+            "ref_ppl": 6.498588819010602,
+            "mean_kld": 0.015714403495723606,
+            "median_kld": 0.00674056402783569,
+            "p99_kld": 0.14728166119804237,
+            "max_kld": 2.63827770139034,
+            "start_chunk": 0,
+            "max_kld_chunk": 85,
+            "max_kld_position": 317,
+            "ref_floor_targets": 10,
+            "top1_matches": 24192,
+            "top1_agreement": 0.9487058823529412
+          },
+          "rows_sha256": "f241787d87f5599bc502b8818dd379864f905f42952f2cbbdfcfb8afb7c26753"
+        },
+        "valid-1-1": {
+          "scores": {
+            "chunks": 100,
+            "context": 512,
+            "rows": 25500,
+            "ppl": 6.565670166178593,
+            "ref_ppl": 6.498588819010602,
+            "mean_kld": 0.015714403495723606,
+            "median_kld": 0.00674056402783569,
+            "p99_kld": 0.14728166119804237,
+            "max_kld": 2.63827770139034,
+            "start_chunk": 0,
+            "max_kld_chunk": 85,
+            "max_kld_position": 317,
+            "ref_floor_targets": 10,
+            "top1_matches": 24192,
+            "top1_agreement": 0.9487058823529412
+          },
+          "rows_sha256": "f241787d87f5599bc502b8818dd379864f905f42952f2cbbdfcfb8afb7c26753"
+        }
+      },
+      "all_hashes_equal": true
     }
   },
   "digests": [
