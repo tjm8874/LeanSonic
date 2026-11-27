@@ -6,6 +6,8 @@ Both arms use the same compact model and four-bit device indices introduced in [
 |---|---|---|---:|---:|---:|
 | RTX 5060 Ti | single-token gate/up | prefill 1,024 | 403.466 | 403.928 | +0.462 [-1.998, +2.657] |
 | RTX 5060 Ti | single-token gate/up | decode 32 | 366.418 | 345.533 | -20.885 [-20.914, -20.852] |
+| RTX 5070 Ti | single-token gate/up | prefill 1,024 | 540.643 | 540.869 | +0.226 [-2.049, +2.422] |
+| RTX 5070 Ti | single-token gate/up | decode 32 | 205.255 | 195.500 | -9.755 [-9.854, -9.655] |
 | RTX 5060 Ti | Tensor Core prefill | prefill 1,024 | 404.020 | 370.029 | -33.990 [-36.072, -31.537] |
 | RTX 5060 Ti | Tensor Core prefill | decode 32 | 366.425 | 366.554 | +0.129 [+0.101, +0.153] |
 | RTX 5070 Ti | Tensor Core prefill | prefill 1,024 | 541.580 | 468.347 | -73.232 [-74.859, -71.606] |
