@@ -59,6 +59,7 @@ const QRGS_ROWS: usize = N_HEAD * HD + N_REL * N_HEAD + N_HEAD * HD + N_HEAD; //
 const SWA_K_OFFSET: usize = QRGS_ROWS; // 6552
 const SWA_V_OFFSET: usize = QRGS_ROWS + N_KV * HD; // 7576
 const SWA_ALL_ROWS: usize = QRGS_ROWS + 2 * N_KV * HD; // 8600
+const SHORT_UNSPLIT_CTX: usize = 2048;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum BatchHeadMode {
@@ -584,6 +585,17 @@ struct KernelFns {
     wo_conv4_save_c3072: Option<CUfunction>,
     build_expert_groups_active_b: Option<CUfunction>,
     router_topk8_groups_b: Option<CUfunction>,
+    // v0.9.0 Solo Decode 220+ tok/s Breakthrough Kernels (`#152` / `#106`)
+    router_topk8_par: Option<CUfunction>,
+    router_topk8_par_b: Option<CUfunction>,
+    gqa_attn_g1_q8_decode: Option<CUfunction>,
+    gqa_attn_g1_q8_decode_i8: Option<CUfunction>,
+    ctrl_down_r1_256_fast: Option<CUfunction>,
+    sc_save_depth_mix_rmsnorm_d_quant_q8_16: Option<CUfunction>,
+    sc_save_depth_mix_inv: Option<CUfunction>,
+    gqa_attn_split_fused_q8_dec: Option<CUfunction>,
+    gqa_attn_split_fused_q8_dec_i8: Option<CUfunction>,
+    argmax_par_and_inc_pos: Option<CUfunction>,
 }
 
 unsafe impl Send for KernelFns {}
@@ -674,6 +686,7 @@ impl LayerWorkspace {
 // also accommodates every page of the expert occurrence tables.
 struct PrefillBuffers {
     capacity: usize,
+    allocated_bytes: usize,
     bytes_per_row: usize,
     d_taps: Option<DeviceBuf>,
     d_attn_part_ml: DeviceBuf,
@@ -759,6 +772,7 @@ impl PrefillBuffers {
             layer_workspace: LayerWorkspace::new(allocate(capacity * TOP_K * D * 4)?, capacity),
             d_b_act_codes: allocate(capacity * (TOP_K * FF).max(3 * N_HEAD * HD))?,
             d_b_act_scales: allocate(capacity * (TOP_K * (FF / 16)).max(3 * N_HEAD * HD / 64) * 4)?,
+            allocated_bytes: bytes,
             bytes_per_row: (bytes
                 - fixed_part_bytes
                 - msg_rows.saturating_sub(4 * capacity) * D * 4)
@@ -805,6 +819,11 @@ pub struct Inkling2GpuEngine {
     /// Streams and start event for concurrent per-sequence drafts (`draft_for_seqs`).
     draft_streams: Vec<CUstream>,
     draft_ready: CUevent,
+    /// Batched drafter unembed (#107 stage 3e): per-draft-stream "front done" events, the
+    /// "base logits ready" event and the shared `[7 n, D]` inputs / `[7 n, VOCAB]` base logits.
+    draft_front_done: Vec<CUevent>,
+    draft_base_ready: CUevent,
+    draft_batch_bufs: Option<(usize, DeviceBuf, DeviceBuf, DeviceBuf)>,
     /// Captured decode rounds per row count (captured on a row count's second use).
     ms_graphs: std::collections::HashMap<usize, CapturedGraphExec>,
     ms_round_hits: std::collections::HashMap<usize, u32>,
@@ -834,8 +853,17 @@ pub struct Inkling2GpuEngine {
     pdl: bool,
     /// Launch every kernel with PDL, not only the single-sequence decode chain.
     pdl_all: bool,
+    par_topk: bool,
+    g1_attn: bool,
+    short_unsplit_attn: bool,
+    split_fused_attn: bool,
+    par_argmax: bool,
+    ctrl_r1: bool,
+    sc_save_fuse: bool,
+    down_conv_fuse: bool,
     max_prefill_chunk: usize,
     // Persistent device scratch buffers
+    d_sync_counters: DeviceBuf,
     d_token_in: DeviceBuf,
     d_prefill_tokens: DeviceBuf,
     d_token_out: DeviceBuf,
@@ -901,6 +929,7 @@ pub struct Inkling2GpuEngine {
     pub spec_verify_steps: usize,
     host_pos: usize,
     decode_graph: Option<CapturedGraphExec>,
+    decode_graph_short: Option<CapturedGraphExec>,
     prefill_graph: Option<CapturedGraphExec>,
     stage_events: StageEvents,
     d_w13_prefetch: Option<SpilledPrefetchBuf>,
@@ -1133,12 +1162,19 @@ pub fn pack_q8_rows(bf16_bytes: &[u8], cols: usize, codes: &mut [u8], scales_byt
 }
 
 #[derive(Clone, Copy)]
+enum ExpertCoding {
+    Byte,
+    Nvfp4,
+    Nvfp4Trim,
+}
+
+#[derive(Clone, Copy)]
 enum ExpertMatrix<'a> {
     Raw(&'a [u8]),
     Packed {
         bytes: &'a [u8],
         count: usize,
-        contextual: bool,
+        coding: ExpertCoding,
     },
 }
 
@@ -1154,26 +1190,36 @@ impl<'a> ExpertMatrix<'a> {
             st.get(name),
             st.get(&format!("{name}.rans_v1")),
             st.get(&format!("{name}.nvctx_v1")),
+            st.get(&format!("{name}.nvctx_trim_v1")),
         ) {
-            (Some(t), None, None)
+            (Some(t), None, None, None)
                 if t.dtype == dtype && t.shape == shape && t.data.len() == count =>
             {
                 Ok(Self::Raw(t.data))
             }
-            (None, Some(t), None) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+            (None, Some(t), None, None) if t.dtype == "U8" && t.shape == [t.data.len()] => {
                 Ok(Self::Packed {
                     bytes: t.data,
                     count,
-                    contextual: false,
+                    coding: ExpertCoding::Byte,
                 })
             }
-            (None, None, Some(t))
+            (None, None, Some(t), None)
                 if dtype == "U8" && t.dtype == "U8" && t.shape == [t.data.len()] =>
             {
                 Ok(Self::Packed {
                     bytes: t.data,
                     count,
-                    contextual: true,
+                    coding: ExpertCoding::Nvfp4,
+                })
+            }
+            (None, None, None, Some(t))
+                if dtype == "U8" && t.dtype == "U8" && t.shape == [t.data.len()] =>
+            {
+                Ok(Self::Packed {
+                    bytes: t.data,
+                    count,
+                    coding: ExpertCoding::Nvfp4Trim,
                 })
             }
             _ => Err(format!(
@@ -1193,7 +1239,7 @@ impl<'a> ExpertMatrix<'a> {
         let Self::Packed {
             bytes,
             count,
-            contextual: false,
+            coding: ExpertCoding::Byte,
         } = self
         else {
             return Err("device codebooks require rANS MXFP8 frames".into());
@@ -1239,12 +1285,13 @@ impl<'a> ExpertMatrix<'a> {
             Self::Packed {
                 bytes,
                 count,
-                contextual,
+                coding,
             } => {
-                let matrix = if contextual {
-                    crate::inkling_mxfp8::Matrix::parse_nvfp4(bytes, count)?
-                } else {
-                    crate::inkling_mxfp8::Matrix::parse(bytes, count)?
+                use crate::inkling_mxfp8::Matrix;
+                let matrix = match coding {
+                    ExpertCoding::Byte => Matrix::parse(bytes, count)?,
+                    ExpertCoding::Nvfp4 => Matrix::parse_nvfp4(bytes, count)?,
+                    ExpertCoding::Nvfp4Trim => Matrix::parse_nvfp4_trim(bytes, count)?,
                 };
                 if on_device {
                     match DeviceBuf::alloc_zeroed(ctx, count) {
@@ -2169,6 +2216,7 @@ impl Inkling2GpuEngine {
             d_moe_y: DeviceBuf::alloc_zeroed(&ctx, D * 4)?,
             d_logits: DeviceBuf::alloc_zeroed(&ctx, VOCAB * 4)?,
             d_router_done: DeviceBuf::alloc_zeroed(&ctx, 4)?,
+            d_sync_counters: DeviceBuf::alloc_zeroed(&ctx, 4096)?,
             d_act_q8_64: DeviceBuf::alloc_zeroed(&ctx, 3 * 3072)?,
             d_act_sc_64: DeviceBuf::alloc_zeroed(&ctx, 3 * 48 * 4)?,
             d_act_q8_16: DeviceBuf::alloc_zeroed(&ctx, TOP_K * FF)?,
@@ -2210,6 +2258,9 @@ impl Inkling2GpuEngine {
             ms_verify_runs: Vec::new(),
             draft_streams: Vec::new(),
             draft_ready: core::ptr::null_mut(),
+            draft_front_done: Vec::new(),
+            draft_base_ready: core::ptr::null_mut(),
+            draft_batch_bufs: None,
             ms_graphs: std::collections::HashMap::new(),
             ms_round_hits: std::collections::HashMap::new(),
             ms_graph: std::env::var("LEANSONIC_MS_GRAPH").map_or(true, |v| v != "0"),
@@ -2259,9 +2310,37 @@ impl Inkling2GpuEngine {
             par_conv,
             pdl,
             pdl_all,
+            par_topk: std::env::var("LEANSONIC_PAR_TOPK")
+                .map(|v| v != "0")
+                .unwrap_or(true),
+            g1_attn: std::env::var("LEANSONIC_G1_ATTN")
+                .map(|v| v != "0")
+                .unwrap_or(true),
+            short_unsplit_attn: !multi_seq
+                && std::env::var("LEANSONIC_ATTN_SPLIT_DECODE").is_err()
+                && std::env::var("LEANSONIC_ATTN_SPLIT_DECODE_GLOBAL").is_err()
+                && std::env::var("LEANSONIC_SHORT_ATTN")
+                    .map(|v| v == "1")
+                    .unwrap_or(false),
+            split_fused_attn: std::env::var("LEANSONIC_SPLIT_FUSED_ATTN")
+                .map(|v| v != "0")
+                .unwrap_or(true),
+            par_argmax: std::env::var("LEANSONIC_PAR_ARGMAX")
+                .map(|v| v != "0")
+                .unwrap_or(true),
+            ctrl_r1: std::env::var("LEANSONIC_CTRL_R1")
+                .map(|v| v == "1")
+                .unwrap_or(false),
+            sc_save_fuse: std::env::var("LEANSONIC_SC_SAVE_FUSE")
+                .map(|v| v == "1")
+                .unwrap_or(false),
+            down_conv_fuse: std::env::var("LEANSONIC_DOWN_CONV_FUSE")
+                .map(|v| v != "0")
+                .unwrap_or(true),
             max_prefill_chunk: EXPERT_PAGE,
             host_pos: 0,
             decode_graph: None,
+            decode_graph_short: None,
             prefill_graph: None,
             stage_events,
             d_w13_prefetch: None,
@@ -2312,12 +2391,13 @@ impl Inkling2GpuEngine {
                     if extra > headroom {
                         continue;
                     }
-                    // On full-VRAM cards (`all_experts_resident` with no explicit override), defer
-                    // widening until a >64-token prompt actually arrives, saving 400–800 MiB VRAM on short runs!
-                    // #107: a multi-sequence engine cannot widen later (that reallocates every
-                    // sequence's rings), so it takes the same width now. Prompts then split into
-                    // the same chunks as on a single-sequence engine, keeping prefill bit-identical.
-                    if explicit_chunk.is_none() && eng.n_seqs == 1 {
+                    // Lazy growth has to hold both workspaces and both sets of
+                    // sliding-window rings. If that peak would no longer fit
+                    // after uploading the experts, widen first and verify placement.
+                    if explicit_chunk.is_none()
+                        && eng.n_seqs == 1
+                        && eng.prefill_resize_bytes(width) <= headroom
+                    {
                         eng.max_prefill_chunk = width;
                         break;
                     }
@@ -2512,11 +2592,12 @@ impl Inkling2GpuEngine {
         // decoding goes through `decode_round`, so single steps of a switched sequence simply
         // run without the graph.
         self.decode_graph = None;
+        self.decode_graph_short = None;
         self.prefill_graph = None;
         if self.enable_cuda_graph && std::env::var("LEANSONIC_SEQ_GRAPH").is_ok_and(|v| v == "1") {
             let ctx_clone = Arc::clone(&self.ctx);
             let d_graph = CapturedGraphExec::capture(&ctx_clone, |stream| {
-                self.enqueue_step_impl(stream, false)
+                self.enqueue_step_impl(stream, false, false)
             })?;
             self.decode_graph = Some(d_graph);
         }
@@ -2528,17 +2609,27 @@ impl Inkling2GpuEngine {
             return Ok(());
         }
         self.decode_graph = None;
+        self.decode_graph_short = None;
         self.prefill_graph = None;
         let ctx_clone = Arc::clone(&self.ctx);
-        let d_graph =
-            CapturedGraphExec::capture(&ctx_clone, |stream| self.enqueue_step_impl(stream, false))?;
+        let d_graph = CapturedGraphExec::capture(&ctx_clone, |stream| {
+            self.enqueue_step_impl(stream, false, false)
+        })?;
         self.decode_graph = Some(d_graph);
+        if self.short_unsplit_attn
+            && (self.attn_split_g_decode > 0 || self.attn_split_g_decode_global > 0)
+        {
+            self.decode_graph_short = CapturedGraphExec::capture(&ctx_clone, |stream| {
+                self.enqueue_step_impl(stream, false, true)
+            })
+            .ok();
+        }
         if std::env::var("LEANSONIC_SERIAL_PREFILL")
             .map(|v| v == "1")
             .unwrap_or(false)
         {
             let p_graph = CapturedGraphExec::capture(&ctx_clone, |stream| {
-                self.enqueue_step_impl(stream, true)
+                self.enqueue_step_impl(stream, true, false)
             })?;
             self.prefill_graph = Some(p_graph);
         }
@@ -2572,6 +2663,25 @@ impl Inkling2GpuEngine {
             }
         }
         Ok(())
+    }
+
+    fn prefill_resize_bytes(&self, capacity: usize) -> usize {
+        // For a single sequence the split-KV workspace is fixed or linear.
+        // This upper bound also covers the minimum-sized controller buffers.
+        let workspace = self.prefill.allocated_bytes
+            + (capacity - self.prefill.capacity) * self.prefill.bytes_per_row;
+        let cap = self.max_ctx.min(EXTENT + capacity);
+        let rings: usize = self
+            .slots
+            .iter()
+            .filter(|slot| !slot.is_global && slot.kv_cap != cap)
+            .map(|slot| {
+                let bytes_per_token =
+                    (slot.seq_kv_bytes + slot.seq_scale_bytes) as usize / slot.kv_cap;
+                2 * cap * bytes_per_token
+            })
+            .sum();
+        workspace + rings
     }
 
     fn resize_prefill(&mut self, capacity: usize) -> Result<(), String> {
@@ -2867,6 +2977,19 @@ impl Inkling2GpuEngine {
             wo_conv4_save_c3072: get_fn("ink2_wo_conv4_save_c3072").ok(),
             build_expert_groups_active_b: get_fn("ink2_build_expert_groups_active_b").ok(),
             router_topk8_groups_b: get_fn("ink2_router_topk8_groups_b").ok(),
+            router_topk8_par: get_fn("ink2_router_topk8_par").ok(),
+            router_topk8_par_b: get_fn("ink2_router_topk8_par_b").ok(),
+            gqa_attn_g1_q8_decode: get_fn("ink2_gqa_attn_g1_q8_decode").ok(),
+            gqa_attn_g1_q8_decode_i8: get_fn("ink2_gqa_attn_g1_q8_decode_i8").ok(),
+            ctrl_down_r1_256_fast: get_fn("ink2_ctrl_down_r1_256_fast").ok(),
+            sc_save_depth_mix_rmsnorm_d_quant_q8_16: get_fn(
+                "ink2_sc_save_depth_mix_rmsnorm_d_quant_q8_16",
+            )
+            .ok(),
+            sc_save_depth_mix_inv: get_fn("ink2_sc_save_depth_mix_inv").ok(),
+            gqa_attn_split_fused_q8_dec: get_fn("ink2_gqa_attn_split_fused_q8_dec").ok(),
+            gqa_attn_split_fused_q8_dec_i8: get_fn("ink2_gqa_attn_split_fused_q8_dec_i8").ok(),
+            argmax_par_and_inc_pos: get_fn("ink2_argmax_par_and_inc_pos").ok(),
         })
     }
 
@@ -2884,6 +3007,10 @@ impl Inkling2GpuEngine {
             check_cu(
                 (self.ctx.api.cuMemsetD8_v2)(self.d_pos.ptr, 0, 4),
                 "zero pos",
+            )?;
+            check_cu(
+                (self.ctx.api.cuMemsetD8_v2)(self.d_sync_counters.ptr, 0, 4096),
+                "zero sync counters",
             )?;
             check_cu(
                 (self.ctx.api.cuMemsetD8_v2)(
@@ -3077,7 +3204,22 @@ impl Inkling2GpuEngine {
         let mut p_msg = msg_ptr;
         let mut p_down = ctrl.down.ptr;
         let mut p_g = self.d_ctrl_g.ptr;
-        if let (true, Some(f_r4)) = (
+        if let (true, Some(f_r1)) = (
+            self.ctrl_r1 && inv_cur_ptr != 0 && inv_msg_ptr != 0,
+            self.fns.ctrl_down_r1_256_fast,
+        ) {
+            let mut p_ic = inv_cur_ptr;
+            let mut p_im = inv_msg_ptr;
+            let mut args_r1: [*mut c_void; 6] = [
+                (&mut p_cur as *mut _) as *mut c_void,
+                (&mut p_msg as *mut _) as *mut c_void,
+                (&mut p_ic as *mut _) as *mut c_void,
+                (&mut p_im as *mut _) as *mut c_void,
+                (&mut p_down as *mut _) as *mut c_void,
+                (&mut p_g as *mut _) as *mut c_void,
+            ];
+            self.launch_pdl(stream, f_r1, (64, n_ctrls), 256, &mut args_r1)?;
+        } else if let (true, Some(f_r4)) = (
             inv_cur_ptr != 0 && inv_msg_ptr != 0,
             self.fns.ctrl_down_r4_fast,
         ) {
@@ -3343,6 +3485,25 @@ impl Inkling2GpuEngine {
         }
     }
 
+    fn attn_g1_q8_fn(&self, st: &SlotStateGpu) -> Option<CUfunction> {
+        if !self.g1_attn {
+            return None;
+        }
+        if st.k_scale.is_some() {
+            self.fns.gqa_attn_g1_q8_decode_i8
+        } else {
+            self.fns.gqa_attn_g1_q8_decode
+        }
+    }
+
+    fn has_short_decode_regime(&self) -> bool {
+        self.short_unsplit_attn
+            && self.ms_rows.get() == 0
+            && ((self.attn_split_g_decode == 0 && self.attn_split_g_decode_global == 0)
+                || !self.enable_cuda_graph
+                || self.decode_graph_short.is_some())
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn enqueue_gqa_attn_split_impl(
         &self,
@@ -3465,6 +3626,53 @@ impl Inkling2GpuEngine {
                 (&mut psc as *mut _) as *mut c_void,
             ];
             return self.launch(stream, f_comb, (24, b_len as u32), 128, &mut comb_args);
+        }
+        if b_len <= MAX_SPEC_TOKENS && self.split_fused_attn {
+            let fused_fn = if pks != 0 {
+                self.fns.gqa_attn_split_fused_q8_dec_i8
+            } else {
+                self.fns.gqa_attn_split_fused_q8_dec
+            };
+            if let Some(f_fused) = fused_fn {
+                let mut pdone = self.d_sync_counters.ptr;
+                let mut pq8 = out_q8_ptr;
+                let mut psc = out_sc64_ptr;
+                let mut fused_args: [*mut c_void; 15] = [
+                    (&mut pqrgs as *mut _) as *mut c_void,
+                    (&mut qstride as *mut _) as *mut c_void,
+                    (&mut prp as *mut _) as *mut c_void,
+                    (&mut pkc as *mut _) as *mut c_void,
+                    (&mut pvc as *mut _) as *mut c_void,
+                    (&mut pks as *mut _) as *mut c_void,
+                    (&mut pvs as *mut _) as *mut c_void,
+                    (&mut ppos as *mut _) as *mut c_void,
+                    (&mut cap as *mut _) as *mut c_void,
+                    (&mut ig as *mut _) as *mut c_void,
+                    (&mut pml as *mut _) as *mut c_void,
+                    (&mut po as *mut _) as *mut c_void,
+                    (&mut pdone as *mut _) as *mut c_void,
+                    (&mut pq8 as *mut _) as *mut c_void,
+                    (&mut psc as *mut _) as *mut c_void,
+                ];
+                let fused_g = if b_len > 1 {
+                    let max_n = self.host_pos + b_len;
+                    let max_total = if is_global != 0 {
+                        max_n
+                    } else {
+                        max_n.min(EXTENT)
+                    };
+                    g_u32.min(max_total.div_ceil(64).max(1) as u32)
+                } else {
+                    g_u32
+                };
+                return self.launch_pdl(
+                    stream,
+                    f_fused,
+                    ((8 * b_len) as u32, fused_g),
+                    256,
+                    &mut fused_args,
+                );
+            }
         }
         if b_len == 1 {
             self.launch_pdl(stream, split_fn, (8, g_u32), 256, &mut split_args)?;
@@ -3692,6 +3900,7 @@ impl Inkling2GpuEngine {
         n_blocks: &mut usize,
         msg_base_ptr: CUdeviceptr,
         msg_inv_base_ptr: CUdeviceptr,
+        force_short_attn: bool,
     ) -> Result<(), String> {
         let l = &self.layers[il];
         let st = &self.slots[slot_idx];
@@ -4092,13 +4301,17 @@ impl Inkling2GpuEngine {
         }
 
         // 7. GQA Relative-Bias + Sink Attention + In-Register `Q8_64` Epilogue!
-        let g_dec = if l.global {
+        let g_dec = if force_short_attn {
+            0
+        } else if l.global {
             self.attn_split_g_decode_global
         } else {
             self.attn_split_g_decode
         };
         if g_dec == 0 {
-            if let Some(f_attn_q8) = self.attn_q8_fn(st, true) {
+            let g1_opt = self.attn_g1_q8_fn(st).map(|f| (f, 8u32));
+            let q8_opt = g1_opt.or_else(|| self.attn_q8_fn(st, true).map(|f| (f, 24u32)));
+            if let Some((f_attn_q8, attn_ctas)) = q8_opt {
                 let mut pqrgs = self.d_qrgs.ptr;
                 let mut qstride = SWA_ALL_ROWS as i32;
                 let mut prp = l.rel_proj.ptr;
@@ -4124,7 +4337,7 @@ impl Inkling2GpuEngine {
                     (&mut pq8 as *mut _) as *mut c_void,
                     (&mut psc as *mut _) as *mut c_void,
                 ];
-                self.launch_pdl(stream, f_attn_q8, (24, 1), 256, &mut args)?;
+                self.launch_pdl(stream, f_attn_q8, (attn_ctas, 1), 256, &mut args)?;
             } else {
                 let mut pq = q_ptr;
                 let mut pr = r_ptr;
@@ -4184,6 +4397,9 @@ impl Inkling2GpuEngine {
         } else {
             0
         };
+        let wants_mlp_q8_16 =
+            matches!(l.expert_scales, ExpertScales::Nvfp4 { .. }) && self.use_moe_dp4a;
+        let mut sc_save_deferred = false;
         if let (true, Some(f_wo_conv)) = (self.solo_conv_fuse, self.fns.wo_conv4_save_c3072) {
             let mut pw = l.wo_q8.codes.ptr;
             let mut pws = l.wo_q8.scales64.ptr;
@@ -4216,7 +4432,12 @@ impl Inkling2GpuEngine {
                 self.d_wo_out.ptr,
                 0.0,
             )?;
-            if let Some(f_sc_save) = self.fns.short_conv4_save {
+            let can_fuse_sc_save = self.sc_save_fuse
+                && ((!has_msgs && self.fns.sc_save_depth_mix_rmsnorm_d_quant_q8_16.is_some())
+                    || (has_msgs && self.fns.sc_save_depth_mix_inv.is_some()));
+            if can_fuse_sc_save {
+                sc_save_deferred = true;
+            } else if let Some(f_sc_save) = self.fns.short_conv4_save {
                 let mut p_cur = self.d_wo_out.ptr;
                 let mut p_w = l.attn_conv4.ptr;
                 let mut p_dyn: CUdeviceptr = 0;
@@ -4269,11 +4490,44 @@ impl Inkling2GpuEngine {
         }
 
         // 9. Fused MLP Prologue (`depth_mix + rmsnorm_d + quant_q8_16` when `!has_msgs`)
-        let wants_mlp_q8_16 =
-            matches!(l.expert_scales, ExpertScales::Nvfp4 { .. }) && self.use_moe_dp4a;
         let mut mlp_h_ready = false;
         let mut mlp_q8_16_ready = false;
-        if !has_msgs {
+        if sc_save_deferred && !has_msgs {
+            let f_sc_mlp = self.fns.sc_save_depth_mix_rmsnorm_d_quant_q8_16.unwrap();
+            let mut pwo = self.d_wo_out.ptr;
+            let mut pwc = l.attn_conv4.ptr;
+            let mut phist = st.hist_attn_at(self.cur_seq);
+            let mut pcur = self.d_cur.ptr;
+            let mut psave = save_blk_ptr;
+            let mut dr = i32::from(!is_block_start);
+            let mut pb = self.d_blocks.ptr;
+            let mut nb = *n_blocks as i32;
+            let mut pq = l.mlp_query.ptr;
+            let mut pg = l.mlp_norm.ptr;
+            let mut pout = self.d_mlp_h.ptr;
+            let mut dq = i32::from(wants_mlp_q8_16);
+            let mut pq8 = self.d_act_q8_16.ptr;
+            let mut psc = self.d_act_sc_16.ptr;
+            let mut args: [*mut c_void; 14] = [
+                (&mut pwo as *mut _) as *mut c_void,
+                (&mut pwc as *mut _) as *mut c_void,
+                (&mut phist as *mut _) as *mut c_void,
+                (&mut pcur as *mut _) as *mut c_void,
+                (&mut psave as *mut _) as *mut c_void,
+                (&mut dr as *mut _) as *mut c_void,
+                (&mut pb as *mut _) as *mut c_void,
+                (&mut nb as *mut _) as *mut c_void,
+                (&mut pq as *mut _) as *mut c_void,
+                (&mut pg as *mut _) as *mut c_void,
+                (&mut pout as *mut _) as *mut c_void,
+                (&mut dq as *mut _) as *mut c_void,
+                (&mut pq8 as *mut _) as *mut c_void,
+                (&mut psc as *mut _) as *mut c_void,
+            ];
+            self.launch_pdl(stream, f_sc_mlp, (1, 1), 256, &mut args)?;
+            mlp_h_ready = true;
+            mlp_q8_16_ready = wants_mlp_q8_16;
+        } else if !has_msgs {
             if let Some(f_mlp_fused) = self.fns.depth_mix_rmsnorm_d_quant_q8_16_b {
                 let mut pb = self.d_blocks.ptr;
                 let mut nb = *n_blocks as i32;
@@ -4314,7 +4568,30 @@ impl Inkling2GpuEngine {
             let mut pq = l.mlp_query.ptr;
             let mut pout = self.d_mlp_h.ptr;
             let mut b3 = 0i32;
-            let inv_cur_ptr = if has_msgs {
+            let inv_cur_ptr = if sc_save_deferred && has_msgs {
+                let f_sc_dmi = self.fns.sc_save_depth_mix_inv.unwrap();
+                let mut pwo = self.d_wo_out.ptr;
+                let mut pwc = l.attn_conv4.ptr;
+                let mut phist = st.hist_attn_at(self.cur_seq);
+                let mut psave = save_blk_ptr;
+                let mut dr = i32::from(!is_block_start);
+                let mut pinv = self.d_ctrl_inv_cur.ptr;
+                let mut args: [*mut c_void; 11] = [
+                    (&mut pwo as *mut _) as *mut c_void,
+                    (&mut pwc as *mut _) as *mut c_void,
+                    (&mut phist as *mut _) as *mut c_void,
+                    (&mut pc as *mut _) as *mut c_void,
+                    (&mut psave as *mut _) as *mut c_void,
+                    (&mut dr as *mut _) as *mut c_void,
+                    (&mut pb as *mut _) as *mut c_void,
+                    (&mut nb as *mut _) as *mut c_void,
+                    (&mut pq as *mut _) as *mut c_void,
+                    (&mut pout as *mut _) as *mut c_void,
+                    (&mut pinv as *mut _) as *mut c_void,
+                ];
+                self.launch_pdl(stream, f_sc_dmi, (1, 1), 256, &mut args)?;
+                self.d_ctrl_inv_cur.ptr
+            } else if has_msgs {
                 if let Some(f_dmi) = self.fns.depth_mix_inv {
                     let mut pinv = self.d_ctrl_inv_cur.ptr;
                     let mut args: [*mut c_void; 8] = [
@@ -4443,7 +4720,11 @@ impl Inkling2GpuEngine {
                 (&mut pids as *mut _) as *mut c_void,
                 (&mut pwts as *mut _) as *mut c_void,
             ];
-            self.launch_pdl(stream, self.fns.router_topk8, (1, 1), 32, &mut args)?;
+            if let (true, Some(f_par)) = (self.par_topk, self.fns.router_topk8_par) {
+                self.launch_pdl(stream, f_par, (1, 1), 512, &mut args)?;
+            } else {
+                self.launch_pdl(stream, self.fns.router_topk8, (1, 1), 32, &mut args)?;
+            }
         }
 
         let [w13, w2] = &self.expert_weights[il];
@@ -4471,7 +4752,7 @@ impl Inkling2GpuEngine {
                         || (self.moe_down_xw == 1 && matches!(w2, TierBuf::Vram(_)));
                     if let (true, true, Some(f_conv)) = (
                         allow_xw,
-                        self.solo_conv_fuse,
+                        self.down_conv_fuse || self.solo_conv_fuse,
                         s2.kernels.nvfp4_dp4a_down_xw_conv,
                     ) {
                         let mut pwc = l.mlp_conv4.ptr;
@@ -4593,9 +4874,11 @@ impl Inkling2GpuEngine {
                 let mut pwts = self.d_sel_wts.ptr;
                 let allow_xw = self.moe_down_xw == 2
                     || (self.moe_down_xw == 1 && matches!(w2, TierBuf::Vram(_)));
-                if let (true, true, Some(f_conv)) =
-                    (allow_xw, self.solo_conv_fuse, s2.kernels.mxfp8_down_xw_conv)
-                {
+                if let (true, true, Some(f_conv)) = (
+                    allow_xw,
+                    self.down_conv_fuse || self.solo_conv_fuse,
+                    s2.kernels.mxfp8_down_xw_conv,
+                ) {
                     let mut pwc = l.mlp_conv4.ptr;
                     let mut phist = st.hist_mlp_at(self.cur_seq);
                     let mut pcur = self.d_cur.ptr;
@@ -4665,7 +4948,12 @@ impl Inkling2GpuEngine {
         Ok(())
     }
 
-    fn enqueue_step_impl(&self, stream: CUstream, prefill_only: bool) -> Result<(), String> {
+    fn enqueue_step_impl(
+        &self,
+        stream: CUstream,
+        prefill_only: bool,
+        force_short_attn: bool,
+    ) -> Result<(), String> {
         let d_bytes = (D * 4) as u64;
 
         // 0. Embed + `embed_norm` (`prefill_only` indexes `d_prefill_tokens[*d_pos]` on GPU!)
@@ -4693,7 +4981,7 @@ impl Inkling2GpuEngine {
 
         let mut n_blocks = 0usize;
         for il in 0..6 {
-            self.enqueue_visit(stream, il, il, &mut n_blocks, 0, 0)?;
+            self.enqueue_visit(stream, il, il, &mut n_blocks, 0, 0, force_short_attn)?;
         }
         debug_assert_eq!(n_blocks, 1);
         if let Some(f_setup) = self.fns.loop_pass_setup_b {
@@ -4801,12 +5089,20 @@ impl Inkling2GpuEngine {
                 } else {
                     (0, 0)
                 };
-                self.enqueue_visit(stream, ip, slot, &mut n_blocks, msg_ptr, msg_inv_ptr)?;
+                self.enqueue_visit(
+                    stream,
+                    ip,
+                    slot,
+                    &mut n_blocks,
+                    msg_ptr,
+                    msg_inv_ptr,
+                    force_short_attn,
+                )?;
             }
         }
 
         for il in 18..24 {
-            self.enqueue_visit(stream, il, il, &mut n_blocks, 0, 0)?;
+            self.enqueue_visit(stream, il, il, &mut n_blocks, 0, 0, force_short_attn)?;
         }
         debug_assert_eq!(n_blocks, 4);
 
@@ -4949,7 +5245,23 @@ impl Inkling2GpuEngine {
             self.d_logits.ptr,
             30.0,
         )?;
-        {
+        if let (true, Some(f_par_am)) = (self.par_argmax, self.fns.argmax_par_and_inc_pos) {
+            let mut pl = self.d_logits.ptr;
+            let mut pval = self.d_sync_counters.ptr + 2304;
+            let mut pidx = self.d_sync_counters.ptr + 2560;
+            let mut pdone = self.d_sync_counters.ptr + 2048;
+            let mut pt = self.d_token_in.ptr;
+            let mut pp = self.d_pos.ptr;
+            let mut args: [*mut c_void; 6] = [
+                (&mut pl as *mut _) as *mut c_void,
+                (&mut pval as *mut _) as *mut c_void,
+                (&mut pidx as *mut _) as *mut c_void,
+                (&mut pdone as *mut _) as *mut c_void,
+                (&mut pt as *mut _) as *mut c_void,
+                (&mut pp as *mut _) as *mut c_void,
+            ];
+            self.launch_pdl(stream, f_par_am, (32, 1), 256, &mut args)?;
+        } else {
             let mut pl = self.d_logits.ptr;
             let mut pt = self.d_token_in.ptr;
             let mut pp = self.d_pos.ptr;
@@ -4998,10 +5310,19 @@ impl Inkling2GpuEngine {
                 "HtoD(token_in)",
             )?;
         }
-        if let Some(ref graph) = self.decode_graph {
+        let use_short = self.has_short_decode_regime() && self.host_pos < SHORT_UNSPLIT_CTX;
+        if use_short {
+            if let Some(ref sgraph) = self.decode_graph_short {
+                sgraph.replay()?;
+            } else if let Some(ref graph) = self.decode_graph {
+                graph.replay()?;
+            } else {
+                self.enqueue_step_impl(self.ctx.compute_stream, false, true)?;
+            }
+        } else if let Some(ref graph) = self.decode_graph {
             graph.replay()?;
         } else {
-            self.enqueue_step_impl(self.ctx.compute_stream, false)?;
+            self.enqueue_step_impl(self.ctx.compute_stream, false, false)?;
         }
         self.enqueue_drafter_context(1)?;
         unsafe {
@@ -5057,7 +5378,7 @@ impl Inkling2GpuEngine {
                     if let Some(ref p_graph) = self.prefill_graph {
                         p_graph.replay()?;
                     } else {
-                        self.enqueue_step_impl(self.ctx.compute_stream, true)?;
+                        self.enqueue_step_impl(self.ctx.compute_stream, true, false)?;
                     }
                     self.enqueue_drafter_context(1)?;
                 }
@@ -5557,6 +5878,13 @@ impl Inkling2GpuEngine {
                 "cuEventRecord(draft_ready)",
             )?;
         }
+        let n_drafts = reqs.iter().filter(|r| r.2 > 0).count();
+        if n_drafts >= 2
+            && self.fns.q8_dp4a_gemm_b_ms4.is_some()
+            && std::env::var("LEANSONIC_DRAFT_BATCH_UNEMBED").map_or(true, |v| v != "0")
+        {
+            return self.draft_for_seqs_batched(reqs);
+        }
         let mut pending = Vec::with_capacity(reqs.len());
         for (i, &(seq, tok, max_k)) in reqs.iter().enumerate() {
             let pos = if seq == self.cur_seq {
@@ -5590,6 +5918,170 @@ impl Inkling2GpuEngine {
             let d = self.drafter.as_mut().unwrap();
             d.select_seq(seq)?;
             out.push(if k == 0 {
+                Vec::new()
+            } else {
+                d.finish_draft(k, tau)?
+            });
+        }
+        let cur = self.cur_seq;
+        self.drafter.as_mut().unwrap().select_seq(cur)?;
+        Ok(out)
+    }
+
+    /// `draft_for_seqs` with one unembed GEMM for every sequence's 7 hidden rows (#107 stage 3e):
+    /// each sequence's drafter layers run on its own stream, the shared `[VOCAB, D]` unembed is
+    /// read once for all of them on draft stream 0, and then each Markov head reads its slice.
+    /// Drafts only steer speculation: the verified tokens are unchanged.
+    fn draft_for_seqs_batched(
+        &mut self,
+        reqs: &[(usize, u32, usize)],
+    ) -> Result<Vec<Vec<u32>>, String> {
+        let n = reqs.len();
+        let make_ev = |ctx: &CudaContextHandle| -> Result<CUevent, String> {
+            let mut ev: CUevent = core::ptr::null_mut();
+            unsafe {
+                check_cu(
+                    (ctx.api.cuEventCreate)(&mut ev, CU_EVENT_DISABLE_TIMING),
+                    "cuEventCreate(draft batch)",
+                )?;
+            }
+            Ok(ev)
+        };
+        while self.draft_front_done.len() < n {
+            let ev = make_ev(&self.ctx)?;
+            self.draft_front_done.push(ev);
+        }
+        if self.draft_base_ready.is_null() {
+            self.draft_base_ready = make_ev(&self.ctx)?;
+        }
+        if self.draft_batch_bufs.as_ref().is_none_or(|b| b.0 < n) {
+            let rows = 7 * n;
+            self.draft_batch_bufs = Some((
+                n,
+                DeviceBuf::alloc_zeroed(&self.ctx, rows * D)?,
+                DeviceBuf::alloc_zeroed(&self.ctx, rows * (D / 64) * 4)?,
+                DeviceBuf::alloc_zeroed(&self.ctx, rows * VOCAB * 4)?,
+            ));
+        }
+        let (x_q8, x_sc, base) = {
+            let b = self.draft_batch_bufs.as_ref().unwrap();
+            (b.1.ptr, b.2.ptr, b.3.ptr)
+        };
+        // Phase A: drafter layers per sequence; hidden rows 1..7 of draft `slot` -> rows 7 slot ..
+        let mut pending = vec![(0usize, 0.0f32, usize::MAX); n];
+        let mut slot = 0usize;
+        for (i, &(seq, tok, max_k)) in reqs.iter().enumerate() {
+            let pos = if seq == self.cur_seq {
+                self.host_pos
+            } else {
+                self.seq_pos[seq]
+            };
+            let max_k = max_k.min(self.max_ctx.saturating_sub(pos + 1));
+            let stream = self.draft_streams[i];
+            unsafe {
+                check_cu(
+                    (self.ctx.api.cuStreamWaitEvent)(stream, self.draft_ready, 0),
+                    "cuStreamWaitEvent(draft)",
+                )?;
+            }
+            let d = self.drafter.as_mut().unwrap();
+            d.select_seq(seq)?;
+            let dst = (
+                x_q8 + (slot * 7 * D) as u64,
+                x_sc + (slot * 7 * (D / 64) * 4) as u64,
+            );
+            let (k, tau) = d.enqueue_draft_front(
+                stream,
+                self.embed.ptr(),
+                self.embed_norm.ptr,
+                None,
+                tok,
+                max_k,
+                Some(dst),
+            )?;
+            if k > 0 {
+                pending[i] = (k, tau, slot);
+                slot += 1;
+                unsafe {
+                    check_cu(
+                        (self.ctx.api.cuEventRecord)(self.draft_front_done[i], stream),
+                        "cuEventRecord(draft front)",
+                    )?;
+                }
+            }
+        }
+        // Phase B: one unembed GEMM over all `7 slot` rows on draft stream 0.
+        if slot > 0 {
+            let s0 = self.draft_streams[0];
+            for (i, p) in pending.iter().enumerate() {
+                if p.2 != usize::MAX && i != 0 {
+                    unsafe {
+                        check_cu(
+                            (self.ctx.api.cuStreamWaitEvent)(s0, self.draft_front_done[i], 0),
+                            "cuStreamWaitEvent(draft front)",
+                        )?;
+                    }
+                }
+            }
+            let rows = 7 * slot;
+            let mut pw = self.unembed_q8.codes.ptr;
+            let mut pws = self.unembed_q8.scales64.ptr;
+            let mut px = x_q8;
+            let mut pxs = x_sc;
+            let mut py = base;
+            let mut r = VOCAB as i32;
+            let mut c = D as i32;
+            let mut bi = rows as i32;
+            let mut ys = VOCAB as i32;
+            let mut sc = 0.0f32;
+            let mut args: [*mut c_void; 10] = [
+                (&mut pw as *mut _) as *mut c_void,
+                (&mut pws as *mut _) as *mut c_void,
+                (&mut px as *mut _) as *mut c_void,
+                (&mut pxs as *mut _) as *mut c_void,
+                (&mut py as *mut _) as *mut c_void,
+                (&mut r as *mut _) as *mut c_void,
+                (&mut c as *mut _) as *mut c_void,
+                (&mut bi as *mut _) as *mut c_void,
+                (&mut ys as *mut _) as *mut c_void,
+                (&mut sc as *mut _) as *mut c_void,
+            ];
+            let f = self.fns.q8_dp4a_gemm_b_ms4.unwrap();
+            let grid = ((VOCAB as u32).div_ceil(16), (rows as u32).div_ceil(32));
+            self.launch(s0, f, grid, 256, &mut args)?;
+            unsafe {
+                check_cu(
+                    (self.ctx.api.cuEventRecord)(self.draft_base_ready, s0),
+                    "cuEventRecord(draft base)",
+                )?;
+            }
+        }
+        // Phase C: Markov heads on each sequence's stream.
+        for (i, &(seq, _, _)) in reqs.iter().enumerate() {
+            let (k, tau, sl) = pending[i];
+            if sl == usize::MAX {
+                continue;
+            }
+            let stream = self.draft_streams[i];
+            if i != 0 {
+                unsafe {
+                    check_cu(
+                        (self.ctx.api.cuStreamWaitEvent)(stream, self.draft_base_ready, 0),
+                        "cuStreamWaitEvent(draft base)",
+                    )?;
+                }
+            }
+            let d = self.drafter.as_mut().unwrap();
+            d.select_seq(seq)?;
+            d.enqueue_markov(stream, k, tau, base + (sl * 7 * VOCAB * 4) as u64)?;
+        }
+        let mut out = Vec::with_capacity(n);
+        for (i, &(seq, _, _)) in reqs.iter().enumerate() {
+            self.ctx.sync_stream(self.draft_streams[i])?;
+            let (k, tau, sl) = pending[i];
+            let d = self.drafter.as_mut().unwrap();
+            d.select_seq(seq)?;
+            out.push(if sl == usize::MAX {
                 Vec::new()
             } else {
                 d.finish_draft(k, tau)?
@@ -5744,12 +6236,24 @@ impl Inkling2GpuEngine {
                 )?;
             }
             while steps_done < n_gen {
-                let chunk = (n_gen - steps_done).min(64);
+                let use_short = self.has_short_decode_regime() && self.host_pos < SHORT_UNSPLIT_CTX;
+                let mut chunk = (n_gen - steps_done).min(64);
+                if use_short {
+                    chunk = chunk.min(SHORT_UNSPLIT_CTX - self.host_pos);
+                }
                 for s in 0..chunk {
-                    if let Some(ref graph) = self.decode_graph {
+                    if use_short {
+                        if let Some(ref sgraph) = self.decode_graph_short {
+                            sgraph.replay()?;
+                        } else if let Some(ref graph) = self.decode_graph {
+                            graph.replay()?;
+                        } else {
+                            self.enqueue_step_impl(self.ctx.compute_stream, false, true)?;
+                        }
+                    } else if let Some(ref graph) = self.decode_graph {
                         graph.replay()?;
                     } else {
-                        self.enqueue_step_impl(self.ctx.compute_stream, false)?;
+                        self.enqueue_step_impl(self.ctx.compute_stream, false, false)?;
                     }
                     unsafe {
                         check_cu(
@@ -5792,10 +6296,16 @@ impl Inkling2GpuEngine {
                 break;
             }
             let rem_steps = n_gen - steps_done;
+            let short_cap = if self.has_short_decode_regime() && self.host_pos < SHORT_UNSPLIT_CTX {
+                SHORT_UNSPLIT_CTX - 1 - self.host_pos
+            } else {
+                usize::MAX
+            };
             let max_draft = self
                 .spec_k
                 .min(rem_steps.saturating_sub(1))
-                .min(self.max_ctx.saturating_sub(self.host_pos + 1));
+                .min(self.max_ctx.saturating_sub(self.host_pos + 1))
+                .min(short_cap);
 
             let paused = pause_left > 0;
             pause_left = pause_left.saturating_sub(1);
@@ -7156,7 +7666,12 @@ impl Inkling2GpuEngine {
             }
         }
         let g_batch = if self.ms_rows.get() == 0 && b_len <= MAX_SPEC_TOKENS {
-            if l.global {
+            if record_seq
+                && self.has_short_decode_regime()
+                && self.host_pos + b_len <= SHORT_UNSPLIT_CTX
+            {
+                0
+            } else if l.global {
                 self.attn_split_g_decode_global
             } else {
                 self.attn_split_g_decode
@@ -7165,9 +7680,17 @@ impl Inkling2GpuEngine {
             self.attn_split_g
         };
         if !attn_done && g_batch == 0 {
-            // Small speculative verification batches also underfill the GPU.
-            let kernel = self.attn_q8_fn(st, record_seq && b_len <= MAX_SPEC_TOKENS);
-            if let Some(f_attn_q8) = kernel {
+            // Small speculative verification batches match the active decode attention path (`spec 0 == spec K`).
+            let g1_opt = if record_seq && b_len <= MAX_SPEC_TOKENS {
+                self.attn_g1_q8_fn(st).map(|f| (f, 8u32))
+            } else {
+                None
+            };
+            let q8_opt = g1_opt.or_else(|| {
+                self.attn_q8_fn(st, record_seq && b_len <= MAX_SPEC_TOKENS)
+                    .map(|f| (f, 24u32))
+            });
+            if let Some((f_attn_q8, attn_ctas)) = q8_opt {
                 let mut pqrgs = self.prefill.layer_workspace.qrgs;
                 let mut qstride = SWA_ALL_ROWS as i32;
                 let mut prp = l.rel_proj.ptr;
@@ -7193,7 +7716,7 @@ impl Inkling2GpuEngine {
                     (&mut pq8 as *mut _) as *mut c_void,
                     (&mut psc as *mut _) as *mut c_void,
                 ];
-                self.launch(stream, f_attn_q8, (24, b_u32), 256, &mut args)?;
+                self.launch(stream, f_attn_q8, (attn_ctas, b_u32), 256, &mut args)?;
             } else {
                 let mut pqrgs = self.prefill.layer_workspace.qrgs;
                 let mut qstride = SWA_ALL_ROWS as i32;
@@ -7778,7 +8301,11 @@ impl Inkling2GpuEngine {
                 (&mut pids as *mut _) as *mut c_void,
                 (&mut pwts as *mut _) as *mut c_void,
             ];
-            self.launch(stream, self.fns.router_topk8_b, (b_u32, 1), 32, &mut args)?;
+            if let (true, Some(f_par_b)) = (self.par_topk, self.fns.router_topk8_par_b) {
+                self.launch(stream, f_par_b, (b_u32, 1), 512, &mut args)?;
+            } else {
+                self.launch(stream, self.fns.router_topk8_b, (b_u32, 1), 32, &mut args)?;
+            }
         }
         let mut active_groups_ready = fused_groups.is_some();
         if active_groups_ready {
@@ -9359,7 +9886,7 @@ mod tests {
             ExpertMatrix::Packed {
                 bytes: &frame,
                 count: raw.len(),
-                contextual: false,
+                coding: ExpertCoding::Byte,
             }
             .device_codebook()
         };
@@ -9411,7 +9938,7 @@ mod tests {
         let matrix = ExpertMatrix::Packed {
             bytes: &packed,
             count: raw.len(),
-            contextual: false,
+            coding: ExpertCoding::Byte,
         };
         let ctx = CudaContextHandle::init(0)?;
         for on_device in [false, true] {
@@ -9471,12 +9998,12 @@ mod tests {
             ExpertMatrix::Packed {
                 bytes: &[],
                 count: up.len(),
-                contextual: false,
+                coding: ExpertCoding::Byte,
             },
             ExpertMatrix::Packed {
                 bytes: &[],
                 count: down.len(),
-                contextual: false,
+                coding: ExpertCoding::Byte,
             },
         ]; N_LAYER];
         assert_eq!(plan_expert_placement(&packed, 12 * 3 + 1), placement);
