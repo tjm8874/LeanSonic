@@ -28,3 +28,4 @@ Each row includes five alternating mirrored cycles, ten fresh processes per form
 | GPU | #116 / new load (s) | #116 / new decode64 (ms) |
 |---|---:|---:|
 | PRO4500 | 5.840 / 5.792 | 390.70 / 390.64 |
+| 5060Ti | 11.346 / 11.499 | 1266.40 / 1266.47 |

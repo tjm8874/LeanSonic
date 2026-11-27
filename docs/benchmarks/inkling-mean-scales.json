@@ -663,6 +663,307 @@
           "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
         }
       ]
+    },
+    "5060Ti": {
+      "cycles": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "means": {
+        "prior": {
+          "load_s": 11.346,
+          "decode64_ms": 1266.404
+        },
+        "dest": {
+          "load_s": 11.499,
+          "decode64_ms": 1266.4735
+        }
+      },
+      "runs": [
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 1,
+          "leg": 0,
+          "shard": 15747205368,
+          "loader_s": 11.2,
+          "decode64_ms": [
+            1266.31,
+            1266.12,
+            1266.15
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 1,
+          "leg": 1,
+          "shard": 15720774520,
+          "loader_s": 11.59,
+          "decode64_ms": [
+            1266.42,
+            1266.67,
+            1266.24
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 1,
+          "leg": 2,
+          "shard": 15720774520,
+          "loader_s": 11.55,
+          "decode64_ms": [
+            1266.51,
+            1266.27,
+            1266.32
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 1,
+          "leg": 3,
+          "shard": 15747205368,
+          "loader_s": 11.23,
+          "decode64_ms": [
+            1266.62,
+            1266.41,
+            1266.4
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 2,
+          "leg": 0,
+          "shard": 15720774520,
+          "loader_s": 11.46,
+          "decode64_ms": [
+            1266.52,
+            1266.47,
+            1266.56
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 2,
+          "leg": 1,
+          "shard": 15747205368,
+          "loader_s": 11.31,
+          "decode64_ms": [
+            1267.08,
+            1266.5,
+            1266.57
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 2,
+          "leg": 2,
+          "shard": 15747205368,
+          "loader_s": 11.14,
+          "decode64_ms": [
+            1266.71,
+            1266.4,
+            1266.37
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 2,
+          "leg": 3,
+          "shard": 15720774520,
+          "loader_s": 11.59,
+          "decode64_ms": [
+            1266.78,
+            1266.63,
+            1266.76
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 3,
+          "leg": 0,
+          "shard": 15747205368,
+          "loader_s": 11.38,
+          "decode64_ms": [
+            1266.82,
+            1266.6,
+            1266.57
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 3,
+          "leg": 1,
+          "shard": 15720774520,
+          "loader_s": 11.51,
+          "decode64_ms": [
+            1266.74,
+            1266.47,
+            1266.57
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 3,
+          "leg": 2,
+          "shard": 15720774520,
+          "loader_s": 11.56,
+          "decode64_ms": [
+            1266.77,
+            1266.59,
+            1266.66
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 3,
+          "leg": 3,
+          "shard": 15747205368,
+          "loader_s": 11.34,
+          "decode64_ms": [
+            1266.55,
+            1266.43,
+            1266.33
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 4,
+          "leg": 0,
+          "shard": 15720774520,
+          "loader_s": 11.36,
+          "decode64_ms": [
+            1267.0,
+            1266.61,
+            1266.56
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 4,
+          "leg": 1,
+          "shard": 15747205368,
+          "loader_s": 11.39,
+          "decode64_ms": [
+            1266.66,
+            1266.42,
+            1266.36
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 4,
+          "leg": 2,
+          "shard": 15747205368,
+          "loader_s": 11.57,
+          "decode64_ms": [
+            1266.77,
+            1266.6,
+            1266.55
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 4,
+          "leg": 3,
+          "shard": 15720774520,
+          "loader_s": 11.57,
+          "decode64_ms": [
+            1266.55,
+            1266.33,
+            1266.38
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 5,
+          "leg": 0,
+          "shard": 15747205368,
+          "loader_s": 11.53,
+          "decode64_ms": [
+            1266.69,
+            1266.43,
+            1266.33
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 5,
+          "leg": 1,
+          "shard": 15720774520,
+          "loader_s": 11.19,
+          "decode64_ms": [
+            1266.39,
+            1266.44,
+            1266.4
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 5,
+          "leg": 2,
+          "shard": 15720774520,
+          "loader_s": 11.61,
+          "decode64_ms": [
+            1266.36,
+            1266.25,
+            1266.29
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 5,
+          "leg": 3,
+          "shard": 15747205368,
+          "loader_s": 11.37,
+          "decode64_ms": [
+            1266.53,
+            1266.23,
+            1266.31
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        }
+      ]
     }
   },
   "parity": {
