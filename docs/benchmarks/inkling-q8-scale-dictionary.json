@@ -1,0 +1,480 @@
+{
+  "model": "Inkling-2-Mini",
+  "loader_base": "cc0b3e330cee64e9b8ca3e4321f64686a4cdad00",
+  "measured_code": "544515e77cff23d8f2e03a826a7c8dd8fc78137a",
+  "kernel_sha256": "6b6f92b4d7043ee4dd67ec59226a6bd2f3689f420d894f6b678e1cae0063d64e",
+  "input": "docs/benchmarks/inputs/inkling-readme1024.ids",
+  "input_sha256": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843",
+  "integrity": {
+    "tensors": 999,
+    "dict_planes": 177,
+    "words": 17295912,
+    "raw_scale_bytes": 69183648,
+    "encoded_scale_bytes": 17719824,
+    "old_shard": 16086645336,
+    "new_shard": 16035182496,
+    "tokenizer": 3386494,
+    "sha256": "0fde715a53bfbd9bad98769663c2d088bd6ffee6397c72f62824c0f21af6c472"
+  },
+  "distribution_bytes": {
+    "old_native": 16090031830,
+    "dictionary": 16038568990,
+    "basalt_text_only": 18327104737
+  },
+  "full_corpus_PRO5000": {
+    "chunks": 100,
+    "context": 512,
+    "rows": 25500,
+    "ppl": 7.071985759563496,
+    "ref_ppl": 7.064408191101908,
+    "mean_kld": 0.0030389868322863254,
+    "median_kld": 0.0012228699963499484,
+    "p99_kld": 0.028630558999079292,
+    "max_kld": 0.6639923296258949,
+    "start_chunk": 0,
+    "max_kld_chunk": 69,
+    "max_kld_position": 353,
+    "ref_floor_targets": 14,
+    "top1_matches": 24880,
+    "top1_agreement": 0.9756862745098039
+  },
+  "method": "5 x A/B/B/A processes per GPU. Same executable and sm_120a cubin throughout. A loads raw native Q8 scales, B the dictionary. FP16 KV, context 8192, spec 0, default expert scale policy. Run 1 after warmup, README 1024 input IDs and 16 timed decode iterations, greedy. Observed process peak via NVML at 4 ms target polling. Load times are file-warm and rounded to 0.01 s by the CLI. Paired 95% intervals resample five whole cycles. The 16 generated IDs matched the Basalt reference in each process.",
+  "results": {
+    "5060Ti": {
+      "mean": {
+        "raw": {
+          "load_s": 4.953,
+          "prefill_ms": 1910.859,
+          "decode16_ms": 397.08299999999997,
+          "peak_bytes": 16565403648
+        },
+        "dictionary": {
+          "load_s": 4.931,
+          "prefill_ms": 1911.299,
+          "decode16_ms": 397.189,
+          "peak_bytes": 16565403648
+        }
+      },
+      "paired_load_delta_s": -0.022000000000000065,
+      "bootstrap_load_delta_95_s": [
+        -0.0679999999999998,
+        0.013000000000000077
+      ],
+      "peak_ranges": {
+        "raw": [
+          16565403648,
+          16565403648
+        ],
+        "dictionary": [
+          16565403648,
+          16565403648
+        ]
+      }
+    },
+    "5070Ti": {
+      "mean": {
+        "raw": {
+          "load_s": 3.775,
+          "prefill_ms": 659.2280000000001,
+          "decode16_ms": 216.126,
+          "peak_bytes": 16519266304
+        },
+        "dictionary": {
+          "load_s": 3.71,
+          "prefill_ms": 659.29,
+          "decode16_ms": 216.09,
+          "peak_bytes": 16519266304
+        }
+      },
+      "paired_load_delta_s": -0.06500000000000003,
+      "bootstrap_load_delta_95_s": [
+        -0.08400000000000016,
+        -0.042999999999999795
+      ],
+      "peak_ranges": {
+        "raw": [
+          16519266304,
+          16519266304
+        ],
+        "dictionary": [
+          16519266304,
+          16519266304
+        ]
+      }
+    }
+  },
+  "runs": [
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": "a1",
+      "load_s": 4.94,
+      "prefill_ms": 1908.51,
+      "decode16_ms": 397.0,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": "a2",
+      "load_s": 4.9,
+      "prefill_ms": 1910.49,
+      "decode16_ms": 397.12,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": "b1",
+      "load_s": 5.03,
+      "prefill_ms": 1909.46,
+      "decode16_ms": 396.97,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": "b2",
+      "load_s": 4.86,
+      "prefill_ms": 1910.13,
+      "decode16_ms": 397.01,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": "a1",
+      "load_s": 4.82,
+      "prefill_ms": 1910.82,
+      "decode16_ms": 397.2,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": "a2",
+      "load_s": 4.98,
+      "prefill_ms": 1910.93,
+      "decode16_ms": 397.09,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": "b1",
+      "load_s": 4.82,
+      "prefill_ms": 1910.5,
+      "decode16_ms": 397.1,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": "b2",
+      "load_s": 4.95,
+      "prefill_ms": 1910.89,
+      "decode16_ms": 397.13,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": "a1",
+      "load_s": 4.99,
+      "prefill_ms": 1911.35,
+      "decode16_ms": 397.11,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": "a2",
+      "load_s": 5.04,
+      "prefill_ms": 1911.1,
+      "decode16_ms": 397.08,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": "b1",
+      "load_s": 4.88,
+      "prefill_ms": 1911.03,
+      "decode16_ms": 397.12,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": "b2",
+      "load_s": 5.1,
+      "prefill_ms": 1913.03,
+      "decode16_ms": 397.89,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": "a1",
+      "load_s": 4.96,
+      "prefill_ms": 1911.34,
+      "decode16_ms": 397.17,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": "a2",
+      "load_s": 4.92,
+      "prefill_ms": 1911.39,
+      "decode16_ms": 397.01,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": "b1",
+      "load_s": 4.83,
+      "prefill_ms": 1911.26,
+      "decode16_ms": 397.08,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": "b2",
+      "load_s": 4.83,
+      "prefill_ms": 1911.69,
+      "decode16_ms": 397.03,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": "a1",
+      "load_s": 4.98,
+      "prefill_ms": 1911.18,
+      "decode16_ms": 397.01,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": "a2",
+      "load_s": 5.0,
+      "prefill_ms": 1911.48,
+      "decode16_ms": 397.04,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": "b1",
+      "load_s": 4.89,
+      "prefill_ms": 1911.52,
+      "decode16_ms": 397.06,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": "b2",
+      "load_s": 5.12,
+      "prefill_ms": 1913.48,
+      "decode16_ms": 397.5,
+      "peak_bytes": 16565403648
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 1,
+      "leg": "a1",
+      "load_s": 3.79,
+      "prefill_ms": 658.94,
+      "decode16_ms": 215.95,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 1,
+      "leg": "a2",
+      "load_s": 3.7,
+      "prefill_ms": 659.89,
+      "decode16_ms": 215.94,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 1,
+      "leg": "b1",
+      "load_s": 3.57,
+      "prefill_ms": 658.94,
+      "decode16_ms": 216.14,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 1,
+      "leg": "b2",
+      "load_s": 3.73,
+      "prefill_ms": 659.28,
+      "decode16_ms": 216.0,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 2,
+      "leg": "a1",
+      "load_s": 3.69,
+      "prefill_ms": 659.03,
+      "decode16_ms": 216.05,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 2,
+      "leg": "a2",
+      "load_s": 3.88,
+      "prefill_ms": 659.11,
+      "decode16_ms": 216.21,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 2,
+      "leg": "b1",
+      "load_s": 3.72,
+      "prefill_ms": 660.84,
+      "decode16_ms": 216.37,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 2,
+      "leg": "b2",
+      "load_s": 3.74,
+      "prefill_ms": 658.89,
+      "decode16_ms": 216.07,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 3,
+      "leg": "a1",
+      "load_s": 3.83,
+      "prefill_ms": 659.57,
+      "decode16_ms": 216.46,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 3,
+      "leg": "a2",
+      "load_s": 3.75,
+      "prefill_ms": 659.2,
+      "decode16_ms": 216.01,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 3,
+      "leg": "b1",
+      "load_s": 3.76,
+      "prefill_ms": 659.5,
+      "decode16_ms": 215.66,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 3,
+      "leg": "b2",
+      "load_s": 3.68,
+      "prefill_ms": 658.9,
+      "decode16_ms": 216.38,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 4,
+      "leg": "a1",
+      "load_s": 3.79,
+      "prefill_ms": 659.56,
+      "decode16_ms": 216.34,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 4,
+      "leg": "a2",
+      "load_s": 3.8,
+      "prefill_ms": 659.28,
+      "decode16_ms": 216.19,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 4,
+      "leg": "b1",
+      "load_s": 3.66,
+      "prefill_ms": 659.39,
+      "decode16_ms": 216.21,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 4,
+      "leg": "b2",
+      "load_s": 3.88,
+      "prefill_ms": 658.47,
+      "decode16_ms": 216.08,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 5,
+      "leg": "a1",
+      "load_s": 3.78,
+      "prefill_ms": 658.33,
+      "decode16_ms": 216.0,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 5,
+      "leg": "a2",
+      "load_s": 3.74,
+      "prefill_ms": 659.37,
+      "decode16_ms": 216.11,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 5,
+      "leg": "b1",
+      "load_s": 3.69,
+      "prefill_ms": 658.99,
+      "decode16_ms": 215.75,
+      "peak_bytes": 16519266304
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 5,
+      "leg": "b2",
+      "load_s": 3.67,
+      "prefill_ms": 659.7,
+      "decode16_ms": 216.24,
+      "peak_bytes": 16519266304
+    }
+  ],
+  "reproduce": [
+    "cargo build --release -p leansonic-cli",
+    "python3 tools/pack_inkling_text.py \"$OFFICIAL/model-00001-of-00001.safetensors\" \"$DICT/model-00001-of-00001.safetensors\" --prepack-head --prepack-attention --prepack-embedding --prepack-mxfp8 --entropy-scales --compact-q8-scales",
+    "python3 tools/pack_inkling_text.py \"$NATIVE/model-00001-of-00001.safetensors\" \"$SECOND/model-00001-of-00001.safetensors\" --compact-q8-scales",
+    "cmp \"$DICT/model-00001-of-00001.safetensors\" \"$SECOND/model-00001-of-00001.safetensors\"",
+    "sha256sum \"$DICT/model-00001-of-00001.safetensors\" \"$DICT/tiktoken/tokenizer.model\"",
+    "nvcc -O3 -arch=sm_120a --cubin kernels/inkling2_sm120.cu -o inkling.cubin",
+    "export LEANSONIC_KV=fp16 LEANSONIC_CTX=8192 LEANSONIC_CUBIN_PATH=\"$PWD/inkling.cubin\"",
+    "target/release/leansonic bench --weights \"$DICT\" --tokens \"@docs/benchmarks/inputs/inkling-readme1024.ids\" --spec 0 --gen 16 --repeat 2",
+    "target/release/leansonic eval-kld --weights \"$DICT\" --ref \"$BF16_KLD\" --chunks 100"
+  ],
+  "setup": "Create fresh NATIVE, DICT and SECOND model directories. NATIVE is the pre-existing five-flag (entropy-scales) package. Place the original tiktoken/tokenizer.model under each deployment directory. BF16_KLD is the original 100 x 512 WikiText oracle from #35. The optional visual tower and MTP sidecar are excluded from both text-only size totals."
+}

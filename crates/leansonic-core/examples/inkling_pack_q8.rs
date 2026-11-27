@@ -6,6 +6,21 @@ use std::io::{self, Read, Write};
 fn main() -> io::Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if let [mode, size] = args.as_slice() {
+        if matches!(mode.as_str(), "q8dict-size" | "q8dict-pack") {
+            let n: usize = size.parse().map_err(io::Error::other)?;
+            if n > 200_058 * 36 * 4 {
+                return Err(io::Error::other("invalid Q8 scale length"));
+            }
+            let mut raw = vec![0; n];
+            io::stdin().lock().read_exact(&mut raw)?;
+            let packed = leansonic_core::inkling_q8_scales::pack(&raw).map_err(io::Error::other)?;
+            if mode == "q8dict-size" {
+                println!("{}", packed.len());
+            } else {
+                io::stdout().lock().write_all(&packed)?;
+            }
+            return Ok(());
+        }
         if matches!(
             mode.as_str(),
             "mxfp8-size" | "mxfp8-pack" | "rans-size" | "rans-pack"
@@ -59,7 +74,12 @@ fn main() -> io::Result<()> {
             return dst.flush();
         }
     }
-    let dimensions = args.as_slice();
+    let (mode, dimensions) = match args.as_slice() {
+        [mode, dims @ ..] if matches!(mode.as_str(), "matrix-dict-size" | "matrix-dict-pack") => {
+            (mode.as_str(), dims)
+        }
+        dims => ("raw", dims),
+    };
     let (rows, cols) = match dimensions {
         [rows, cols] => (rows.parse::<usize>().ok(), cols.parse::<usize>().ok()),
         _ => (None, None),
@@ -93,8 +113,19 @@ fn main() -> io::Result<()> {
             codes_tile,
             &mut scales[offset..offset + elements / 64 * 4],
         );
-        dst.write_all(codes_tile)?;
+        if mode != "matrix-dict-size" {
+            dst.write_all(codes_tile)?;
+        }
     }
-    dst.write_all(&scales)?;
+    if mode == "raw" {
+        dst.write_all(&scales)?;
+    } else {
+        let packed = leansonic_core::inkling_q8_scales::pack(&scales).map_err(io::Error::other)?;
+        if mode == "matrix-dict-size" {
+            writeln!(dst, "{}", packed.len())?;
+        } else {
+            dst.write_all(&packed)?;
+        }
+    }
     dst.flush()
 }

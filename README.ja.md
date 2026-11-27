@@ -119,6 +119,8 @@ mkdir "$dst" && python3 tools/pack_inkling_text.py "$src/$shard" "$dst/$shard" &
 
 Attentionの176個の重みも事前変換するには、上のコマンドに `--prepack-head --prepack-attention` を指定します。公式モデルのテキスト用ファイルは17,847,272,800バイトになります。出力層をすでに変換したファイルを入力にする場合は、`--prepack-attention` だけで追加変換できます。どちらも変換時にCargoを使います。
 
+配布容量をさらに減らすには、公式ファイルの変換時に `--prepack-head --prepack-attention --prepack-embedding --prepack-mxfp8 --entropy-scales --compact-q8-scales` を指定します。最後のオプションは Attention と出力層の Q8 スケールを辞書圧縮し、読み込み時に元の FP32 値をビット単位で復元します。Inkling-2-Mini のテキスト重みは 16,035,182,496 バイトで、別途 tokenizer が必要です。すでに他のオプションで変換したファイルには `--compact-q8-scales` だけを指定できます。読み込みには辞書形式に対応した LeanSonic を使ってください。
+
 ### 2. OpenAI API 互換エンドポイントの呼び出し（`/v1/models`, `/v1/chat/completions`, SSE）
 
 Lean 4（`ServingAndPrompt.lean`）で帰納法により完全性を証明した SSE 状態機械（`SseProtocolGuard`）と、`2048`-token チャンク Prefill 分離則により、`leansonic -p` と複数スロット同時稼働時の `serve` が **`0-ULP` で完全一致**します。

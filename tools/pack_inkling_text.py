@@ -68,7 +68,7 @@ EMBED_SHAPE = [201_024, 2304]
 
 def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack_attention: bool = False,
          prepack_scales: bool = False, prepack_embedding: bool = False, prepack_mxfp8: bool = False,
-         entropy_scales: bool = False) -> tuple[int, int]:
+         entropy_scales: bool = False, compact_q8_scales: bool = False) -> tuple[int, int]:
     """Publish a complete shard atomically without replacing an existing file."""
     if destination.exists():
         raise FileExistsError(f"destination exists: {destination}")
@@ -86,14 +86,23 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
             raise ValueError("expected a safetensors header object")
         head_name = "model.llm.unembed.weight"
         head_prefix = "leansonic.unembed_q8_64."
-        native_head = (header.get(head_prefix + "codes"), header.get(head_prefix + "scales"))
-        has_native_head = any(plane is not None for plane in native_head)
+        head_codes = header.get(head_prefix + "codes")
+        head_scales = header.get(head_prefix + "scales")
+        head_dict = header.get(head_prefix + "scales.dict_v1")
+        has_native_head = any(p is not None for p in (head_codes, head_scales, head_dict))
         if has_native_head:
-            if head_name in header:
+            if head_name in header or (head_scales is not None and head_dict is not None):
                 raise ValueError("ambiguous Inkling output head")
-            for plane, dtype, dims in zip(native_head, ("I8", "F32"), ([200_058, 2304], [200_058, 36])):
-                if not isinstance(plane, dict) or plane.get("dtype") != dtype or plane.get("shape") != dims:
-                    raise ValueError("invalid native Inkling output head")
+            if not isinstance(head_codes, dict) or head_codes.get("dtype") != "I8" or head_codes.get("shape") != [200_058, 2304]:
+                raise ValueError("invalid native Inkling output head codes")
+            if head_dict is None:
+                if not isinstance(head_scales, dict) or head_scales.get("dtype") != "F32" or head_scales.get("shape") != [200_058, 36]:
+                    raise ValueError("invalid native Inkling output head scales")
+            else:
+                dims = head_dict.get("shape") if isinstance(head_dict, dict) else None
+                if (not isinstance(dims, list) or len(dims) != 1 or type(dims[0]) is not int
+                        or dims[0] <= 0 or dims[0] % 8 or head_dict.get("dtype") != "U8"):
+                    raise ValueError("invalid native Inkling output head dictionary")
         packed_embed = header.get(EMBED_NAME + ".prefix_v1")
         if packed_embed is not None:
             if EMBED_NAME in header:
@@ -110,7 +119,7 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
         for name, (_, _, _, prefix) in matrices.items():
             if name not in header:
                 raise ValueError(f"missing source projection {name}")
-            if prefix + "codes" in header or prefix + "scales" in header:
+            if any(prefix + key in header for key in ("codes", "scales", "scales.dict_v1")):
                 raise ValueError(f"input contains conflicting native tensors for {name}")
 
         if prepack_scales and entropy_scales:
@@ -121,6 +130,18 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
                 raise ValueError(f"missing or conflicting source expert scales for {name}")
         scale_mode, scale_suffix = ("rans", ".rans_v1") if entropy_scales else ("scale", ".range_v1")
         lossless = {name: (dtype, shape, scale_mode, scale_suffix) for name, (dtype, shape) in scales.items()}
+        if compact_q8_scales:
+            native = list(attention_matrices().values()) + [(201_024, 200_058, 2304, head_prefix)]
+            for _, rows, cols, prefix in native:
+                name = prefix + "scales"
+                if name in header:
+                    codes = header.get(prefix + "codes")
+                    if (name + ".dict_v1" in header or not isinstance(codes, dict)
+                            or codes.get("dtype") != "I8" or codes.get("shape") != [rows, cols]):
+                        raise ValueError(f"invalid or conflicting native Q8 planes for {name}")
+                    lossless[name] = ("F32", [rows, cols // 64], "q8dict", ".dict_v1")
+            if not matrices and not any(name.endswith("q8_64.scales") for name in lossless):
+                raise ValueError("no raw Q8 scales to compact; select --prepack-attention or --prepack-head for BF16 input")
         if prepack_mxfp8:
             for name, shape in mxfp8_expert_weights().items():
                 if name not in header or name + ".rans_v1" in header:
@@ -156,15 +177,28 @@ def pack(source: Path, destination: Path, *, prepack_head: bool = False, prepack
                 input_rows, rows, cols, prefix = matrices[name]
                 if info["dtype"] != "BF16" or shape != [input_rows, cols]:
                     raise ValueError(f"unexpected dimensions or dtype for {name}")
+                arguments = [str(rows), str(cols)]
+                raw_bytes = rows * (cols // 64) * 4
+                scale_plane = ("scales", "F32", [rows, cols // 64], raw_bytes)
+                if compact_q8_scales:
+                    src.seek(8 + header_len + start)
+                    result = subprocess.run([packer, "matrix-dict-size", *arguments], stdin=src,
+                                            stdout=subprocess.PIPE, text=True, check=True)
+                    size = int(result.stdout)
+                    if size <= 0 or size % 8:
+                        raise ValueError(f"invalid Q8 dictionary size for {name}")
+                    if size < raw_bytes:
+                        scale_plane = ("scales.dict_v1", "U8", [size], size)
+                        arguments.insert(0, "matrix-dict-pack")
                 for suffix, dtype, dims, size in (
                     ("codes", "I8", [rows, cols], rows * cols),
-                    ("scales", "F32", [rows, cols // 64], rows * (cols // 64) * 4),
+                    scale_plane,
                 ):
                     output_header[prefix + suffix] = {
                         "dtype": dtype, "shape": dims, "data_offsets": [new_end, new_end + size]
                     }
                     new_end += size
-                spans.append((start, end, ([str(rows), str(cols)], rows * cols + rows * (cols // 64) * 4)))
+                spans.append((start, end, (arguments, rows * cols + scale_plane[3])))
                 continue
             if name in lossless:
                 expected_dtype, expected_shape, mode, suffix = lossless[name]
@@ -229,6 +263,7 @@ def main() -> None:
     parser.add_argument("destination", type=Path, help="new text-only safetensors shard")
     parser.add_argument("--prepack-head", action="store_true", help="store LeanSonic native output-head weights (requires Cargo)")
     parser.add_argument("--prepack-attention", action="store_true", help="store native Q8_64 attention projections (requires Cargo)")
+    parser.add_argument("--compact-q8-scales", action="store_true", help="losslessly dictionary-code native Q8_64 scales where smaller")
     scale_group = parser.add_mutually_exclusive_group()
     scale_group.add_argument("--entropy-scales", action="store_true", help="store MoE expert scales with lossless byte rANS")
     scale_group.add_argument("--prepack-scales", action="store_true", help="store lossless packed MoE expert scales (requires Cargo)")
@@ -238,7 +273,7 @@ def main() -> None:
     try:
         removed, saved = pack(args.source, args.destination, prepack_head=args.prepack_head, prepack_attention=args.prepack_attention,
                               prepack_scales=args.prepack_scales, prepack_embedding=args.prepack_embedding, prepack_mxfp8=args.prepack_mxfp8,
-                              entropy_scales=args.entropy_scales)
+                              entropy_scales=args.entropy_scales, compact_q8_scales=args.compact_q8_scales)
     except (OSError, ValueError, TypeError, KeyError, subprocess.CalledProcessError) as exc:
         parser.exit(1, f"pack failed: {exc}\n")
     print(f"Omitted {removed} vision tensors. Saved {saved:,} bytes.")

@@ -12,6 +12,7 @@ pub mod inkling2_gpu;
 pub mod inkling2_mtp;
 pub mod inkling_embedding;
 pub mod inkling_mxfp8;
+pub mod inkling_q8_scales;
 pub mod inkling_scales;
 pub mod kernels;
 pub mod offload;
