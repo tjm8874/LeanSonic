@@ -294,6 +294,7 @@ struct ExpertKernels {
     nvfp4_down: CUfunction,
     nvfp4_dp4a_up_situ: CUfunction,
     nvfp4_dp4a_up_half: Option<CUfunction>,
+    nvfp4_staged_up: Option<(CUfunction, CUfunction)>,
     nvfp4_dp4a_down: CUfunction,
     /// Expert-parallel decode MoE down (bit-identical to `nvfp4_dp4a_down`).
     nvfp4_dp4a_down_xw: Option<CUfunction>,
@@ -686,6 +687,7 @@ pub struct Inkling2GpuEngine {
     pub spilled_expert_layers: usize,
     pub max_ctx: usize,
     use_moe_dp4a: bool,
+    stage_host_up: bool,
     /// `LEANSONIC_MOE_DOWN_XW`: 0 = off, 1 = VRAM-resident layers (default), 2 = all layers.
     moe_down_xw: u8,
     tc_q8: bool,
@@ -1780,6 +1782,7 @@ impl Inkling2GpuEngine {
             spilled_expert_layers: 0,
             max_ctx,
             use_moe_dp4a,
+            stage_host_up: false,
             moe_down_xw: std::env::var("LEANSONIC_MOE_DOWN_XW")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -1926,6 +1929,10 @@ impl Inkling2GpuEngine {
             st.discard_resident_pages();
         }
 
+        eng.stage_host_up = eng.select_host_up_staging()?;
+        if eng.stage_host_up {
+            eprintln!("[LeanSonic GPU] Staging selected host-backed NVFP4 gate/up weights");
+        }
         if enable_cuda_graph {
             eng.recapture_cuda_graphs()?;
         }
@@ -2140,6 +2147,9 @@ impl Inkling2GpuEngine {
                 nvfp4_down: load("nvfp4_down")?,
                 nvfp4_dp4a_up_situ: load("nvfp4_dp4a_up_situ")?,
                 nvfp4_dp4a_up_half: load("nvfp4_dp4a_up_half").ok(),
+                nvfp4_staged_up: get_fn("ink2_gather_nvfp4_up_192")
+                    .ok()
+                    .zip(load("nvfp4_dp4a_up_half_staged").ok()),
                 nvfp4_dp4a_down: load("nvfp4_dp4a_down")?,
                 nvfp4_dp4a_down_xw: load("nvfp4_dp4a_down_xw").ok(),
                 mxfp8_up_situ: load("mxfp8_up_situ")?,
@@ -2753,6 +2763,130 @@ impl Inkling2GpuEngine {
         }
     }
 
+    fn enqueue_nvfp4_up(
+        &self,
+        stream: CUstream,
+        w13: &TierBuf,
+        s13: &ExpertScalePlane,
+        a13: &DeviceBuf,
+        use_staging: bool,
+    ) -> Result<(), String> {
+        let mut pw13 = w13.ptr();
+        let mut ps13 = s13.buffer.ptr;
+        let mut pa13 = a13.ptr;
+        let mut pxq = self.d_act_q8_16.ptr;
+        let mut pxs = self.d_act_sc_16.ptr;
+        let mut pids = self.d_sel_ids.ptr;
+        let mut pact = self.d_moe_act.ptr;
+        let mut up_args: [*mut c_void; 7] = [
+            (&mut pw13 as *mut _) as *mut c_void,
+            (&mut ps13 as *mut _) as *mut c_void,
+            (&mut pa13 as *mut _) as *mut c_void,
+            (&mut pxq as *mut _) as *mut c_void,
+            (&mut pxs as *mut _) as *mut c_void,
+            (&mut pids as *mut _) as *mut c_void,
+            (&mut pact as *mut _) as *mut c_void,
+        ];
+        const TILE: usize = 192;
+        const { assert!(FF % TILE == 0) };
+        let scratch = &self.prefill.layer_workspace.pair_output;
+        let staged_up = s13
+            .kernels
+            .nvfp4_staged_up
+            .filter(|_| use_staging && scratch.byte_len >= TOP_K * TILE * D);
+        if let (TierBuf::HostPinned(_), Some((gather, up))) = (w13, staged_up) {
+            // The singleton visit uses dedicated activation buffers. Its prefill
+            // workspace is free, and both kernels run on the same compute stream.
+            let mut staged = scratch.ptr;
+            for channel in (0..FF).step_by(TILE) {
+                let mut start = channel as i32;
+                let mut copy_args = [
+                    (&mut pw13 as *mut _) as *mut c_void,
+                    (&mut pids as *mut _) as *mut c_void,
+                    (&mut staged as *mut _) as *mut c_void,
+                    (&mut start as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, gather, (32, TOP_K as u32), 256, &mut copy_args)?;
+                let mut tile_args = [
+                    (&mut staged as *mut _) as *mut c_void,
+                    up_args[1],
+                    up_args[2],
+                    up_args[3],
+                    up_args[4],
+                    up_args[5],
+                    up_args[6],
+                    (&mut start as *mut _) as *mut c_void,
+                ];
+                self.launch(
+                    stream,
+                    up,
+                    ((TILE / 4) as u32, TOP_K as u32),
+                    128,
+                    &mut tile_args,
+                )?;
+            }
+        } else {
+            // Reading mapped host weights with half warps regresses PCIe decode.
+            let (up_kernel, threads) = match (w13, s13.kernels.nvfp4_dp4a_up_half) {
+                (TierBuf::Vram(_), Some(f)) => (f, 128),
+                _ => (s13.kernels.nvfp4_dp4a_up_situ, 256),
+            };
+            self.launch(stream, up_kernel, (288, 8), threads, &mut up_args)?;
+        }
+        Ok(())
+    }
+
+    /// Host-mapped loads depend on the PCIe link as well as the GPU. Time both
+    /// paths on an actual spilled matrix before capturing the decode graph.
+    fn select_host_up_staging(&self) -> Result<bool, String> {
+        let target =
+            self.layers
+                .iter()
+                .zip(&self.expert_weights)
+                .find_map(
+                    |(layer, weights)| match (&weights[0], &layer.expert_scales) {
+                        (w @ TierBuf::HostPinned(_), ExpertScales::Nvfp4 { s13, a13, .. })
+                            if self.use_moe_dp4a
+                                && s13.kernels.nvfp4_staged_up.is_some()
+                                && self.prefill.layer_workspace.pair_output.byte_len
+                                    >= TOP_K * 192 * D =>
+                        {
+                            Some((w, s13, a13))
+                        }
+                        _ => None,
+                    },
+                );
+        let Some((w, scales, alpha)) = target else {
+            return Ok(false);
+        };
+        match std::env::var("LEANSONIC_STAGE_HOST_UP").as_deref() {
+            Ok("0") => return Ok(false),
+            Ok("1") => return Ok(true),
+            _ => {}
+        }
+        let stream = self.ctx.compute_stream;
+        let mut times = [std::time::Duration::ZERO; 2];
+        // Select distinct experts on both passes. Swapping the order balances warm-up bias.
+        for (pass, order) in [[false, true], [true, false]].into_iter().enumerate() {
+            let ids: Vec<u8> = (0..TOP_K)
+                .flat_map(|k| ((pass * 7 + k * 13) as i32).to_le_bytes())
+                .collect();
+            self.d_sel_ids.copy_from_host_at(0, &ids)?;
+            for mode in order {
+                self.enqueue_nvfp4_up(stream, w, scales, alpha, mode)?;
+                self.ctx.sync_compute()?;
+                let start = Instant::now();
+                for _ in 0..2 {
+                    self.enqueue_nvfp4_up(stream, w, scales, alpha, mode)?;
+                }
+                self.ctx.sync_compute()?;
+                times[mode as usize] += start.elapsed();
+            }
+        }
+        // The first real router overwrites the probe IDs before any expert reads them.
+        Ok(times[1].as_secs_f64() < 0.97 * times[0].as_secs_f64())
+    }
+
     fn enqueue_visit(
         &self,
         stream: CUstream,
@@ -3359,29 +3493,10 @@ impl Inkling2GpuEngine {
                     if !mlp_q8_16_ready {
                         self.enqueue_quant_q8_16(stream, self.d_mlp_h.ptr, 1, D)?;
                     }
-                    let mut pw13 = w13.ptr();
-                    let mut ps13 = s13.buffer.ptr;
-                    let mut pa13 = a13.ptr;
+                    self.enqueue_nvfp4_up(stream, w13, s13, a13, self.stage_host_up)?;
                     let mut pxq = self.d_act_q8_16.ptr;
                     let mut pxs = self.d_act_sc_16.ptr;
                     let mut pids = self.d_sel_ids.ptr;
-                    let mut pact = self.d_moe_act.ptr;
-                    let mut up_args: [*mut c_void; 7] = [
-                        (&mut pw13 as *mut _) as *mut c_void,
-                        (&mut ps13 as *mut _) as *mut c_void,
-                        (&mut pa13 as *mut _) as *mut c_void,
-                        (&mut pxq as *mut _) as *mut c_void,
-                        (&mut pxs as *mut _) as *mut c_void,
-                        (&mut pids as *mut _) as *mut c_void,
-                        (&mut pact as *mut _) as *mut c_void,
-                    ];
-                    // Reading mapped host weights with half warps regresses PCIe decode.
-                    let (up_kernel, threads) = match (w13, s13.kernels.nvfp4_dp4a_up_half) {
-                        (TierBuf::Vram(_), Some(f)) => (f, 128),
-                        _ => (s13.kernels.nvfp4_dp4a_up_situ, 256),
-                    };
-                    self.launch(stream, up_kernel, (288, 8), threads, &mut up_args)?;
-
                     self.enqueue_quant_q8_16(stream, self.d_moe_act.ptr, TOP_K, FF)?;
                     let mut pw2 = w2.ptr();
                     let mut ps2 = s2.buffer.ptr;
