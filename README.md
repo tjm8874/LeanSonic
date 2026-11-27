@@ -156,6 +156,8 @@ Use `--prepack-embedding` to store the BF16 input embedding losslessly. You can 
 
 Add `--prepack-mxfp8` to losslessly encode the eight MXFP8 expert weight tensors. It can be applied to the previous package or combined with the other flags on the official checkpoint. With all five flags the text shard occupies **16,195,210,184 bytes**. This format requires a compatible reader. At startup the loader places the restored weights using their original byte counts. Weights assigned to host memory decode into their pinned allocation. GPU-resident weights decode in batches of up to 16 MiB before upload.
 
+For the smallest tested text shard, use `--entropy-scales` in place of `--prepack-scales` when converting the official checkpoint with `--prepack-head --prepack-attention --prepack-embedding --prepack-mxfp8`. This stores the same expert scale bytes in rANS frames and produces a **16,086,645,336-byte** shard. It requires a reader with entropy-scale support. In five warm-file ABBA rounds, mean load time changed from 2.73 to 2.61 seconds on the Ryzen 9 9900X / RTX PRO 4500 and from 4.65 to 4.86 seconds on the Core i5-14400 / RTX 5060 Ti. Both formats restore the original GPU scale values.
+
 ### 2. Query the OpenAI-Compatible Server (`GET /v1/models`, `POST /v1/chat/completions`, SSE)
 
 ```bash

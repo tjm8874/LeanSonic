@@ -696,19 +696,9 @@ impl<'a> ExpertMatrix<'a> {
                 if on_device {
                     match DeviceBuf::alloc_zeroed(ctx, count) {
                         Ok(buf) => {
-                            // Bound temporary host memory even for a 648 MiB expert matrix.
-                            let mut staging = vec![0u8; count.min(16 << 20)];
-                            let chunk = staging.len();
-                            for offset in (0..count).step_by(chunk) {
-                                let len = chunk.min(count - offset);
-                                let dst = &mut staging[..len];
-                                // decode_at writes only initialized bytes; upload after successful decode.
-                                let target = unsafe {
-                                    std::slice::from_raw_parts_mut(dst.as_mut_ptr().cast(), len)
-                                };
-                                matrix.decode_at(offset, target)?;
-                                buf.copy_from_host_at(offset, dst)?;
-                            }
+                            matrix.for_each_chunk(|offset, bytes| {
+                                buf.copy_from_host_at(offset, bytes)
+                            })?;
                             return Ok(TierBuf::Vram(buf));
                         }
                         Err(e) if e.starts_with("CUDA error 2 in `cuMemAlloc_v2`") => {}
@@ -1222,17 +1212,28 @@ impl Inkling2GpuEngine {
             let load_scale = |name: &str, dtype: &str, shape: &[usize]| {
                 let raw = st.get(name);
                 let packed = st.get(&format!("{name}.range_v1"));
-                match (raw, packed) {
-                    (Some(t), None) if t.dtype == dtype && t.shape == shape => {
+                let entropy = st.get(&format!("{name}.rans_v1"));
+                match (raw, packed, entropy) {
+                    (Some(t), None, None) if t.dtype == dtype && t.shape == shape => {
                         DeviceBuf::from_host_bytes(&ctx, t.data)
                     }
-                    (None, Some(t)) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                    (None, Some(t), None) if t.dtype == "U8" && t.shape == [t.data.len()] => {
                         let count = shape.iter().product();
                         let buf = DeviceBuf::alloc_zeroed(&ctx, count)?;
                         crate::inkling_scales::unpack_scales(t.data, count, |offset, bytes| {
                             buf.copy_from_host_at(offset, bytes)
                         })
                         .map_err(|e| format!("{name}: {e}"))?;
+                        Ok(buf)
+                    }
+                    (None, None, Some(t)) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                        let count = shape.iter().product();
+                        let matrix = crate::inkling_mxfp8::Matrix::parse(t.data, count)
+                            .map_err(|e| format!("{name}: {e}"))?;
+                        let buf = DeviceBuf::alloc_zeroed(&ctx, count)?;
+                        matrix
+                            .for_each_chunk(|offset, bytes| buf.copy_from_host_at(offset, bytes))
+                            .map_err(|e| format!("{name}: {e}"))?;
                         Ok(buf)
                     }
                     _ => Err(format!(
