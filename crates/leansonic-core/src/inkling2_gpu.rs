@@ -20,7 +20,9 @@ use crate::cuda_ffi::{
     CUlaunchConfig, CUmodule, CUstream, CapturedGraphExec, CudaContextHandle, DeviceBuf,
     PinnedHostBuf, CU_EVENT_DISABLE_TIMING,
 };
-use crate::inkling2_mtp::{ContextCopyIndex, DsparkDrafterGpu, MtpKernelFns, SuffixDrafter};
+use crate::inkling2_mtp::{
+    spec_copy_match, ContextCopyIndex, DsparkDrafterGpu, MtpKernelFns, SuffixDrafter,
+};
 use crate::safetensors::MappedSafeTensors;
 
 const CUDA_KERNEL_SRC: &str = include_str!("../../../kernels/inkling2_sm120.cu");
@@ -6214,15 +6216,11 @@ impl Inkling2GpuEngine {
 
         // Speculative Decoding (`DSpark` `mtp.safetensors` GPU Drafter or `SuffixDrafter` fallback)
         // Context copy (#177): with the neural drafter loaded, a round whose last
-        // `SPEC_COPY_MATCH` tokens already occurred in the prompt or output proposes the tokens
-        // that followed them instead of running the drafter. Verification keeps the output
-        // greedy-exact. `LEANSONIC_SPEC_COPY=n` sets the match length; `0` disables it.
-        const SPEC_COPY_MATCH: usize = 12;
+        // `spec_copy_match()` tokens already occurred in the prompt or output proposes the
+        // tokens that followed them instead of running the drafter. Verification keeps the
+        // output greedy-exact.
         let copy_match = if self.drafter.is_some() {
-            std::env::var("LEANSONIC_SPEC_COPY")
-                .ok()
-                .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(SPEC_COPY_MATCH)
+            spec_copy_match()
         } else {
             0
         };

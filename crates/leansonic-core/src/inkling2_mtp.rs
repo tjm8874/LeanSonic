@@ -1434,6 +1434,17 @@ impl SuffixDrafter {
     }
 }
 
+/// Default match length for the context copy that stands in for a DSpark round (#177).
+pub const SPEC_COPY_MATCH: usize = 12;
+
+/// Context-copy match length: `LEANSONIC_SPEC_COPY=n`, `0` disables the copy.
+pub fn spec_copy_match() -> usize {
+    std::env::var("LEANSONIC_SPEC_COPY")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(SPEC_COPY_MATCH)
+}
+
 /// The `max_k` tokens that follow position `end` when the sequence `at(0..n)` keeps
 /// repeating from there: once the copy reaches `n` it continues with its own output (an
 /// overlapping LZ77 copy), so a run of period `n - end` still fills the whole draft.
