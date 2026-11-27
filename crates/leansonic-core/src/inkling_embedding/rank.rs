@@ -46,14 +46,16 @@ pub fn unpack_rank_embedding(frame: &[u8], dst: &mut [MaybeUninit<u8>]) -> Resul
                     let lower_start = offset / 8 * bits;
                     let low_groups = lower[lower_start..].chunks_exact(bits);
                     for ((hi, low), out) in high
-                        .chunks_exact(8)
+                        .as_chunks::<8>()
+                        .0
+                        .iter()
                         .zip(low_groups)
-                        .zip(output.chunks_exact_mut(16))
+                        .zip(output.as_chunks_mut::<16>().0.iter_mut())
                     {
                         let mut packed = [0u8; 8];
                         packed[..bits].copy_from_slice(low);
                         let mut lanes = u64::from_le_bytes(packed);
-                        for (&h, word_out) in hi.iter().zip(out.chunks_exact_mut(2)) {
+                        for (&h, word_out) in hi.iter().zip(out.as_chunks_mut::<2>().0.iter_mut()) {
                             // decode_at initialized every upper rank in this tile.
                             let rank = ((unsafe { h.assume_init() } as usize) << bits)
                                 | (lanes & mask) as usize;
@@ -136,7 +138,7 @@ mod tests {
         frame.extend(upper);
         let mut output = vec![MaybeUninit::uninit(); count * 2];
         unpack_rank_embedding(&frame, &mut output).unwrap();
-        for (i, word) in output.chunks_exact(2).enumerate() {
+        for (i, word) in output.as_chunks::<2>().0.iter().enumerate() {
             // The checked decode completed for both tiles.
             let actual =
                 unsafe { u16::from_le_bytes([word[0].assume_init(), word[1].assume_init()]) };
