@@ -29,3 +29,7 @@ python3 build.py "$ENGINE_REPO" ./bench
 python3 prepare.py "$PARENT_MODEL" "$NEW_MODEL" "$FIT_JSON"
 bash time.sh
 ```
+
+## Full-model startup with the initial reader
+
+On RTX PRO 4500, the initial class-frame reader ca0fff1 ran original/split/split/original against the same six BF16 diagnostic chunks. All four 1,530-row full-vocabulary fingerprint files and score aggregates matched. For the original package, the loader reported 9.39 and 11.36 seconds; for the split package it reported 17.22 and 12.62 seconds. All four runs placed 24/24 layers on the device. Saving 4,036,640 distribution bytes added 4.55 seconds of startup on average in this single mirrored cycle. The streaming reader was introduced to lower the cost; the CPU results above cover two projections, and its full-model startup is measured separately. [Four full-model runs and hashes](pro4500-loader.json).

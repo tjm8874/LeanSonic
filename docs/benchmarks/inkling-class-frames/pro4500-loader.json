@@ -1,0 +1,107 @@
+{
+  "source": "ca0fff1c0e45dedf741f764c0624cfd050142a49",
+  "cli_sha256": "d7191de6e45274618a4ee1429712df881f8aba42a1795a7df13b1bee5e2dce2b",
+  "gpu": "NVIDIA RTX PRO 4500 Blackwell, 595.99.02",
+  "legs": [
+    {
+      "arm": "original",
+      "elapsed_s": 21.72,
+      "load_s": 9.39,
+      "host_peak_kib": 6661288,
+      "row_hash": "fd412f04a7bfd9786ee4e0b475f2f266f628872162117e335f64eaefced309ab",
+      "scores": {
+        "chunks": 6,
+        "context": 512,
+        "rows": 1530,
+        "ppl": 6.634713641183662,
+        "ref_ppl": 6.532327441454407,
+        "mean_kld": 0.018477046039118063,
+        "median_kld": 0.0066933611748755464,
+        "p99_kld": 0.21337304083223185,
+        "max_kld": 0.9899057246205994,
+        "start_chunk": 0,
+        "max_kld_chunk": 1,
+        "max_kld_position": 284,
+        "ref_floor_targets": 1,
+        "top1_matches": 1443,
+        "top1_agreement": 0.9431372549019608
+      }
+    },
+    {
+      "arm": "split",
+      "elapsed_s": 29.46,
+      "load_s": 17.22,
+      "host_peak_kib": 6652248,
+      "row_hash": "fd412f04a7bfd9786ee4e0b475f2f266f628872162117e335f64eaefced309ab",
+      "scores": {
+        "chunks": 6,
+        "context": 512,
+        "rows": 1530,
+        "ppl": 6.634713641183662,
+        "ref_ppl": 6.532327441454407,
+        "mean_kld": 0.018477046039118063,
+        "median_kld": 0.0066933611748755464,
+        "p99_kld": 0.21337304083223185,
+        "max_kld": 0.9899057246205994,
+        "start_chunk": 0,
+        "max_kld_chunk": 1,
+        "max_kld_position": 284,
+        "ref_floor_targets": 1,
+        "top1_matches": 1443,
+        "top1_agreement": 0.9431372549019608
+      }
+    },
+    {
+      "arm": "split",
+      "elapsed_s": 24.83,
+      "load_s": 12.62,
+      "host_peak_kib": 6653540,
+      "row_hash": "fd412f04a7bfd9786ee4e0b475f2f266f628872162117e335f64eaefced309ab",
+      "scores": {
+        "chunks": 6,
+        "context": 512,
+        "rows": 1530,
+        "ppl": 6.634713641183662,
+        "ref_ppl": 6.532327441454407,
+        "mean_kld": 0.018477046039118063,
+        "median_kld": 0.0066933611748755464,
+        "p99_kld": 0.21337304083223185,
+        "max_kld": 0.9899057246205994,
+        "start_chunk": 0,
+        "max_kld_chunk": 1,
+        "max_kld_position": 284,
+        "ref_floor_targets": 1,
+        "top1_matches": 1443,
+        "top1_agreement": 0.9431372549019608
+      }
+    },
+    {
+      "arm": "original",
+      "elapsed_s": 23.8,
+      "load_s": 11.36,
+      "host_peak_kib": 6653760,
+      "row_hash": "fd412f04a7bfd9786ee4e0b475f2f266f628872162117e335f64eaefced309ab",
+      "scores": {
+        "chunks": 6,
+        "context": 512,
+        "rows": 1530,
+        "ppl": 6.634713641183662,
+        "ref_ppl": 6.532327441454407,
+        "mean_kld": 0.018477046039118063,
+        "median_kld": 0.0066933611748755464,
+        "p99_kld": 0.21337304083223185,
+        "max_kld": 0.9899057246205994,
+        "start_chunk": 0,
+        "max_kld_chunk": 1,
+        "max_kld_position": 284,
+        "ref_floor_targets": 1,
+        "top1_matches": 1443,
+        "top1_agreement": 0.9431372549019608
+      }
+    }
+  ],
+  "mean_load_s": {
+    "original": 10.375,
+    "split": 14.919999999999998
+  }
+}
