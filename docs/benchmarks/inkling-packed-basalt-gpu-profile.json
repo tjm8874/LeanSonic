@@ -1,0 +1,325 @@
+{
+  "hardware": {
+    "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+    "uuid": "GPU-4636fd80-68e6-909c-cea4-60f0f4f5601e",
+    "driver": "595.99.02",
+    "power_limit": "350.00 W",
+    "pci_bus": "00000000:03:00.0"
+  },
+  "lean_source": "f407b3ae3aadb59740c51170a5aec325feed5711",
+  "basalt_source": "5fe1928dcc82ad62286d2a622bcbb5d85ebfba2b",
+  "benchmark": "inkling-packed-basalt-current.json",
+  "method": "One separate Nsight Systems CUDA node trace per engine. Prefill spans from first embedding to the last prefill kernel (LeanSonic) or first sampling result (Basalt). Kernel times are sums of device intervals. Concurrent work can overlap. Decode sums are per forward over 16 decode steps; use the untraced five-cycle receipt for headline wall time.",
+  "prefill": {
+    "lean": {
+      "start": "ink2_embed_rmsnorm_b",
+      "end": "ink2_inc_pos_by",
+      "kernels": 1044,
+      "gpu_span_ms": 455.659,
+      "kernel_sum_ms": 455.368,
+      "top": [
+        [
+          "ink2_moe_nvfp4_dp4a_grouped_up_situ_packed_scales",
+          98.97,
+          44
+        ],
+        [
+          "ink2_q8_dp4a_gemm_b",
+          89.475,
+          152
+        ],
+        [
+          "ink2_gqa_rel_sink_attn_q8_b",
+          64.545,
+          48
+        ],
+        [
+          "ink2_moe_nvfp4_dp4a_grouped_down_packed_scales",
+          58.427,
+          44
+        ],
+        [
+          "ink2_moe_mxfp8_grouped_up_situ_packed_scales",
+          43.924,
+          4
+        ],
+        [
+          "ink2_moe_mxfp8_grouped_down_packed_scales",
+          24.526,
+          4
+        ],
+        [
+          "ink2_short_conv4_b",
+          23.481,
+          144
+        ],
+        [
+          "ink2_short_conv4_save_b",
+          17.046,
+          48
+        ],
+        [
+          "ink2_ctrl_down_r8_b",
+          11.945,
+          48
+        ],
+        [
+          "ink2_bf16_gemm_router_b",
+          6.014,
+          48
+        ],
+        [
+          "ink2_ctrl_apply_t8_b",
+          4.357,
+          48
+        ],
+        [
+          "ink2_depth_mix_b",
+          3.232,
+          72
+        ],
+        [
+          "ink2_quant_q8_16_packed",
+          1.951,
+          44
+        ],
+        [
+          "ink2_moe_combine_top8_b",
+          1.929,
+          48
+        ]
+      ]
+    },
+    "basalt": {
+      "start": "embed_rows_kernel",
+      "end": "sampler_greedy_cluster_kernel",
+      "kernels": 2533,
+      "gpu_span_ms": 94.11,
+      "kernel_sum_ms": 91.681,
+      "top": [
+        [
+          "gemm_kernel_256",
+          40.511,
+          88
+        ],
+        [
+          "gemm_64x64_ws_kernel",
+          11.694,
+          152
+        ],
+        [
+          "attn_prompt_kernel",
+          4.644,
+          48
+        ],
+        [
+          "ctrl_down_prompt_kernel",
+          4.583,
+          96
+        ],
+        [
+          "gemm_kernel",
+          4.39,
+          8
+        ],
+        [
+          "attnres_mix_kernel",
+          3.245,
+          119
+        ],
+        [
+          "f32_rows_dot_cpasync_kernel",
+          2.064,
+          48
+        ],
+        [
+          "ctrl_up_blend_prompt_kernel",
+          1.972,
+          96
+        ],
+        [
+          "expert_prefetch_kernel",
+          1.767,
+          47
+        ],
+        [
+          "post_conv_kernel",
+          1.734,
+          96
+        ],
+        [
+          "native_q8p_w1_kernel",
+          1.631,
+          69
+        ],
+        [
+          "quantize_f16_kernel",
+          1.332,
+          44
+        ],
+        [
+          "moe_combine_f16_kernel",
+          1.035,
+          48
+        ],
+        [
+          "attn_prepare_kernel",
+          0.942,
+          48
+        ]
+      ]
+    }
+  },
+  "decode_per_forward": {
+    "lean": {
+      "top_name_ms_count": [
+        [
+          "ink2_q8_dp4a_gemv",
+          1.2191750624999977,
+          69.0
+        ],
+        [
+          "ink2_gqa_rel_sink_attn_q8_decode",
+          1.0012328749999995,
+          48.0
+        ],
+        [
+          "ink2_moe_nvfp4_dp4a_up_situ_packed_scales",
+          0.9797109999999994,
+          44.0
+        ],
+        [
+          "ink2_moe_nvfp4_dp4a_down_packed_scales",
+          0.67448925,
+          44.0
+        ],
+        [
+          "ink2_q8_dp4a_qkv3_gemv",
+          0.5387695000000002,
+          28.0
+        ],
+        [
+          "ink2_ctrl_down",
+          0.3010636875,
+          48.0
+        ],
+        [
+          "ink2_depth_mix",
+          0.2317194374999999,
+          50.0
+        ],
+        [
+          "ink2_depth_mix_rmsnorm_d_quant_q8_16_b",
+          0.22516968750000013,
+          24.0
+        ],
+        [
+          "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+          0.21906375,
+          24.0
+        ],
+        [
+          "ink2_bf16_gemv",
+          0.18899981249999975,
+          48.0
+        ],
+        [
+          "ink2_ctrl_apply_coalesced_b",
+          0.1593378749999997,
+          48.0
+        ],
+        [
+          "ink2_moe_mxfp8_up_situ_packed_scales",
+          0.150683875,
+          4.0
+        ],
+        [
+          "ink2_rmsnorm_d_quant_q8_16_b",
+          0.13017193750000028,
+          24.0
+        ],
+        [
+          "ink2_router_topk8",
+          0.12257193749999971,
+          48.0
+        ]
+      ],
+      "kernel_sum_ms": 6.699477187499997
+    },
+    "basalt": {
+      "top_name_ms_count": [
+        [
+          "attn_mma_kernel",
+          1.387329312499999,
+          48.0
+        ],
+        [
+          "expert_prefetch_kernel",
+          1.3033732500000008,
+          47.0
+        ],
+        [
+          "native_q8p_w1_kernel",
+          1.2222673125,
+          69.0
+        ],
+        [
+          "native_gu_multi_kernel",
+          0.9206754375,
+          48.0
+        ],
+        [
+          "native_down_sub8_kernel",
+          0.7277156249999994,
+          48.0
+        ],
+        [
+          "attn_combine_kernel",
+          0.5547576875,
+          48.0
+        ],
+        [
+          "native_q8p_w1_seg_kernel",
+          0.5372298125000002,
+          28.0
+        ],
+        [
+          "router_logits_kernel",
+          0.32237762500000094,
+          95.0
+        ],
+        [
+          "prepare_kernel",
+          0.30352987500000034,
+          48.0
+        ],
+        [
+          "mix_norm_kernel",
+          0.23555587500000105,
+          51.0
+        ],
+        [
+          "post_attn_kernel",
+          0.23547387499999975,
+          48.0
+        ],
+        [
+          "moe_finish_kernel",
+          0.19902793749999995,
+          48.0
+        ],
+        [
+          "swiglu_softcap_q8_1_entries_kernel",
+          0.19448793750000035,
+          48.0
+        ],
+        [
+          "ctrl_blend_kernel",
+          0.19312187499999972,
+          48.0
+        ]
+      ],
+      "kernel_sum_ms": 8.962484812500001
+    }
+  }
+}
