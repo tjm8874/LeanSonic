@@ -10302,7 +10302,7 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
             s->sm_out_pairs[tid] = exp_pairs[expert_map_offset(expert, first + clamped)];
         }
     }
-    __syncthreads();
+    // The first MMA-stage barrier also publishes the metadata used by the epilogue.
 
     const int xr = tid >> 2;  // 0..127 (`512` threads load ALL `128 x 64B` in `1` single pass!)
     const int xq4 = tid & 3;  // 0..3
@@ -10450,7 +10450,12 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
                 s->sm_wsc[next_bank + 1][wr_r] = next_wsc1;
             }
         }
-        __syncthreads();
+        // On the next iteration a copy into this stage is issued only while
+        // another K tile remains to enqueue. Draining stages are read-only.
+        // Each iteration still waits and synchronizes before consuming its tile.
+        if (ks64 + 3 < kStages64) {
+            __syncthreads();
+        }
         st = st_next;
     }
 
