@@ -44,3 +44,22 @@ On RTX 5070 Ti, the grouped and fallback single-round implementations reproduce 
 The current and ea3a7cf controls use the PRO 5000 and 5060 Ti full row files above. The new column uses the 5070 Ti. All three score the same underlying model and use the same oracle and scorer settings. See the [row hashes and paired per-position changes](single-round/candidate-5070.json).
 
 The single-round candidate has the lowest mean and worst KL of these three recurrences on both splits. Relative to current it gains 2 test and 16 validation BF16 top tokens. PPL increases by 0.000383 on test and 0.000248 on validation. Relative to ea3a7cf it loses 11 test top matches while gaining 8 on validation. Its new worst test position is chunk 98 position 465. These results motivate testing the single-round implementation as the draft head. A default or release decision also depends on throughput for this specific implementation and its results on other precisions.
+
+## Replaying difficult inputs on other packages
+
+Seven complete 512-token chunks (1,785 scored positions) on RTX PRO 5000 cover test 2, 36, 81, 98, 5 and 23 plus validation 85. The inputs were selected for known failures and over-represent the tails. All arms used the same scorer, references, FP16 KV and 24/24 resident expert layers. The earlier G1-only control reproduces the previous recurrence for grouped decode.
+
+| Package | Recurrence | Mean KL | Worst KL | BF16 top-1 / 1,785 | PPL |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 927 | current | 0.0240336 | 2.5145924 | 1,674 | 7.016078 |
+| 927 | earlier G1 | 0.0240202 | 3.6404352 | 1,669 | 7.010803 |
+| 927 | single-round | 0.0231304 | 2.8376931 | 1,670 | 7.008980 |
+| 931 | current | 0.0251081 | 3.5732129 | 1,679 | 7.006664 |
+| 931 | earlier G1 | 0.0245025 | 3.9699634 | 1,675 | 7.008571 |
+| 931 | single-round | 0.0235355 | 2.4941622 | 1,671 | 7.010177 |
+| four-bank parent | current | 0.0093427 | 1.4620404 | 1,711 | 6.949212 |
+| four-bank parent | single-round | 0.0095386 | 1.4616158 | 1,712 | 6.954150 |
+
+[Model, scorer and cubin identities, all selected positions and full-subset scores](single-round/other-packages.json).
+
+The actual PR source at 85523a7 builds and passes the SM120a SASS audit. Three of 234 functions differ from the previous PR module. All three have identical instruction/control words to the corresponding functions in the 243-function packed integration used for the corpus replay. [Main and integration binary comparison](single-round/pr-build.json).

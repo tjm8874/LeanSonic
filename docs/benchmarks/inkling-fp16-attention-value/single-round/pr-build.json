@@ -1,0 +1,56 @@
+{
+  "main_symbols": 234,
+  "integration_symbols": 243,
+  "same_main_and_integration": {
+    "ink2_gqa_attn_g1_q8_decode": [
+      768,
+      "a72d09614a01f66a15d8da95bd645a0f72c8cf85caef704143bb767696f1c81d"
+    ],
+    "ink2_gqa_rel_sink_attn_q8_b": [
+      1152,
+      "8bf720d675289c2ccd0588c6caa3849abf67877c3df07b4928b95d6b0f26710a"
+    ],
+    "ink2_gqa_rel_sink_attn_q8_decode": [
+      1888,
+      "fe611848e0587ce53a3b0f36c823389389703b85fb6b336aba6762d149b06dae"
+    ]
+  },
+  "main_changed": {
+    "ink2_gqa_attn_g1_q8_decode": [
+      [
+        760,
+        "0466231c3d3584aa4681ad6303aaa0ef1fa290c587709b00c68c97c602f98cc8"
+      ],
+      [
+        768,
+        "a72d09614a01f66a15d8da95bd645a0f72c8cf85caef704143bb767696f1c81d"
+      ]
+    ],
+    "ink2_gqa_rel_sink_attn_q8_b": [
+      [
+        1112,
+        "274eb148e5b19db8ef473c127b0bb8b64217c0a19c1f378cc62cf494965d127e"
+      ],
+      [
+        1152,
+        "8bf720d675289c2ccd0588c6caa3849abf67877c3df07b4928b95d6b0f26710a"
+      ]
+    ],
+    "ink2_gqa_rel_sink_attn_q8_decode": [
+      [
+        2256,
+        "5a43dba4910c4693f7b3249c75638575ad9902ec9db4b7b193e8f6250bd669e0"
+      ],
+      [
+        1888,
+        "fe611848e0587ce53a3b0f36c823389389703b85fb6b336aba6762d149b06dae"
+      ]
+    ]
+  },
+  "commit": "85523a7",
+  "digests": {
+    "main.cubin": "8060ba2f4fd4748a627fbdf9d98e14e618a89cfbd78a99e023e36ceea8585aed",
+    "once.cubin": "52bd8f25bbe785726f2f03a8a8fe5c52a426c7c223972f1a6a888f5cbcffc3b6"
+  },
+  "sass_audit": "[PASS] Gate 2: CUDA/PTX kernel templates & SASS static audit passed."
+}
