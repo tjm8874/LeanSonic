@@ -271,15 +271,42 @@ struct SlotStateGpu {
     hist_v: CUdeviceptr,
     hist_attn: CUdeviceptr,
     hist_mlp: CUdeviceptr,
+    /// Bytes between two sequences' K (or V) caches / scale planes / conv histories
+    /// (`LEANSONIC_SEQS` > 1 stores one copy per sequence back to back).
+    seq_kv_bytes: u64,
+    seq_scale_bytes: u64,
+    seq_hist_bytes: u64,
 }
 
 impl SlotStateGpu {
-    /// `(k_scale, v_scale)` device pointers; `0` (kernel `nullptr`) selects FP16 KV.
-    fn kv_scale_ptrs(&self) -> (CUdeviceptr, CUdeviceptr) {
+    /// `(k_scale, v_scale)` device pointers of sequence `seq`; `0` (kernel `nullptr`) selects
+    /// FP16 KV.
+    fn kv_scale_ptrs_at(&self, seq: usize) -> (CUdeviceptr, CUdeviceptr) {
         match (&self.k_scale, &self.v_scale) {
-            (Some(k), Some(v)) => (k.ptr, v.ptr),
+            (Some(k), Some(v)) => {
+                let off = seq as u64 * self.seq_scale_bytes;
+                (k.ptr + off, v.ptr + off)
+            }
             _ => (0, 0),
         }
+    }
+    fn k_at(&self, seq: usize) -> CUdeviceptr {
+        self.k_cache.ptr + seq as u64 * self.seq_kv_bytes
+    }
+    fn v_at(&self, seq: usize) -> CUdeviceptr {
+        self.v_cache.ptr + seq as u64 * self.seq_kv_bytes
+    }
+    fn hist_k_at(&self, seq: usize) -> CUdeviceptr {
+        self.hist_k + seq as u64 * self.seq_hist_bytes
+    }
+    fn hist_v_at(&self, seq: usize) -> CUdeviceptr {
+        self.hist_v + seq as u64 * self.seq_hist_bytes
+    }
+    fn hist_attn_at(&self, seq: usize) -> CUdeviceptr {
+        self.hist_attn + seq as u64 * self.seq_hist_bytes
+    }
+    fn hist_mlp_at(&self, seq: usize) -> CUdeviceptr {
+        self.hist_mlp + seq as u64 * self.seq_hist_bytes
     }
 }
 
@@ -451,6 +478,13 @@ struct KernelFns {
     build_expert_groups_par_b: Option<CUfunction>,
     moe_combine_top8_b: CUfunction,
     inc_pos_by: CUfunction,
+    /// Multi-sequence (#107) row-independent variants.
+    prep_qkv_and_cache_ms: Option<CUfunction>,
+    gqa_attn_split_dec_ms: Option<CUfunction>,
+    gqa_attn_split_i8_ms: Option<CUfunction>,
+    gqa_attn_combine_q8_dyn_ms: Option<CUfunction>,
+    short_conv4_ms: Option<CUfunction>,
+    short_conv4_save_ms: Option<CUfunction>,
     argmax_b: CUfunction,
     conv_rewind: CUfunction,
     q8_dp4a_gemm_ktiled: CUfunction,
@@ -697,6 +731,18 @@ pub struct Inkling2GpuEngine {
     expert_weights: Vec<[TierBuf; 2]>,
     slots: Vec<SlotStateGpu>,
     conv_history: DeviceBuf,
+    /// Number of independent sequences with their own state (`LEANSONIC_SEQS`, default 1).
+    pub n_seqs: usize,
+    /// Sequence the single-sequence paths (prefill, decode, verify) operate on.
+    cur_seq: usize,
+    /// Host positions of the sequences that are not current (`seq_pos[cur_seq]` is stale;
+    /// `host_pos` holds the current one).
+    seq_pos: Vec<usize>,
+    /// `[MAX_SPEC_TOKENS] x {pos, seq}` rows of the multi-sequence round in flight, and the
+    /// device pointer the batched visit reads them from while it runs (`0` = single sequence).
+    d_ms_rows: DeviceBuf,
+    d_ms_tokens: DeviceBuf,
+    ms_rows: std::cell::Cell<CUdeviceptr>,
     pub resident_expert_layers: usize,
     pub spilled_expert_layers: usize,
     pub max_ctx: usize,
@@ -1262,7 +1308,15 @@ impl Inkling2GpuEngine {
         let kv_history_bytes = 3 * N_KV * HD * size_of::<f32>();
         let residual_history_bytes = 3 * D * size_of::<f32>();
         let slot_history_bytes = 2 * kv_history_bytes + 2 * residual_history_bytes;
-        let conv_history = DeviceBuf::alloc_zeroed(&ctx, N_SLOT * slot_history_bytes)?;
+        // `LEANSONIC_SEQS=C` keeps per-sequence state (KV, rings, conv histories) for C
+        // independent sequences (#12 / #107 multi-sequence decode). Default 1 is unchanged.
+        let n_seqs = std::env::var("LEANSONIC_SEQS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|&n| n >= 1)
+            .unwrap_or(1);
+        let seq_hist_bytes = N_SLOT * slot_history_bytes;
+        let conv_history = DeviceBuf::alloc_zeroed(&ctx, n_seqs * seq_hist_bytes)?;
         // `LEANSONIC_KV=int8` stores Full-attention (global) KV as int8 + per-(row, head) FP32
         // absmax scales (#14). Default FP16 is unchanged bit-for-bit.
         // `LEANSONIC_KV=int8-all` also stores the sliding-window rings as INT8 (same kernels:
@@ -1305,18 +1359,20 @@ impl Inkling2GpuEngine {
             // `int8-all` the sliding-window rings too.
             let int8 = kv_int8 && (is_global || kv_int8_swa);
             let kv_bytes_per_value = if int8 { 1 } else { 2 };
+            let seq_kv_bytes = kv_cap * N_KV * HD * kv_bytes_per_value;
+            let seq_scale_bytes = kv_cap * N_KV * 4;
             slots.push(SlotStateGpu {
                 kv_cap,
                 is_global,
-                k_cache: DeviceBuf::alloc_zeroed(&ctx, kv_cap * N_KV * HD * kv_bytes_per_value)?,
-                v_cache: DeviceBuf::alloc_zeroed(&ctx, kv_cap * N_KV * HD * kv_bytes_per_value)?,
+                k_cache: DeviceBuf::alloc_zeroed(&ctx, n_seqs * seq_kv_bytes)?,
+                v_cache: DeviceBuf::alloc_zeroed(&ctx, n_seqs * seq_kv_bytes)?,
                 k_scale: if int8 {
-                    Some(DeviceBuf::alloc_zeroed(&ctx, kv_cap * N_KV * 4)?)
+                    Some(DeviceBuf::alloc_zeroed(&ctx, n_seqs * seq_scale_bytes)?)
                 } else {
                     None
                 },
                 v_scale: if int8 {
-                    Some(DeviceBuf::alloc_zeroed(&ctx, kv_cap * N_KV * 4)?)
+                    Some(DeviceBuf::alloc_zeroed(&ctx, n_seqs * seq_scale_bytes)?)
                 } else {
                     None
                 },
@@ -1324,13 +1380,24 @@ impl Inkling2GpuEngine {
                 hist_v,
                 hist_attn,
                 hist_mlp,
+                seq_kv_bytes: seq_kv_bytes as u64,
+                seq_scale_bytes: seq_scale_bytes as u64,
+                seq_hist_bytes: seq_hist_bytes as u64,
             });
         }
 
-        let mut hist_ptr_bytes = Vec::with_capacity(N_SLOT * 4 * 8);
-        for s in &slots {
-            for p in [s.hist_k, s.hist_v, s.hist_attn, s.hist_mlp] {
-                hist_ptr_bytes.extend_from_slice(&p.to_le_bytes());
+        // One `[N_SLOT, 4]` pointer table per sequence.
+        let mut hist_ptr_bytes = Vec::with_capacity(n_seqs * N_SLOT * 4 * 8);
+        for q in 0..n_seqs {
+            for s in &slots {
+                for p in [
+                    s.hist_k_at(q),
+                    s.hist_v_at(q),
+                    s.hist_attn_at(q),
+                    s.hist_mlp_at(q),
+                ] {
+                    hist_ptr_bytes.extend_from_slice(&p.to_le_bytes());
+                }
             }
         }
         let d_conv_hist_ptrs = DeviceBuf::from_host_bytes(&ctx, &hist_ptr_bytes)?;
@@ -1778,6 +1845,8 @@ impl Inkling2GpuEngine {
             .unwrap_or(true)
             && ctx.api.cuLaunchKernelEx.is_some()
             && fns.depth_mix_inv.is_some();
+        let d_ms_rows = DeviceBuf::alloc_zeroed(&ctx, MAX_SPEC_TOKENS * 8)?;
+        let d_ms_tokens = DeviceBuf::alloc_zeroed(&ctx, MAX_SPEC_TOKENS * 4)?;
         let mut eng = Self {
             d_token_in: DeviceBuf::alloc_zeroed(&ctx, 4)?,
             d_prefill_tokens: DeviceBuf::alloc_zeroed(&ctx, max_ctx * 4)?,
@@ -1845,6 +1914,12 @@ impl Inkling2GpuEngine {
             ctx,
             fns,
             conv_history,
+            n_seqs,
+            cur_seq: 0,
+            seq_pos: vec![0; n_seqs],
+            d_ms_rows,
+            d_ms_tokens,
+            ms_rows: std::cell::Cell::new(0),
             embed,
             embed_norm,
             final_norm,
@@ -2084,6 +2159,40 @@ impl Inkling2GpuEngine {
         Ok(eng)
     }
 
+    /// Make `seq` the sequence that prefill / decode / verify operate on (`LEANSONIC_SEQS` > 1).
+    /// The other sequences keep their KV, rings, conv histories and positions untouched.
+    pub fn select_seq(&mut self, seq: usize) -> Result<(), String> {
+        if seq >= self.n_seqs {
+            return Err(format!("sequence {seq} >= LEANSONIC_SEQS={}", self.n_seqs));
+        }
+        if seq == self.cur_seq {
+            return Ok(());
+        }
+        self.ctx.bind_current()?;
+        self.ctx.sync_compute()?;
+        self.seq_pos[self.cur_seq] = self.host_pos;
+        self.cur_seq = seq;
+        self.host_pos = self.seq_pos[seq];
+        let pos = self.host_pos as i32;
+        unsafe {
+            check_cu(
+                (self.ctx.api.cuMemcpyHtoD_v2)(self.d_pos.ptr, (&pos as *const i32).cast(), 4),
+                "HtoD(pos)",
+            )?;
+        }
+        // Graphs bake the state pointers of the sequence they were captured for.
+        self.decode_graph = None;
+        self.prefill_graph = None;
+        if self.enable_cuda_graph {
+            let ctx_clone = Arc::clone(&self.ctx);
+            let d_graph = CapturedGraphExec::capture(&ctx_clone, |stream| {
+                self.enqueue_step_impl(stream, false)
+            })?;
+            self.decode_graph = Some(d_graph);
+        }
+        Ok(())
+    }
+
     fn recapture_cuda_graphs(&mut self) -> Result<(), String> {
         if !self.enable_cuda_graph {
             return Ok(());
@@ -2108,6 +2217,7 @@ impl Inkling2GpuEngine {
 
     fn ensure_prefill_capacity(&mut self, prompt_len: usize) -> Result<(), String> {
         if self.host_pos != 0
+            || self.n_seqs > 1
             || prompt_len <= self.prefill.capacity
             || self.prefill.capacity >= self.max_prefill_chunk
         {
@@ -2155,12 +2265,12 @@ impl Inkling2GpuEngine {
             }
             let int8 = slot.k_scale.is_some();
             let bytes = cap * N_KV * HD * if int8 { 1 } else { 2 };
-            let k = DeviceBuf::alloc_zeroed(&self.ctx, bytes)?;
-            let v = DeviceBuf::alloc_zeroed(&self.ctx, bytes)?;
+            let k = DeviceBuf::alloc_zeroed(&self.ctx, self.n_seqs * bytes)?;
+            let v = DeviceBuf::alloc_zeroed(&self.ctx, self.n_seqs * bytes)?;
             let scales = if int8 {
                 Some((
-                    DeviceBuf::alloc_zeroed(&self.ctx, cap * N_KV * 4)?,
-                    DeviceBuf::alloc_zeroed(&self.ctx, cap * N_KV * 4)?,
+                    DeviceBuf::alloc_zeroed(&self.ctx, self.n_seqs * cap * N_KV * 4)?,
+                    DeviceBuf::alloc_zeroed(&self.ctx, self.n_seqs * cap * N_KV * 4)?,
                 ))
             } else {
                 None
@@ -2171,6 +2281,9 @@ impl Inkling2GpuEngine {
         self.prefill = buffers;
         for (i, k, v, scales) in replacements {
             self.slots[i].kv_cap = cap;
+            let int8 = scales.is_some();
+            self.slots[i].seq_kv_bytes = (cap * N_KV * HD * if int8 { 1 } else { 2 }) as u64;
+            self.slots[i].seq_scale_bytes = (cap * N_KV * 4) as u64;
             self.slots[i].k_cache = k;
             self.slots[i].v_cache = v;
             if let Some((ks, vs)) = scales {
@@ -2321,6 +2434,12 @@ impl Inkling2GpuEngine {
             build_expert_groups_par_b: get_fn("ink2_build_expert_groups_par_b").ok(),
             moe_combine_top8_b: get_fn("ink2_moe_combine_top8_b")?,
             inc_pos_by: get_fn("ink2_inc_pos_by")?,
+            prep_qkv_and_cache_ms: get_fn("ink2_prep_qkv_and_cache_ms").ok(),
+            gqa_attn_split_dec_ms: get_fn("ink2_gqa_attn_split_dec_ms").ok(),
+            gqa_attn_split_i8_ms: get_fn("ink2_gqa_attn_split_i8_ms").ok(),
+            gqa_attn_combine_q8_dyn_ms: get_fn("ink2_gqa_attn_combine_q8_dyn_ms").ok(),
+            short_conv4_ms: get_fn("ink2_short_conv4_ms").ok(),
+            short_conv4_save_ms: get_fn("ink2_short_conv4_save_ms").ok(),
             argmax_b: get_fn("ink2_argmax_b")?,
             conv_rewind: get_fn("ink2_conv_rewind")?,
             q8_dp4a_gemm_ktiled: get_fn("ink2_q8_dp4a_gemm_ktiled")?,
@@ -2400,7 +2519,12 @@ impl Inkling2GpuEngine {
                 "zero pos",
             )?;
             check_cu(
-                (self.ctx.api.cuMemsetD8_v2)(self.conv_history.ptr, 0, self.conv_history.byte_len),
+                (self.ctx.api.cuMemsetD8_v2)(
+                    self.conv_history.ptr
+                        + (self.cur_seq * self.conv_history.byte_len / self.n_seqs) as u64,
+                    0,
+                    self.conv_history.byte_len / self.n_seqs,
+                ),
                 "zero convolution histories",
             )?;
             check_cu(
@@ -2809,6 +2933,7 @@ impl Inkling2GpuEngine {
         out_q8_ptr: CUdeviceptr,
         out_sc64_ptr: CUdeviceptr,
         b_len: usize,
+        ms_seq: Option<(u64, u64)>,
     ) -> Result<(), String> {
         let mut pqrgs = qrgs_ptr;
         let mut qstride = qrgs_stride;
@@ -2867,6 +2992,54 @@ impl Inkling2GpuEngine {
         } else {
             self.fns.gqa_attn_split.unwrap()
         };
+        if let Some((seq_kv_bytes, seq_scale_bytes)) = ms_seq {
+            // Multi-sequence round (#107): per-row `{pos, seq}` table, caches of sequence 0.
+            ppos = self.ms_rows.get();
+            let mut skb = seq_kv_bytes as i64;
+            let mut ssf = (seq_scale_bytes / 4) as i32;
+            let mut ms_args: [*mut c_void; 14] = [
+                (&mut pqrgs as *mut _) as *mut c_void,
+                (&mut qstride as *mut _) as *mut c_void,
+                (&mut prp as *mut _) as *mut c_void,
+                (&mut pkc as *mut _) as *mut c_void,
+                (&mut pvc as *mut _) as *mut c_void,
+                (&mut pks as *mut _) as *mut c_void,
+                (&mut pvs as *mut _) as *mut c_void,
+                (&mut ppos as *mut _) as *mut c_void,
+                (&mut cap as *mut _) as *mut c_void,
+                (&mut ig as *mut _) as *mut c_void,
+                (&mut pml as *mut _) as *mut c_void,
+                (&mut po as *mut _) as *mut c_void,
+                (&mut skb as *mut _) as *mut c_void,
+                (&mut ssf as *mut _) as *mut c_void,
+            ];
+            let f = if pks != 0 {
+                self.fns.gqa_attn_split_i8_ms
+            } else {
+                self.fns.gqa_attn_split_dec_ms
+            }
+            .ok_or("cubin lacks the multi-sequence split attention kernels")?;
+            self.launch(stream, f, ((8 * b_len) as u32, g_u32), 256, &mut ms_args)?;
+            let f_comb = self
+                .fns
+                .gqa_attn_combine_q8_dyn_ms
+                .ok_or("cubin lacks ink2_gqa_attn_combine_q8_dyn_ms")?;
+            let mut gi = g_split as i32;
+            let mut pq8 = out_q8_ptr;
+            let mut psc = out_sc64_ptr;
+            let mut comb_args: [*mut c_void; 9] = [
+                (&mut pml as *mut _) as *mut c_void,
+                (&mut po as *mut _) as *mut c_void,
+                (&mut pqrgs as *mut _) as *mut c_void,
+                (&mut qstride as *mut _) as *mut c_void,
+                (&mut gi as *mut _) as *mut c_void,
+                (&mut ppos as *mut _) as *mut c_void,
+                (&mut ig as *mut _) as *mut c_void,
+                (&mut pq8 as *mut _) as *mut c_void,
+                (&mut psc as *mut _) as *mut c_void,
+            ];
+            return self.launch(stream, f_comb, (24, b_len as u32), 128, &mut comb_args);
+        }
         if b_len == 1 {
             self.launch_pdl(stream, split_fn, (8, g_u32), 256, &mut split_args)?;
         } else {
@@ -3355,12 +3528,12 @@ impl Inkling2GpuEngine {
             let mut pk = k_raw_ptr;
             let mut pwk = l.k_conv4.ptr;
             let mut pdk = if l.global { k_raw_ptr + 1024 * 4 } else { 0 };
-            let mut phk = st.hist_k;
+            let mut phk = st.hist_k_at(self.cur_seq);
             let mut pok = self.d_k_conv.ptr;
             let mut pv = v_raw_ptr;
             let mut pwv = l.v_conv4.ptr;
             let mut pdv = if l.global { v_raw_ptr + 1024 * 4 } else { 0 };
-            let mut phv = st.hist_v;
+            let mut phv = st.hist_v_at(self.cur_seq);
             let mut pov = self.d_v_conv.ptr;
             let mut hd = i32::from(l.global);
             let mut args: [*mut c_void; 11] = [
@@ -3379,8 +3552,18 @@ impl Inkling2GpuEngine {
             self.launch_pdl(stream, f_kv2, (4, 2), 256, &mut args)?;
         } else {
             for (raw_ptr, conv_w, hist_ptr, dst_ptr) in [
-                (k_raw_ptr, l.k_conv4.ptr, st.hist_k, self.d_k_conv.ptr),
-                (v_raw_ptr, l.v_conv4.ptr, st.hist_v, self.d_v_conv.ptr),
+                (
+                    k_raw_ptr,
+                    l.k_conv4.ptr,
+                    st.hist_k_at(self.cur_seq),
+                    self.d_k_conv.ptr,
+                ),
+                (
+                    v_raw_ptr,
+                    l.v_conv4.ptr,
+                    st.hist_v_at(self.cur_seq),
+                    self.d_v_conv.ptr,
+                ),
             ] {
                 let mut p_cur = raw_ptr;
                 let mut p_w = conv_w;
@@ -3418,9 +3601,9 @@ impl Inkling2GpuEngine {
             let mut pv = self.d_v_conv.ptr;
             let mut pqc = l.q_clip.ptr;
             let mut prc = l.rel_clip.ptr;
-            let mut pkc = st.k_cache.ptr;
-            let mut pvc = st.v_cache.ptr;
-            let (mut pks, mut pvs) = st.kv_scale_ptrs();
+            let mut pkc = st.k_at(self.cur_seq);
+            let mut pvc = st.v_at(self.cur_seq);
+            let (mut pks, mut pvs) = st.kv_scale_ptrs_at(self.cur_seq);
             let mut ppos = self.d_pos.ptr;
             let mut cap = st.kv_cap as i32;
             let mut ig = i32::from(l.global);
@@ -3448,9 +3631,9 @@ impl Inkling2GpuEngine {
                 let mut pqrgs = self.d_qrgs.ptr;
                 let mut qstride = SWA_ALL_ROWS as i32;
                 let mut prp = l.rel_proj.ptr;
-                let mut pkc = st.k_cache.ptr;
-                let mut pvc = st.v_cache.ptr;
-                let (mut pks, mut pvs) = st.kv_scale_ptrs();
+                let mut pkc = st.k_at(self.cur_seq);
+                let mut pvc = st.v_at(self.cur_seq);
+                let (mut pks, mut pvs) = st.kv_scale_ptrs_at(self.cur_seq);
                 let mut ppos = self.d_pos.ptr;
                 let mut cap = st.kv_cap as i32;
                 let mut ig = i32::from(l.global);
@@ -3477,9 +3660,9 @@ impl Inkling2GpuEngine {
                 let mut pg = gate_ptr;
                 let mut ps = sink_ptr;
                 let mut prp = l.rel_proj.ptr;
-                let mut pkc = st.k_cache.ptr;
-                let mut pvc = st.v_cache.ptr;
-                let (mut pks, mut pvs) = st.kv_scale_ptrs();
+                let mut pkc = st.k_at(self.cur_seq);
+                let mut pvc = st.v_at(self.cur_seq);
+                let (mut pks, mut pvs) = st.kv_scale_ptrs_at(self.cur_seq);
                 let mut ppos = self.d_pos.ptr;
                 let mut cap = st.kv_cap as i32;
                 let mut ig = i32::from(l.global);
@@ -3508,15 +3691,16 @@ impl Inkling2GpuEngine {
                 self.d_qrgs.ptr,
                 SWA_ALL_ROWS as i32,
                 l.rel_proj.ptr,
-                st.k_cache.ptr,
-                st.v_cache.ptr,
-                st.kv_scale_ptrs(),
+                st.k_at(self.cur_seq),
+                st.v_at(self.cur_seq),
+                st.kv_scale_ptrs_at(self.cur_seq),
                 st.kv_cap as i32,
                 i32::from(l.global),
                 self.d_attn_out.ptr,
                 self.d_act_q8_64.ptr,
                 self.d_act_sc_64.ptr,
                 1,
+                None,
             )?;
         }
 
@@ -3535,7 +3719,7 @@ impl Inkling2GpuEngine {
             let mut p_cur = self.d_wo_out.ptr;
             let mut p_w = l.attn_conv4.ptr;
             let mut p_dyn: CUdeviceptr = 0;
-            let mut p_hist = st.hist_attn;
+            let mut p_hist = st.hist_attn_at(self.cur_seq);
             let mut p_out = self.d_cur.ptr;
             let mut p_res = if is_block_start { 0 } else { self.d_cur.ptr };
             let mut p_save = save_blk_ptr;
@@ -3562,7 +3746,7 @@ impl Inkling2GpuEngine {
             let mut p_cur = self.d_wo_out.ptr;
             let mut p_w = l.attn_conv4.ptr;
             let mut p_dyn: CUdeviceptr = 0;
-            let mut p_hist = st.hist_attn;
+            let mut p_hist = st.hist_attn_at(self.cur_seq);
             let mut p_out = self.d_cur.ptr;
             let mut p_res = if is_block_start { 0 } else { self.d_cur.ptr };
             let mut ch = D as i32;
@@ -3881,7 +4065,7 @@ impl Inkling2GpuEngine {
             let mut p_cur = self.d_moe_y.ptr;
             let mut p_w = l.mlp_conv4.ptr;
             let mut p_dyn: CUdeviceptr = 0;
-            let mut p_hist = st.hist_mlp;
+            let mut p_hist = st.hist_mlp_at(self.cur_seq);
             let mut p_out = self.d_cur.ptr;
             let mut p_res = self.d_cur.ptr;
             let mut ch = D as i32;
@@ -4429,6 +4613,94 @@ impl Inkling2GpuEngine {
         Ok(out_i32.into_iter().map(|v| v as u32).collect())
     }
 
+    /// One decode step for up to `MAX_SPEC_TOKENS` independent sequences in a single batched
+    /// pass (#107): row `i` feeds `tokens[i]` to sequence `seqs[i]` at that sequence's position
+    /// and returns its greedy next token. Each row uses the same arithmetic as a B = 1 decode
+    /// step of that sequence, so the tokens equal `select_seq(s)` + `forward_greedy_token`.
+    pub fn decode_round(&mut self, seqs: &[usize], tokens: &[u32]) -> Result<Vec<u32>, String> {
+        let b_len = seqs.len();
+        if b_len == 0 || b_len > MAX_SPEC_TOKENS || tokens.len() != b_len {
+            return Err(format!(
+                "decode_round: 1..={MAX_SPEC_TOKENS} rows with one token each"
+            ));
+        }
+        if self.attn_split_g == 0 || self.drafter.is_some() {
+            return Err("decode_round needs split-KV attention and --spec 0".into());
+        }
+        let mut rows = Vec::with_capacity(b_len * 2);
+        for (i, &s) in seqs.iter().enumerate() {
+            if s >= self.n_seqs || seqs[..i].contains(&s) {
+                return Err(format!("decode_round: bad or repeated sequence {s}"));
+            }
+            let pos = if s == self.cur_seq {
+                self.host_pos
+            } else {
+                self.seq_pos[s]
+            };
+            if pos + 1 > self.max_ctx {
+                return Err(format!("decode_round: sequence {s} reached max_ctx"));
+            }
+            rows.push(pos as i32);
+            rows.push(s as i32);
+        }
+        self.ctx.bind_current()?;
+        unsafe {
+            check_cu(
+                (self.ctx.api.cuMemcpyHtoDAsync_v2)(
+                    self.d_ms_rows.ptr,
+                    rows.as_ptr().cast(),
+                    b_len * 8,
+                    self.ctx.compute_stream,
+                ),
+                "HtoD(ms_rows)",
+            )?;
+            check_cu(
+                (self.ctx.api.cuMemcpyHtoDAsync_v2)(
+                    self.d_ms_tokens.ptr,
+                    tokens.as_ptr().cast(),
+                    b_len * 4,
+                    self.ctx.compute_stream,
+                ),
+                "HtoD(ms_tokens)",
+            )?;
+        }
+        self.ms_rows.set(self.d_ms_rows.ptr);
+        let r = self.enqueue_batch_step_impl(
+            self.ctx.compute_stream,
+            self.d_ms_tokens.ptr,
+            b_len,
+            BatchHeadMode::AllHeads,
+            false,
+        );
+        self.ms_rows.set(0);
+        r?;
+        self.ctx.sync_compute()?;
+        for &s in seqs {
+            if s == self.cur_seq {
+                self.host_pos += 1;
+            } else {
+                self.seq_pos[s] += 1;
+            }
+        }
+        let pos = self.host_pos as i32;
+        let mut out_i32 = vec![0i32; b_len];
+        unsafe {
+            check_cu(
+                (self.ctx.api.cuMemcpyHtoD_v2)(self.d_pos.ptr, (&pos as *const i32).cast(), 4),
+                "HtoD(pos)",
+            )?;
+            check_cu(
+                (self.ctx.api.cuMemcpyDtoH_v2)(
+                    out_i32.as_mut_ptr().cast(),
+                    self.d_spec_tokens_out.ptr,
+                    b_len * 4,
+                ),
+                "DtoH(ms_tokens_out)",
+            )?;
+        }
+        Ok(out_i32.into_iter().map(|v| v as u32).collect())
+    }
+
     /// Benchmark-only: move the decode position to `pos` without prefilling the rows in between.
     /// Those KV rows hold whatever the cache contains (zeros after load), so the logits are not
     /// meaningful, but each decode step reads exactly as many KV rows as a real `pos`-token
@@ -4458,7 +4730,7 @@ impl Inkling2GpuEngine {
     pub fn rewind_speculative(&mut self, keep: usize, b_len: usize) -> Result<(), String> {
         if keep < b_len {
             let mut pseq = self.d_conv_seq.ptr;
-            let mut phist = self.d_conv_hist_ptrs.ptr;
+            let mut phist = self.d_conv_hist_ptrs.ptr + (self.cur_seq * N_SLOT * 4 * 8) as u64;
             let mut ppos = self.d_pos.ptr;
             let mut kp = keep as i32;
             let mut bi = b_len as i32;
@@ -5023,6 +5295,87 @@ impl Inkling2GpuEngine {
         Ok(true)
     }
 
+    /// Row-independent short convolution of a multi-sequence round (#107): row `b` steps the
+    /// history of sequence `ms_rows[b].y` (`hist_seq0` + `seq * hist_seq_bytes`).
+    #[allow(clippy::too_many_arguments)]
+    fn enqueue_short_conv4_ms(
+        &self,
+        stream: CUstream,
+        cur: CUdeviceptr,
+        in_stride: i32,
+        w: CUdeviceptr,
+        dyn_ptr: CUdeviceptr,
+        dyn_f4_stride: i32,
+        hist_seq0: CUdeviceptr,
+        hist_seq_bytes: u64,
+        out: CUdeviceptr,
+        out_stride: i32,
+        res: CUdeviceptr,
+        res_stride: i32,
+        save_prev: CUdeviceptr,
+        channels: i32,
+        b_len: usize,
+        has_dyn: i32,
+        do_res_add: i32,
+    ) -> Result<(), String> {
+        let (mut p_cur, mut ins, mut p_w, mut p_dyn, mut df4, mut p_hist) =
+            (cur, in_stride, w, dyn_ptr, dyn_f4_stride, hist_seq0);
+        let (mut p_out, mut outs, mut p_res, mut ress, mut p_save) =
+            (out, out_stride, res, res_stride, save_prev);
+        let mut p_rows = self.ms_rows.get();
+        let (mut ch, mut hd, mut dr) = (channels, has_dyn, do_res_add);
+        let mut hsf = (hist_seq_bytes / 4) as i32;
+        let grid = ((channels as u32).div_ceil(256), b_len as u32);
+        if save_prev != 0 {
+            let f = self
+                .fns
+                .short_conv4_save_ms
+                .ok_or("cubin lacks ink2_short_conv4_save_ms")?;
+            let mut args: [*mut c_void; 16] = [
+                (&mut p_cur as *mut _) as *mut c_void,
+                (&mut ins as *mut _) as *mut c_void,
+                (&mut p_w as *mut _) as *mut c_void,
+                (&mut p_dyn as *mut _) as *mut c_void,
+                (&mut df4 as *mut _) as *mut c_void,
+                (&mut p_hist as *mut _) as *mut c_void,
+                (&mut p_out as *mut _) as *mut c_void,
+                (&mut outs as *mut _) as *mut c_void,
+                (&mut p_res as *mut _) as *mut c_void,
+                (&mut ress as *mut _) as *mut c_void,
+                (&mut p_save as *mut _) as *mut c_void,
+                (&mut p_rows as *mut _) as *mut c_void,
+                (&mut ch as *mut _) as *mut c_void,
+                (&mut hd as *mut _) as *mut c_void,
+                (&mut dr as *mut _) as *mut c_void,
+                (&mut hsf as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, f, grid, 256, &mut args)
+        } else {
+            let f = self
+                .fns
+                .short_conv4_ms
+                .ok_or("cubin lacks ink2_short_conv4_ms")?;
+            let mut args: [*mut c_void; 15] = [
+                (&mut p_cur as *mut _) as *mut c_void,
+                (&mut ins as *mut _) as *mut c_void,
+                (&mut p_w as *mut _) as *mut c_void,
+                (&mut p_dyn as *mut _) as *mut c_void,
+                (&mut df4 as *mut _) as *mut c_void,
+                (&mut p_hist as *mut _) as *mut c_void,
+                (&mut p_out as *mut _) as *mut c_void,
+                (&mut outs as *mut _) as *mut c_void,
+                (&mut p_res as *mut _) as *mut c_void,
+                (&mut ress as *mut _) as *mut c_void,
+                (&mut p_rows as *mut _) as *mut c_void,
+                (&mut ch as *mut _) as *mut c_void,
+                (&mut hd as *mut _) as *mut c_void,
+                (&mut dr as *mut _) as *mut c_void,
+                (&mut hsf as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, f, grid, 256, &mut args)
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn enqueue_batch_visit(
         &self,
@@ -5379,7 +5732,7 @@ impl Inkling2GpuEngine {
                 k_raw_ptr,
                 k_in_stride,
                 l.k_conv4.ptr,
-                st.hist_k,
+                st.hist_k_at(self.cur_seq),
                 self.prefill.layer_workspace.k_conv,
                 0usize,
             ),
@@ -5387,12 +5740,35 @@ impl Inkling2GpuEngine {
                 v_raw_ptr,
                 v_in_stride,
                 l.v_conv4.ptr,
-                st.hist_v,
+                st.hist_v_at(self.cur_seq),
                 self.prefill.layer_workspace.v_conv,
                 1024 * CONV_SEQ_STEPS,
             ),
         ] {
             let dyn_ptr = if l.global { raw_ptr + 1024 * 4 } else { 0 };
+            if self.ms_rows.get() != 0 {
+                let hist0 = hist_ptr - self.cur_seq as u64 * st.seq_hist_bytes;
+                self.enqueue_short_conv4_ms(
+                    stream,
+                    raw_ptr,
+                    raw_stride,
+                    conv_w,
+                    dyn_ptr,
+                    264,
+                    hist0,
+                    st.seq_hist_bytes,
+                    dst_ptr,
+                    1024,
+                    0,
+                    0,
+                    0,
+                    1024,
+                    b_len,
+                    i32::from(l.global),
+                    0,
+                )?;
+                continue;
+            }
             if !record_seq
                 && self.enqueue_short_conv4_par_b(
                     stream,
@@ -5462,34 +5838,66 @@ impl Inkling2GpuEngine {
             let mut pv = self.prefill.layer_workspace.v_conv;
             let mut pqc = l.q_clip.ptr;
             let mut prc = l.rel_clip.ptr;
-            let mut pkc = st.k_cache.ptr;
-            let mut pvc = st.v_cache.ptr;
-            let (mut pks, mut pvs) = st.kv_scale_ptrs();
+            let mut pkc = st.k_at(self.cur_seq);
+            let mut pvc = st.v_at(self.cur_seq);
+            let (mut pks, mut pvs) = st.kv_scale_ptrs_at(self.cur_seq);
             let mut ppos = self.d_pos.ptr;
             let mut cap = st.kv_cap as i32;
             let mut ig = i32::from(l.global);
-            let mut args: [*mut c_void; 13] = [
-                (&mut pqrgs as *mut _) as *mut c_void,
-                (&mut qstride as *mut _) as *mut c_void,
-                (&mut pk as *mut _) as *mut c_void,
-                (&mut pv as *mut _) as *mut c_void,
-                (&mut pqc as *mut _) as *mut c_void,
-                (&mut prc as *mut _) as *mut c_void,
-                (&mut pkc as *mut _) as *mut c_void,
-                (&mut pvc as *mut _) as *mut c_void,
-                (&mut pks as *mut _) as *mut c_void,
-                (&mut pvs as *mut _) as *mut c_void,
-                (&mut ppos as *mut _) as *mut c_void,
-                (&mut cap as *mut _) as *mut c_void,
-                (&mut ig as *mut _) as *mut c_void,
-            ];
-            self.launch(
-                stream,
-                self.fns.prep_qkv_and_cache_b,
-                (5, b_u32),
-                256,
-                &mut args,
-            )?;
+            if self.ms_rows.get() != 0 {
+                // Multi-sequence round: sequence 0's buffers + per-row `{pos, seq}`.
+                pkc = st.k_at(0);
+                pvc = st.v_at(0);
+                (pks, pvs) = st.kv_scale_ptrs_at(0);
+                ppos = self.ms_rows.get();
+                let mut skb = st.seq_kv_bytes as i64;
+                let mut ssf = (st.seq_scale_bytes / 4) as i32;
+                let mut args: [*mut c_void; 15] = [
+                    (&mut pqrgs as *mut _) as *mut c_void,
+                    (&mut qstride as *mut _) as *mut c_void,
+                    (&mut pk as *mut _) as *mut c_void,
+                    (&mut pv as *mut _) as *mut c_void,
+                    (&mut pqc as *mut _) as *mut c_void,
+                    (&mut prc as *mut _) as *mut c_void,
+                    (&mut pkc as *mut _) as *mut c_void,
+                    (&mut pvc as *mut _) as *mut c_void,
+                    (&mut pks as *mut _) as *mut c_void,
+                    (&mut pvs as *mut _) as *mut c_void,
+                    (&mut ppos as *mut _) as *mut c_void,
+                    (&mut cap as *mut _) as *mut c_void,
+                    (&mut ig as *mut _) as *mut c_void,
+                    (&mut skb as *mut _) as *mut c_void,
+                    (&mut ssf as *mut _) as *mut c_void,
+                ];
+                let f = self
+                    .fns
+                    .prep_qkv_and_cache_ms
+                    .ok_or("cubin lacks ink2_prep_qkv_and_cache_ms")?;
+                self.launch(stream, f, (5, b_u32), 256, &mut args)?;
+            } else {
+                let mut args: [*mut c_void; 13] = [
+                    (&mut pqrgs as *mut _) as *mut c_void,
+                    (&mut qstride as *mut _) as *mut c_void,
+                    (&mut pk as *mut _) as *mut c_void,
+                    (&mut pv as *mut _) as *mut c_void,
+                    (&mut pqc as *mut _) as *mut c_void,
+                    (&mut prc as *mut _) as *mut c_void,
+                    (&mut pkc as *mut _) as *mut c_void,
+                    (&mut pvc as *mut _) as *mut c_void,
+                    (&mut pks as *mut _) as *mut c_void,
+                    (&mut pvs as *mut _) as *mut c_void,
+                    (&mut ppos as *mut _) as *mut c_void,
+                    (&mut cap as *mut _) as *mut c_void,
+                    (&mut ig as *mut _) as *mut c_void,
+                ];
+                self.launch(
+                    stream,
+                    self.fns.prep_qkv_and_cache_b,
+                    (5, b_u32),
+                    256,
+                    &mut args,
+                )?;
+            }
         }
 
         // 6. Batched GQA Relative-Bias + Sink Attention + In-Register `Q8_64` Epilogue!
@@ -5518,15 +5926,15 @@ impl Inkling2GpuEngine {
                 let mut pqrgs = self.prefill.layer_workspace.qrgs;
                 let mut qstride = SWA_ALL_ROWS as i32;
                 let mut prp = l.rel_proj.ptr;
-                let mut pkc = st.k_cache.ptr;
-                let mut pvc = st.v_cache.ptr;
+                let mut pkc = st.k_at(self.cur_seq);
+                let mut pvc = st.v_at(self.cur_seq);
                 let mut ppos = self.d_pos.ptr;
                 let mut cap = st.kv_cap as i32;
                 let mut ig = i32::from(l.global);
                 let mut bi = b_i32;
                 if st.k_scale.is_some() {
                     let f_sp_i8 = self.fns.flash_attn_tc_split_b_i8.unwrap();
-                    let (mut pks, mut pvs) = st.kv_scale_ptrs();
+                    let (mut pks, mut pvs) = st.kv_scale_ptrs_at(self.cur_seq);
                     let mut s_args: [*mut c_void; 13] = [
                         (&mut pqrgs as *mut _) as *mut c_void,
                         (&mut qstride as *mut _) as *mut c_void,
@@ -5595,9 +6003,9 @@ impl Inkling2GpuEngine {
                     let mut pqrgs = self.prefill.layer_workspace.qrgs;
                     let mut qstride = SWA_ALL_ROWS as i32;
                     let mut prp = l.rel_proj.ptr;
-                    let mut pkc = st.k_cache.ptr;
-                    let mut pvc = st.v_cache.ptr;
-                    let (mut pks, mut pvs) = st.kv_scale_ptrs();
+                    let mut pkc = st.k_at(self.cur_seq);
+                    let mut pvc = st.v_at(self.cur_seq);
+                    let (mut pks, mut pvs) = st.kv_scale_ptrs_at(self.cur_seq);
                     let mut ppos = self.d_pos.ptr;
                     let mut cap = st.kv_cap as i32;
                     let mut ig = i32::from(l.global);
@@ -5633,8 +6041,8 @@ impl Inkling2GpuEngine {
                 let mut pqrgs = self.prefill.layer_workspace.qrgs;
                 let mut qstride = SWA_ALL_ROWS as i32;
                 let mut prp = l.rel_proj.ptr;
-                let mut pkc = st.k_cache.ptr;
-                let mut pvc = st.v_cache.ptr;
+                let mut pkc = st.k_at(self.cur_seq);
+                let mut pvc = st.v_at(self.cur_seq);
                 let mut ppos = self.d_pos.ptr;
                 let mut cap = st.kv_cap as i32;
                 let mut ig = i32::from(l.global);
@@ -5672,9 +6080,9 @@ impl Inkling2GpuEngine {
                 let mut pqrgs = self.prefill.layer_workspace.qrgs;
                 let mut qstride = SWA_ALL_ROWS as i32;
                 let mut prp = l.rel_proj.ptr;
-                let mut pkc = st.k_cache.ptr;
-                let mut pvc = st.v_cache.ptr;
-                let (mut pks, mut pvs) = st.kv_scale_ptrs();
+                let mut pkc = st.k_at(self.cur_seq);
+                let mut pvc = st.v_at(self.cur_seq);
+                let (mut pks, mut pvs) = st.kv_scale_ptrs_at(self.cur_seq);
                 let mut ppos = self.d_pos.ptr;
                 let mut cap = st.kv_cap as i32;
                 let mut ig = i32::from(l.global);
@@ -5699,9 +6107,9 @@ impl Inkling2GpuEngine {
                 let mut pqrgs = self.prefill.layer_workspace.qrgs;
                 let mut qstride = SWA_ALL_ROWS as i32;
                 let mut prp = l.rel_proj.ptr;
-                let mut pkc = st.k_cache.ptr;
-                let mut pvc = st.v_cache.ptr;
-                let (mut pks, mut pvs) = st.kv_scale_ptrs();
+                let mut pkc = st.k_at(self.cur_seq);
+                let mut pvc = st.v_at(self.cur_seq);
+                let (mut pks, mut pvs) = st.kv_scale_ptrs_at(self.cur_seq);
                 let mut ppos = self.d_pos.ptr;
                 let mut cap = st.kv_cap as i32;
                 let mut ig = i32::from(l.global);
@@ -5734,20 +6142,27 @@ impl Inkling2GpuEngine {
                 )?;
             }
         } else if !attn_done {
+            // A multi-sequence round passes sequence 0's caches (+ per-row sequence offsets).
+            let kv_seq = if self.ms_rows.get() != 0 {
+                0
+            } else {
+                self.cur_seq
+            };
             self.enqueue_gqa_attn_split_impl(
                 stream,
                 self.prefill.layer_workspace.qrgs,
                 SWA_ALL_ROWS as i32,
                 l.rel_proj.ptr,
-                st.k_cache.ptr,
-                st.v_cache.ptr,
-                st.kv_scale_ptrs(),
+                st.k_at(kv_seq),
+                st.v_at(kv_seq),
+                st.kv_scale_ptrs_at(kv_seq),
                 st.kv_cap as i32,
                 i32::from(l.global),
                 self.prefill.layer_workspace.attn_out,
                 self.prefill.d_b_act_codes.ptr,
                 self.prefill.d_b_act_scales.ptr,
                 b_len,
+                (self.ms_rows.get() != 0).then_some((st.seq_kv_bytes, st.seq_scale_bytes)),
             )?;
         }
 
@@ -5777,15 +6192,16 @@ impl Inkling2GpuEngine {
         } else {
             self.prefill.d_b_cur.ptr
         };
-        let attn_conv_done = !record_seq
-            && self.enqueue_short_conv4_par_b(
+        let attn_conv_done = if self.ms_rows.get() != 0 {
+            self.enqueue_short_conv4_ms(
                 stream,
                 self.prefill.layer_workspace.wo_out,
                 D as i32,
                 l.attn_conv4.ptr,
                 0,
                 0,
-                st.hist_attn,
+                st.hist_attn_at(0),
+                st.seq_hist_bytes,
                 self.prefill.d_b_cur.ptr,
                 D as i32,
                 attn_res_ptr,
@@ -5796,6 +6212,30 @@ impl Inkling2GpuEngine {
                 0,
                 i32::from(!is_block_start),
             )?;
+            true
+        } else {
+            false
+        };
+        let attn_conv_done = attn_conv_done
+            || !record_seq
+                && self.enqueue_short_conv4_par_b(
+                    stream,
+                    self.prefill.layer_workspace.wo_out,
+                    D as i32,
+                    l.attn_conv4.ptr,
+                    0,
+                    0,
+                    st.hist_attn_at(self.cur_seq),
+                    self.prefill.d_b_cur.ptr,
+                    D as i32,
+                    attn_res_ptr,
+                    D as i32,
+                    save_blk_ptr,
+                    D as i32,
+                    b_len,
+                    0,
+                    i32::from(!is_block_start),
+                )?;
         if !attn_conv_done {
             if let Some(f_sc_save_b) = conv_save {
                 let mut p_cur = self.prefill.layer_workspace.wo_out;
@@ -5803,7 +6243,7 @@ impl Inkling2GpuEngine {
                 let mut p_w = l.attn_conv4.ptr;
                 let mut p_dyn: CUdeviceptr = 0;
                 let mut df4 = 0i32;
-                let mut p_hist = st.hist_attn;
+                let mut p_hist = st.hist_attn_at(self.cur_seq);
                 let mut p_out = self.prefill.d_b_cur.ptr;
                 let mut outs = D as i32;
                 let mut p_res = attn_res_ptr;
@@ -5846,7 +6286,7 @@ impl Inkling2GpuEngine {
                 let mut p_w = l.attn_conv4.ptr;
                 let mut p_dyn: CUdeviceptr = 0;
                 let mut df4 = 0i32;
-                let mut p_hist = st.hist_attn;
+                let mut p_hist = st.hist_attn_at(self.cur_seq);
                 let mut p_out = self.prefill.d_b_cur.ptr;
                 let mut outs = D as i32;
                 let mut p_res = attn_res_ptr;
@@ -6916,7 +7356,27 @@ impl Inkling2GpuEngine {
         }
 
         // 10. `mlp_sconv` + Residual Add into `d_b_cur`
-        if record_seq
+        if self.ms_rows.get() != 0 {
+            self.enqueue_short_conv4_ms(
+                stream,
+                self.prefill.d_b_activations.ptr,
+                D as i32,
+                l.mlp_conv4.ptr,
+                0,
+                0,
+                st.hist_mlp_at(0),
+                st.seq_hist_bytes,
+                self.prefill.d_b_cur.ptr,
+                D as i32,
+                self.prefill.d_b_cur.ptr,
+                D as i32,
+                0,
+                D as i32,
+                b_len,
+                0,
+                1,
+            )?;
+        } else if record_seq
             || !self.enqueue_short_conv4_par_b(
                 stream,
                 self.prefill.d_b_activations.ptr,
@@ -6924,7 +7384,7 @@ impl Inkling2GpuEngine {
                 l.mlp_conv4.ptr,
                 0,
                 0,
-                st.hist_mlp,
+                st.hist_mlp_at(self.cur_seq),
                 self.prefill.d_b_cur.ptr,
                 D as i32,
                 self.prefill.d_b_cur.ptr,
@@ -6941,7 +7401,7 @@ impl Inkling2GpuEngine {
             let mut p_w = l.mlp_conv4.ptr;
             let mut p_dyn: CUdeviceptr = 0;
             let mut df4 = 0i32;
-            let mut p_hist = st.hist_mlp;
+            let mut p_hist = st.hist_mlp_at(self.cur_seq);
             let mut p_out = self.prefill.d_b_cur.ptr;
             let mut outs = D as i32;
             let mut p_res = self.prefill.d_b_cur.ptr;
@@ -7495,6 +7955,10 @@ impl Inkling2GpuEngine {
             }
         }
 
+        if self.ms_rows.get() != 0 {
+            // Multi-sequence round: the host advances each sequence's own position.
+            return Ok(());
+        }
         let mut pp = self.d_pos.ptr;
         let mut delta = b_i32;
         let mut pos_args: [*mut c_void; 2] = [
