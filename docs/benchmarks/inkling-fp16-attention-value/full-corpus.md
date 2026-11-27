@@ -63,3 +63,16 @@ Seven complete 512-token chunks (1,785 scored positions) on RTX PRO 5000 cover t
 [Model, scorer and cubin identities, all selected positions and full-subset scores](single-round/other-packages.json).
 
 The actual PR source at 85523a7 builds and passes the SM120a SASS audit. Three of 234 functions differ from the previous PR module. All three have identical instruction/control words to the corresponding functions in the 243-function packed integration used for the corpus replay. [Main and integration binary comparison](single-round/pr-build.json).
+
+## How much of the change comes from one chunk?
+
+For each recurrence we aligned the same 25,500 positions and resampled 100 whole chunks with replacement 10,000 times within each split (seed 85523). Mean KL and top-1 use paired differences. PPL uses the ratio obtained by exponentiating the paired mean target-NLL difference. The interval describes sensitivity to the chosen WikiText chunks. Neither the oracle nor the weights were resampled.
+
+| Single-round minus current | Test | Validation |
+| --- | ---: | ---: |
+| Mean KL delta (95% interval) | -0.0003204 (-0.0009718, 0.0001209) | -0.0001529 (-0.0003690, 0.0000498) |
+| Mean KL delta after excluding the largest improving position | -0.0000798 | -0.0001007 |
+| Mean KL delta after excluding that entire chunk | -0.0000554 | -0.0000988 |
+| Chunks with lower mean KL out of 100 | 53 | 53 |
+
+Removing the strongest improvement still leaves a lower empirical mean KL in both splits. The whole-chunk intervals nevertheless include zero for both mean KL differences, and for both top-1 and relative PPL changes. The full-corpus worst-case and operator improvements stand on their directly observed results. [Per-chunk deltas, intervals and hashes](single-round/paired-blocks.json) · [Reproduction with two DIAG_ROWS files](single-round/paired.py).
