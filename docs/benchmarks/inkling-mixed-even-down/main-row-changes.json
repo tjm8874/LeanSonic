@@ -1,0 +1,237 @@
+{
+  "test": {
+    "old_and_new_source": [
+      "9f65bb2",
+      "bd048b8"
+    ],
+    "old_and_new_gpus": [
+      "RTX 5070 Ti",
+      "RTX PRO 4500"
+    ],
+    "rows": 25500,
+    "hashes": [
+      "6ad45d8baae8ce8bc003d6017f79daa5b48ed4cbfe0156b0073961ce9060cb8b",
+      "c937c689ee909fa0756ef216bfffa4e6d235e9f1812c950017f34c478433f9d5"
+    ],
+    "scores": [
+      {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.127374510265167,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.0169571444086638,
+        "median_kld": 0.007895857418926637,
+        "p99_kld": 0.1531903325957706,
+        "max_kld": 2.8585658015743487,
+        "start_chunk": 0,
+        "max_kld_chunk": 36,
+        "max_kld_position": 375,
+        "ref_floor_targets": 14,
+        "top1_matches": 24084,
+        "top1_agreement": 0.9444705882352942
+      },
+      {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.128123421246044,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.01722382971701655,
+        "median_kld": 0.007870187806128703,
+        "p99_kld": 0.14868429813484524,
+        "max_kld": 6.1395662820723125,
+        "start_chunk": 0,
+        "max_kld_chunk": 2,
+        "max_kld_position": 478,
+        "ref_floor_targets": 14,
+        "top1_matches": 24071,
+        "top1_agreement": 0.9439607843137255
+      }
+    ],
+    "identical_logit_fingerprints": 0,
+    "same_prediction": 25045,
+    "loses_bf16_top1": 215,
+    "gains_bf16_top1": 202,
+    "largest_increases": [
+      {
+        "chunk": 2,
+        "position": 478,
+        "target": 44259,
+        "old_top": 44259,
+        "new_top": 39618,
+        "old_kl": 0.035403481976,
+        "new_kl": 6.139566282072,
+        "old_top_agrees": true,
+        "new_top_agrees": false
+      },
+      {
+        "chunk": 30,
+        "position": 293,
+        "target": 197045,
+        "old_top": 196977,
+        "new_top": 196977,
+        "old_kl": 0.021093258516,
+        "new_kl": 1.411369261085,
+        "old_top_agrees": false,
+        "new_top_agrees": false
+      },
+      {
+        "chunk": 98,
+        "position": 465,
+        "target": 152134,
+        "old_top": 152134,
+        "new_top": 152134,
+        "old_kl": 0.68485115555,
+        "new_kl": 1.258696109522,
+        "old_top_agrees": true,
+        "new_top_agrees": true
+      },
+      {
+        "chunk": 36,
+        "position": 319,
+        "target": 149876,
+        "old_top": 149876,
+        "new_top": 149876,
+        "old_kl": 1.058637342042,
+        "new_kl": 1.451455733348,
+        "old_top_agrees": false,
+        "new_top_agrees": false
+      },
+      {
+        "chunk": 84,
+        "position": 411,
+        "target": 72073,
+        "old_top": 72073,
+        "new_top": 72073,
+        "old_kl": 0.002014238713,
+        "new_kl": 0.393623933453,
+        "old_top_agrees": true,
+        "new_top_agrees": true
+      },
+      {
+        "chunk": 23,
+        "position": 330,
+        "target": 20,
+        "old_top": 21,
+        "new_top": 21,
+        "old_kl": 1.550874361329,
+        "new_kl": 1.902075535527,
+        "old_top_agrees": false,
+        "new_top_agrees": false
+      },
+      {
+        "chunk": 33,
+        "position": 487,
+        "target": 154557,
+        "old_top": 82,
+        "new_top": 82,
+        "old_kl": 0.251730172872,
+        "new_kl": 0.51190008618,
+        "old_top_agrees": true,
+        "new_top_agrees": true
+      },
+      {
+        "chunk": 26,
+        "position": 446,
+        "target": 196976,
+        "old_top": 151605,
+        "new_top": 151605,
+        "old_kl": 0.378742673252,
+        "new_kl": 0.625816705845,
+        "old_top_agrees": true,
+        "new_top_agrees": true
+      }
+    ],
+    "largest_decreases": [
+      {
+        "chunk": 92,
+        "position": 387,
+        "target": 49714,
+        "old_top": 49714,
+        "new_top": 49714,
+        "old_kl": 0.919945637548,
+        "new_kl": 0.068370681803,
+        "old_top_agrees": true,
+        "new_top_agrees": true
+      },
+      {
+        "chunk": 36,
+        "position": 375,
+        "target": 12,
+        "old_top": 220,
+        "new_top": 220,
+        "old_kl": 2.858565801574,
+        "new_kl": 2.477216221674,
+        "old_top_agrees": false,
+        "new_top_agrees": false
+      },
+      {
+        "chunk": 81,
+        "position": 291,
+        "target": 197045,
+        "old_top": 196977,
+        "new_top": 196977,
+        "old_kl": 1.865132079975,
+        "new_kl": 1.494941729851,
+        "old_top_agrees": false,
+        "new_top_agrees": false
+      },
+      {
+        "chunk": 36,
+        "position": 315,
+        "target": 36223,
+        "old_top": 42784,
+        "new_top": 36223,
+        "old_kl": 0.363920399031,
+        "new_kl": 0.02191913385,
+        "old_top_agrees": false,
+        "new_top_agrees": true
+      },
+      {
+        "chunk": 90,
+        "position": 302,
+        "target": 196977,
+        "old_top": 196977,
+        "new_top": 196977,
+        "old_kl": 0.460779619547,
+        "new_kl": 0.209808487489,
+        "old_top_agrees": false,
+        "new_top_agrees": false
+      },
+      {
+        "chunk": 92,
+        "position": 386,
+        "target": 220,
+        "old_top": 220,
+        "new_top": 149876,
+        "old_kl": 0.246244807141,
+        "new_kl": 0.024400566517,
+        "old_top_agrees": false,
+        "new_top_agrees": true
+      },
+      {
+        "chunk": 21,
+        "position": 313,
+        "target": 220,
+        "old_top": 220,
+        "new_top": 220,
+        "old_kl": 0.565048730967,
+        "new_kl": 0.394571370828,
+        "old_top_agrees": true,
+        "new_top_agrees": true
+      },
+      {
+        "chunk": 94,
+        "position": 340,
+        "target": 220,
+        "old_top": 151945,
+        "new_top": 39476,
+        "old_kl": 0.223827201742,
+        "new_kl": 0.053855069039,
+        "old_top_agrees": false,
+        "new_top_agrees": true
+      }
+    ]
+  }
+}
