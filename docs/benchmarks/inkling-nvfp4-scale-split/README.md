@@ -29,3 +29,5 @@ The loader materializes the two streams, scale codes and one decoded CPU weight 
 [Fresh-process loader time and peak host RSS](load.md) quantify the 8.131 s startup cost.
 
 [Direct decoding in model order](direct/README.md) builds the alternative 13,479,710,294-byte package and includes its BF16 checks.
+
+On upstream main 66a388a, the pre-existing 13,445,948,726-byte trim package and its source distribution produced the same 64 greedy IDs, next ID and final-logit hash for all eight requests on each of RTX 5060 Ti and 5070 Ti. [Integrated-main build digests and individual traces](main-parity.json).
