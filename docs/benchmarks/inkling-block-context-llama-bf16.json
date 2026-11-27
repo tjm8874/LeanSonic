@@ -1,0 +1,909 @@
+{
+  "engine_commit": "1e4825b2525c5f6068cf4185b506cab7ee9f53d2",
+  "same_production_sources_as": "32710d3",
+  "llama_cpp": "29b52d398b294509746ec0a3f28948a3107c0213",
+  "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+  "package_bytes": {
+    "lean": 15853391742,
+    "llama": 52226509568
+  },
+  "model_sha256": {
+    "lean": "f33ba0663d5c3968d77a0b4fe648627d9dc298d7796863cb1db48e63f104dc92",
+    "llama": "d4b5181aeb49acf2b08acaa2ad5e0f9f9710e8030d589b3c6e9f43150cf10804"
+  },
+  "prompt_sha256": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843",
+  "forced_sha256": "424005ba620148c43483b62cced3f11cbc90f3c01cef01cb3abbb03264020e27",
+  "method": "Greedy, one sequence, 8192 context, FP16 KV, GPU selection, no speculation. Same 1024 input IDs and 32 forced forwards and samplings. Five requests per fresh process. Timings exclude the first request, reset and load, then average within process and within paired cycle. Per-PID peak NVML sampling at 4 ms target includes load. LeanSonic native packed expert weights vs llama.cpp official BF16 GGUF fully offloaded.",
+  "cycles": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "matched_requests": 100,
+  "runs": [
+    {
+      "cycle": 1,
+      "arm": "lean",
+      "leg": 0,
+      "peak": 18092130304,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 97.6508,
+          "decode32_ms": 189.6087,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 89.8429,
+          "decode32_ms": 189.5076,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 89.8344,
+          "decode32_ms": 189.5542,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 89.875,
+          "decode32_ms": 189.5024,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 89.8459,
+          "decode32_ms": 189.4794,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 1,
+      "arm": "llama",
+      "leg": 1,
+      "peak": 55578722304,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 691.8776,
+          "decode32_ms": 576.516,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 604.8307,
+          "decode32_ms": 565.8063,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 596.8629,
+          "decode32_ms": 564.8579,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 595.2736,
+          "decode32_ms": 564.7688,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 595.0113,
+          "decode32_ms": 564.9541,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 1,
+      "arm": "llama",
+      "leg": 2,
+      "peak": 55578722304,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 688.8456,
+          "decode32_ms": 578.2366,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 605.5537,
+          "decode32_ms": 566.6049,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 599.251,
+          "decode32_ms": 566.8358,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 596.7647,
+          "decode32_ms": 566.6086,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 597.6208,
+          "decode32_ms": 566.9207,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 1,
+      "arm": "lean",
+      "leg": 3,
+      "peak": 18075353088,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 97.6155,
+          "decode32_ms": 189.5379,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 89.9029,
+          "decode32_ms": 189.4847,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 89.9811,
+          "decode32_ms": 189.6543,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 89.9799,
+          "decode32_ms": 189.6358,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 90.0006,
+          "decode32_ms": 189.6502,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 2,
+      "arm": "llama",
+      "leg": 0,
+      "peak": 55578722304,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 710.7939,
+          "decode32_ms": 577.1197,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 602.6824,
+          "decode32_ms": 565.7239,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 598.0314,
+          "decode32_ms": 565.5186,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 595.5448,
+          "decode32_ms": 567.5096,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 595.3774,
+          "decode32_ms": 566.045,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 2,
+      "arm": "lean",
+      "leg": 1,
+      "peak": 18108907520,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 97.2979,
+          "decode32_ms": 189.7145,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 90.0367,
+          "decode32_ms": 189.6218,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 90.0055,
+          "decode32_ms": 189.6389,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 90.0104,
+          "decode32_ms": 189.6589,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 90.022,
+          "decode32_ms": 189.5955,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 2,
+      "arm": "lean",
+      "leg": 2,
+      "peak": 18234736640,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 97.2681,
+          "decode32_ms": 189.8534,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 90.057,
+          "decode32_ms": 189.7194,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 90.0218,
+          "decode32_ms": 189.742,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 90.0748,
+          "decode32_ms": 190.1579,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 90.1407,
+          "decode32_ms": 190.2906,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 2,
+      "arm": "llama",
+      "leg": 3,
+      "peak": 55578722304,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 685.938,
+          "decode32_ms": 577.3961,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 604.3885,
+          "decode32_ms": 565.259,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 599.007,
+          "decode32_ms": 565.2692,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 598.2169,
+          "decode32_ms": 565.2458,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 594.1989,
+          "decode32_ms": 565.1995,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 3,
+      "arm": "lean",
+      "leg": 0,
+      "peak": 18209570816,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 97.4805,
+          "decode32_ms": 189.814,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 90.0615,
+          "decode32_ms": 189.6573,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 90.0838,
+          "decode32_ms": 189.6647,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 90.0706,
+          "decode32_ms": 189.6631,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 90.0833,
+          "decode32_ms": 189.6357,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 3,
+      "arm": "llama",
+      "leg": 1,
+      "peak": 55578722304,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 687.0313,
+          "decode32_ms": 577.4118,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 605.3374,
+          "decode32_ms": 566.2199,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 597.4059,
+          "decode32_ms": 566.2028,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 595.4436,
+          "decode32_ms": 565.2178,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 595.166,
+          "decode32_ms": 565.6004,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 3,
+      "arm": "llama",
+      "leg": 2,
+      "peak": 55578722304,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 693.1506,
+          "decode32_ms": 576.4152,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 602.8781,
+          "decode32_ms": 565.6831,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 599.0267,
+          "decode32_ms": 566.3062,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 597.8376,
+          "decode32_ms": 566.4072,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 595.0926,
+          "decode32_ms": 565.5262,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 3,
+      "arm": "lean",
+      "leg": 3,
+      "peak": 18230542336,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 97.5909,
+          "decode32_ms": 189.7558,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 90.1219,
+          "decode32_ms": 189.6041,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 90.1008,
+          "decode32_ms": 189.6396,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 90.0955,
+          "decode32_ms": 189.6121,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 90.0973,
+          "decode32_ms": 189.6862,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 4,
+      "arm": "llama",
+      "leg": 0,
+      "peak": 55578722304,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 687.5207,
+          "decode32_ms": 576.5925,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 604.5952,
+          "decode32_ms": 566.1986,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 597.9335,
+          "decode32_ms": 566.1504,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 595.283,
+          "decode32_ms": 565.2541,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 595.3055,
+          "decode32_ms": 565.3822,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 4,
+      "arm": "lean",
+      "leg": 1,
+      "peak": 18100518912,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 98.9869,
+          "decode32_ms": 189.9677,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 90.1195,
+          "decode32_ms": 189.6224,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 90.0677,
+          "decode32_ms": 189.5785,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 90.1515,
+          "decode32_ms": 189.648,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 90.1905,
+          "decode32_ms": 189.6666,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 4,
+      "arm": "lean",
+      "leg": 2,
+      "peak": 18222153728,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 97.7014,
+          "decode32_ms": 189.7793,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 90.1174,
+          "decode32_ms": 189.6151,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 90.1578,
+          "decode32_ms": 189.6014,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 90.1197,
+          "decode32_ms": 189.6423,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 90.1555,
+          "decode32_ms": 189.5861,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 4,
+      "arm": "llama",
+      "leg": 3,
+      "peak": 55578722304,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 687.5042,
+          "decode32_ms": 576.8967,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 605.1041,
+          "decode32_ms": 565.917,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 598.8412,
+          "decode32_ms": 566.3317,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 597.6343,
+          "decode32_ms": 566.0239,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 595.1352,
+          "decode32_ms": 565.5672,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 5,
+      "arm": "lean",
+      "leg": 0,
+      "peak": 18230542336,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 97.7719,
+          "decode32_ms": 189.6846,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 90.1365,
+          "decode32_ms": 189.6014,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 90.1041,
+          "decode32_ms": 189.617,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 90.1943,
+          "decode32_ms": 189.6389,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 90.1786,
+          "decode32_ms": 189.6062,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 5,
+      "arm": "llama",
+      "leg": 1,
+      "peak": 55578722304,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 687.5504,
+          "decode32_ms": 576.5989,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 601.1821,
+          "decode32_ms": 565.6804,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 597.3779,
+          "decode32_ms": 565.7175,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 594.4209,
+          "decode32_ms": 566.4701,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 596.1199,
+          "decode32_ms": 566.0925,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 5,
+      "arm": "llama",
+      "leg": 2,
+      "peak": 55578722304,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 685.9809,
+          "decode32_ms": 575.8287,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 605.009,
+          "decode32_ms": 566.1105,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 598.1062,
+          "decode32_ms": 566.7296,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 598.5916,
+          "decode32_ms": 565.9484,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 595.2185,
+          "decode32_ms": 566.5623,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    },
+    {
+      "cycle": 5,
+      "arm": "lean",
+      "leg": 3,
+      "peak": 18096324608,
+      "requests": [
+        {
+          "run": 0,
+          "prefill_ms": 100.2325,
+          "decode32_ms": 190.0011,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 1,
+          "prefill_ms": 90.1808,
+          "decode32_ms": 189.6605,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 2,
+          "prefill_ms": 90.1912,
+          "decode32_ms": 189.7571,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 3,
+          "prefill_ms": 90.1692,
+          "decode32_ms": 189.8215,
+          "matches": 32,
+          "first": 145026
+        },
+        {
+          "run": 4,
+          "prefill_ms": 90.1787,
+          "decode32_ms": 189.7991,
+          "matches": 32,
+          "first": 145026
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "lean": {
+      "prefill_ms": 90.0689825,
+      "decode32_ms": 189.6629625,
+      "peak_bytes": 18234736640
+    },
+    "llama": {
+      "prefill_ms": 598.56655,
+      "decode32_ms": 565.9106925,
+      "peak_bytes": 55578722304
+    }
+  },
+  "paired_time_saved_pct_95": {
+    "prefill_ms": [
+      84.93721502933509,
+      84.9718778780283
+    ],
+    "decode32_ms": [
+      66.4663292952213,
+      66.4984100462625
+    ]
+  }
+}
