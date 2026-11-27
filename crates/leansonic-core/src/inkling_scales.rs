@@ -180,9 +180,71 @@ pub fn unpack_scales(
     Ok(())
 }
 
+// Four consecutive original bytes form one logical scale word in the CUDA
+// kernels. Store eight low-bit fields together with no padding between groups.
+pub(crate) fn pack_gpu_tile<const BITS: usize, const BASE: u8>(
+    values: &[u8],
+    out: &mut Vec<u8>,
+) -> bool {
+    const BYTE_ONES: u64 = 0x0101_0101_0101_0101;
+    let low_mask = (1u64 << BITS) - 1;
+    let fixed_bits = BYTE_ONES * (255 - low_mask);
+    let (groups, rem) = values.as_chunks::<8>();
+    if !rem.is_empty() {
+        return false;
+    }
+    out.resize(groups.len() * BITS, 0);
+    // Compare fixed bits across the tile while packing; the caller uploads
+    // the tile only after every byte has passed the range check.
+    let mut differences = 0;
+    for (&group, packed) in groups.iter().zip(out.as_chunks_mut::<BITS>().0) {
+        let word = u64::from_le_bytes(group);
+        differences |= (word & fixed_bits) ^ (u64::from(BASE) * BYTE_ONES);
+        // Gather adjacent byte fields into pairs, then quads and one word.
+        let byte_lanes = 0x0001_0001_0001_0001 * low_mask;
+        let pairs = (word & byte_lanes) | (((word >> 8) & byte_lanes) << BITS);
+        let pair_mask = (1u64 << (2 * BITS)) - 1;
+        let pair_lanes = 0x0000_0001_0000_0001 * pair_mask;
+        let quads = (pairs & pair_lanes) | (((pairs >> 16) & pair_lanes) << (2 * BITS));
+        let quad_mask = (1u64 << (4 * BITS)) - 1;
+        let fields = (quads & quad_mask) | ((quads >> 32) << (4 * BITS));
+        packed.copy_from_slice(&fields.to_le_bytes()[..BITS]);
+    }
+    differences == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gpu_scale_words_cross_aligned_loads_and_reject_outliers() {
+        fn check<const BITS: usize, const BASE: u8>() {
+            let mask = (1u8 << BITS) - 1;
+            let mut values: Vec<u8> = (0..256).map(|i| BASE + (i as u8 & mask)).collect();
+            let mut packed = Vec::new();
+            assert!(pack_gpu_tile::<BITS, BASE>(&values, &mut packed));
+            assert_eq!(packed.len(), values.len() * BITS / 8);
+            packed.extend_from_slice(&[0; 4]);
+            for (index, original) in values.as_chunks::<4>().0.iter().enumerate() {
+                let bit = index * 4 * BITS;
+                let byte = (bit / 32) * 4;
+                let lo = u32::from_le_bytes(packed[byte..byte + 4].try_into().unwrap());
+                let hi = u32::from_le_bytes(packed[byte + 4..byte + 8].try_into().unwrap());
+                let fields = (u64::from(lo) | u64::from(hi) << 32) >> (bit % 32);
+                for (lane, &value) in original.iter().enumerate() {
+                    assert_eq!(BASE + ((fields >> (lane * BITS)) as u8 & mask), value);
+                }
+            }
+            assert!(!pack_gpu_tile::<BITS, BASE>(&values[1..], &mut packed));
+            for outlier in [BASE - 1, BASE + mask + 1] {
+                values[255] = outlier;
+                assert!(!pack_gpu_tile::<BITS, BASE>(&values, &mut packed));
+            }
+        }
+        check::<6, 64>();
+        check::<3, 112>();
+    }
 
     #[test]
     fn round_trip_crosses_upload_tile_and_byte_boundaries() {
