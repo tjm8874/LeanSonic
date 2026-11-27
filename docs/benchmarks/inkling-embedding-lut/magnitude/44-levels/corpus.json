@@ -1,0 +1,48 @@
+{
+  "gpu": "RTX PRO 4500",
+  "package_bytes": 11419458046,
+  "scorer_sha256": "b15a56beea0a3e29d2e54682b1537c909af000faa175e42a2ea66b3998836381",
+  "cubin_sha256": "7d3d1416baeaefcb71c4cbefab686def0a46ca1b44a4b7a8630d56e56518e8e6",
+  "splits": {
+    "test": {
+      "result": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.134607169028088,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.019697900365507427,
+        "median_kld": 0.009499871722706329,
+        "p99_kld": 0.17722521678259504,
+        "max_kld": 2.4135361606334675,
+        "start_chunk": 0,
+        "max_kld_chunk": 23,
+        "max_kld_position": 330,
+        "ref_floor_targets": 14,
+        "top1_matches": 23940,
+        "top1_agreement": 0.9388235294117647
+      },
+      "json_sha256": "adbc1f2a06edb04d834e0f9040994096f5e7b1b39fab3a2d23200c4dd26b8529"
+    },
+    "valid": {
+      "result": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 6.5812502790996446,
+        "ref_ppl": 6.498588819010602,
+        "mean_kld": 0.01850619199634452,
+        "median_kld": 0.008207309543281971,
+        "p99_kld": 0.17361709952879378,
+        "max_kld": 3.01186619862154,
+        "start_chunk": 0,
+        "max_kld_chunk": 41,
+        "max_kld_position": 499,
+        "ref_floor_targets": 10,
+        "top1_matches": 24094,
+        "top1_agreement": 0.9448627450980392
+      },
+      "json_sha256": "1a03b84ef7026555a8665efa798a543a0c4101d49c5bfc2b30803356e822b5ba"
+    }
+  }
+}
