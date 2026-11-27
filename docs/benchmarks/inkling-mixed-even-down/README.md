@@ -48,7 +48,7 @@ Five mirrored cycles used the same 1,024 IDs, 32 teacher-forced decode steps, on
 
 The LeanSonic package counts the weights and tokenizer. The GGUF includes its tokenizer. Timings cover the individual engines at this input shape and do not include process startup.
 
-This measurement used LeanSonic bd048b8 and the Unsloth llama.cpp build 12588 (883286076) with Inkling-2-Mini-UD-IQ3_XXS.gguf. LeanSonic used 175,841,714 fewer distribution bytes and 249,561,088 fewer peak process GPU bytes. On the 5060 Ti, the paired prefill speedup was 3.622× (95% paired-cycle bootstrap interval 3.621–3.622) and decode speedup was 1.692× (1.691–1.693). The full same-card BF16 corpus comparison is tracked in issue #35.
+This measurement used LeanSonic bd048b8 and the Unsloth llama.cpp build 12588 (883286076) with Inkling-2-Mini-UD-IQ3_XXS.gguf. LeanSonic used 175,841,714 fewer distribution bytes and 249,561,088 fewer peak process GPU bytes. On the 5060 Ti, the paired prefill speedup was 3.622× (95% paired-cycle bootstrap interval 3.621–3.622) and decode speedup was 1.692× (1.691–1.693). [Same-card BF16 quality and worst-row tradeoff](5060-quality.md).
 
 ## Independent gate/up and down switches
 
