@@ -8,7 +8,7 @@ Inkling-2-Mini's 61-expert parent keeps all gate/up planes at their original low
 | 487 retained experts with 44-magnitude embedding | 7,764,242,158 |
 | Native llama.cpp IQ1_S GGUF | 7,764,291,776 |
 
-The additional 344 slices cost 243,838,312 bytes. Attaching the 44-level embedding to the 61+426 expert archive leaves 49,618 bytes under the native file. The independent decoder checked 3,057,647,616 weight bytes and 382,205,952 scale codes across 18 changed planes. The first 61 retained experts were present in the parent. The numerical quality and speed of the new candidates require a separate measurement.
+The additional 344 slices cost 243,838,312 bytes. Attaching the 44-level embedding to the 61+426 expert archive leaves 49,618 bytes under the native file. The independent decoder checked 3,057,647,616 weight bytes and 382,205,952 scale codes across 18 changed planes. The first 61 retained experts were present in the parent. The BF16 comparison below measures the 487-expert candidate.
 
 ## Reproduction
 
@@ -17,3 +17,16 @@ The additional 344 slices cost 243,838,312 bytes. Attaching the 44-level embeddi
 3. Encode prefixes with the class-specific tables, using the [44-level 925-expert assembly procedure](../ranked-experts/class-banks/925-experts/README.md) and the restricted down-expert ranking. Prefix 426 fits and 427 exceeds the cap. Replace the input embedding in the selected archive with the same frame. Verify the final shard and tokenizer SHA-256 before timing or scoring.
 
 [143-expert control hashes](control.json) · [Selected ID list, capped ranking hash and prefix trials](expert.json) · [Expert readback](verified.json) · [Final package hashes](receipt.json).
+
+## 100-chunk BF16 corpus comparison
+
+LeanSonic scored the 487-expert package on RTX 5070 Ti with 24/24 layers resident, FP16 KV and 512-token prefill. The [original native IQ1_S measurements](https://github.com/tjm8874/LeanSonic/tree/d65d1a6/docs/benchmarks/inkling-native-lowbits) used RTX PRO 5000. Both engines used the same 25,500 positions per split. The device differs in this quality comparison.
+
+| Split | Engine | Mean KL | Worst KL | BF16 top-1 / 25,500 | PPL |
+| --- | --- | ---: | ---: | ---: | ---: |
+| test | LeanSonic 487 | 0.1646306 | 8.5200744 | 21,179 | 8.038991 |
+| test | llama.cpp IQ1_S | 0.1130210 | 5.8886900 | 21,921 | 7.707463 |
+| valid | LeanSonic 487 | 0.1531214 | 5.8109892 | 21,413 | 7.426430 |
+| valid | llama.cpp IQ1_S | 0.1076170 | 5.5685180 | 22,138 | 7.121110 |
+
+The 49,618-byte size saving comes with poorer values on all four quality measures on both splits. Keep this allocation experimental. To reproduce, use engine 726b6f2 with the original 487-expert weights, device U4 and direct prefill enabled and both ternary device paths disabled, then run `eval-kld --weights MODEL --ref ORACLE --chunks 100`. [Model, executable and oracle digests, and full score fields](5070-quality.json).

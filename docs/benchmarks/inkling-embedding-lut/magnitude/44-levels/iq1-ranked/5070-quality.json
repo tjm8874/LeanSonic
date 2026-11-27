@@ -1,0 +1,82 @@
+{
+  "source": "726b6f2142a4095524e52f1877cffcf7bbd0ff19",
+  "package": {
+    "model-00001-of-00001.safetensors": {
+      "bytes": 7760855664,
+      "sha256": "c12e8ef98dfcdd27a7d9376b941e32e7dd84fc94ff96822e5d5f6c12d197622d"
+    },
+    "tiktoken/tokenizer.model": {
+      "bytes": 3386494,
+      "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+    }
+  },
+  "executables": {
+    "scorer": "b15a56beea0a3e29d2e54682b1537c909af000faa175e42a2ea66b3998836381",
+    "engine.cubin": "7d3d1416baeaefcb71c4cbefab686def0a46ca1b44a4b7a8630d56e56518e8e6"
+  },
+  "device": "RTX 5070 Ti",
+  "splits": {
+    "test": {
+      "oracle_sha256": "895fac2136c06dce1854568c83eb76a0225a05fab3c37897a12fec1d56949b97",
+      "lean": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 8.038990995367818,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.16463055290845274,
+        "median_kld": 0.09095539126555496,
+        "p99_kld": 1.2790874285843872,
+        "max_kld": 8.520074370315985,
+        "start_chunk": 0,
+        "max_kld_chunk": 90,
+        "max_kld_position": 424,
+        "ref_floor_targets": 14,
+        "top1_matches": 21179,
+        "top1_agreement": 0.8305490196078431
+      },
+      "original_iq1_pro5000": {
+        "mean_kl": 0.113021,
+        "worst_kl": 5.88869,
+        "p99": 0.955272,
+        "ppl": 7.707463,
+        "oracle_ppl": 7.064408,
+        "top1_pct": 85.965,
+        "matches": 21921,
+        "requested_gpu_layers": 99,
+        "gpu_offload_reported": false
+      }
+    },
+    "valid": {
+      "oracle_sha256": "b3d804824373950c9b6d7cd37e5607d132d2f3caca6f80ffd26739b2776a2ca0",
+      "lean": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.4264295274184615,
+        "ref_ppl": 6.498588819010602,
+        "mean_kld": 0.1531214326200976,
+        "median_kld": 0.08051669009782587,
+        "p99_kld": 1.2590855689194385,
+        "max_kld": 5.810989217819568,
+        "start_chunk": 0,
+        "max_kld_chunk": 10,
+        "max_kld_position": 471,
+        "ref_floor_targets": 10,
+        "top1_matches": 21413,
+        "top1_agreement": 0.8397254901960785
+      },
+      "original_iq1_pro5000": {
+        "mean_kl": 0.107617,
+        "worst_kl": 5.568518,
+        "p99": 0.975728,
+        "ppl": 7.12111,
+        "oracle_ppl": 6.498589,
+        "top1_pct": 86.816,
+        "matches": 22138,
+        "requested_gpu_layers": 99,
+        "gpu_offload_reported": false
+      }
+    }
+  }
+}
