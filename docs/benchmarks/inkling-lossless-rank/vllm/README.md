@@ -2,12 +2,12 @@
 
 LeanSonic 9bc4d48 uses the lossless ranked embedding and four expert banks. vLLM 8c17e469 uses the publisher model b85c3cfa. Both use FP16 KV, a 2,048-token context, one sequence, 1,024 identical input tokens, and the same 32-token decode history. Each phase produces the next token. The LeanSonic CLI reports all 24 expert layers resident. GPU driver 595.99.02 and 200 W power limit.
 
-**2 of five mirrored cycles complete**, with 28 warm requests per engine. Each cycle uses four fresh processes. The initial request of every process is excluded. Speeds are the token counts divided by the mean phase duration. Peak GPU bytes are sampled over each process tree, including model loading. vLLM reserves 2,415,919,104 bytes for its KV cache.
+**3 of five mirrored cycles complete**, with 42 warm requests per engine. Each cycle uses four fresh processes. The initial request of every process is excluded. Speeds are the token counts divided by the mean phase duration. Peak GPU bytes are sampled over each process tree, including model loading. vLLM reserves 2,415,919,104 bytes for its KV cache.
 
 | Engine | Prefill tok/s | Decode tok/s | Peak GPU bytes | Distribution bytes |
 | --- | ---: | ---: | ---: | ---: |
-| LeanSonic rank | 8,639.61 | 123.68 | 15,590,227,968 | 13,438,517,744 |
-| vLLM native | 8,660.98 | 107.65 | 22,756,196,352 | 19,555,785,477 |
+| LeanSonic rank | 8,639.36 | 123.68 | 15,590,227,968 | 13,438,517,744 |
+| vLLM native | 8,661.00 | 107.66 | 22,756,196,352 | 19,555,785,477 |
 
 The publisher count includes the official tokenizer and configuration and excludes the optional 635,801,416-byte MTP file. The LeanSonic package is the shard and tokenizer in the [physical package receipt](../receipt.json). Each engine disables speculative decoding. vLLM records scheduled-to-first-token and first-to-last-token times. LeanSonic records synchronous in-process phase times.
 
