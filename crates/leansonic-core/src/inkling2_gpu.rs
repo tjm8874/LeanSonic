@@ -763,6 +763,11 @@ pub struct Inkling2GpuEngine {
     d_ms_rows: DeviceBuf,
     d_ms_tokens: DeviceBuf,
     ms_rows: std::cell::Cell<CUdeviceptr>,
+    /// Captured decode rounds per row count (captured on a row count's second use).
+    ms_graphs: std::collections::HashMap<usize, CapturedGraphExec>,
+    ms_round_hits: std::collections::HashMap<usize, u32>,
+    /// `LEANSONIC_MS_GRAPH=0` launches every multi-sequence round directly (A/B).
+    ms_graph: bool,
     pub resident_expert_layers: usize,
     pub spilled_expert_layers: usize,
     pub max_ctx: usize,
@@ -1979,6 +1984,9 @@ impl Inkling2GpuEngine {
             d_ms_rows,
             d_ms_tokens,
             ms_rows: std::cell::Cell::new(0),
+            ms_graphs: std::collections::HashMap::new(),
+            ms_round_hits: std::collections::HashMap::new(),
+            ms_graph: std::env::var("LEANSONIC_MS_GRAPH").map_or(true, |v| v != "0"),
             embed,
             embed_norm,
             final_norm,
@@ -4747,13 +4755,45 @@ impl Inkling2GpuEngine {
             )?;
         }
         self.ms_rows.set(self.d_ms_rows.ptr);
-        let r = self.enqueue_batch_step_impl(
-            self.ctx.compute_stream,
-            self.d_ms_tokens.ptr,
-            b_len,
-            BatchHeadMode::AllHeads,
-            false,
-        );
+        // Rows, positions and tokens live in device tables, so a round of `b_len` rows replays
+        // the same launch sequence every step: capture it once the row count repeats.
+        let hits = {
+            let h = self.ms_round_hits.entry(b_len).or_insert(0);
+            *h += 1;
+            *h
+        };
+        let r = if !self.enable_cuda_graph || !self.ms_graph {
+            self.enqueue_batch_step_impl(
+                self.ctx.compute_stream,
+                self.d_ms_tokens.ptr,
+                b_len,
+                BatchHeadMode::AllHeads,
+                false,
+            )
+        } else if let Some(g) = self.ms_graphs.get(&b_len) {
+            g.replay()
+        } else if hits >= 2 {
+            let ctx_clone = Arc::clone(&self.ctx);
+            let tok_ptr = self.d_ms_tokens.ptr;
+            match CapturedGraphExec::capture(&ctx_clone, |stream| {
+                self.enqueue_batch_step_impl(stream, tok_ptr, b_len, BatchHeadMode::AllHeads, false)
+            }) {
+                Ok(g) => {
+                    let r = g.replay();
+                    self.ms_graphs.insert(b_len, g);
+                    r
+                }
+                Err(e) => Err(e),
+            }
+        } else {
+            self.enqueue_batch_step_impl(
+                self.ctx.compute_stream,
+                self.d_ms_tokens.ptr,
+                b_len,
+                BatchHeadMode::AllHeads,
+                false,
+            )
+        };
         self.ms_rows.set(0);
         r?;
         self.ctx.sync_compute()?;
@@ -5337,7 +5377,8 @@ impl Inkling2GpuEngine {
         has_dyn: i32,
         do_res_add: i32,
     ) -> Result<bool, String> {
-        if !self.par_conv || b_len < 32 {
+        // Multi-sequence rounds keep per-row histories (`ink2_short_conv4_ms`).
+        if !self.par_conv || b_len < 32 || self.ms_rows.get() != 0 {
             return Ok(false);
         }
         let (Some(f_par), Some(f_commit)) = (
