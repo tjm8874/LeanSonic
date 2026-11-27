@@ -1,0 +1,258 @@
+{
+  "test": {
+    "parent": [
+      {
+        "chunk": 29,
+        "position": 443,
+        "target": 149918,
+        "engine_logits_sha256": "57483962401497a6003b03b054062970dbc7db6bac0b7c0be8ee26b6ac662e83",
+        "canonical": {
+          "kl": 0.17547554055721507,
+          "reference_top": 149918,
+          "engine_top": 149918
+        },
+        "serial": {
+          "kl": 0.06126901698385509,
+          "reference_top": 149918,
+          "engine_top": 149918
+        }
+      },
+      {
+        "chunk": 69,
+        "position": 353,
+        "target": 1057,
+        "engine_logits_sha256": "f06db7ec86054d7bc475a13a68a6a5fd256dc93e952d524e1ad163cd5041383f",
+        "canonical": {
+          "kl": 0.6809773900880705,
+          "reference_top": 2952,
+          "engine_top": 1057
+        },
+        "serial": {
+          "kl": 0.5173452096672037,
+          "reference_top": 1057,
+          "engine_top": 1057
+        }
+      },
+      {
+        "chunk": 80,
+        "position": 452,
+        "target": 197045,
+        "engine_logits_sha256": "094b3bdc0cf02bc39c722964908ffa7981162fd502d8748f9de20931def07108",
+        "canonical": {
+          "kl": 0.031249712276165083,
+          "reference_top": 197045,
+          "engine_top": 197045
+        },
+        "serial": {
+          "kl": 0.8274180023319115,
+          "reference_top": 196977,
+          "engine_top": 197045
+        }
+      }
+    ],
+    "last": [
+      {
+        "chunk": 29,
+        "position": 443,
+        "target": 149918,
+        "engine_logits_sha256": "ffeec41397340045080015e49f687bc63f6cd4570f4fef7a2663538b184aa087",
+        "canonical": {
+          "kl": 0.17349671650230575,
+          "reference_top": 149918,
+          "engine_top": 149918
+        },
+        "serial": {
+          "kl": 0.060236598637492034,
+          "reference_top": 149918,
+          "engine_top": 149918
+        }
+      },
+      {
+        "chunk": 69,
+        "position": 353,
+        "target": 1057,
+        "engine_logits_sha256": "b2020ab26159150801f046ccc26044b47b9435d0952264be58466600ec889960",
+        "canonical": {
+          "kl": 0.6915734819726249,
+          "reference_top": 2952,
+          "engine_top": 1057
+        },
+        "serial": {
+          "kl": 0.5259847566523941,
+          "reference_top": 1057,
+          "engine_top": 1057
+        }
+      },
+      {
+        "chunk": 80,
+        "position": 452,
+        "target": 197045,
+        "engine_logits_sha256": "55b55261af3b2c905c2bdd5d5550d9b4cad12f171f0e2c6ad11f04c9fae93223",
+        "canonical": {
+          "kl": 0.02936050316509129,
+          "reference_top": 197045,
+          "engine_top": 197045
+        },
+        "serial": {
+          "kl": 0.8167615177250388,
+          "reference_top": 196977,
+          "engine_top": 197045
+        }
+      }
+    ],
+    "all": [
+      {
+        "chunk": 29,
+        "position": 443,
+        "target": 149918,
+        "engine_logits_sha256": "2fa8b37c24604b86aff786061937e73bd63607fb40769daa67c39ae7b6821221",
+        "canonical": {
+          "kl": 0.17523724819401637,
+          "reference_top": 149918,
+          "engine_top": 149918
+        },
+        "serial": {
+          "kl": 0.060978212185784086,
+          "reference_top": 149918,
+          "engine_top": 149918
+        }
+      },
+      {
+        "chunk": 69,
+        "position": 353,
+        "target": 1057,
+        "engine_logits_sha256": "d9b4fd21b7bb5f2b329f8e4f94017ffb34a84da34a5dcf6195c07a439d0e659f",
+        "canonical": {
+          "kl": 0.7354876792823846,
+          "reference_top": 2952,
+          "engine_top": 1057
+        },
+        "serial": {
+          "kl": 0.5583757142435983,
+          "reference_top": 1057,
+          "engine_top": 1057
+        }
+      },
+      {
+        "chunk": 80,
+        "position": 452,
+        "target": 197045,
+        "engine_logits_sha256": "9ec9c2d6bdd1f1c11dee5d5f4103af58ae97e698c222238505d7e5947bee4ea5",
+        "canonical": {
+          "kl": 0.02297309799545083,
+          "reference_top": 197045,
+          "engine_top": 197045
+        },
+        "serial": {
+          "kl": 0.7740286082420381,
+          "reference_top": 196977,
+          "engine_top": 197045
+        }
+      }
+    ]
+  },
+  "valid": {
+    "parent": [
+      {
+        "chunk": 30,
+        "position": 331,
+        "target": 20,
+        "engine_logits_sha256": "33081b9a636c33648bbfab6ca472ffbb4e70a7bf89acda31b41cb7651d2a6481",
+        "canonical": {
+          "kl": 0.2723338514818307,
+          "reference_top": 18,
+          "engine_top": 20
+        },
+        "serial": {
+          "kl": 0.5150198740009004,
+          "reference_top": 18,
+          "engine_top": 20
+        }
+      },
+      {
+        "chunk": 46,
+        "position": 379,
+        "target": 220,
+        "engine_logits_sha256": "41ee8ae69e57480acc35230e21ba9919cd4b74ab2c41a7a7593c6d82292600d0",
+        "canonical": {
+          "kl": 0.3524361470972671,
+          "reference_top": 170558,
+          "engine_top": 17
+        },
+        "serial": {
+          "kl": 0.4833058620339594,
+          "reference_top": 170558,
+          "engine_top": 17
+        }
+      }
+    ],
+    "last": [
+      {
+        "chunk": 30,
+        "position": 331,
+        "target": 20,
+        "engine_logits_sha256": "ef9e1957189729df6aec5bfebec8dc3e6a80c96f9033f69b625e1445efabbafd",
+        "canonical": {
+          "kl": 0.252093822097182,
+          "reference_top": 18,
+          "engine_top": 20
+        },
+        "serial": {
+          "kl": 0.49012264238702646,
+          "reference_top": 18,
+          "engine_top": 20
+        }
+      },
+      {
+        "chunk": 46,
+        "position": 379,
+        "target": 220,
+        "engine_logits_sha256": "93d5b1f405ff40947e598599fcad9ffe43a60ea234d5fbe28eafd505cbd31b32",
+        "canonical": {
+          "kl": 0.3794977003519888,
+          "reference_top": 170558,
+          "engine_top": 17
+        },
+        "serial": {
+          "kl": 0.5144572530876326,
+          "reference_top": 170558,
+          "engine_top": 17
+        }
+      }
+    ],
+    "all": [
+      {
+        "chunk": 30,
+        "position": 331,
+        "target": 20,
+        "engine_logits_sha256": "929d80371eb3c11e84aa14185472f75a8ecf823c324ad9a4c58b5c6c7c5c4b25",
+        "canonical": {
+          "kl": 0.11776523272236938,
+          "reference_top": 18,
+          "engine_top": 20
+        },
+        "serial": {
+          "kl": 0.29458856936289307,
+          "reference_top": 18,
+          "engine_top": 20
+        }
+      },
+      {
+        "chunk": 46,
+        "position": 379,
+        "target": 220,
+        "engine_logits_sha256": "9abf9bc4a454685a64dc61a685cc96fd88cdeda9902e2a1360c0cf678be9201f",
+        "canonical": {
+          "kl": 0.3750534699107027,
+          "reference_top": 170558,
+          "engine_top": 17
+        },
+        "serial": {
+          "kl": 0.508553547433779,
+          "reference_top": 170558,
+          "engine_top": 17
+        }
+      }
+    ]
+  }
+}
