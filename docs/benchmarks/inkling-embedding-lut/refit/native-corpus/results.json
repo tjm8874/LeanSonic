@@ -1,0 +1,63 @@
+{
+  "gpu": "RTX 5070 Ti",
+  "cli_source": "d15b1d69f38eac343fb8cda80695552cb1266694",
+  "cuda_module_source": "same kernel sources",
+  "digests": [
+    "c71184995c8398c76e3da216a4e9c2e5bff71f71642830a803c73ba41f50c55c  cli",
+    "7d3d1416baeaefcb71c4cbefab686def0a46ca1b44a4b7a8630d56e56518e8e6  matched.cubin"
+  ],
+  "model_bytes": {
+    "parent": 11662534370,
+    "refit": 11663198358,
+    "native": 11663309504
+  },
+  "native_sha256": "bd7ef0865adf119b5183e45e741c629bafa649769b33b5ebf689bb4bcc4690d6",
+  "splits": {
+    "test": {
+      "oracle_sha256": "895fac2136c06dce1854568c83eb76a0225a05fab3c37897a12fec1d56949b97",
+      "parent": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.137517767884077,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.01979123972826056,
+        "median_kld": 0.009513544471553281,
+        "p99_kld": 0.17127340402547814,
+        "max_kld": 2.894201273831918,
+        "start_chunk": 0,
+        "max_kld_chunk": 23,
+        "max_kld_position": 330,
+        "ref_floor_targets": 14,
+        "top1_matches": 23950,
+        "top1_agreement": 0.9392156862745098
+      },
+      "parent_stdout_sha256": "e52ad87d563ae4076ff8d4508a3e67c5aaa0320400abb7d5609fa2491fbe8110",
+      "refit": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.130265775920071,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.019768150498931842,
+        "median_kld": 0.00945770790329583,
+        "p99_kld": 0.17761859973463884,
+        "max_kld": 3.4155332269300316,
+        "start_chunk": 0,
+        "max_kld_chunk": 23,
+        "max_kld_position": 330,
+        "ref_floor_targets": 14,
+        "top1_matches": 23938,
+        "top1_agreement": 0.9387450980392157
+      },
+      "refit_stdout_sha256": "bdbbc0ea880cb24569adcfa0605d39335ede8f05c06e7f2949c6d2d814f4c429",
+      "native": {
+        "mean_kld": 0.028057,
+        "max_kld": 5.501478,
+        "top1_matches": 23666,
+        "ppl": 7.193132
+      },
+      "native_stdout_sha256": "59c20d73cd056374ed5c1f5e58eb85411f7d101a153f056747580bfb9286d31b"
+    }
+  }
+}
