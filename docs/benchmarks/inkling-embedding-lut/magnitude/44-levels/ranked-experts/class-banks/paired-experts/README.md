@@ -41,3 +41,5 @@ For independent review, the [765 aligned rows](three-chunks.csv.gz) include all 
 ## Refit the scale entropy bins after paired selection
 
 Applying the [existing-reader fitting recipe](https://github.com/tjm8874/LeanSonic/tree/077bf7e/docs/benchmarks/inkling-class-frames/scale-bins) to the paired 927 package saves a further 1,721,464 bytes. The physical result is 11,660,934,270 bytes including the tokenizer, 2,375,234 bytes below the native IQ3_XXS GGUF. All 40 trials improved, all 1,274,019,840 decoded scale codes matched, and the assembled file passed readback of 999 payloads. The shard SHA-256 is `7adea5710e56bbdf7ac2ff668b06b6230d839ccf2830532fd2895095ddd18a06`. [Final model manifest](refit-package.json) · [All fitted boundaries and measured frame lengths](refit-receipt.json).
+
+Reinvesting part of that headroom retains [931 paired-ranked slices](931-slices/README.md), including both projections for two more experts.
