@@ -1549,6 +1549,30 @@ INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_up_situ, (
     }
 }
 
+template<bool PackedScales>
+__device__ __forceinline__ void nvfp4_half_warp_situ(
+    const uint4* weights, const uint32_t* scales, unsigned scale_offset, float alpha,
+    const uint4* x_q8_u128, const float* x_sc16, int lane, float* output) {
+    const int index = lane & 15;
+    // Reproduce the original XOR-16 addition before reducing within each half.
+    const float lo = lane_dot_nvfp4_dp4a_u128_row<PackedScales>(
+        weights, scales, scale_offset, x_q8_u128, x_sc16, 72, index);
+    const float hi = lane_dot_nvfp4_dp4a_u128_row<PackedScales>(
+        weights, scales, scale_offset, x_q8_u128, x_sc16, 72, index + 16);
+    float dot = lo + hi;
+    #pragma unroll
+    for (int mask = 8; mask; mask >>= 1) {
+        dot += __shfl_xor_sync(0xffffffffu, dot, mask);
+    }
+    dot *= alpha * (1.0f / 2688.0f);
+    const float u = __shfl_sync(0xffffffffu, dot, 16);
+    if (lane == 0) {
+        const float g = dot;
+        *output =
+            4.0f * ptx_tanh(g * 0.25f) * ptx_sigmoid(g) * 25.0f * ptx_tanh(u * 0.04f);
+    }
+}
+
 INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_up_half, (
     const uint4* __restrict__ w13_u128,    // [128, 2304, 72]
     const uint32_t* __restrict__ s13_u32,  // [128, 2304, 36]
@@ -1565,24 +1589,45 @@ INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_up_half, (
     const int k = blockIdx.y;
     const int ex = sel_ids[k];
     const size_t row = (static_cast<size_t>(ex) * kFf + channel) * 2 + (lane >> 4);
-    const int index = lane & 15;
-    // Reproduce the original XOR-16 addition before reducing within each half.
-    const float lo = lane_dot_nvfp4_dp4a_u128_row<PackedScales>(
-        w13_u128 + row * 72u, s13_u32, row * 36u, x_q8_u128, x_sc16, 72, index);
-    const float hi = lane_dot_nvfp4_dp4a_u128_row<PackedScales>(
-        w13_u128 + row * 72u, s13_u32, row * 36u, x_q8_u128, x_sc16, 72, index + 16);
-    float dot = lo + hi;
-    #pragma unroll
-    for (int mask = 8; mask; mask >>= 1) {
-        dot += __shfl_xor_sync(0xffffffffu, dot, mask);
+    nvfp4_half_warp_situ<PackedScales>(w13_u128 + row * 72u, s13_u32, row * 36u,
+        a13[ex], x_q8_u128, x_sc16, lane, act_out + k * kFf + channel);
+}
+
+// Copy contiguous spans of the selected host-backed rows before their dot products.
+extern "C" __global__ void ink2_gather_nvfp4_up_192(
+    const uint4* __restrict__ mapped, const int32_t* __restrict__ selected,
+    uint4* __restrict__ staged, int first_channel) {
+    constexpr int vectors_per_channel = 2 * 72;
+    constexpr int tile_vectors = 192 * vectors_per_channel;
+    const int slot = blockIdx.y;
+    const int first = (selected[slot] * kFf + first_channel) * vectors_per_channel;
+    for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < tile_vectors;
+         i += gridDim.x * blockDim.x) {
+        staged[slot * tile_vectors + i] = mapped[first + i];
     }
-    dot *= a13[ex] * (1.0f / 2688.0f);
-    const float u = __shfl_sync(0xffffffffu, dot, 16);
-    if (lane == 0) {
-        const float g = dot;
-        act_out[k * kFf + channel] =
-            4.0f * ptx_tanh(g * 0.25f) * ptx_sigmoid(g) * 25.0f * ptx_tanh(u * 0.04f);
-    }
+}
+
+INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_up_half_staged, (
+    const uint4* __restrict__ w13_u128,    // [128, 2304, 72]
+    const uint32_t* __restrict__ s13_u32,  // [128, 2304, 36]
+    const float* __restrict__ a13,         // [128]
+    const uint4* __restrict__ x_q8_u128,   // [144]
+    const float* __restrict__ x_sc16,      // [144]
+    const int32_t* __restrict__ sel_ids,   // [8]
+    float* __restrict__ act_out, int first_channel),
+    (w13_u128, s13_u32, a13, x_q8_u128, x_sc16, sel_ids, act_out, first_channel)) {         // [8, 1152]
+    // Four warps produce four channels. Each half warp handles one of the
+    // two interleaved rows (gate/up), so their SiTU needs no CTA barrier.
+    const int lane = threadIdx.x & 31;
+    constexpr int tile_channels = 192;
+    const int local_channel = blockIdx.x * 4 + threadIdx.x / 32;
+    const int channel = first_channel + local_channel;
+    const int k = blockIdx.y;
+    const int ex = sel_ids[k];
+    const size_t row = (static_cast<size_t>(ex) * kFf + channel) * 2 + (lane >> 4);
+    const size_t staged_row = (k * tile_channels + local_channel) * 2 + (lane >> 4);
+    nvfp4_half_warp_situ<PackedScales>(w13_u128 + staged_row * 72u, s13_u32, row * 36u,
+        a13[ex], x_q8_u128, x_sc16, lane, act_out + k * kFf + channel);
 }
 
 INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_down, (
