@@ -139,151 +139,395 @@ constexpr int kDf2Dyn = 4 * kDf2Groups; // 576
 constexpr int kDf2Rank = 256;
 constexpr int kDf2Top = 16;
 
-// x[t] = rms_norm(embed[tok_t]) * embed_norm with tok_0 = anchor, tok_t = mask_tok.
+// x[t] = rms_norm(embed[tok_t]) * embed_norm with tok_0 = anchor, tok_t = mask_tok. The mask
+// rows are constant: with `use_cache` they are copied from `mask_row` (written by a
+// `use_cache = 0` launch), so only the anchor row is read from the (host-resident) table.
 // Grid `8`, Block `256`.
 extern "C" __global__ void df2_block_init(
-    const uint32_t* __restrict__ embed_bf16_pairs,      // [vocab, D / 2]
+    const uint4* __restrict__ embed_bf16,               // [vocab, D / 8]
     const uint32_t* __restrict__ embed_norm_bf16_pairs, // [D / 2]
     int32_t anchor,
     int32_t mask_tok,
+    int32_t use_cache,
+    float* __restrict__ mask_row,                       // [D]
     float* __restrict__ x) {                            // [8, D]
     pdl_wait();
     pdl_trigger();
     __shared__ float smem_red[8];
     const int t = blockIdx.x;
     const int tid = threadIdx.x;
-    const int tok = (t == 0) ? anchor : mask_tok;
-    const uint32_t* row = embed_bf16_pairs + static_cast<size_t>(tok) * (kD / 2);
     float* out = x + static_cast<size_t>(t) * kD;
-    float sq = 0.0f;
-    for (int idx = tid; idx < kD / 2; idx += 256) {
-        const uint32_t pair = row[idx];
-        const float v0 = bf16_to_f32(static_cast<uint16_t>(pair & 0xFFFFu));
-        const float v1 = bf16_to_f32(static_cast<uint16_t>(pair >> 16));
-        out[idx * 2] = v0;
-        out[idx * 2 + 1] = v1;
-        sq += v0 * v0 + v1 * v1;
+    if (t > 0 && use_cache) {
+        for (int c = tid; c < kD / 4; c += 256) {
+            reinterpret_cast<float4*>(out)[c] = reinterpret_cast<const float4*>(mask_row)[c];
+        }
+        return;
     }
+    const int tok = (t == 0) ? anchor : mask_tok;
+    const uint4* row = embed_bf16 + static_cast<size_t>(tok) * (kD / 8);
+    // 288 16-byte loads issued together: one round trip to the host-resident table.
+    uint4 w0 = row[tid];
+    uint4 w1 = (tid < kD / 8 - 256) ? row[256 + tid] : make_uint4(0u, 0u, 0u, 0u);
+    float sq = 0.0f;
+    auto sq8 = [&](const uint4& w) {
+        const uint32_t u[4] = {w.x, w.y, w.z, w.w};
+        #pragma unroll
+        for (int j = 0; j < 4; ++j) {
+            const float a = bf16_to_f32(static_cast<uint16_t>(u[j] & 0xFFFFu));
+            const float b = bf16_to_f32(static_cast<uint16_t>(u[j] >> 16));
+            sq += a * a + b * b;
+        }
+    };
+    sq8(w0);
+    sq8(w1);
     sq = warp_sum(sq);
     if ((tid & 31) == 0) smem_red[tid >> 5] = sq;
     __syncthreads();
-    if (tid < 32) {
-        float bsum = (tid < 8) ? smem_red[tid] : 0.0f;
-        bsum = warp_sum(bsum);
-        if (tid == 0) smem_red[0] = ptx_rsqrt(bsum * (1.0f / static_cast<float>(kD)) + 1e-6f);
-    }
-    __syncthreads();
-    const float scale = smem_red[0];
-    for (int idx = tid; idx < kD / 2; idx += 256) {
-        const uint32_t nw = embed_norm_bf16_pairs[idx];
-        out[idx * 2] *= scale * bf16_to_f32(static_cast<uint16_t>(nw & 0xFFFFu));
-        out[idx * 2 + 1] *= scale * bf16_to_f32(static_cast<uint16_t>(nw >> 16));
-    }
+    float tot = 0.0f;
+    #pragma unroll
+    for (int i = 0; i < 8; ++i) tot += smem_red[i];
+    const float scale = ptx_rsqrt(tot * (1.0f / static_cast<float>(kD)) + 1e-6f);
+    auto put8 = [&](const uint4& w, int c8) {
+        const uint32_t u[4] = {w.x, w.y, w.z, w.w};
+        #pragma unroll
+        for (int j = 0; j < 4; ++j) {
+            const uint32_t nw = embed_norm_bf16_pairs[c8 * 4 + j];
+            const float a = bf16_to_f32(static_cast<uint16_t>(u[j] & 0xFFFFu)) * scale *
+                            bf16_to_f32(static_cast<uint16_t>(nw & 0xFFFFu));
+            const float b = bf16_to_f32(static_cast<uint16_t>(u[j] >> 16)) * scale *
+                            bf16_to_f32(static_cast<uint16_t>(nw >> 16));
+            out[c8 * 8 + j * 2] = a;
+            out[c8 * 8 + j * 2 + 1] = b;
+            if (t == 1) {
+                mask_row[c8 * 8 + j * 2] = a;
+                mask_row[c8 * 8 + j * 2 + 1] = b;
+            }
+        }
+    };
+    put8(w0, tid);
+    if (tid < kD / 8 - 256) put8(w1, 256 + tid);
 }
 
-// y[r] = rms_norm(x[r]) * w (`eps = 1e-6`, FP32 weights). Grid `rows`, Block `256`.
-extern "C" __global__ void df2_rmsnorm(
-    const float* __restrict__ x,  // [rows, D]
-    const float* __restrict__ w,  // [D]
-    float* __restrict__ y) {      // [rows, D]
+// ---------------------------------------------------------------------------------------------
+// Q8_64 activations (`ink2_quant_q8_64_b` layout): per row `cols` int8 codes (`round(v * 127 /
+// amax)`, clamped to `[-127, 127]`) and one FP32 scale `amax / 127` per 64 columns. One warp
+// quantizes one group: lane `l` holds columns `2l` and `2l + 1`.
+// ---------------------------------------------------------------------------------------------
+__device__ __forceinline__ int dp4a_u128(uint4 w, uint4 x) {
+    int d = __dp4a(static_cast<int>(w.x), static_cast<int>(x.x), 0);
+    d = __dp4a(static_cast<int>(w.y), static_cast<int>(x.y), d);
+    d = __dp4a(static_cast<int>(w.z), static_cast<int>(x.z), d);
+    return __dp4a(static_cast<int>(w.w), static_cast<int>(x.w), d);
+}
+
+__device__ __forceinline__ void df2_quant_group(
+    float v0, float v1, int lane, uint32_t* q_row_u32, float* sc_row, int c64) {
+    float amax = fmaxf(fabsf(v0), fabsf(v1));
+    #pragma unroll
+    for (int mask = 16; mask > 0; mask >>= 1) {
+        amax = fmaxf(amax, __shfl_xor_sync(0xFFFFFFFFu, amax, mask));
+    }
+    const float inv = (amax > 0.0f) ? (127.0f * ptx_rcp(amax)) : 0.0f;
+    const int q0 = min(127, max(-127, __float2int_rn(v0 * inv)));
+    const int q1 = min(127, max(-127, __float2int_rn(v1 * inv)));
+    const uint32_t pair16 = static_cast<uint32_t>(q0 & 0xFF) | (static_cast<uint32_t>(q1 & 0xFF) << 8);
+    const uint32_t pack32 = pair16 | (__shfl_xor_sync(0xFFFFFFFFu, pair16, 1) << 16);
+    if ((lane & 1) == 0) q_row_u32[c64 * 16 + (lane >> 1)] = pack32;
+    if (lane == 0) sc_row[c64] = amax * (1.0f / 127.0f);
+}
+
+// `xn = rms_norm(x) * w` of the eight block rows, written as FP32 and as Q8_64 (for the conv
+// projection). One warp per 64-column group recomputes its row's RMS from L2.
+// Grid `36` (8 warps = 8 of the 288 row groups each), Block `256`.
+extern "C" __global__ void df2_norm_quant8(
+    const float* __restrict__ x,          // [8, D]
+    const float* __restrict__ nw,         // [D]
+    float* __restrict__ xn,               // [8, D]
+    uint32_t* __restrict__ xq,            // [8, D / 4]
+    float* __restrict__ xs) {             // [8, D / 64]
     pdl_wait();
     pdl_trigger();
-    __shared__ float smem_red[8];
+    const int lane = threadIdx.x & 31;
+    const int gw = blockIdx.x * 8 + (threadIdx.x >> 5);
+    const int t = gw / (kD / 64);
+    const int c64 = gw - t * (kD / 64);
+    const float4* row4 = reinterpret_cast<const float4*>(x + static_cast<size_t>(t) * kD);
+    float sq = 0.0f;
+    #pragma unroll
+    for (int i = 0; i < kD / 128; ++i) {
+        const float4 v = row4[lane + 32 * i];
+        sq += v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w;
+    }
+    const float inv = ptx_rsqrt(warp_sum(sq) * (1.0f / static_cast<float>(kD)) + 1e-6f);
+    const int c = c64 * 64 + lane * 2;
+    const float2 xv = *reinterpret_cast<const float2*>(x + static_cast<size_t>(t) * kD + c);
+    const float2 wv = *reinterpret_cast<const float2*>(nw + c);
+    const float v0 = xv.x * inv * wv.x, v1 = xv.y * inv * wv.y;
+    *reinterpret_cast<float2*>(xn + static_cast<size_t>(t) * kD + c) = make_float2(v0, v1);
+    df2_quant_group(v0, v1, lane, xq + static_cast<size_t>(t) * (kD / 4), xs + t * (kD / 64), c64);
+}
+
+// Q8_64 of `rms_norm(sum_s x_s[r]) * w` for `rows` rows (`x` summed over `nsplit` partials
+// `split_stride` floats apart). Grid `rows`, Block `256`.
+extern "C" __global__ void df2_rmsnorm_quant(
+    const float* __restrict__ x,          // [nsplit][rows, D]
+    int32_t nsplit,
+    int64_t split_stride,
+    const float* __restrict__ w,          // [D]
+    uint32_t* __restrict__ xq,            // [rows, D / 4]
+    float* __restrict__ xs) {             // [rows, D / 64]
+    pdl_wait();
+    pdl_trigger();
+    __shared__ float red[8];
     const int r = blockIdx.x;
-    const int tid = threadIdx.x;
+    const int warp = threadIdx.x >> 5;
+    const int lane = threadIdx.x & 31;
     const float* in = x + static_cast<size_t>(r) * kD;
     float sq = 0.0f;
-    for (int c = tid; c < kD; c += 256) sq += in[c] * in[c];
-    sq = warp_sum(sq);
-    if ((tid & 31) == 0) smem_red[tid >> 5] = sq;
-    __syncthreads();
-    if (tid < 32) {
-        float bsum = (tid < 8) ? smem_red[tid] : 0.0f;
-        bsum = warp_sum(bsum);
-        if (tid == 0) smem_red[0] = ptx_rsqrt(bsum * (1.0f / static_cast<float>(kD)) + 1e-6f);
+    for (int c = threadIdx.x; c < kD; c += 256) {
+        float v = 0.0f;
+        for (int s = 0; s < nsplit; ++s) v += in[s * split_stride + c];
+        sq += v * v;
     }
+    sq = warp_sum(sq);
+    if (lane == 0) red[warp] = sq;
     __syncthreads();
-    const float scale = smem_red[0];
-    float* out = y + static_cast<size_t>(r) * kD;
-    for (int c = tid; c < kD; c += 256) out[c] = in[c] * scale * w[c];
+    float tot = 0.0f;
+    #pragma unroll
+    for (int i = 0; i < 8; ++i) tot += red[i];
+    const float scale = ptx_rsqrt(tot * (1.0f / static_cast<float>(kD)) + 1e-6f);
+    for (int c64 = warp; c64 < kD / 64; c64 += 8) {
+        const int c = c64 * 64 + lane * 2;
+        float v0 = 0.0f, v1 = 0.0f;
+        for (int s = 0; s < nsplit; ++s) {
+            const float2 p = *reinterpret_cast<const float2*>(in + s * split_stride + c);
+            v0 += p.x;
+            v1 += p.y;
+        }
+        df2_quant_group(v0 * scale * w[c], v1 * scale * w[c + 1], lane,
+                        xq + static_cast<size_t>(r) * (kD / 4), xs + static_cast<size_t>(r) * (kD / 64), c64);
+    }
 }
 
-// Dynamic two-tap group-16 causal convolution over the 8 block rows. Taps `k0 = 2 * post`
-// (current row) and `k0 + 1` (previous row) of `base [4, D]` and `dyn [8, 4, 144]`:
-//   a = (base[k0] + dyn[k0][g]) * z[t] + (t > 0 ? (base[k0+1] + dyn[k0+1][g]) * z[t-1] : 0)
-// `post = 0`: out = a; `post = 1`: out += a (residual). Grid `8`, Block `256`.
-extern "C" __global__ void df2_conv2(
-    const float* __restrict__ z,     // [8, D]
-    const float* __restrict__ dyn,   // [8, 576]
-    const float* __restrict__ base,  // [4, D]
-    int32_t post,
-    float* __restrict__ out) {       // [8, D]
+// Pre-conv (taps `0, 1` of `base [4, D]`; `dyn` = sum of `ndyn` partials of `[8, 4, 144]`)
+// straight into Q8_64:
+//   a[t] = (base[0] + dyn[t][0][g]) * z[t] + (t > 0 ? (base[1] + dyn[t][1][g]) * z[t-1] : 0)
+// Grid `36` (8 warps = 8 of the 288 row groups each), Block `256`.
+extern "C" __global__ void df2_conv2_quant(
+    const float* __restrict__ z,          // [8, D]
+    const float* __restrict__ dyn,        // [ndyn][8, 576]
+    int32_t ndyn,
+    const float* __restrict__ base,       // [4, D]
+    uint32_t* __restrict__ xq,            // [8, D / 4]
+    float* __restrict__ xs) {             // [8, D / 64]
     pdl_wait();
     pdl_trigger();
-    const int t = blockIdx.x;
-    const int k0 = 2 * post;
-    const float* dr = dyn + static_cast<size_t>(t) * kDf2Dyn;
-    for (int c = threadIdx.x; c < kD; c += 256) {
-        const int g = c >> 4;
-        float a = (base[k0 * kD + c] + dr[k0 * kDf2Groups + g]) * z[static_cast<size_t>(t) * kD + c];
-        if (t > 0) {
-            a += (base[(k0 + 1) * kD + c] + dr[(k0 + 1) * kDf2Groups + g]) *
-                 z[static_cast<size_t>(t - 1) * kD + c];
+    const int lane = threadIdx.x & 31;
+    const int gw = blockIdx.x * 8 + (threadIdx.x >> 5);
+    const int t = gw / (kD / 64);
+    const int c64 = gw - t * (kD / 64);
+    const int c = c64 * 64 + lane * 2;
+    const int g = c >> 4;
+    float d0 = 0.0f, d1 = 0.0f;
+    for (int s = 0; s < ndyn; ++s) {
+        const float* dr = dyn + (s * 8 + t) * kDf2Dyn;
+        d0 += dr[g];
+        d1 += dr[kDf2Groups + g];
+    }
+    const float2 z0 = *reinterpret_cast<const float2*>(z + static_cast<size_t>(t) * kD + c);
+    const float2 b0 = *reinterpret_cast<const float2*>(base + c);
+    float v0 = (b0.x + d0) * z0.x;
+    float v1 = (b0.y + d0) * z0.y;
+    if (t > 0) {
+        const float2 z1 = *reinterpret_cast<const float2*>(z + static_cast<size_t>(t - 1) * kD + c);
+        const float2 b1 = *reinterpret_cast<const float2*>(base + kD + c);
+        v0 += (b1.x + d1) * z1.x;
+        v1 += (b1.y + d1) * z1.y;
+    }
+    df2_quant_group(v0, v1, lane, xq + static_cast<size_t>(t) * (kD / 4), xs + t * (kD / 64), c64);
+}
+
+// Post-conv residual (taps `2, 3`; `dyn` summed over `ndyn` partials) over `z = sum_s zp[s]`
+// (split-K partials, `nsplit` copies of `[8, D]`): x[t] += (base[2] + dyn[t][2][g]) * z[t] +
+// (t > 0 ? (base[3] + dyn[t][3][g]) * z[t-1] : 0). Grid `(9, 8)`, Block `256`.
+extern "C" __global__ void df2_conv2_post(
+    const float* __restrict__ zp,         // [nsplit][8, D]
+    int32_t nsplit,
+    const float* __restrict__ dyn,        // [ndyn][8, 576]
+    int32_t ndyn,
+    const float* __restrict__ base,       // [4, D]
+    float* __restrict__ x) {              // [8, D]
+    pdl_wait();
+    pdl_trigger();
+    const int c = blockIdx.x * 256 + threadIdx.x;
+    const int t = blockIdx.y;
+    const int g = c >> 4;
+    const size_t ss = static_cast<size_t>(8) * kD;
+    float z0 = 0.0f, z1 = 0.0f;
+    for (int s = 0; s < nsplit; ++s) {
+        z0 += zp[s * ss + static_cast<size_t>(t) * kD + c];
+        if (t > 0) z1 += zp[s * ss + static_cast<size_t>(t - 1) * kD + c];
+    }
+    float d2 = 0.0f, d3 = 0.0f;
+    for (int s = 0; s < ndyn; ++s) {
+        const float* dr = dyn + (s * 8 + t) * kDf2Dyn;
+        d2 += dr[2 * kDf2Groups + g];
+        d3 += dr[3 * kDf2Groups + g];
+    }
+    float a = (base[2 * kD + c] + d2) * z0;
+    if (t > 0) a += (base[3 * kD + c] + d3) * z1;
+    x[static_cast<size_t>(t) * kD + c] += a;
+}
+
+// Split-K planar Q8_64 GEMM for the eight block rows: `part[blockIdx.y][t][r] = sum over
+// column slice blockIdx.y of w[phys(r)] . x[t]` (`slice16 <= 128` uint4 columns, a multiple of
+// 4), with `phys(r) = (r / seg) * seg_stride + seg_off + r % seg` (identity: `seg = rows`,
+// `seg_off = 0`). Weights of the slice are loaded before `pdl_wait()`.
+// Grid `(rows / 16, cols16 / slice16)`, Block `256` (8 warps x 2 rows).
+extern "C" __global__ void __launch_bounds__(256) df2_gemm_sk(
+    const uint4* __restrict__ w_q8,       // [rows, cols / 16]
+    const float* __restrict__ w_sc64,     // [rows, cols / 64]
+    const uint4* __restrict__ x_q8,       // [8, cols / 16]
+    const float* __restrict__ x_sc64,     // [8, cols / 64]
+    float* __restrict__ part,             // [nsplit][8, rows]
+    int32_t rows,
+    int32_t cols,
+    int32_t slice16,
+    int32_t seg,
+    int32_t seg_stride,
+    int32_t seg_off) {
+    __shared__ uint4 sx[8][128];          // 16,384 B
+    __shared__ float sxs[8][32];
+    const int warp = threadIdx.x >> 5;
+    const int lane = threadIdx.x & 31;
+    const int cols16 = cols >> 4, cols64 = cols >> 6;
+    const int c0 = blockIdx.y * slice16;
+    const int row0 = (blockIdx.x * 8 + warp) * 2;
+    const int prow = (row0 / seg) * seg_stride + seg_off + row0 % seg; // `seg` is even
+    const uint4* w_r0 = w_q8 + static_cast<size_t>(prow) * cols16 + c0;
+    const uint4* w_r1 = w_r0 + cols16;
+    const float* s_r0 = w_sc64 + static_cast<size_t>(prow) * cols64 + (c0 >> 2);
+    const float* s_r1 = s_r0 + cols64;
+    uint4 w0[4], w1[4];
+    float ws0[4], ws1[4];
+    #pragma unroll
+    for (int i = 0; i < 4; ++i) {
+        const int c16 = lane + 32 * i;
+        if (c16 < slice16) {
+            w0[i] = w_r0[c16];
+            w1[i] = w_r1[c16];
+            ws0[i] = s_r0[c16 >> 2];
+            ws1[i] = s_r1[c16 >> 2];
         }
-        if (post) out[static_cast<size_t>(t) * kD + c] += a;
-        else out[static_cast<size_t>(t) * kD + c] = a;
+    }
+    pdl_wait();
+    pdl_trigger();
+    for (int i = threadIdx.x; i < 8 * slice16; i += 256) {
+        const int t = i / slice16, j = i - t * slice16;
+        sx[t][j] = x_q8[static_cast<size_t>(t) * cols16 + c0 + j];
+    }
+    const int slice64 = slice16 >> 2;
+    for (int i = threadIdx.x; i < 8 * slice64; i += 256) {
+        const int t = i / slice64, j = i - t * slice64;
+        sxs[t][j] = x_sc64[static_cast<size_t>(t) * cols64 + (c0 >> 2) + j];
+    }
+    __syncthreads();
+    float a[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+    float b[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+    #pragma unroll
+    for (int i = 0; i < 4; ++i) {
+        const int c16 = lane + 32 * i;
+        if (c16 < slice16) {
+            #pragma unroll
+            for (int t = 0; t < 8; ++t) {
+                const uint4 xq = sx[t][c16];
+                const float xsv = sxs[t][c16 >> 2];
+                a[t] = __fmaf_rn(static_cast<float>(dp4a_u128(w0[i], xq)), ws0[i] * xsv, a[t]);
+                b[t] = __fmaf_rn(static_cast<float>(dp4a_u128(w1[i], xq)), ws1[i] * xsv, b[t]);
+            }
+        }
+    }
+    float* dst = part + static_cast<size_t>(blockIdx.y) * 8 * rows;
+    #pragma unroll
+    for (int t = 0; t < 8; ++t) {
+        const float v0 = warp_sum(a[t]);
+        const float v1 = warp_sum(b[t]);
+        if (lane == 0) {
+            dst[static_cast<size_t>(t) * rows + row0] = v0;
+            dst[static_cast<size_t>(t) * rows + row0 + 1] = v1;
+        }
     }
 }
 
-// Per-head RMSNorm + NeoX RoPE (`theta = 1e4`) for `rows` rows at positions `pos0 + r`:
-// q heads in place (`do_q`), K (normed, rotated) and V into ring cell `(pos0 + r) % cap`.
-// Grid `(do_q ? 40 : 8, rows)`, Block `128`: `blockIdx.x < 8` = KV head, else Q head - 8.
+// Per-head RMSNorm + NeoX RoPE (`theta = 1e4`) for `rows` rows at positions `pos0 + r` and
+// `gridDim.z` layers, over split-K partials `qkv` (`nsplit` copies `split_stride` floats apart,
+// row stride `row_stride`): layer `l`'s K / V start at columns `k_col + l * layer_cols` and
+// `k_col + 1024 + l * layer_cols`; Q (layer 0 only, `do_q`) at column 0 goes to `q_out`.
+// K (normed, rotated) and V go to ring cell `(pos0 + r) % cap` of layer `l` (`l * ring_layer`
+// floats further; K norm `64 * l` BF16 pairs further).
+// Grid `(do_q ? 40 : 8, rows, layers)`, Block `128`: `blockIdx.x < 8` = KV head, else Q head - 8.
 extern "C" __global__ void df2_qk_prep(
-    float* __restrict__ q,                    // [rows, 4096]
-    const float* __restrict__ k,              // [rows, k_stride]
-    const float* __restrict__ v,              // [rows, k_stride]
-    int32_t k_stride,
+    const float* __restrict__ qkv,            // [nsplit][rows, row_stride]
+    int32_t nsplit,
+    int32_t split_stride,
+    int32_t row_stride,
+    int32_t k_col,
+    int32_t layer_cols,
+    float* __restrict__ q_out,                // [rows, 4096]
     const uint32_t* __restrict__ qn_bf16_p,   // [64]
-    const uint32_t* __restrict__ kn_bf16_p,   // [64]
+    const uint32_t* __restrict__ kn_bf16_p,   // [layers, 64]
     const float* __restrict__ inv_freq64,     // [64]
     int32_t pos0,
     int32_t cap,
-    float* __restrict__ k_ring,               // [cap, 1024]
-    float* __restrict__ v_ring) {             // [cap, 1024]
+    int64_t ring_layer,
+    float* __restrict__ k_ring,               // [layers, cap, 1024]
+    float* __restrict__ v_ring) {             // [layers, cap, 1024]
     pdl_wait();
     pdl_trigger();
     __shared__ float smem_hd[128];
     const int hh = blockIdx.x;
     const int r = blockIdx.y;
+    const int l = blockIdx.z;
     const int d = threadIdx.x;
     const int pos = pos0 + r;
+    const float* row = qkv + static_cast<size_t>(r) * row_stride;
+    auto sum = [&](int col) {
+        float v = 0.0f;
+        for (int s = 0; s < nsplit; ++s) v += row[static_cast<size_t>(s) * split_stride + col];
+        return v;
+    };
     if (hh < 8) {
-        const size_t src = static_cast<size_t>(r) * k_stride + hh * 128 + d;
-        const float kr = head_norm_neox_rope128(k[src], kn_bf16_p, inv_freq64, pos, smem_hd);
-        const size_t cell = static_cast<size_t>(pos % cap) * kDf2Kv + hh * 128 + d;
+        const int col = k_col + l * layer_cols + hh * 128 + d;
+        const float kr = head_norm_neox_rope128(sum(col), kn_bf16_p + l * 64, inv_freq64, pos, smem_hd);
+        const size_t cell = l * ring_layer + static_cast<size_t>(pos % cap) * kDf2Kv + hh * 128 + d;
         k_ring[cell] = kr;
-        v_ring[cell] = v[src];
+        v_ring[cell] = sum(col + kDf2Kv);
     } else {
-        float* p = q + static_cast<size_t>(r) * kDf2Q + (hh - 8) * 128;
-        p[d] = head_norm_neox_rope128(p[d], qn_bf16_p, inv_freq64, pos, smem_hd);
+        const int col = (hh - 8) * 128 + d;
+        q_out[static_cast<size_t>(r) * kDf2Q + col] =
+            head_norm_neox_rope128(sum(col), qn_bf16_p, inv_freq64, pos, smem_hd);
     }
 }
 
-// Non-causal block attention: the 8 rows attend every ring key in `[lo, hi)` (cell `p % cap`).
-// 32 query heads over 8 KV heads. Grid `(32, 8)`, Block `256` (8 warps split the keys).
-extern "C" __global__ void df2_attn(
+// Non-causal block attention, quantized for `wo`: the 8 rows attend every ring key in `[lo, hi)`
+// (cell `p % cap`); 32 query heads over 8 KV heads; the head's 128 outputs become two Q8_64
+// groups of row `t`. Grid `(32, 8)`, Block `512` (16 warps split the keys).
+extern "C" __global__ void __launch_bounds__(512) df2_attn_q8(
     const float* __restrict__ q,       // [8, 4096]
     const float* __restrict__ k_ring,  // [cap, 1024]
     const float* __restrict__ v_ring,  // [cap, 1024]
     int32_t lo,
     int32_t hi,
     int32_t cap,
-    float* __restrict__ out) {         // [8, 4096]
+    uint32_t* __restrict__ xq,         // [8, 4096 / 4]
+    float* __restrict__ xs) {          // [8, 4096 / 64]
     pdl_wait();
     pdl_trigger();
-    __shared__ float smem_m[8];
-    __shared__ float smem_l[8];
-    __shared__ float smem_o[8][128];
+    constexpr int kW = 16;
+    __shared__ float smem_m[kW];
+    __shared__ float smem_l[kW];
+    __shared__ float smem_o[kW][128];
+    __shared__ float smem_out[128];
     const int h = blockIdx.x;
     const int t = blockIdx.y;
     const int kvh = h >> 2;
@@ -293,7 +537,7 @@ extern "C" __global__ void df2_attn(
     const float scale = 0.08838834764831845f; // 1 / sqrt(128)
     float m = -1e30f, l = 0.0f;
     float o0 = 0.0f, o1 = 0.0f, o2 = 0.0f, o3 = 0.0f;
-    for (int p = lo + warp; p < hi; p += 8) {
+    for (int p = lo + warp; p < hi; p += kW) {
         const size_t cell = static_cast<size_t>(p % cap) * kDf2Kv + kvh * 128;
         const float4 k4 = reinterpret_cast<const float4*>(k_ring + cell)[lane];
         const float4 v4 = reinterpret_cast<const float4*>(v_ring + cell)[lane];
@@ -320,51 +564,73 @@ extern "C" __global__ void df2_attn(
     if (threadIdx.x < 128) {
         float m_max = smem_m[0];
         #pragma unroll
-        for (int w = 1; w < 8; ++w) m_max = fmaxf(m_max, smem_m[w]);
+        for (int w = 1; w < kW; ++w) m_max = fmaxf(m_max, smem_m[w]);
         float den = 0.0f, num = 0.0f;
         #pragma unroll
-        for (int w = 0; w < 8; ++w) {
+        for (int w = 0; w < kW; ++w) {
             const float s = (smem_l[w] > 0.0f) ? ptx_exp(smem_m[w] - m_max) : 0.0f;
             den += smem_l[w] * s;
             num += smem_o[w][threadIdx.x] * s;
         }
-        out[static_cast<size_t>(t) * kDf2Q + h * 128 + threadIdx.x] = num * ptx_rcp(fmaxf(den, 1e-20f));
+        smem_out[threadIdx.x] = num * ptx_rcp(fmaxf(den, 1e-20f));
+    }
+    __syncthreads();
+    if (warp < 2) {
+        df2_quant_group(smem_out[warp * 64 + lane * 2], smem_out[warp * 64 + lane * 2 + 1], lane,
+                        xq + static_cast<size_t>(t) * (kDf2Q / 4), xs + t * (kDf2Q / 64), h * 2 + warp);
     }
 }
 
-// act = silu(gate) * up over `[rows, 2 * ff]` (gate rows first). Grid `ceil(rows * ff / 256)`.
-extern "C" __global__ void df2_silu_mul(
-    const float* __restrict__ gu,  // [rows, 2 * ff]
-    float* __restrict__ act,       // [rows, ff]
-    int32_t rows,
-    int32_t ff) {
+// act = silu(gate) * up of the eight block rows (`gu` = sum of `nsplit` partials of `[8, 2 *
+// ff]`, gate first) straight into Q8_64. Grid `8 * ff / 512` (8 warps = 8 groups each),
+// Block `256`.
+extern "C" __global__ void df2_silu_quant(
+    const float* __restrict__ gu,      // [nsplit][8, 2 * ff]
+    int32_t nsplit,
+    int32_t ff,
+    uint32_t* __restrict__ xq,         // [8, ff / 4]
+    float* __restrict__ xs) {          // [8, ff / 64]
     pdl_wait();
     pdl_trigger();
-    const int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= rows * ff) return;
-    const int r = i / ff;
-    const int j = i - r * ff;
-    const float g = gu[static_cast<size_t>(r) * 2 * ff + j];
-    const float u = gu[static_cast<size_t>(r) * 2 * ff + ff + j];
-    act[i] = (g * ptx_sigmoid(g)) * u;
+    const int lane = threadIdx.x & 31;
+    const int groups = ff >> 6;
+    const int gw = blockIdx.x * 8 + (threadIdx.x >> 5);
+    const int t = gw / groups;
+    const int c64 = gw - t * groups;
+    const int c = c64 * 64 + lane * 2;
+    const size_t ss = static_cast<size_t>(8) * 2 * ff;
+    float2 g = make_float2(0.0f, 0.0f), u = g;
+    for (int s = 0; s < nsplit; ++s) {
+        const float* row = gu + s * ss + static_cast<size_t>(t) * 2 * ff;
+        const float2 gs = *reinterpret_cast<const float2*>(row + c);
+        const float2 us = *reinterpret_cast<const float2*>(row + ff + c);
+        g.x += gs.x;
+        g.y += gs.y;
+        u.x += us.x;
+        u.y += us.y;
+    }
+    df2_quant_group((g.x * ptx_sigmoid(g.x)) * u.x, (g.y * ptx_sigmoid(g.y)) * u.y, lane,
+                    xq + static_cast<size_t>(t) * (ff >> 2), xs + static_cast<size_t>(t) * groups, c64);
 }
 
-// Gathers target taps `[4, tap_stride / D, D]` rows `row0 .. row0 + rows` into `[rows, 4 * D]`.
-// Grid `rows`, Block `256`.
-extern "C" __global__ void df2_tap_gather(
+// Gathers target taps `[4, tap_stride / D, D]` rows `row0 .. row0 + rows` as Q8_64 rows of
+// `4 * D` columns. Grid `(18, rows)` (8 warps = 8 of the 144 groups each), Block `256`.
+extern "C" __global__ void df2_tap_quant(
     const float* __restrict__ taps,
     int64_t tap_stride,
     int32_t row0,
-    float* __restrict__ out) {     // [rows, 9216]
+    uint32_t* __restrict__ xq,         // [rows, 4 * D / 4]
+    float* __restrict__ xs) {          // [rows, 4 * D / 64]
     pdl_wait();
     pdl_trigger();
-    const int r = blockIdx.x;
-    for (int i = threadIdx.x; i < 4 * kD; i += 256) {
-        const int k = i / kD;
-        const int c = i - k * kD;
-        out[static_cast<size_t>(r) * 4 * kD + i] =
-            taps[static_cast<size_t>(k) * tap_stride + static_cast<size_t>(row0 + r) * kD + c];
-    }
+    const int lane = threadIdx.x & 31;
+    const int r = blockIdx.y;
+    const int c64 = blockIdx.x * 8 + (threadIdx.x >> 5);
+    const int k = (c64 * 64) / kD;
+    const int c = c64 * 64 - k * kD + lane * 2;
+    const float2 v = *reinterpret_cast<const float2*>(
+        taps + static_cast<size_t>(k) * tap_stride + static_cast<size_t>(row0 + r) * kD + c);
+    df2_quant_group(v.x, v.y, lane, xq + static_cast<size_t>(r) * kD, xs + static_cast<size_t>(r) * (kD / 16), c64);
 }
 
 __device__ __forceinline__ bool df2_before(float va, int ia, float vb, int ib) {

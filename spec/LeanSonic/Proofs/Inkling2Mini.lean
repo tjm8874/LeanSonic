@@ -2453,76 +2453,115 @@ theorem cycle11_prefill_kernels_all_valid :
 -- measured with `cuobjdump -res-usage` (CI flags: `-std=c++17 -O3 -arch=sm_120a`).
 -- ============================================================================
 
-/-- DFlash 2: Anchor + mask rows: embedding RMSNorm (`20` regs, `32` B SMEM). -/
+/-- DFlash 2: Block rows: anchor embedding RMSNorm, cached mask rows (`38` regs, `32` B SMEM). -/
 def kDf2BlockInit : KernelResourceSpec :=
   { name := "df2_block_init"
     threadsPerCta := 256
-    rawRegsPerThread := 20
+    rawRegsPerThread := 38
     userSmemPerCtaBytes := 32
     smemAlignPadBytes := 0
-    ctasPerSm := 4
+    ctasPerSm := 6
     clusterCtas := 1
     minRequiredL1KiB := 120
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
-/-- DFlash 2: Row RMSNorm with FP32 weights (`20` regs, `32` B SMEM). -/
-def kDf2Rmsnorm : KernelResourceSpec :=
-  { name := "df2_rmsnorm"
+/-- DFlash 2: Block-row RMSNorm into FP32 and Q8_64 (`40` regs, `0` B SMEM). -/
+def kDf2NormQuant8 : KernelResourceSpec :=
+  { name := "df2_norm_quant8"
     threadsPerCta := 256
-    rawRegsPerThread := 20
-    userSmemPerCtaBytes := 32
-    smemAlignPadBytes := 0
-    ctasPerSm := 4
-    clusterCtas := 1
-    minRequiredL1KiB := 120
-    hasStackSpill := false
-    hasHotLoopLibmCall := false }
-
-/-- DFlash 2: Dynamic two-tap group-16 causal convolution (`28` regs, `0` B SMEM). -/
-def kDf2Conv2 : KernelResourceSpec :=
-  { name := "df2_conv2"
-    threadsPerCta := 256
-    rawRegsPerThread := 28
+    rawRegsPerThread := 40
     userSmemPerCtaBytes := 0
     smemAlignPadBytes := 0
-    ctasPerSm := 4
+    ctasPerSm := 6
     clusterCtas := 1
     minRequiredL1KiB := 120
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
-/-- DFlash 2: Per-head RMSNorm + NeoX RoPE, K / V ring commit (`25` regs, `512` B SMEM). -/
+/-- DFlash 2: RMSNorm of split-K partial sums into Q8_64 (`40` regs, `32` B SMEM). -/
+def kDf2RmsnormQuant : KernelResourceSpec :=
+  { name := "df2_rmsnorm_quant"
+    threadsPerCta := 256
+    rawRegsPerThread := 40
+    userSmemPerCtaBytes := 32
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- DFlash 2: Dynamic two-tap pre-conv into Q8_64 (`38` regs, `0` B SMEM). -/
+def kDf2Conv2Quant : KernelResourceSpec :=
+  { name := "df2_conv2_quant"
+    threadsPerCta := 256
+    rawRegsPerThread := 38
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- DFlash 2: Dynamic two-tap residual post-conv over split-K partials (`38` regs, `0` B SMEM). -/
+def kDf2Conv2Post : KernelResourceSpec :=
+  { name := "df2_conv2_post"
+    threadsPerCta := 256
+    rawRegsPerThread := 38
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- DFlash 2: Split-K planar Q8_64 GEMM of the eight block rows (`76` regs, `17408` B SMEM). -/
+def kDf2GemmSk : KernelResourceSpec :=
+  { name := "df2_gemm_sk"
+    threadsPerCta := 256
+    rawRegsPerThread := 76
+    userSmemPerCtaBytes := 17408
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- DFlash 2: Per-head RMSNorm + NeoX RoPE, K / V ring commit over partials (`40` regs, `512` B SMEM). -/
 def kDf2QkPrep : KernelResourceSpec :=
   { name := "df2_qk_prep"
     threadsPerCta := 128
-    rawRegsPerThread := 25
+    rawRegsPerThread := 40
     userSmemPerCtaBytes := 512
     smemAlignPadBytes := 0
-    ctasPerSm := 8
-    clusterCtas := 1
-    minRequiredL1KiB := 112
-    hasStackSpill := false
-    hasHotLoopLibmCall := false }
-
-/-- DFlash 2: Non-causal sliding-window block attention (`44` regs, `4160` B SMEM). -/
-def kDf2Attn : KernelResourceSpec :=
-  { name := "df2_attn"
-    threadsPerCta := 256
-    rawRegsPerThread := 44
-    userSmemPerCtaBytes := 4160
-    smemAlignPadBytes := 0
-    ctasPerSm := 4
+    ctasPerSm := 12
     clusterCtas := 1
     minRequiredL1KiB := 96
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
-/-- DFlash 2: SwiGLU activation (`14` regs, `0` B SMEM). -/
-def kDf2SiluMul : KernelResourceSpec :=
-  { name := "df2_silu_mul"
+/-- DFlash 2: Non-causal sliding-window attention, Q8_64 epilogue (`40` regs, `8832` B SMEM). -/
+def kDf2AttnQ8 : KernelResourceSpec :=
+  { name := "df2_attn_q8"
+    threadsPerCta := 512
+    rawRegsPerThread := 40
+    userSmemPerCtaBytes := 8832
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- DFlash 2: SwiGLU of split-K partials into Q8_64 (`56` regs, `0` B SMEM). -/
+def kDf2SiluQuant : KernelResourceSpec :=
+  { name := "df2_silu_quant"
     threadsPerCta := 256
-    rawRegsPerThread := 14
+    rawRegsPerThread := 56
     userSmemPerCtaBytes := 0
     smemAlignPadBytes := 0
     ctasPerSm := 4
@@ -2531,14 +2570,14 @@ def kDf2SiluMul : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
-/-- DFlash 2: Target tap gather for context commits (`28` regs, `0` B SMEM). -/
-def kDf2TapGather : KernelResourceSpec :=
-  { name := "df2_tap_gather"
+/-- DFlash 2: Target tap gather into Q8_64 (`15` regs, `0` B SMEM). -/
+def kDf2TapQuant : KernelResourceSpec :=
+  { name := "df2_tap_quant"
     threadsPerCta := 256
-    rawRegsPerThread := 28
+    rawRegsPerThread := 15
     userSmemPerCtaBytes := 0
     smemAlignPadBytes := 0
-    ctasPerSm := 4
+    ctasPerSm := 6
     clusterCtas := 1
     minRequiredL1KiB := 120
     hasStackSpill := false
@@ -2564,9 +2603,9 @@ def kDf2Top16Merge : KernelResourceSpec :=
     rawRegsPerThread := 40
     userSmemPerCtaBytes := 5184
     smemAlignPadBytes := 0
-    ctasPerSm := 4
+    ctasPerSm := 6
     clusterCtas := 1
-    minRequiredL1KiB := 96
+    minRequiredL1KiB := 64
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
@@ -2577,7 +2616,7 @@ def kDf2Select : KernelResourceSpec :=
     rawRegsPerThread := 40
     userSmemPerCtaBytes := 132
     smemAlignPadBytes := 0
-    ctasPerSm := 1
+    ctasPerSm := 3
     clusterCtas := 1
     minRequiredL1KiB := 120
     hasStackSpill := false
@@ -2585,12 +2624,15 @@ def kDf2Select : KernelResourceSpec :=
 
 def dflash2DrafterKernelSuite : List KernelResourceSpec :=
   [ kDf2BlockInit
-  , kDf2Rmsnorm
-  , kDf2Conv2
+  , kDf2NormQuant8
+  , kDf2RmsnormQuant
+  , kDf2Conv2Quant
+  , kDf2Conv2Post
+  , kDf2GemmSk
   , kDf2QkPrep
-  , kDf2Attn
-  , kDf2SiluMul
-  , kDf2TapGather
+  , kDf2AttnQ8
+  , kDf2SiluQuant
+  , kDf2TapQuant
   , kDf2Top16Part
   , kDf2Top16Merge
   , kDf2Select ]
