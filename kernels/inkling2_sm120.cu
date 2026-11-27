@@ -9226,19 +9226,16 @@ __device__ __forceinline__ bool resolve_flat_expert_tile(
         }
         const int group_rows = c.x + c.y + c.z + c.w;
         int end_tile = group_tiles;
-        int end_row = group_rows;
         #pragma unroll
         for (int stride = 1; stride < 32; stride <<= 1) {
             const int prev_tiles = __shfl_up_sync(0xffffffffu, end_tile, stride);
-            const int prev_rows = __shfl_up_sync(0xffffffffu, end_row, stride);
-            if (lane >= stride) {
-                end_tile += prev_tiles;
-                end_row += prev_rows;
-            }
+            if (lane >= stride) end_tile += prev_tiles;
         }
         const int target = static_cast<int>(blockIdx.y);
         int tile = end_tile - group_tiles;
-        int row = end_row - group_rows;
+        // All groups ending at or before the target precede its owner.
+        // Only the owner uses the sum; a single warp reduction suffices.
+        int row = __reduce_add_sync(0xffffffffu, end_tile <= target ? group_rows : 0);
         if (tile <= target && target < end_tile) {
             #pragma unroll
             for (int i = 0; i < 4; ++i) {
