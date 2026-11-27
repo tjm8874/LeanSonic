@@ -6,6 +6,8 @@ use std::io::{self, Write};
 use std::mem::MaybeUninit;
 
 mod mean_scales;
+mod scale_split;
+pub use scale_split::{pack_scale_split, unpack_scale_split};
 mod scale_context;
 pub use mean_scales::pack_mean_scales;
 pub use scale_context::pack_scale_context;
@@ -165,25 +167,74 @@ const TRIM_PREFIX: [[u8; 256]; 16] = {
 /// Four independent eight-byte NVFP4 blocks are interleaved. The column and
 /// previous largest E2M1 magnitude select a table; both sign bits are retained.
 pub fn pack_nvfp4_context(raw: &[u8], output: impl Write) -> io::Result<usize> {
-    pack_nvfp4_tables::<false>(raw, output)
+    pack_nvfp4_tables::<false>(raw, &[], output)
 }
 
 /// Lossless NVFP4 coding for planes containing both trimmed and untrimmed blocks.
 pub fn pack_nvfp4_trim_context(raw: &[u8], output: impl Write) -> io::Result<usize> {
-    pack_nvfp4_tables::<true>(raw, output)
+    pack_nvfp4_tables::<true>(raw, &[], output)
 }
 
-fn pack_nvfp4_tables<const SPLIT: bool>(raw: &[u8], mut output: impl Write) -> io::Result<usize> {
+// Each byte selects one of two banks of 64 contextual tables for an eight-byte
+// NVFP4 block. Transform the scale buffer in place so peak storage is bounded.
+fn scale_banks(scales: &mut [u8], cuts: &[u8; 128]) -> Result<(), String> {
+    if scales.is_empty() || !scales.len().is_multiple_of(128) || cuts.iter().any(|&v| v > 127) {
+        return Err("invalid scale-conditioned dimensions or cutoff".into());
+    }
+    let per_expert = scales.len() / 128;
+    for (row, &cut) in scales.chunks_exact_mut(per_expert).zip(cuts) {
+        for v in row {
+            *v = if *v < cut { NVFP4_CONTEXTS as u8 } else { 0 };
+        }
+    }
+    Ok(())
+}
+
+/// Encode weights in their original block order using the shipped expert scales.
+pub fn pack_scale_direct(
+    raw: &[u8],
+    mut scales: Vec<u8>,
+    cuts: &[u8; 128],
+    mut output: impl Write,
+) -> io::Result<usize> {
+    if scales.len().checked_mul(8) != Some(raw.len()) {
+        return Err(io::Error::other(
+            "mismatched expert scale and weight shapes",
+        ));
+    }
+    scale_banks(&mut scales, cuts).map_err(io::Error::other)?;
+    output.write_all(cuts)?;
+    Ok(128 + pack_nvfp4_tables::<false>(raw, &scales, output)?)
+}
+
+pub fn unpack_scale_direct(frame: &[u8], scales: Vec<u8>) -> Result<Vec<u8>, String> {
+    let count = scales
+        .len()
+        .checked_mul(8)
+        .ok_or("weight extent overflow")?;
+    unpack_codes(Matrix::parse_scale_direct(frame, count, scales)?, count)
+}
+
+fn pack_nvfp4_tables<const SPLIT: bool>(
+    raw: &[u8],
+    banks: &[u8],
+    mut output: impl Write,
+) -> io::Result<usize> {
     let states_per_column = if SPLIT { 16 } else { 8 };
-    let table_count = 8 * states_per_column;
+    let table_count = if banks.is_empty() {
+        8 * states_per_column
+    } else {
+        2 * NVFP4_CONTEXTS
+    };
     if raw.is_empty() || !raw.len().is_multiple_of(32) || raw.len() > u32::MAX as usize {
         return Err(io::Error::other("invalid contextual NVFP4 matrix size"));
     }
     let mut hist = vec![[0i64; 256]; table_count];
-    for block in raw.as_chunks::<8>().0 {
+    for (index, block) in raw.as_chunks::<8>().0.iter().enumerate() {
+        let bank = banks.get(index).copied().unwrap_or(0) as usize;
         let mut prev = 0;
         for (column, &v) in block.iter().enumerate() {
-            hist[column * states_per_column + usize::from(prev)][usize::from(v)] += 1;
+            hist[bank + column * states_per_column + usize::from(prev)][usize::from(v)] += 1;
             prev = nvfp4_prefix::<SPLIT>(prev, v);
         }
     }
@@ -193,13 +244,18 @@ fn pack_nvfp4_tables<const SPLIT: bool>(raw: &[u8], mut output: impl Write) -> i
         let base = write_table(&freq, &mut output)?;
         tables.push((freq, base));
     }
+    let mut first_block = 0;
     write_frames(raw, output, 512 * table_count, |tile, states, payload| {
-        for group in tile.as_chunks::<32>().0.iter().rev() {
+        for (group_id, group) in tile.as_chunks::<32>().0.iter().enumerate().rev() {
             let mut contexts = [0; 32];
             for (lane, block) in group.as_chunks::<8>().0.iter().enumerate() {
+                let bank = banks
+                    .get(first_block + 4 * group_id + lane)
+                    .copied()
+                    .unwrap_or(0) as usize;
                 let mut prev = 0;
                 for (j, &v) in block.iter().enumerate() {
-                    contexts[8 * lane + j] = states_per_column * j + usize::from(prev);
+                    contexts[8 * lane + j] = bank + states_per_column * j + usize::from(prev);
                     prev = nvfp4_prefix::<SPLIT>(prev, v);
                 }
             }
@@ -212,6 +268,7 @@ fn pack_nvfp4_tables<const SPLIT: bool>(raw: &[u8], mut output: impl Write) -> i
                 }
             }
         }
+        first_block += tile.len() / 8;
     })
 }
 
@@ -242,6 +299,15 @@ pub fn unpack_nvfp4_trim_context(data: &[u8], count: usize) -> Result<Vec<u8>, S
     unpack_codes(Matrix::parse_nvfp4_trim(data, count)?, count)
 }
 
+/// Decode the existing eight-column mean-context scale frame for offline packing.
+pub fn unpack_mean8_scale_codes(
+    data: &[u8],
+    count: usize,
+    width: usize,
+) -> Result<Vec<u8>, String> {
+    unpack_codes(Matrix::parse_mean_scales(data, count, width)?, count)
+}
+
 fn unpack_codes(matrix: Matrix<'_>, count: usize) -> Result<Vec<u8>, String> {
     let mut raw = Vec::with_capacity(count);
     matrix.for_each_chunk(|_, tile| {
@@ -252,6 +318,7 @@ fn unpack_codes(matrix: Matrix<'_>, count: usize) -> Result<Vec<u8>, String> {
 }
 
 pub(crate) struct Matrix<'a> {
+    scale_banks: Option<Vec<u8>>,
     scale_context: Option<Box<dyn scale_context::ScaleDecoder>>,
     lookup: Vec<[u32; 4096]>,
     frames: Vec<&'a [u8]>,
@@ -269,6 +336,23 @@ impl<'a> Matrix<'a> {
 
     pub(crate) fn parse_nvfp4_trim(data: &'a [u8], count: usize) -> Result<Self, String> {
         Self::parse_nvfp4_tables(data, count, 2 * NVFP4_CONTEXTS)
+    }
+
+    pub(crate) fn parse_scale_direct(
+        data: &'a [u8],
+        count: usize,
+        mut scales: Vec<u8>,
+    ) -> Result<Self, String> {
+        if scales.len().checked_mul(8) != Some(count) {
+            return Err("scale/weight shape mismatch".into());
+        }
+        let (cuts, payload) = data
+            .split_first_chunk::<128>()
+            .ok_or("missing NVFP4 cutoffs")?;
+        scale_banks(&mut scales, cuts)?;
+        let mut matrix = Self::parse_nvfp4_tables(payload, count, 2 * NVFP4_CONTEXTS)?;
+        matrix.scale_banks = Some(scales);
+        Ok(matrix)
     }
 
     fn parse_nvfp4_tables(data: &'a [u8], count: usize, tables: usize) -> Result<Self, String> {
@@ -320,6 +404,7 @@ impl<'a> Matrix<'a> {
         }
         Ok(Self {
             scale_context: None,
+            scale_banks: None,
             lookup,
             frames,
             count,
@@ -343,11 +428,20 @@ impl<'a> Matrix<'a> {
         if let Some(context) = &self.scale_context {
             return context.decode(&self.lookup, bytes, states, first, dst);
         }
+        if let Some(banks) = &self.scale_banks {
+            let start = first / 8;
+            return self.decode_nvfp4::<false, true>(
+                bytes,
+                states,
+                dst,
+                &banks[start..start + dst.len() / 8],
+            );
+        }
         if self.lookup.len() == NVFP4_CONTEXTS {
-            return self.decode_nvfp4::<false>(bytes, states, dst);
+            return self.decode_nvfp4::<false, false>(bytes, states, dst, &[]);
         }
         if self.lookup.len() == 2 * NVFP4_CONTEXTS {
-            return self.decode_nvfp4::<true>(bytes, states, dst);
+            return self.decode_nvfp4::<true, false>(bytes, states, dst, &[]);
         }
         let lookup = &self.lookup[0];
         let mut cursor = 0;
@@ -401,19 +495,29 @@ impl<'a> Matrix<'a> {
         Ok(())
     }
 
-    fn decode_nvfp4<const SPLIT: bool>(
+    fn decode_nvfp4<const SPLIT: bool, const SCALE: bool>(
         &self,
         bytes: &[u8],
         mut states: [u32; 4],
         dst: &mut [MaybeUninit<u8>],
+        banks: &[u8],
     ) -> Result<(), String> {
         let mut cursor = 0;
-        for group in dst.as_chunks_mut::<32>().0 {
+        for (index, group) in dst.as_chunks_mut::<32>().0.iter_mut().enumerate() {
+            let bank = if SCALE {
+                banks[4 * index..4 * index + 4]
+                    .first_chunk::<4>()
+                    .copied()
+                    .unwrap()
+            } else {
+                [0; 4]
+            };
             let mut prev = [0u8; 4];
             for column in 0..8 {
                 for (lane, state) in states.iter_mut().enumerate() {
                     let stride = if SPLIT { 16 } else { 8 };
-                    let table = &self.lookup[stride * column + usize::from(prev[lane])];
+                    let table = &self.lookup
+                        [usize::from(bank[lane]) + stride * column + usize::from(prev[lane])];
                     let entry = table[(*state & (TOTAL - 1)) as usize];
                     let v = (entry >> 24) as u8;
                     group[8 * lane + column].write(v);
@@ -499,6 +603,20 @@ impl<'a> Matrix<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn scale_direct_roundtrip_crosses_tile_and_expert_boundaries() {
+        let raw: Vec<_> = (0..TILE + 1024).map(|i| (i * 13 + i / 7) as u8).collect();
+        let scales: Vec<_> = (0..raw.len() / 8).map(|i| (i % 127) as u8).collect();
+        let cuts = std::array::from_fn(|i| (i % 127) as u8);
+        let mut frame = Vec::new();
+        let n = pack_scale_direct(&raw, scales.clone(), &cuts, &mut frame).unwrap();
+        assert_eq!(n, frame.len());
+        assert_eq!(unpack_scale_direct(&frame, scales.clone()).unwrap(), raw);
+        assert!(unpack_scale_direct(&frame[..frame.len() - 8], scales.clone()).is_err());
+        frame[17] = 255;
+        assert!(unpack_scale_direct(&frame, scales).is_err());
+    }
+
     #[test]
     fn trim_lookup_matches_all_encoder_transitions() {
         for (previous, transitions) in TRIM_PREFIX.iter().enumerate() {
