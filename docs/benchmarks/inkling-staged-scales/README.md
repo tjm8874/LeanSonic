@@ -8,6 +8,10 @@ The [1,024-token PRO 5000 profile](../inkling-sglang/README.md) attributed 46.67
 | PRO5000 | 32 | decode64_ms | 299.328 | 299.279 | -0.049 [-0.139, +0.064] |
 | PRO5000 | 1024 | prefill_ms | 89.785 | 89.587 | -0.198 [-0.216, -0.179] |
 | PRO5000 | 1024 | decode64_ms | 345.307 | 345.290 | -0.017 [-0.112, +0.144] |
+| 5070Ti | 32 | prefill_ms | 75.194 | 75.082 | -0.113 [-0.318, +0.047] |
+| 5070Ti | 32 | decode64_ms | 536.330 | 536.190 | -0.140 [-0.494, +0.070] |
+| 5070Ti | 1024 | prefill_ms | 160.420 | 159.963 | -0.457 [-0.696, -0.176] |
+| 5070Ti | 1024 | decode64_ms | 576.002 | 575.979 | -0.023 [-0.408, +0.311] |
 
 The PRO 5000 1K prefill improved by 0.198 ms. The paired intervals for short prefill and both decode lengths on that card include zero. All 64 generated IDs, the following greedy token, and the FNV-1a digest of the final 200,058 FP32 logits matched between arms for every measured card and prefix. This does not establish general BF16 fidelity.
 
