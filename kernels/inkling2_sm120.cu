@@ -2424,30 +2424,18 @@ extern "C" __global__ void ink2_copy_d(
     if (i < n) dst[i] = src[i];
 }
 
-extern "C" __global__ void ink2_argmax_and_inc_pos(
-    const float* __restrict__ logits,
-    int32_t* __restrict__ out_tok,
-    int32_t* __restrict__ pos_ptr) {
+struct Ink2ArgmaxPair {
+    float value;
+    int index;
+};
+
+// All threads participate. Only thread zero consumes the final pair.
+__device__ __forceinline__ Ink2ArgmaxPair ink2_argmax_block(float best_v, int best_i) {
     __shared__ float smem_val[8];
     __shared__ int smem_idx[8];
-
-    const int tid = threadIdx.x; // 256
+    const int tid = threadIdx.x;
     const int lane = tid & 31;
     const int warp_id = tid >> 5;
-
-    pdl_wait();
-    logits = pdl_in(logits);
-    pos_ptr = pdl_in_mut(pos_ptr);
-
-    float best_v = -1e30f;
-    int best_i = 0;
-    for (int i = tid; i < kVocab; i += 256) {
-        float v = logits[i];
-        if (v > best_v) {
-            best_v = v;
-            best_i = i;
-        }
-    }
     #pragma unroll
     for (int mask = 16; mask > 0; mask >>= 1) {
         float ov = __shfl_xor_sync(0xFFFFFFFFu, best_v, mask);
@@ -2471,7 +2459,66 @@ extern "C" __global__ void ink2_argmax_and_inc_pos(
                 fi = smem_idx[w];
             }
         }
-        *out_tok = fi;
+        return {fv, fi};
+    }
+    return {best_v, best_i};
+}
+
+extern "C" __global__ void ink2_argmax_and_inc_pos(
+    const float* __restrict__ logits,
+    int32_t* __restrict__ out_tok,
+    int32_t* __restrict__ pos_ptr) {
+    const int tid = threadIdx.x;
+    pdl_wait();
+    logits = pdl_in(logits);
+    pos_ptr = pdl_in_mut(pos_ptr);
+
+    float best_v = -1e30f;
+    int best_i = 0;
+    for (int i = tid; i < kVocab; i += 256) {
+        float v = logits[i];
+        if (v > best_v) {
+            best_v = v;
+            best_i = i;
+        }
+    }
+    const auto winner = ink2_argmax_block(best_v, best_i);
+    if (tid == 0) {
+        *out_tok = winner.index;
+        *pos_ptr += 1;
+    }
+}
+
+extern "C" __global__ void ink2_argmax_partials(
+    const float* __restrict__ logits, Ink2ArgmaxPair* __restrict__ partials) {
+    constexpr int tile = 2048;
+    const int begin = blockIdx.x * tile;
+    const int end = min(begin + tile, kVocab);
+    pdl_wait();
+    logits = pdl_in(logits);
+    float best = -1e30f;
+    int id = 0;
+    for (int i = begin + threadIdx.x; i < end; i += blockDim.x) {
+        const float value = logits[i];
+        if (value > best) {
+            best = value;
+            id = i;
+        }
+    }
+    const auto winner = ink2_argmax_block(best, id);
+    if (threadIdx.x == 0) partials[blockIdx.x] = winner;
+}
+
+extern "C" __global__ void ink2_argmax_finish_and_inc_pos(
+    const Ink2ArgmaxPair* __restrict__ partials, int count,
+    int32_t* __restrict__ out_tok, int32_t* __restrict__ pos_ptr) {
+    pdl_wait();
+    partials = pdl_in(partials);
+    pos_ptr = pdl_in_mut(pos_ptr);
+    const auto part = threadIdx.x < count ? partials[threadIdx.x] : Ink2ArgmaxPair{-1e30f, 0};
+    const auto winner = ink2_argmax_block(part.value, part.index);
+    if (threadIdx.x == 0) {
+        *out_tok = winner.index;
         *pos_ptr += 1;
     }
 }
