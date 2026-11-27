@@ -3,10 +3,13 @@ import argparse, hashlib, json, shutil, struct
 from pathlib import Path
 ap=argparse.ArgumentParser()
 ap.add_argument('parent',type=Path);ap.add_argument('embedding',type=Path);ap.add_argument('output',type=Path)
+ap.add_argument('--entropy', action='store_true', help='transcode an existing lut8_v1 embedding to lut8_rans_v1')
 a=ap.parse_args()
 name='model-00001-of-00001.safetensors'
 old='model.llm.embed.weight.prefix_v1'
 key='model.llm.embed.weight.lut8_v1'
+if a.entropy:
+    old,key=key,'model.llm.embed.weight.lut8_rans_v1'
 def header(path):
     with path.open('rb') as f:
         n,=struct.unpack('<Q',f.read(8));return 8+n,json.loads(f.read(n))

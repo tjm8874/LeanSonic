@@ -1,0 +1,26 @@
+{
+  "indices_raw_bytes": 463159296,
+  "literals_raw_bytes": 38937884,
+  "global_index_entropy_bytes": 433732824.37251234,
+  "row_oracle_index_entropy_bytes": 429343078.33209705,
+  "energy_4_entropy_bytes": 433718325.8721151,
+  "escape_4_entropy_bytes": 433717851.657462,
+  "energy_16_entropy_bytes": 433716052.8801594,
+  "escape_16_entropy_bytes": 433715562.7839414,
+  "energy_64_entropy_bytes": 433714633.0157509,
+  "escape_64_entropy_bytes": 433714832.8864543,
+  "distinct_literal_magnitudes": 327,
+  "literal_magnitude_plus_sign_entropy_bytes": 18306023.45633352,
+  "top_literal_magnitudes": [
+    16385,
+    16387,
+    16388,
+    16390,
+    16391,
+    16393,
+    16394,
+    16396,
+    16397,
+    16399
+  ]
+}

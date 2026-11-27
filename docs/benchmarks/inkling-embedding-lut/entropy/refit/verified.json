@@ -1,0 +1,7 @@
+{
+  "compared": 463159296,
+  "exact": 173733613,
+  "max_abs_error": 0.0078125,
+  "relative_rmse": 0.004518783637720189,
+  "decoded_sha256": "40395eda9be05ce7529a2c615d61a1f3124cbab440e2427a36f449bfa0510e65"
+}

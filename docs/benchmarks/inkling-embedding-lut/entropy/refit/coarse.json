@@ -1,0 +1,36 @@
+{
+  "index": 1903,
+  "threshold": 0.00787353515625,
+  "bytes": 457109616,
+  "raw_bytes": 506079190,
+  "literals": 21459691,
+  "exact_values": 109918717,
+  "max_abs_error": 0.0078125,
+  "relative_rmse": 0.005369271033763488,
+  "entropy_estimate": 456569442.0608735,
+  "sha256": "5b79ffcb04e576663cf05afb234706579e0302c70e3610a62c9345478a1c6d5f",
+  "values": 463159296,
+  "frame_budget_bytes": 502868730,
+  "trials": [
+    {
+      "threshold": 0.00787353515625,
+      "bytes": 457109616,
+      "raw_bytes": 506079190,
+      "literals": 21459691,
+      "exact_values": 109918717,
+      "max_abs_error": 0.0078125,
+      "relative_rmse": 0.005369271033763488,
+      "entropy_estimate": 456569442.0608735
+    },
+    {
+      "threshold": 0.0078125,
+      "bytes": 535983272,
+      "raw_bytes": 832845260,
+      "literals": 184842726,
+      "exact_values": 273301752,
+      "max_abs_error": 0.007781982421875,
+      "relative_rmse": 0.002701499495825419,
+      "entropy_estimate": 535264408.9235157
+    }
+  ]
+}

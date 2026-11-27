@@ -1,0 +1,88 @@
+{
+  "trials": [
+    {
+      "row_classes": 0,
+      "bytes": 457109616,
+      "literals": 21459691,
+      "exact_values": 109918717,
+      "raw_bytes": 506079190,
+      "max_abs_error": 0.0078125,
+      "relative_rmse": 0.005369271033763488
+    },
+    {
+      "row_classes": 64,
+      "bytes": 510810592,
+      "literals": 103139953,
+      "exact_values": 191598979,
+      "raw_bytes": 669439714,
+      "max_abs_error": 0.0078125,
+      "relative_rmse": 0.004250302195640051
+    },
+    {
+      "row_classes": 32,
+      "bytes": 490512408,
+      "literals": 62300063,
+      "exact_values": 150759089,
+      "raw_bytes": 587759934,
+      "max_abs_error": 0.0078125,
+      "relative_rmse": 0.004842214197516738
+    },
+    {
+      "row_classes": 48,
+      "bytes": 501517488,
+      "literals": 82723620,
+      "exact_values": 171182646,
+      "raw_bytes": 628607048,
+      "max_abs_error": 0.0078125,
+      "relative_rmse": 0.004555828963781146
+    },
+    {
+      "row_classes": 56,
+      "bytes": 506349368,
+      "literals": 92935090,
+      "exact_values": 181394116,
+      "raw_bytes": 649029988,
+      "max_abs_error": 0.0078125,
+      "relative_rmse": 0.00440566542174117
+    },
+    {
+      "row_classes": 52,
+      "bytes": 503980824,
+      "literals": 87828186,
+      "exact_values": 176287212,
+      "raw_bytes": 638816180,
+      "max_abs_error": 0.0078125,
+      "relative_rmse": 0.004481393391696436
+    },
+    {
+      "row_classes": 50,
+      "bytes": 502761672,
+      "literals": 85274587,
+      "exact_values": 173733613,
+      "raw_bytes": 633708982,
+      "max_abs_error": 0.0078125,
+      "relative_rmse": 0.004518783637720192
+    },
+    {
+      "row_classes": 51,
+      "bytes": 503373440,
+      "literals": 86551250,
+      "exact_values": 175010276,
+      "raw_bytes": 636262308,
+      "max_abs_error": 0.0078125,
+      "relative_rmse": 0.004500129346596735
+    }
+  ],
+  "values": 463159296,
+  "frame_budget_bytes": 502868730,
+  "row_permutation": "(73*row+19)%128",
+  "tied_error": 0.0078125,
+  "row_classes": 50,
+  "bytes": 502761672,
+  "literals": 85274587,
+  "exact_values": 173733613,
+  "raw_bytes": 633708982,
+  "max_abs_error": 0.0078125,
+  "relative_rmse": 0.004518783637720192,
+  "sha256": "7110a2abebc64feeda2319b5022395db61839fccc8df1dc6833aa1c48670b976"
+}
