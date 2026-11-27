@@ -110,6 +110,104 @@
           ]
         }
       }
+    },
+    "5060Ti_32": {
+      "cycles": [
+        1,
+        2,
+        3
+      ],
+      "mean_ms": {
+        "v13": {
+          "prefill_ms": 242.69166666666666,
+          "decode16_ms": 332.57
+        },
+        "candidate": {
+          "prefill_ms": 242.65333333333334,
+          "decode16_ms": 332.0416666666667
+        },
+        "basalt": {
+          "prefill_ms": 290.6666666666667,
+          "decode16_ms": 376.3333333333333
+        }
+      },
+      "sampled_process_peak_bytes": {
+        "v13": 16559112192,
+        "candidate": 16559112192,
+        "basalt": 15525216256
+      },
+      "all_first16_match": true,
+      "candidate_time_saved_percent_bootstrap_95": {
+        "basalt": {
+          "prefill_ms": [
+            16.35862068965517,
+            16.603665521191303
+          ],
+          "decode16_ms": [
+            11.688829787234035,
+            11.849557522123899
+          ]
+        },
+        "v13": {
+          "prefill_ms": [
+            -0.004122861265720701,
+            0.026090299901138092
+          ],
+          "decode16_ms": [
+            0.1473617731530985,
+            0.16936583019322438
+          ]
+        }
+      }
+    },
+    "5060Ti_1024": {
+      "cycles": [
+        1,
+        2,
+        3
+      ],
+      "mean_ms": {
+        "v13": {
+          "prefill_ms": 380.8616666666667,
+          "decode16_ms": 390.11
+        },
+        "candidate": {
+          "prefill_ms": 380.93666666666667,
+          "decode16_ms": 389.43333333333334
+        },
+        "basalt": {
+          "prefill_ms": 1283.3333333333333,
+          "decode16_ms": 391.6666666666667
+        }
+      },
+      "sampled_process_peak_bytes": {
+        "v13": 16554917888,
+        "candidate": 16554917888,
+        "basalt": 15527313408
+      },
+      "all_first16_match": true,
+      "candidate_time_saved_percent_bootstrap_95": {
+        "basalt": {
+          "prefill_ms": [
+            70.30424620179197,
+            70.32432783478374
+          ],
+          "decode16_ms": [
+            0.008985879332479296,
+            0.9584569732937531
+          ]
+        },
+        "v13": {
+          "prefill_ms": [
+            -0.05250101720719602,
+            0.0
+          ],
+          "decode16_ms": [
+            0.14357685848704893,
+            0.1935153146225721
+          ]
+        }
+      }
     }
   },
   "runs": [
@@ -543,6 +641,438 @@
       "prefill_ms": 452.0,
       "decode16_ms": 327.0,
       "peak": 15521021952,
+      "output_ids_index": 3
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 0,
+      "arm": "v13",
+      "n": 32,
+      "prefill_ms": 242.82,
+      "decode16_ms": 332.47,
+      "peak": 16559112192,
+      "output_ids_index": 0
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 1,
+      "arm": "candidate",
+      "n": 32,
+      "prefill_ms": 242.7,
+      "decode16_ms": 331.98,
+      "peak": 16559112192,
+      "output_ids_index": 0
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 2,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 286.0,
+      "decode16_ms": 375.0,
+      "peak": 15525216256,
+      "output_ids_index": 1
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 3,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 296.0,
+      "decode16_ms": 379.0,
+      "peak": 15525216256,
+      "output_ids_index": 1
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 4,
+      "arm": "candidate",
+      "n": 32,
+      "prefill_ms": 242.8,
+      "decode16_ms": 332.07,
+      "peak": 16559112192,
+      "output_ids_index": 0
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 5,
+      "arm": "v13",
+      "n": 32,
+      "prefill_ms": 242.8,
+      "decode16_ms": 332.56,
+      "peak": 16559112192,
+      "output_ids_index": 0
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 0,
+      "arm": "candidate",
+      "n": 32,
+      "prefill_ms": 242.58,
+      "decode16_ms": 332.06,
+      "peak": 16559112192,
+      "output_ids_index": 0
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 1,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 294.0,
+      "decode16_ms": 378.0,
+      "peak": 15525216256,
+      "output_ids_index": 1
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 2,
+      "arm": "v13",
+      "n": 32,
+      "prefill_ms": 242.85,
+      "decode16_ms": 332.58,
+      "peak": 16559112192,
+      "output_ids_index": 0
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 3,
+      "arm": "v13",
+      "n": 32,
+      "prefill_ms": 242.58,
+      "decode16_ms": 332.52,
+      "peak": 16559112192,
+      "output_ids_index": 0
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 4,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 288.0,
+      "decode16_ms": 374.0,
+      "peak": 15525216256,
+      "output_ids_index": 1
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 5,
+      "arm": "candidate",
+      "n": 32,
+      "prefill_ms": 242.72,
+      "decode16_ms": 332.04,
+      "peak": 16559112192,
+      "output_ids_index": 0
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 0,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 298.0,
+      "decode16_ms": 379.0,
+      "peak": 15525216256,
+      "output_ids_index": 1
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 1,
+      "arm": "v13",
+      "n": 32,
+      "prefill_ms": 242.61,
+      "decode16_ms": 332.66,
+      "peak": 16559112192,
+      "output_ids_index": 0
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 2,
+      "arm": "candidate",
+      "n": 32,
+      "prefill_ms": 242.6,
+      "decode16_ms": 332.01,
+      "peak": 16559112192,
+      "output_ids_index": 0
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 3,
+      "arm": "candidate",
+      "n": 32,
+      "prefill_ms": 242.52,
+      "decode16_ms": 332.09,
+      "peak": 16559112192,
+      "output_ids_index": 0
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 4,
+      "arm": "v13",
+      "n": 32,
+      "prefill_ms": 242.49,
+      "decode16_ms": 332.63,
+      "peak": 16559112192,
+      "output_ids_index": 0
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 5,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 282.0,
+      "decode16_ms": 373.0,
+      "peak": 15525216256,
+      "output_ids_index": 1
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 0,
+      "arm": "v13",
+      "n": 1024,
+      "prefill_ms": 380.59,
+      "decode16_ms": 389.97,
+      "peak": 16554917888,
+      "output_ids_index": 2
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 1,
+      "arm": "candidate",
+      "n": 1024,
+      "prefill_ms": 380.58,
+      "decode16_ms": 389.31,
+      "peak": 16554917888,
+      "output_ids_index": 2
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 2,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 1283.0,
+      "decode16_ms": 393.0,
+      "peak": 15527313408,
+      "output_ids_index": 3
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 3,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 1283.0,
+      "decode16_ms": 395.0,
+      "peak": 15527313408,
+      "output_ids_index": 3
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 4,
+      "arm": "candidate",
+      "n": 1024,
+      "prefill_ms": 380.82,
+      "decode16_ms": 389.41,
+      "peak": 16554917888,
+      "output_ids_index": 2
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": 5,
+      "arm": "v13",
+      "n": 1024,
+      "prefill_ms": 380.71,
+      "decode16_ms": 390.34,
+      "peak": 16554917888,
+      "output_ids_index": 2
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 0,
+      "arm": "candidate",
+      "n": 1024,
+      "prefill_ms": 380.73,
+      "decode16_ms": 389.44,
+      "peak": 16554917888,
+      "output_ids_index": 2
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 1,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 1283.0,
+      "decode16_ms": 391.0,
+      "peak": 15527313408,
+      "output_ids_index": 3
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 2,
+      "arm": "v13",
+      "n": 1024,
+      "prefill_ms": 380.98,
+      "decode16_ms": 390.07,
+      "peak": 16554917888,
+      "output_ids_index": 2
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 3,
+      "arm": "v13",
+      "n": 1024,
+      "prefill_ms": 381.0,
+      "decode16_ms": 390.0,
+      "peak": 16554917888,
+      "output_ids_index": 2
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 4,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 1284.0,
+      "decode16_ms": 392.0,
+      "peak": 15527313408,
+      "output_ids_index": 3
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": 5,
+      "arm": "candidate",
+      "n": 1024,
+      "prefill_ms": 381.2,
+      "decode16_ms": 389.51,
+      "peak": 16554917888,
+      "output_ids_index": 2
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 0,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 1284.0,
+      "decode16_ms": 390.0,
+      "peak": 15527313408,
+      "output_ids_index": 3
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 1,
+      "arm": "v13",
+      "n": 1024,
+      "prefill_ms": 380.93,
+      "decode16_ms": 390.11,
+      "peak": 16554917888,
+      "output_ids_index": 2
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 2,
+      "arm": "candidate",
+      "n": 1024,
+      "prefill_ms": 381.27,
+      "decode16_ms": 389.48,
+      "peak": 16554917888,
+      "output_ids_index": 2
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 3,
+      "arm": "candidate",
+      "n": 1024,
+      "prefill_ms": 381.02,
+      "decode16_ms": 389.45,
+      "peak": 16554917888,
+      "output_ids_index": 2
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 4,
+      "arm": "v13",
+      "n": 1024,
+      "prefill_ms": 380.96,
+      "decode16_ms": 390.17,
+      "peak": 16554917888,
+      "output_ids_index": 2
+    },
+    {
+      "staging_selected": false,
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": 5,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 1283.0,
+      "decode16_ms": 389.0,
+      "peak": 15527313408,
       "output_ids_index": 3
     }
   ],
