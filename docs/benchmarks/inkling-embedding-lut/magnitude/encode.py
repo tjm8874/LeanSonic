@@ -10,7 +10,7 @@ m=np.fromfile(mapping,'<u2');assert m.size==32768
 hist=np.zeros(32768,np.int64)
 for i in range(0,len(words),1024):hist+=np.bincount(m[words[i:i+1024]&32767].ravel(),minlength=32768)
 codes=np.flatnonzero(hist);table=codes[np.argsort(-hist[codes],kind='stable')].astype('<u2')
-assert 255<len(table)<=511
+assert 1<=len(table)<=511
 rank=np.full(32768,65535,np.uint16);rank[table]=np.arange(len(table))
 output_hash=hashlib.sha256();counter=0
 with (dest/'sign').open('xb') as signs,(dest/'first').open('xb') as first,(dest/'extra').open('xb') as extra:
@@ -25,7 +25,10 @@ with (dest/'sign').open('xb') as signs,(dest/'first').open('xb') as first,(dest/
     decoded=table[rebuilt]|(np.unpackbits(sign,bitorder='little').astype('<u2')<<15)
     assert np.array_equal(decoded,quant|(token&32768));output_hash.update(decoded)
 for name in ('first','extra'):
- subprocess.run([str(packer),'pack',str(dest/name),str(dest/(name+'.rans'))],check=True)
+ if (dest/name).stat().st_size:
+    subprocess.run([str(packer),'pack',str(dest/name),str(dest/(name+'.rans'))],check=True)
+ else:
+    (dest/(name+'.rans')).touch(exist_ok=False)
 sizes=[(dest/(name+'.rans')).stat().st_size for name in ('first','extra')]
 with (dest/'embedding.frame').open('xb') as f:
  f.write(struct.pack('<IIII',len(table),counter,*sizes));f.write(table.tobytes())
