@@ -1,0 +1,232 @@
+{
+  "baseline": "67156f7e5c5c0b47815119cced7c39f227a6824c",
+  "candidate_cu_sha256": "d2828bafb9f0fb82e58f49f870f4cbc5cc03b3a5553a308077efddcb28e8f97d",
+  "workload": "Inkling-2-Mini official weights, README token IDs (1024), 16 greedy tokens, spec 0, FP16 KV, context cap 8192",
+  "method": "5 interleaved ABBA rounds. Fresh CLI process per leg. Times exclude weight loading. Single GPU, CUDA_DEVICE_ORDER=PCI_BUS_ID.",
+  "results": {
+    "pro4500": {
+      "timing": {
+        "prefill_ms": {
+          "baseline_mean": 619.8679999999999,
+          "candidate_mean": 613.637,
+          "paired": {
+            "mean_speedup_pct": 1.0051,
+            "ci95_lo_pct": 0.9628,
+            "ci95_hi_pct": 1.0474,
+            "rounds": 5.0
+          },
+          "rounds": [
+            {
+              "a1_ms": 616.8,
+              "b1_ms": 611.32,
+              "b2_ms": 611.48,
+              "a2_ms": 617.63
+            },
+            {
+              "a1_ms": 618.25,
+              "b1_ms": 612.49,
+              "b2_ms": 612.99,
+              "a2_ms": 619.25
+            },
+            {
+              "a1_ms": 619.58,
+              "b1_ms": 613.53,
+              "b2_ms": 613.53,
+              "a2_ms": 620.7
+            },
+            {
+              "a1_ms": 620.93,
+              "b1_ms": 614.28,
+              "b2_ms": 615.17,
+              "a2_ms": 621.68
+            },
+            {
+              "a1_ms": 621.64,
+              "b1_ms": 615.31,
+              "b2_ms": 616.27,
+              "a2_ms": 622.22
+            }
+          ]
+        },
+        "decode16_ms": {
+          "baseline_mean": 126.175,
+          "candidate_mean": 126.19500000000001,
+          "paired": {
+            "mean_speedup_pct": -0.0159,
+            "ci95_lo_pct": -0.0396,
+            "ci95_hi_pct": 0.0079,
+            "rounds": 5.0
+          },
+          "rounds": [
+            {
+              "a1_ms": 126.0,
+              "b1_ms": 126.11,
+              "b2_ms": 126.08,
+              "a2_ms": 126.11
+            },
+            {
+              "a1_ms": 126.18,
+              "b1_ms": 126.22,
+              "b2_ms": 126.2,
+              "a2_ms": 126.12
+            },
+            {
+              "a1_ms": 126.25,
+              "b1_ms": 126.23,
+              "b2_ms": 126.2,
+              "a2_ms": 126.22
+            },
+            {
+              "a1_ms": 126.24,
+              "b1_ms": 126.25,
+              "b2_ms": 126.17,
+              "a2_ms": 126.23
+            },
+            {
+              "a1_ms": 126.18,
+              "b1_ms": 126.23,
+              "b2_ms": 126.26,
+              "a2_ms": 126.22
+            }
+          ]
+        }
+      },
+      "score_sha256": {
+        "fp16": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce",
+        "int8": "9abf361be93f2cb9447120d7265ca421a05540ba4a8e7bd55ce0b314e0ceb941"
+      },
+      "config": [
+        "VRAM used: 17.01 GiB / 31.37 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 1024"
+      ],
+      "kernel_fp16_1024_at_base_zero": {
+        "local": {
+          "mean_speedup_pct": 6.5051,
+          "ci95_lo_pct": 6.3327,
+          "ci95_hi_pct": 6.6396,
+          "rounds": 5.0
+        },
+        "global": {
+          "mean_speedup_pct": -0.4632,
+          "ci95_lo_pct": -0.8424,
+          "ci95_hi_pct": -0.2369,
+          "rounds": 5.0
+        }
+      },
+      "emitted_token_ids": [
+        145026,
+        220,
+        39446,
+        220,
+        19,
+        154978,
+        152792,
+        189134,
+        149860,
+        185136,
+        198,
+        84375,
+        149859,
+        23033,
+        220,
+        137294
+      ],
+      "parity": {
+        "reg-decode-fp16": "704 cases matched (all Q8 codes and FP32 scales)",
+        "reg-decode-int8": "704 cases matched (all Q8 codes and FP32 scales)",
+        "reg-prefill-fp16": "140 cases matched (all Q8 codes and FP32 scales)",
+        "reg-prefill-int8": "140 cases matched (all Q8 codes and FP32 scales)"
+      },
+      "long_prompt": {
+        "tokens": 4096,
+        "spec_k": 7,
+        "ids_sha256": "0e47b7487a1ba7ba79ec8711f92ad441feb22e2a361ecf072a8228c62a3fac25",
+        "modes": {
+          "fp16": {
+            "forced_eight_fp32_rows_sha256": "e05b07e3fd4d9e3699a4c6f37dcb1fed50642c2abf9b451ac0679ad210cc62f9",
+            "generated_32_ids": [
+              39446,
+              220,
+              19,
+              189134,
+              196976,
+              63,
+              146047,
+              69580,
+              63,
+              11,
+              196997,
+              15,
+              12,
+              146102,
+              47,
+              63,
+              11,
+              196997,
+              50,
+              270,
+              86789,
+              32804,
+              63,
+              11,
+              196997,
+              12,
+              79,
+              63,
+              145031,
+              63,
+              1796,
+              63
+            ]
+          },
+          "int8": {
+            "forced_eight_fp32_rows_sha256": "054c3e9f0107e051517be7ede20d920cdd4cd3ce709911e0703fa0e2ab0965f4",
+            "generated_32_ids": [
+              39446,
+              220,
+              19,
+              189134,
+              196976,
+              63,
+              146047,
+              69580,
+              63,
+              11,
+              196997,
+              15,
+              12,
+              146102,
+              47,
+              63,
+              11,
+              196997,
+              50,
+              270,
+              86789,
+              32804,
+              63,
+              11,
+              196997,
+              12,
+              79,
+              63,
+              145031,
+              63,
+              1796,
+              63
+            ]
+          }
+        }
+      }
+    }
+  },
+  "prompt_file": "docs/benchmarks/inputs/inkling-readme1024.ids",
+  "cuda_target": "sm_120a, nvcc -O3 --cubin",
+  "artifact_bytes": {
+    "baseline_cubin": 1190464,
+    "candidate_cubin": 1189968
+  },
+  "pro4500_nvrtc_prefill": [
+    "140 cases matched (all Q8 codes and FP32 scales)",
+    "140 cases matched (all Q8 codes and FP32 scales)"
+  ]
+}

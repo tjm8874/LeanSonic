@@ -1,6 +1,7 @@
-// Compare the original FP16 attention+Q8 kernel with the decode and speculative verification specialization.
+// Compare the reference attention+Q8 kernel with decode or wide prefill from a candidate cubin.
 // c++ -O2 -I/usr/local/cuda/include kernels/tests/inkling_decode_attention.cpp -lcuda -o parity
-// ./parity reference.cubin candidate.cubin [int8]
+// ./parity reference.cubin candidate.cubin [int8] [prefill]
+// `prefill` compares the wide entry point across both cubins, including local-ring wraps.
 // `int8` compares the INT8-KV instantiations (`*_i8`, `LEANSONIC_KV=int8`) on random INT8 KV + scales.
 #include <cuda.h>
 
@@ -42,8 +43,13 @@ static CUdeviceptr cache(std::mt19937& rng, size_t count) {
 }
 
 int main(int argc, char** argv) {
-    if (argc != 3 && argc != 4) return 2;
-    const bool int8 = argc == 4 && std::strcmp(argv[3], "int8") == 0;
+    if (argc < 3 || argc > 5) return 2;
+    bool int8 = false, prefill = false;
+    for (int i = 3; i < argc; ++i) {
+        if (std::strcmp(argv[i], "int8") == 0) int8 = true;
+        else if (std::strcmp(argv[i], "prefill") == 0) prefill = true;
+        else return 2;
+    }
     check(cuInit(0));
     CUdevice gpu;
     CUcontext ctx;
@@ -54,15 +60,16 @@ int main(int argc, char** argv) {
     CUfunction kernels[2];
     check(cuModuleLoad(&modules[0], argv[1]));
     check(cuModuleLoad(&modules[1], argv[2]));
-    check(cuModuleGetFunction(&kernels[0], modules[0],
-                              int8 ? "ink2_gqa_rel_sink_attn_q8_b_i8" : "ink2_gqa_rel_sink_attn_q8_b"));
-    check(cuModuleGetFunction(&kernels[1], modules[1],
-                              int8 ? "ink2_gqa_rel_sink_attn_q8_decode_i8" : "ink2_gqa_rel_sink_attn_q8_decode"));
+    const char* wide = int8 ? "ink2_gqa_rel_sink_attn_q8_b_i8" : "ink2_gqa_rel_sink_attn_q8_b";
+    const char* decode = int8 ? "ink2_gqa_rel_sink_attn_q8_decode_i8" : "ink2_gqa_rel_sink_attn_q8_decode";
+    check(cuModuleGetFunction(&kernels[0], modules[0], wide));
+    check(cuModuleGetFunction(&kernels[1], modules[1], prefill ? wide : decode));
 
-    constexpr int max_ctx = 131072;
+    const int max_ctx = prefill ? 4096 : 131072;
     std::mt19937 rng(41);
     auto real = [&]() { return static_cast<float>(static_cast<int>(rng() % 2049) - 1024) / 512; };
-    constexpr int stride = 8600, max_batch = 8;
+    constexpr int stride = 8600;
+    const int max_batch = prefill ? 1024 : 8;
     std::vector<float> qrgs(max_batch * stride);
     for (float& x : qrgs) x = real();
     std::vector<uint16_t> rel(16 * 1024);
@@ -91,11 +98,16 @@ int main(int argc, char** argv) {
         check(cuMemAlloc(&scales[i], max_batch * scale_bytes));
     }
     int cases = 0;
-    for (int cap : {1024, 1088, 2048, max_ctx}) {
+    const std::vector<int> widths = prefill ? std::vector<int>{9, 64, 65, 256, 1024}
+                                           : std::vector<int>{1, 2, 3, 4, 5, 6, 7, 8};
+    const std::vector<int> lengths = prefill
+        ? std::vector<int>{1, 1024, 1025, 1089, 1104, 2049, max_ctx}
+        : std::vector<int>{1, 7, 8, 9, 56, 57, 63, 64, 65, 71, 72, 127, 128, 129,
+                           1023, 1024, 1025, 1089, 2049, 8192, 32768, max_ctx};
+    for (int cap : {1024, 1088, prefill ? 1103 : 2048, max_ctx}) {
         int global = (cap == max_ctx);
-        for (int n : {1, 7, 8, 9, 56, 57, 63, 64, 65, 71, 72, 127, 128, 129,
-                      1023, 1024, 1025, 1089, 2049, 8192, 32768, max_ctx}) {
-            for (int batch = 1; batch <= max_batch; ++batch) {
+        for (int n : lengths) {
+            for (int batch : widths) {
                 int p = std::min(n - 1, max_ctx - batch);
                 int qstride = stride;
                 const size_t nc = code_bytes * batch, ns = scale_bytes * batch;
