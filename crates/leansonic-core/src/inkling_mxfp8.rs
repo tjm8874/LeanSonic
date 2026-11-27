@@ -243,10 +243,25 @@ fn four_scale_banks(scales: &mut [u8], cuts: &[u8; 384]) -> Result<(), String> {
 
 pub fn pack_four_scale_banks(
     raw: &[u8],
-    mut scales: Vec<u8>,
+    scales: Vec<u8>,
     base: &[u8; 128],
-    mut output: impl Write,
+    output: impl Write,
 ) -> io::Result<usize> {
+    pack_four_scale_quantiles(raw, scales, base, [2, 2], output)
+}
+
+/// Split each side of the original scale cutoff at a chosen quartile.
+/// The frame layout and decoder are shared with the median-cut encoder.
+pub fn pack_four_scale_quantiles(
+    raw: &[u8],
+    scales: Vec<u8>,
+    base: &[u8; 128],
+    quartiles: [u8; 2],
+    output: impl Write,
+) -> io::Result<usize> {
+    if quartiles.iter().any(|q| !(1..=3).contains(q)) {
+        return Err(io::Error::other("invalid scale quartile"));
+    }
     if scales.is_empty()
         || !scales.len().is_multiple_of(128)
         || scales.len().checked_mul(8) != Some(raw.len())
@@ -270,18 +285,32 @@ pub fn pack_four_scale_banks(
             let bins = &counts[lo..hi];
             let total = bins.iter().sum::<usize>();
             let mut prefix = 0;
-            let mut best = (total, lo);
+            let target = usize::from(quartiles[side]) * total;
+            let mut best = (target, lo);
             for (i, &n) in bins.iter().enumerate() {
                 if lo + i < 127 {
                     prefix += n;
-                    best = best.min(((2 * prefix).abs_diff(total), lo + i + 1));
+                    best = best.min(((4 * prefix).abs_diff(target), lo + i + 1));
                 }
             }
             cuts[(side + 1) * 128 + expert] = best.1 as u8;
         }
     }
-    four_scale_banks(&mut scales, &cuts).map_err(io::Error::other)?;
-    output.write_all(&cuts)?;
+    pack_four_scale_boundaries(raw, scales, &cuts, output)
+}
+
+/// Encode the existing four-bank format using explicit per-expert boundaries.
+pub fn pack_four_scale_boundaries(
+    raw: &[u8],
+    mut scales: Vec<u8>,
+    cuts: &[u8; 384],
+    mut output: impl Write,
+) -> io::Result<usize> {
+    if scales.len().checked_mul(8) != Some(raw.len()) {
+        return Err(io::Error::other("invalid four-bank weight dimensions"));
+    }
+    four_scale_banks(&mut scales, cuts).map_err(io::Error::other)?;
+    output.write_all(cuts)?;
     Ok(cuts.len() + pack_nvfp4_tables::<false>(raw, &scales, 4 * NVFP4_CONTEXTS, output)?)
 }
 
@@ -723,6 +752,22 @@ mod tests {
         assert!(unpack_four_scale_banks(&frame[..len - 8], scales.clone()).is_err());
         frame[128] = 1;
         assert!(unpack_four_scale_banks(&frame, scales).is_err());
+    }
+
+    #[test]
+    fn nonmedian_quartiles_use_the_existing_decoder() {
+        let scales: Vec<u8> = (0..128).cycle().take(128 * 128).collect();
+        let raw = vec![0x65; 8 * scales.len()];
+        let cuts = [64; 128];
+        let mut frame = Vec::new();
+        pack_four_scale_quantiles(&raw, scales.clone(), &cuts, [1, 3], &mut frame).unwrap();
+        assert_eq!(&frame[128..256], &[16; 128]);
+        assert_eq!(&frame[256..384], &[112; 128]);
+        assert_eq!(
+            unpack_four_scale_banks(&frame, scales.clone()).unwrap(),
+            raw
+        );
+        assert!(pack_four_scale_quantiles(&raw, scales, &cuts, [0, 3], Vec::new()).is_err());
     }
 
     #[test]

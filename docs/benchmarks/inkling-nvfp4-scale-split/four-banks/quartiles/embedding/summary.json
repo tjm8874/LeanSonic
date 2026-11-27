@@ -1,0 +1,22 @@
+{
+  "rans": {
+    "original_ms": 55.5865558,
+    "trial_ms": 218.9672174,
+    "bytes": 609686616,
+    "paired_delta_ms": 163.3806616,
+    "paired_delta_ci95_ms": [
+      157.7402648,
+      167.5036761
+    ]
+  },
+  "prefix": {
+    "original_ms": 54.0153515,
+    "trial_ms": 91.30676629999999,
+    "bytes": 613341696,
+    "paired_delta_ms": 37.2914148,
+    "paired_delta_ci95_ms": [
+      36.39108459999999,
+      37.988045599999985
+    ]
+  }
+}
