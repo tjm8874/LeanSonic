@@ -43,6 +43,74 @@ pub const TOP_K: usize = 8;
 pub const FF: usize = 1152;
 pub const RANK: usize = 64;
 pub const VOCAB: usize = 200_058;
+/// Largest engine (`LEANSONIC_SEQS`) that drafts with DFlash 2: each sequence keeps 86.5 MB of
+/// FP32 K / V rings, so larger engines draft with DSpark.
+pub const DF2_MAX_SEQS: usize = 8;
+
+/// Online drafter choice for one sequence when DFlash 2 and DSpark are both loaded (#177):
+/// EMAs of each drafter's accepted tokens and verified draft rows per round estimate its
+/// tokens per millisecond of a multi-sequence round (rows are cheap there: the measured C=4
+/// rounds fit about `6 ms` per sequence plus `0.5 ms` per row, so accepted tokens dominate).
+/// The better drafter drafts, with 5% hysteresis, and the other one is retried every 8
+/// rounds until it has 12 samples, then every `EXPLORE` rounds. The choice only steers speculation: verified tokens are unchanged.
+#[derive(Clone, Copy, Default)]
+struct DraftSel {
+    acc: [f32; 2],
+    rows: [f32; 2],
+    n: [u32; 2],
+    best: usize,
+    since_other: u32,
+    /// `(drafter, drafted)` of the round in flight (0 = DFlash 2, 1 = DSpark).
+    pending: Option<(usize, usize)>,
+}
+
+impl DraftSel {
+    const DRAFT_MS: [f32; 2] = [0.9, 1.0];
+    const BASE_MS: f32 = 6.0;
+    const ROW_MS: f32 = 0.5;
+    const EXPLORE: u32 = 32;
+    const EMA: f32 = 0.05;
+
+    fn score(&self, d: usize) -> f32 {
+        (1.0 + self.acc[d]) / (Self::BASE_MS + Self::DRAFT_MS[d] + Self::ROW_MS * self.rows[d])
+    }
+
+    fn pick(&mut self) -> usize {
+        // DFlash 2 first; DSpark once DFlash 2 has three rounds, then the better one.
+        if self.n[0] < 4 {
+            return 0;
+        }
+        if self.n[1] < 4 {
+            return 1;
+        }
+        let other = 1 - self.best;
+        if self.score(other) > 1.05 * self.score(self.best) {
+            self.best = other;
+        }
+        // Retry the other drafter every 8 rounds until it has 12 samples, then every
+        // `EXPLORE` rounds.
+        let every = if self.n[1 - self.best] < 12 {
+            8
+        } else {
+            Self::EXPLORE
+        };
+        if self.since_other >= every {
+            self.since_other = 0;
+            return 1 - self.best;
+        }
+        self.since_other += 1;
+        self.best
+    }
+
+    fn record(&mut self, d: usize, drafted: usize, accepted: usize) {
+        let (a, r) = (accepted as f32, drafted as f32);
+        // Running mean over the first `1 / EMA` rounds, then an EMA.
+        self.n[d] += 1;
+        let w = (1.0 / self.n[d] as f32).max(Self::EMA);
+        self.acc[d] += w * (a - self.acc[d]);
+        self.rows[d] += w * (r - self.rows[d]);
+    }
+}
 pub const PADDED_VOCAB: usize = 201_024;
 pub const GLOBAL_LAYERS: [usize; 4] = [5, 11, 17, 23];
 /// #80: GPUs with at most this much VRAM (16 GB cards report ~15.5-15.9 GiB) default to INT8
@@ -979,6 +1047,8 @@ pub struct Inkling2GpuEngine {
     pub drafter: Option<DsparkDrafterGpu>,
     /// DFlash 2 block drafter (#103), preferred over DSpark for solo speculative rounds.
     pub dflash2: Option<Dflash2DrafterGpu>,
+    /// Per-sequence drafter choice when both drafters are loaded (multi-sequence engines).
+    draft_sel: Vec<DraftSel>,
     pub spec_k: usize,
     pub spec_drafted_total: usize,
     pub spec_accepted_total: usize,
@@ -1834,11 +1904,12 @@ impl Inkling2GpuEngine {
 
         // Load the optional drafter before budgeting memory for tiered expert weights.
         let mtp_path = model_dir.join("mtp.safetensors");
-        // Drafter choice (#103 / #204): `LEANSONIC_DRAFTER=auto` (default) prefers DFlash 2 when
-        // its checkpoint is found and all target MoE layers fit in VRAM; on 16 GB spilled runs
-        // `auto` releases the neural drafter below if it would evict target expert layers to PCIe.
-        // `dflash2` / `dspark` force the respective neural drafter, `suffix` forces zero-VRAM
-        // suffix/context-copy drafting, and `LEANSONIC_SEQS > 1` drafts with DSpark.
+        // Drafter choice (#103 / #177 / #204): `LEANSONIC_DRAFTER=auto` (default) prefers DFlash 2
+        // when its checkpoint is found for engines of up to `DF2_MAX_SEQS` sequences; multi-seq
+        // engines (`2 <= LEANSONIC_SEQS <= DF2_MAX_SEQS`) load both DFlash 2 and DSpark and pick
+        // per sequence online (`DraftSel`), while 16 GB spilled runs release optional neural
+        // drafters below if they would evict target expert layers to PCIe. `dflash2` / `dspark`
+        // force the respective neural drafter, and `suffix` forces zero-VRAM context-copy drafting.
         let drafter_choice = std::env::var("LEANSONIC_DRAFTER").unwrap_or_else(|_| "auto".into());
         if !matches!(
             drafter_choice.as_str(),
@@ -1848,24 +1919,28 @@ impl Inkling2GpuEngine {
                 "LEANSONIC_DRAFTER must be auto, dflash2, dspark or suffix, got {drafter_choice}"
             ));
         }
-        let df2_path =
-            if spec_k > 0 && !matches!(drafter_choice.as_str(), "dspark" | "suffix") && n_seqs == 1
-            {
-                find_dflash2(model_dir)
-            } else {
-                None
-            };
+        let df2_path = if spec_k > 0
+            && !matches!(drafter_choice.as_str(), "dspark" | "suffix")
+            && n_seqs <= DF2_MAX_SEQS
+        {
+            find_dflash2(model_dir)
+        } else {
+            None
+        };
         if spec_k > 0 && drafter_choice == "dflash2" && df2_path.is_none() {
-            return Err(if n_seqs > 1 {
-                "LEANSONIC_DRAFTER=dflash2 drafts single-sequence engines (LEANSONIC_SEQS=1)".into()
+            return Err(if n_seqs > DF2_MAX_SEQS {
+                format!("LEANSONIC_DRAFTER=dflash2 drafts engines of at most {DF2_MAX_SEQS} sequences (LEANSONIC_SEQS)")
             } else {
-                "LEANSONIC_DRAFTER=dflash2 but no DFlash 2 checkpoint was found".into()
+                "LEANSONIC_DRAFTER=dflash2 but no DFlash 2 checkpoint was found".to_string()
             });
         }
+        // Multi-sequence engines with both checkpoints load both drafters and pick one per
+        // sequence online (`DraftSel`): DFlash 2 wins on chat turns, DSpark on long raw-code
+        // continuations.
         let drafter = if spec_k > 0
             && drafter_choice != "suffix"
             && mtp_path.exists()
-            && df2_path.is_none()
+            && (df2_path.is_none() || (n_seqs > 1 && drafter_choice == "auto"))
         {
             let mtp_fns = MtpKernelFns {
                 rmsnorm_d_b: fns.rmsnorm_d_b,
@@ -1915,6 +1990,7 @@ impl Inkling2GpuEngine {
                     },
                     &path,
                     &unembed_q8,
+                    n_seqs,
                 )?)
             }
             None => None,
@@ -2482,6 +2558,7 @@ impl Inkling2GpuEngine {
             d_conv_hist_ptrs,
             drafter,
             dflash2,
+            draft_sel: vec![DraftSel::default(); n_seqs],
             spec_k,
             spec_drafted_total: 0,
             spec_accepted_total: 0,
@@ -2815,7 +2892,9 @@ impl Inkling2GpuEngine {
         }
 
         let (free_after, total_vram) = eng.ctx.mem_info()?;
-        let drafter_tag = if eng.dflash2.is_some() {
+        let drafter_tag = if eng.dflash2.is_some() && eng.drafter.is_some() {
+            format!("DFlash2|DSpark per sequence(K={spec_k})")
+        } else if eng.dflash2.is_some() {
             format!("DFlash2(K={spec_k})")
         } else if eng.drafter.is_some() {
             format!("DSpark(K={spec_k})")
@@ -2868,6 +2947,9 @@ impl Inkling2GpuEngine {
         self.cur_seq = seq;
         self.host_pos = self.seq_pos[seq];
         if let Some(d) = &mut self.drafter {
+            d.select_seq(seq)?;
+        }
+        if let Some(d) = &mut self.dflash2 {
             d.select_seq(seq)?;
         }
         let pos = self.host_pos as i32;
@@ -3317,6 +3399,7 @@ impl Inkling2GpuEngine {
         if let Some(ref mut d) = self.dflash2 {
             d.reset();
         }
+        self.draft_sel[self.cur_seq] = DraftSel::default();
         unsafe {
             check_cu(
                 (self.ctx.api.cuMemsetD8_v2)(self.d_pos.ptr, 0, 4),
@@ -3870,7 +3953,7 @@ impl Inkling2GpuEngine {
 
     /// A GPU drafter (DSpark or DFlash 2) consumes the target taps, so the paths that capture
     /// them (tap buffers, unfused final norm) must stay on.
-    fn has_neural_drafter(&self) -> bool {
+    pub fn has_neural_drafter(&self) -> bool {
         self.drafter.is_some() || self.dflash2.is_some()
     }
 
@@ -6226,6 +6309,11 @@ impl Inkling2GpuEngine {
                 self.seq_pos[s] += k;
             }
         }
+        for (&(s, len), &k) in runs.iter().zip(keep) {
+            if let Some((d, drafted)) = self.draft_sel[s].pending.take() {
+                self.draft_sel[s].record(d, drafted.min(len - 1), k - 1);
+            }
+        }
         // DSpark: each sequence's drafter context takes its kept rows' taps.
         if let Some(d) = &mut self.drafter {
             let taps = self
@@ -6233,6 +6321,26 @@ impl Inkling2GpuEngine {
                 .d_taps
                 .as_ref()
                 .ok_or("missing DSpark tap storage")?;
+            let mut first = 0usize;
+            for (&(s, len), &k) in runs.iter().zip(keep) {
+                d.select_seq(s)?;
+                d.enqueue_add_ctx(
+                    self.ctx.compute_stream,
+                    taps.ptr + (first * D * 4) as u64,
+                    self.prefill.capacity,
+                    k,
+                )?;
+                first += len;
+            }
+            d.select_seq(self.cur_seq)?;
+        }
+        // DFlash 2: likewise, into each sequence's rings.
+        if let Some(d) = &mut self.dflash2 {
+            let taps = self
+                .prefill
+                .d_taps
+                .as_ref()
+                .ok_or("missing drafter tap storage")?;
             let mut first = 0usize;
             for (&(s, len), &k) in runs.iter().zip(keep) {
                 d.select_seq(s)?;
@@ -6263,9 +6371,55 @@ impl Inkling2GpuEngine {
         &mut self,
         reqs: &[(usize, u32, usize)],
     ) -> Result<Vec<Vec<u32>>, String> {
-        if self.drafter.is_none() {
-            return Ok(vec![Vec::new(); reqs.len()]);
+        match (self.dflash2.is_some(), self.drafter.is_some()) {
+            (true, false) => return self.draft_for_seqs_dflash2(reqs),
+            (false, false) => return Ok(vec![Vec::new(); reqs.len()]),
+            (false, true) => return self.draft_for_seqs_dspark(reqs),
+            (true, true) => {}
         }
+        // Both loaded: each sequence drafts with its currently better drafter.
+        let picks: Vec<usize> = reqs
+            .iter()
+            .map(|&(seq, _, _)| self.draft_sel[seq].pick())
+            .collect();
+        let df2: Vec<(usize, u32, usize)> = reqs
+            .iter()
+            .zip(&picks)
+            .filter(|(_, &d)| d == 0)
+            .map(|(r, _)| *r)
+            .collect();
+        let dsp: Vec<(usize, u32, usize)> = reqs
+            .iter()
+            .zip(&picks)
+            .filter(|(_, &d)| d == 1)
+            .map(|(r, _)| *r)
+            .collect();
+        let mut df2_out = self.draft_for_seqs_dflash2(&df2)?.into_iter();
+        let mut dsp_out = if dsp.is_empty() {
+            Vec::new()
+        } else {
+            self.draft_for_seqs_dspark(&dsp)?
+        }
+        .into_iter();
+        let mut out = Vec::with_capacity(reqs.len());
+        for (&(seq, _, _), &d) in reqs.iter().zip(&picks) {
+            let draft = if d == 0 {
+                df2_out.next()
+            } else {
+                dsp_out.next()
+            }
+            .unwrap_or_default();
+            self.draft_sel[seq].pending = Some((d, draft.len()));
+            out.push(draft);
+        }
+        Ok(out)
+    }
+
+    /// DSpark drafts for several sequences (`draft_for_seqs`).
+    fn draft_for_seqs_dspark(
+        &mut self,
+        reqs: &[(usize, u32, usize)],
+    ) -> Result<Vec<Vec<u32>>, String> {
         while self.draft_streams.len() < reqs.len() {
             let mut st: CUstream = core::ptr::null_mut();
             unsafe {
@@ -6338,6 +6492,37 @@ impl Inkling2GpuEngine {
         }
         let cur = self.cur_seq;
         self.drafter.as_mut().unwrap().select_seq(cur)?;
+        Ok(out)
+    }
+
+    /// DFlash 2 drafts for several sequences: each sequence drafts from its own rings, one
+    /// after another on the compute stream (a draft reads the drafter's weights once and is
+    /// bandwidth-bound, so concurrent streams would not overlap).
+    fn draft_for_seqs_dflash2(
+        &mut self,
+        reqs: &[(usize, u32, usize)],
+    ) -> Result<Vec<Vec<u32>>, String> {
+        let mut out = Vec::with_capacity(reqs.len());
+        for &(seq, tok, max_k) in reqs {
+            let pos = if seq == self.cur_seq {
+                self.host_pos
+            } else {
+                self.seq_pos[seq]
+            };
+            let max_k = max_k.min(self.max_ctx.saturating_sub(pos + 1));
+            let d = self.dflash2.as_mut().unwrap();
+            d.select_seq(seq)?;
+            out.push(d.draft_tokens(
+                self.ctx.compute_stream,
+                self.embed.ptr(),
+                self.embed_norm.ptr,
+                &self.unembed_q8,
+                tok,
+                max_k,
+            )?);
+        }
+        let cur = self.cur_seq;
+        self.dflash2.as_mut().unwrap().select_seq(cur)?;
         Ok(out)
     }
 
@@ -6513,6 +6698,12 @@ impl Inkling2GpuEngine {
         next_tok: u32,
         max_k: usize,
     ) -> Result<Vec<u32>, String> {
+        if self.dflash2.is_some() {
+            return Ok(self
+                .draft_for_seqs(&[(seq, next_tok, max_k)])?
+                .pop()
+                .unwrap_or_default());
+        }
         let Some(d) = self.drafter.as_mut() else {
             return Ok(Vec::new());
         };
@@ -6711,7 +6902,7 @@ impl Inkling2GpuEngine {
                     self.spec_copy_rounds += 1;
                 }
                 copied
-            } else if let Some(ref mut d) = self.dflash2.as_mut().filter(|_| self.n_seqs == 1) {
+            } else if let Some(ref mut d) = self.dflash2 {
                 d.draft_tokens(
                     self.ctx.compute_stream,
                     self.embed.ptr(),
@@ -10646,6 +10837,30 @@ mod tests {
         assert!(counts.macro_entries >= 4, "{counts:?}");
         assert!(counts.indexed >= 7, "{counts:?}");
         assert!(CUDA_KERNEL_SRC.contains("void ink2_pdl_all_marker()"));
+    }
+
+    /// `DraftSel` warms up DFlash 2 then DSpark, settles on the drafter with more accepted
+    /// tokens per round, keeps retrying the other one, and follows a change of regime.
+    #[test]
+    fn draft_sel_follows_the_better_drafter() {
+        let mut sel = DraftSel::default();
+        let run = |sel: &mut DraftSel, rounds: usize, acc: [usize; 2]| -> [usize; 2] {
+            let mut used = [0usize; 2];
+            for _ in 0..rounds {
+                let d = sel.pick();
+                used[d] += 1;
+                sel.record(d, 7, acc[d]);
+            }
+            used
+        };
+        let warm = run(&mut sel, 8, [2, 5]);
+        assert_eq!(warm, [4, 4]);
+        // DSpark accepts 5 of 7, DFlash 2 accepts 2: DSpark drafts most rounds.
+        let used = run(&mut sel, 100, [2, 5]);
+        assert!(used[1] >= 85 && used[0] >= 5, "{used:?}");
+        // The content changes and DFlash 2 becomes better: the choice follows.
+        let used = run(&mut sel, 300, [6, 1]);
+        assert!(used[0] >= 220, "{used:?}");
     }
 
     /// The DFlash 2 module (#103) honours the same PDL contract, and exports exactly the entry

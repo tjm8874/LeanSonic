@@ -159,7 +159,7 @@ fn scheduler(mut gpu: Inkling2GpuEngine, rx: Receiver<Job>, spec_k: usize) {
         if active.is_empty() {
             continue;
         }
-        if spec_k > 0 && gpu.drafter.is_some() {
+        if spec_k > 0 && gpu.has_neural_drafter() {
             if let Err(e) = spec_round(&mut gpu, &mut active, &mut free, spec_k) {
                 for a in active.drain(..) {
                     let _ = a.events.send(Event::Error(e.clone()));

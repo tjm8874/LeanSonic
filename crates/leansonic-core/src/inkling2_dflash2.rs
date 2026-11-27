@@ -261,6 +261,10 @@ pub struct Dflash2DrafterGpu {
     /// FP32 K / V rings of all layers (`[5, DF2_RING, 1024]`).
     k_ring_all: DeviceBuf,
     v_ring_all: DeviceBuf,
+    /// Per-sequence `(ctx_end, lo)` of the engine's sequences (`select_seq`); the selected
+    /// sequence's live values are `ctx_end` / `lo`, its rings `cur * DF2_LAYERS` layers in.
+    seq_state: Vec<(usize, usize)>,
+    cur: usize,
     /// Q4 copy of the target's output head (`LEANSONIC_DF2_HEAD=q4`, default; `q8` drafts with
     /// the target's own Q8_64 head): codes `[rows16, D / 2]` and scales `[rows16, D / 64]`.
     head_q4: Option<(DeviceBuf, DeviceBuf)>,
@@ -335,6 +339,7 @@ impl Dflash2DrafterGpu {
         fns: Dflash2KernelFns,
         path: &Path,
         unembed_q8: &PlanarQ8Gpu,
+        n_seqs: usize,
     ) -> Result<Self, String> {
         let st =
             MappedSafeTensors::open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
@@ -409,7 +414,7 @@ impl Dflash2DrafterGpu {
             .ok()
             .and_then(|s| s.parse::<f32>().ok())
             .unwrap_or(0.2);
-        let ring = DF2_LAYERS * DF2_RING * DF2_KV * 4;
+        let ring = n_seqs * DF2_LAYERS * DF2_RING * DF2_KV * 4;
         let head_q4 = match std::env::var("LEANSONIC_DF2_HEAD").as_deref() {
             Ok("q8") => None,
             Ok("q4") | Err(_) => Some(Self::build_head_q4(ctx, fns, unembed_q8)?),
@@ -424,6 +429,8 @@ impl Dflash2DrafterGpu {
             k_norm_all: DeviceBuf::from_host_bytes(ctx, &k_norms)?,
             k_ring_all: DeviceBuf::alloc_zeroed(ctx, ring)?,
             v_ring_all: DeviceBuf::alloc_zeroed(ctx, ring)?,
+            seq_state: vec![(0, 0); n_seqs],
+            cur: 0,
             fc: q8(ctx, &st, &["fc.weight"], &[D], DF2_TAPS * D)?,
             hidden_norm: vec_f32("hidden_norm.weight", D)?,
             norm: vec_f32("norm.weight", D)?,
@@ -490,6 +497,7 @@ impl Dflash2DrafterGpu {
         Ok((codes, scales))
     }
 
+    /// Clears the selected sequence's context (like the engine's `reset`).
     pub fn reset(&mut self) {
         // The mask row is a pure function of the weights: it stays valid across resets.
         self.ctx_end = 0;
@@ -529,8 +537,23 @@ impl Dflash2DrafterGpu {
         }
     }
 
-    fn ring_layer(li: usize) -> u64 {
-        (li * DF2_RING * DF2_KV * 4) as u64
+    /// Byte offset of the selected sequence's layer `li` ring.
+    fn ring_layer(&self, li: usize) -> u64 {
+        ((self.cur * DF2_LAYERS + li) * DF2_RING * DF2_KV * 4) as u64
+    }
+
+    /// Selects the sequence whose context the next commit / draft uses.
+    pub fn select_seq(&mut self, seq: usize) -> Result<(), String> {
+        if seq >= self.seq_state.len() {
+            return Err(format!(
+                "DFlash 2 sequence {seq} >= {}",
+                self.seq_state.len()
+            ));
+        }
+        self.seq_state[self.cur] = (self.ctx_end, self.lo);
+        (self.ctx_end, self.lo) = self.seq_state[seq];
+        self.cur = seq;
+        Ok(())
     }
 
     /// `y[rows_in, w.rows]` (row stride `y_stride`) `= x_q8 @ w^T` for the Q8_64 input scratch.
@@ -708,8 +731,8 @@ impl Dflash2DrafterGpu {
         let mut pkn = self.k_norm_all.ptr + (li * 256) as u64;
         let mut pf = self.inv_freq.ptr;
         let (mut p0, mut cap, mut rl) = (pos0 as i32, DF2_RING as i32, (DF2_RING * DF2_KV) as i64);
-        let mut kr = self.k_ring_all.ptr + Self::ring_layer(li);
-        let mut vr = self.v_ring_all.ptr + Self::ring_layer(li);
+        let mut kr = self.k_ring_all.ptr + self.ring_layer(li);
+        let mut vr = self.v_ring_all.ptr + self.ring_layer(li);
         let mut a = args![pqkv, ns, ss, rs, kc, lc, pq, pqn, pkn, pf, p0, cap, rl, kr, vr];
         let gx = if with_q { 40 } else { 8 };
         self.launch(
@@ -841,8 +864,8 @@ impl Dflash2DrafterGpu {
             self.qk_prep(stream, li, 1, true, DF2_QKV, DF2_Q, 0, pos, DF2_BLOCK)?;
             {
                 let mut pq = s.q.ptr;
-                let mut kr = self.k_ring_all.ptr + Self::ring_layer(li);
-                let mut vr = self.v_ring_all.ptr + Self::ring_layer(li);
+                let mut kr = self.k_ring_all.ptr + self.ring_layer(li);
+                let mut vr = self.v_ring_all.ptr + self.ring_layer(li);
                 let (mut plo, mut phi, mut cap) =
                     (lo as i32, (pos + DF2_BLOCK) as i32, DF2_RING as i32);
                 let (mut pxq, mut pxs) = (s.xq.ptr, s.xs.ptr);
