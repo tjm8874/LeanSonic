@@ -14,11 +14,15 @@ Both builders regenerated all 352 canonical control frames byte for byte. The al
 
 | Set | Candidate | Mean KL | Worst KL | BF16 top-1 / scored positions | PPL |
 |---|---|---:|---:|---:|---:|
+| test | canonical | 0.00315843 | 0.68097733 | 24865/25500 | 7.072956 |
+| test | rate | 0.00313373 | 0.70959240 | 24915/25500 | 7.071119 |
 | chat | canonical | 0.00264874 | 0.09567916 | 609/613 | 3.736971 |
 | chat | refine | 0.00244614 | 0.08607209 | 606/613 | 3.721961 |
 | chat | rate | 0.00259262 | 0.08234757 | 606/613 | 3.725609 |
 
 WikiText uses the canonical 512-context BF16 oracles and 100 chunks per split. The refine package was assigned PRO 4500 and the rate package PRO 5000. Chat uses the independent [613-position bilingual full-vocabulary suite](inkling-chat-quality.md) on PRO 5000.
+
+The smaller rate candidate gained 50 BF16 top-1 matches on the test split and lowered mean KL from 0.00315843 to 0.00313373. Worst KL rose from 0.680977 to 0.709592, at chunk 69, token 353. In bilingual chat it lost three top-1 matches while both mean and worst KL fell. Keep the canonical default pending wider quality evaluation.
 
 ## Reproduce
 

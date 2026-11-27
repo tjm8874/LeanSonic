@@ -4419,6 +4419,23 @@
       "changed_frames": 352
     },
     "quality": {
+      "test": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.071118709347773,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.0031337262776725996,
+        "median_kld": 0.001284801212593903,
+        "p99_kld": 0.029350503822065062,
+        "max_kld": 0.7095924044185808,
+        "start_chunk": 0,
+        "max_kld_chunk": 69,
+        "max_kld_position": 353,
+        "ref_floor_targets": 14,
+        "top1_matches": 24915,
+        "top1_agreement": 0.9770588235294118
+      },
       "chat": {
         "all": {
           "rows": 613,
