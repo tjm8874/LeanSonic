@@ -1,0 +1,307 @@
+{
+  "raw": {
+    "bytes": 386970072,
+    "sha256": "53f857d1a7deaa1b3e22aca83d9db42dab3c9e507c41412b8b37e998c177ca3e"
+  },
+  "compact": {
+    "bytes": 333208152,
+    "sha256": "9ba510a93982f070c85fc172713717cfc568f7430643cd2e3ca950b2399e3eb3"
+  },
+  "tensors": {
+    "fuse_weight": {
+      "raw": 32,
+      "bytes": 32,
+      "decoded_sha256": "0d5be890254a55c494a4539b80ed5925ee95f2943d79df941acf9c68bbf6f4e0"
+    },
+    "layers.0.dflare_norm.weight": {
+      "raw": 4608,
+      "bytes": 4608,
+      "decoded_sha256": "2913a27e9d2b955f16f68f215b1db8f1f2c3688b59866aaee5c7948d42c0cfbf"
+    },
+    "layers.0.input_layernorm.weight": {
+      "raw": 4608,
+      "bytes": 4608,
+      "decoded_sha256": "9bc4d976625119da667f81d79fa9ab8f4eb0f9476bc05f3b306abee8acfde6de"
+    },
+    "layers.0.mlp.down_proj.q8_64.codes.rans_v1": {
+      "raw": 21233664,
+      "bytes": 20021032,
+      "decoded_sha256": "4266442f7ddf5d7a56048f53454499013898e42b6c37d213ea38aaba561a487a"
+    },
+    "layers.0.mlp.down_proj.q8_64.scales.dict_v1": {
+      "raw": 1327104,
+      "bytes": 333040,
+      "decoded_sha256": "0f9dae5edd66a6749aa9423f806563d2d15f7a074878863fd3c544fc921c0b98"
+    },
+    "layers.0.mlp.gate_up_proj.q8_64.codes.rans_v1": {
+      "raw": 42467328,
+      "bytes": 40531560,
+      "decoded_sha256": "dd8287bfc214e52e83f67697abbd1d52adf10bade156583d86388b59a16b8547"
+    },
+    "layers.0.mlp.gate_up_proj.q8_64.scales.dict_v1": {
+      "raw": 2654208,
+      "bytes": 664728,
+      "decoded_sha256": "a74faa0865ae434f966c5da8e1594411fd9e5f820cc33ceefcee9bd835e0126d"
+    },
+    "layers.0.post_attention_layernorm.weight": {
+      "raw": 4608,
+      "bytes": 4608,
+      "decoded_sha256": "91051ea4b7744044299d65e65dff443493461ff34a32f1197b26deac6d042efe"
+    },
+    "layers.0.self_attn.k_norm.weight": {
+      "raw": 256,
+      "bytes": 256,
+      "decoded_sha256": "c3844cbec24692f038f2448eaeb274857d801ddb0bd083ba94c48062bb8a8491"
+    },
+    "layers.0.self_attn.k_norm_ctx.weight": {
+      "raw": 256,
+      "bytes": 256,
+      "decoded_sha256": "89401170ccfd2c050808b3dbfb771a7e6e48a593f51494f0e792bb8d6c5c33d5"
+    },
+    "layers.0.self_attn.kv_ctx_proj.q8_64.codes.rans_v1": {
+      "raw": 4718592,
+      "bytes": 4503136,
+      "decoded_sha256": "13d234bac01ac7578a7fe098b461317db1316b4b52e5ab443818280e72cfd211"
+    },
+    "layers.0.self_attn.kv_ctx_proj.q8_64.scales.dict_v1": {
+      "raw": 294912,
+      "bytes": 74752,
+      "decoded_sha256": "d690e8537b16b3b2bec9de7fc10c0852b9830dda4c073bcc1e6445a9c9760acd"
+    },
+    "layers.0.self_attn.o_proj.q8_64.codes.rans_v1": {
+      "raw": 7077888,
+      "bytes": 6757640,
+      "decoded_sha256": "635f92076818b782185765570fd60d6e74d95e114f56ae5b4e9f46cc6507d773"
+    },
+    "layers.0.self_attn.o_proj.q8_64.scales.dict_v1": {
+      "raw": 442368,
+      "bytes": 111528,
+      "decoded_sha256": "79546e886c3a327174208a6f10f44b6ee8c42257bfd8b895680f054c81865c6f"
+    },
+    "layers.0.self_attn.q_norm.weight": {
+      "raw": 256,
+      "bytes": 256,
+      "decoded_sha256": "b4960c628e89c893859af1af7db3c4e153cc19b1abd5b6dbb2a84ff9e28c01aa"
+    },
+    "layers.0.self_attn.qkv_proj.q8_64.codes.rans_v1": {
+      "raw": 11796480,
+      "bytes": 11066592,
+      "decoded_sha256": "21ae73c666cc01988c9591b3b9a6b9dea72d30a765462a3298194b382aabf4ad"
+    },
+    "layers.0.self_attn.qkv_proj.q8_64.scales.dict_v1": {
+      "raw": 737280,
+      "bytes": 187488,
+      "decoded_sha256": "12fac61fb829e83295833133a87ffdeddc41ecdbd652d3cb5701120b0187e50e"
+    },
+    "layers.1.dflare_norm.weight": {
+      "raw": 4608,
+      "bytes": 4608,
+      "decoded_sha256": "aae2557249c4f82331d5f7d0674238afa76b926722e7b1ff5bb1c15db940f81a"
+    },
+    "layers.1.input_layernorm.weight": {
+      "raw": 4608,
+      "bytes": 4608,
+      "decoded_sha256": "5ede84db7feec9335299b0855ec76072324207fdd54bc063b629f30be5d44bcc"
+    },
+    "layers.1.mlp.down_proj.q8_64.codes.rans_v1": {
+      "raw": 21233664,
+      "bytes": 20130848,
+      "decoded_sha256": "8db71eee7fcc997208ace6a6c6aa25fb631f580f597f256be2ea07b62565ea41"
+    },
+    "layers.1.mlp.down_proj.q8_64.scales.dict_v1": {
+      "raw": 1327104,
+      "bytes": 332936,
+      "decoded_sha256": "393a6b87a9013a07227e09305a5aed93070d1e88bd3754d2772b990c98cd2ee5"
+    },
+    "layers.1.mlp.gate_up_proj.q8_64.codes.rans_v1": {
+      "raw": 42467328,
+      "bytes": 40548504,
+      "decoded_sha256": "555e6875c02c9f5cd1bf904389dfde40bf5e5d3ebf06f808ec7a953ee497a008"
+    },
+    "layers.1.mlp.gate_up_proj.q8_64.scales.dict_v1": {
+      "raw": 2654208,
+      "bytes": 664560,
+      "decoded_sha256": "373d6bfb1628cea136700259f6a0e94bb23317db0c6480480eb4ada3f149003b"
+    },
+    "layers.1.post_attention_layernorm.weight": {
+      "raw": 4608,
+      "bytes": 4608,
+      "decoded_sha256": "9333905a85b43fbd3b78093e2e97f033005d7b4951d38025a327f72a0d5caf21"
+    },
+    "layers.1.self_attn.k_norm.weight": {
+      "raw": 256,
+      "bytes": 256,
+      "decoded_sha256": "5d397418e6012e8bc5bd4e755dec789ed16809924969cd1cfe795bb5e31c08bd"
+    },
+    "layers.1.self_attn.k_norm_ctx.weight": {
+      "raw": 256,
+      "bytes": 256,
+      "decoded_sha256": "3fc11fb68b314d1a109946087d3ddc0fe503636d82f338d85059b991514da7f7"
+    },
+    "layers.1.self_attn.kv_ctx_proj.q8_64.codes.rans_v1": {
+      "raw": 4718592,
+      "bytes": 4447984,
+      "decoded_sha256": "7cfb88b338ffa3f006ebfeee8b8d52d5d8f02efa316b27eea598f14d37eb3cba"
+    },
+    "layers.1.self_attn.kv_ctx_proj.q8_64.scales.dict_v1": {
+      "raw": 294912,
+      "bytes": 75816,
+      "decoded_sha256": "a54e34c8405daa1ede0cad791574c4bb499d5167a4bc3090b8e14690c0c677a4"
+    },
+    "layers.1.self_attn.o_proj.q8_64.codes.rans_v1": {
+      "raw": 7077888,
+      "bytes": 6753792,
+      "decoded_sha256": "50611ae70a1357d9bf6842d6aabf6f5898a4b01ee52c42e37925ab68ba423533"
+    },
+    "layers.1.self_attn.o_proj.q8_64.scales.dict_v1": {
+      "raw": 442368,
+      "bytes": 112224,
+      "decoded_sha256": "05974a5260fc1062d2f0621fa2ca42694923cb4f3669e61ef2e68c1c8bb5f872"
+    },
+    "layers.1.self_attn.q_norm.weight": {
+      "raw": 256,
+      "bytes": 256,
+      "decoded_sha256": "89f5254bd5ffae1a845181017f9c6147fc51136e60d7a703eac15b546ba51fa9"
+    },
+    "layers.1.self_attn.qkv_proj.q8_64.codes.rans_v1": {
+      "raw": 11796480,
+      "bytes": 11212008,
+      "decoded_sha256": "157042b1cb44e79ded42263859011194d664eb2529aeae600113b59ebe1d2c59"
+    },
+    "layers.1.self_attn.qkv_proj.q8_64.scales.dict_v1": {
+      "raw": 737280,
+      "bytes": 185384,
+      "decoded_sha256": "c88aa303a52aea5b97cf6c1a4e2faa95c46f646d93e85dca64139464c2a04c1e"
+    },
+    "layers.2.dflare_norm.weight": {
+      "raw": 4608,
+      "bytes": 4608,
+      "decoded_sha256": "457fba3d29db7cd8f0fa9b33dc00c3336da2169fceb82036d77869ef8ba7c2ce"
+    },
+    "layers.2.input_layernorm.weight": {
+      "raw": 4608,
+      "bytes": 4608,
+      "decoded_sha256": "4702cc03efa2629e3472f419c3df16c7ff00a537dcc902ea387f616868248b21"
+    },
+    "layers.2.mlp.down_proj.q8_64.codes.rans_v1": {
+      "raw": 21233664,
+      "bytes": 20197112,
+      "decoded_sha256": "964f66ade5aa5f0040fdc3c74d9a3ba1f508787e797308941c39e7cffe5a4439"
+    },
+    "layers.2.mlp.down_proj.q8_64.scales.dict_v1": {
+      "raw": 1327104,
+      "bytes": 333248,
+      "decoded_sha256": "65837c867244e6d374d2ef3572605b021f8cfda5712372de4abb2a3940711ebe"
+    },
+    "layers.2.mlp.gate_up_proj.q8_64.codes.rans_v1": {
+      "raw": 42467328,
+      "bytes": 40521264,
+      "decoded_sha256": "61decc2dbc2d47763472e6bd53072339cbb6533299ba43ee3bbcd6e15d5f046f"
+    },
+    "layers.2.mlp.gate_up_proj.q8_64.scales.dict_v1": {
+      "raw": 2654208,
+      "bytes": 664544,
+      "decoded_sha256": "35638e62b147d84f0a3d5c5e262aeab9b962c98273fa8079f711c7ae6abcb1cc"
+    },
+    "layers.2.post_attention_layernorm.weight": {
+      "raw": 4608,
+      "bytes": 4608,
+      "decoded_sha256": "66d298f144cee45042d4d41eb471a6116fb9330f58a662783516a85b35ca3dfc"
+    },
+    "layers.2.self_attn.k_norm.weight": {
+      "raw": 256,
+      "bytes": 256,
+      "decoded_sha256": "ebffb91393bc4d2b210c374b62599fcc0f3c14029d80d31660baefcd99a29e3b"
+    },
+    "layers.2.self_attn.k_norm_ctx.weight": {
+      "raw": 256,
+      "bytes": 256,
+      "decoded_sha256": "f6e407d350e95cfbef53e1436684e01fbcdbe2a5cf2f54f71bcf02df56ff50e2"
+    },
+    "layers.2.self_attn.kv_ctx_proj.q8_64.codes.rans_v1": {
+      "raw": 4718592,
+      "bytes": 4467672,
+      "decoded_sha256": "7621d2427a29697f4ab6d7bdb3f3e10db929afe4817e4c84cf8d71222b8c1f54"
+    },
+    "layers.2.self_attn.kv_ctx_proj.q8_64.scales.dict_v1": {
+      "raw": 294912,
+      "bytes": 74848,
+      "decoded_sha256": "90a3f54f91d77cca2a7d66409cf548d839c032744caff8e84989eb51b65d61d8"
+    },
+    "layers.2.self_attn.o_proj.q8_64.codes.rans_v1": {
+      "raw": 7077888,
+      "bytes": 6757048,
+      "decoded_sha256": "92b6419b26aea04d4602e7eaccf21b3f30619493d43b4101b2612b89a7ce579a"
+    },
+    "layers.2.self_attn.o_proj.q8_64.scales.dict_v1": {
+      "raw": 442368,
+      "bytes": 111632,
+      "decoded_sha256": "739bb4f19e971174d7057b31b0e3148ce5347d72cd7d28b456d017e7d4da442f"
+    },
+    "layers.2.self_attn.q_norm.weight": {
+      "raw": 256,
+      "bytes": 256,
+      "decoded_sha256": "7f3d42864f89551b998ba714680c7c93156a70d0e8c37f3a70b1bbe868d4794c"
+    },
+    "layers.2.self_attn.qkv_proj.q8_64.codes.rans_v1": {
+      "raw": 11796480,
+      "bytes": 11234928,
+      "decoded_sha256": "6e4de473b3d6e4dee11cbfb470c32b41e03bfbf0c0e306df9239af3b77d82f0a"
+    },
+    "layers.2.self_attn.qkv_proj.q8_64.scales.dict_v1": {
+      "raw": 737280,
+      "bytes": 185328,
+      "decoded_sha256": "bcf76576383387fc64c4307cdd5e3d586cfa17855179a2bbba2d42c527c36804"
+    },
+    "markov_head.dflare_norm.weight": {
+      "raw": 4608,
+      "bytes": 4608,
+      "decoded_sha256": "20ce8ca747295381de43b22b164c6b962119ea4ac26ee77c0726e27bb39da23d"
+    },
+    "markov_head.hidden_out.bias": {
+      "raw": 4608,
+      "bytes": 4608,
+      "decoded_sha256": "3899a9dc973f4154eac1b23106647092aa5edb8ff62feea8df4774790a458a70"
+    },
+    "markov_head.hidden_out.weight": {
+      "raw": 1179648,
+      "bytes": 1179648,
+      "decoded_sha256": "029fa8b9bb8b3c94d0c9d45f8414e59e2b10c36ba301e898e589c4cc55e4c01c"
+    },
+    "markov_head.markov_w1.weight.bf16planes_v1": {
+      "raw": 102924288,
+      "bytes": 74491296,
+      "decoded_sha256": "ff765d557ddb8972cda57fc452ee7835ff32082f600d143db91bff0adcca184a"
+    },
+    "markov_head.rnn_proj.bias": {
+      "raw": 1536,
+      "bytes": 1536,
+      "decoded_sha256": "1365d41893a32aec40bbd0c1b1476f015850bf904a5a9c227d955cbcbcc428cf"
+    },
+    "markov_head.rnn_proj.j01.weight": {
+      "raw": 786432,
+      "bytes": 786432,
+      "decoded_sha256": "94c5fbf0d361078b24c475164e53da3f09ff4320388d65074b3318d4fa3594a0"
+    },
+    "markov_head.rnn_proj.jctx.q8_64.codes.rans_v1": {
+      "raw": 3538944,
+      "bytes": 3340960,
+      "decoded_sha256": "ca9def013d620773b419db4027630b424ce247cdd751f6ff40166ee33d3eaa47"
+    },
+    "markov_head.rnn_proj.jctx.q8_64.scales.dict_v1": {
+      "raw": 221184,
+      "bytes": 76336,
+      "decoded_sha256": "aacbdd2c20641c99294b8316cd7db6836e5a15dff7f120cddb6eb322eaeca9d8"
+    },
+    "mask_embed": {
+      "raw": 4608,
+      "bytes": 4608,
+      "decoded_sha256": "a928dfd229c6bd3ed36b5d92f2636db5498d947a0f286a7b21a1af938abf9f27"
+    },
+    "norm.weight": {
+      "raw": 4608,
+      "bytes": 4608,
+      "decoded_sha256": "6b13950e228738c263026af33863d3a4eb6bd89d77bb552aae4bfeb630cb905e"
+    }
+  }
+}
