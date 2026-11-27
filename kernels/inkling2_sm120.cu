@@ -2612,7 +2612,18 @@ INK2_SCALE_KERNEL(ink2_moe_nvfp4_dp4a_up_half, (
 // Stages `x_q8_u128`/`x_sc16` (`2,880 B` SMEM, `2 * (2,944 + 1,024) = 7,936 B <= 8 KiB` -> `120 KiB` L1!)
 // concurrently with all 5 `uint4` GDDR7 weight fetches (`pk0..pk4`) + 5 scale words BEFORE `__syncthreads()`,
 // eliminating sequential `__dp4a` load stalls while preserving exact `0-ULP` arithmetic!
-template<bool PackedScales, class Weight>
+// Four NVFP4 words with even nibbles fit in three words. A 32-cell tile
+// keeps each word plane contiguous across lanes; the fourth word occupies
+// the previously unused low bit of every nibble in the first three.
+__device__ __forceinline__ uint4 load_mixed_even_cell(const unsigned* plane, unsigned cell) {
+    const unsigned* p = plane + (cell / 32) * 96 + cell % 32;
+    constexpr unsigned mask = 0x11111111u;
+    const unsigned a = p[0], b = p[32], c = p[64];
+    return make_uint4(a & ~mask, b & ~mask, c & ~mask,
+                      ((a & mask) << 1) | ((b & mask) << 2) | ((c & mask) << 3));
+}
+
+template<bool PackedScales, class Weight, bool MixedEven = false>
 __device__ __forceinline__ void fused_gate_up_q8(
     const Weight* __restrict__ w13_u128,    // [128, 2304, 72]
     const uint32_t* __restrict__ s13_u32,  // [128, 2304, 36]
@@ -2647,7 +2658,27 @@ __device__ __forceinline__ void fused_gate_up_q8(
     const int ex = sel_ids[k];
     const float alpha = a13[ex];
     const size_t row = (static_cast<size_t>(ex) * kFf + channel) * 2 + (lane >> 4);
-    const Weight* weights = w13_u128 + row * 72u;
+    const Weight* weights;
+    const unsigned* compact = nullptr;
+    unsigned local = (2u * channel + (lane >> 4)) * 72u;
+    if constexpr (MixedEven) {
+        const unsigned* frame = reinterpret_cast<const unsigned*>(w13_u128);
+        const unsigned descriptor = frame[ex];
+        const unsigned* data = frame + (descriptor & 0x7fffffffu);
+        weights = reinterpret_cast<const Weight*>(data);
+        if (descriptor >> 31) compact = data;
+    } else {
+        weights = w13_u128 + row * 72u;
+    }
+    auto load_weight = [&](unsigned u) -> Weight {
+        if constexpr (MixedEven) {
+            const unsigned i = local + u;
+            if (!compact) return weights[i];
+            return load_mixed_even_cell(compact, i);
+        } else {
+            return weights[u];
+        }
+    };
     const unsigned sc_off = static_cast<unsigned>(row * 36u);
 
     const int u0 = index;
@@ -2656,13 +2687,13 @@ __device__ __forceinline__ void fused_gate_up_q8(
     const int u3 = index + 48;
     const int u4 = index + 64;
 
-    const Weight pk0 = weights[u0];
-    const Weight pk1 = weights[u1];
-    const Weight pk2 = weights[u2];
-    const Weight pk3 = weights[u3];
+    const Weight pk0 = load_weight(u0);
+    const Weight pk1 = load_weight(u1);
+    const Weight pk2 = load_weight(u2);
+    const Weight pk3 = load_weight(u3);
     Weight pk4{};
     if (has4) {
-        pk4 = weights[u4];
+        pk4 = load_weight(u4);
     }
     const uint32_t sc0 = expert_scale_word<PackedScales, 6, 64>(s13_u32, sc_off + (u0 >> 1));
     const uint32_t sc1 = expert_scale_word<PackedScales, 6, 64>(s13_u32, sc_off + (u1 >> 1));
@@ -2735,6 +2766,19 @@ INK2_SCALE_KERNEL_LB(ink2_moe_nvfp4_dp4a_up_half_q8, 512, 2, (
     float* __restrict__ out_sc16),         // [8, 72]
     (w13_u128, s13_u32, a13, x_q8_u128, x_sc16, sel_ids, out_q8_u32, out_sc16)) {
     fused_gate_up_q8<PackedScales>(w13_u128, s13_u32, a13, x_q8_u128, x_sc16, sel_ids, out_q8_u32, out_sc16);
+}
+
+INK2_SCALE_KERNEL_LB(ink2_moe_mixed_even_dp4a_up_half_q8, 512, 2, (
+    const uint4* __restrict__ w13_u128,    // [128, 2304, 72]
+    const uint32_t* __restrict__ s13_u32,  // [128, 2304, 36]
+    const float* __restrict__ a13,         // [128]
+    const uint4* __restrict__ x_q8_u128,   // [144]
+    const float* __restrict__ x_sc16,      // [144]
+    const int32_t* __restrict__ sel_ids,   // [8]
+    uint32_t* __restrict__ out_q8_u32,     // [8, 288]
+    float* __restrict__ out_sc16),         // [8, 72]
+    (w13_u128, s13_u32, a13, x_q8_u128, x_sc16, sel_ids, out_q8_u32, out_sc16)) {
+    fused_gate_up_q8<PackedScales, uint4, true>(w13_u128, s13_u32, a13, x_q8_u128, x_sc16, sel_ids, out_q8_u32, out_sc16);
 }
 
 INK2_SCALE_KERNEL_LB(ink2_moe_ternary_dp4a_up_half_q8, 512, 2, (
@@ -10350,7 +10394,7 @@ __device__ __forceinline__ void stage_nvfp4_weight(
     }
 }
 
-template <bool GateUp, bool PackedScales, bool Ternary = false>
+template <bool GateUp, bool PackedScales, bool Ternary = false, bool MixedEven = false>
 __device__ __forceinline__ void grouped_nvfp4_tc_impl(
     const uint4* __restrict__ weight_data,
     const uint32_t* __restrict__ weight_scales_u32,
@@ -10410,7 +10454,15 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
     const size_t full_exp_base_row = static_cast<size_t>(expert) * (GateUp ? 2 * kFf : kD);
     const int wr_r = tid >> 1;  // 0..255 (`2` lanes x `16B` = `32B` across all `512` threads!)
     const int wq2 = tid & 1;    // 0..1
-    const size_t grow_wr = exp_base_row + map_w_row(wr_r);
+    const size_t grow_wr = (MixedEven ? 0 : exp_base_row) + map_w_row(wr_r);
+    const unsigned* plane = nullptr;
+    bool compact_expert = false;
+    if constexpr (MixedEven) {
+        const unsigned* frame = reinterpret_cast<const unsigned*>(weight_data);
+        unsigned descriptor = frame[expert];
+        plane = frame + (descriptor & 0x7fffffffu);
+        compact_expert = (descriptor >> 31) != 0;
+    }
     const size_t grow_sc_wr = full_exp_base_row + map_w_row(wr_r);
     const size_t grow_sc_tid256 = full_exp_base_row + map_w_row(tid & 255);
     const float expert_scale = amax[expert] * (1.0f / 2688.0f);
@@ -10435,10 +10487,21 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
     const uint64_t evict_pol = Ternary ? 0ull : make_l2_evict_first_policy();
 
     auto issue_stage = [&](int st, int ks64) {
-        stage_nvfp4_weight<Ternary>(
-            &s->sm_w[st][wr_r][wq2 ^ ((wr_r >> 2) & 1)],
-            weight_data, grow_wr * kWRowU128 + ks64 * 2 + wq2,
-            is_last_tile, evict_pol);
+        if constexpr (MixedEven) {
+            unsigned i = grow_wr * kWRowU128 + ks64 * 2 + wq2;
+            uint4* destination = &s->sm_w[st][wr_r][wq2 ^ ((wr_r >> 2) & 1)];
+            if (compact_expert) {
+                *destination = load_mixed_even_cell(plane, i);
+            } else {
+                cp_async16_cg_evict_last_tile(destination, reinterpret_cast<const uint4*>(plane) + i,
+                                              is_last_tile, evict_pol);
+            }
+        } else {
+            stage_nvfp4_weight<Ternary>(
+                &s->sm_w[st][wr_r][wq2 ^ ((wr_r >> 2) & 1)],
+                weight_data, grow_wr * kWRowU128 + ks64 * 2 + wq2,
+                is_last_tile, evict_pol);
+        }
         cp_async16_cg_pred(
             &s->sm_x[st][xr][xq4 ^ ((xr >> 1) & 3)],
             x_codes_u128 + src_tok_xr * kXRowU128 + ks64 * 4 + xq4,
@@ -10680,6 +10743,25 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_ternary_tc_up_situ
         w13_u128, s13_u32, a13, sorted_x_codes_u128, sorted_x_sc_u64, sorted_x_gs,
         exp_counts, exp_pairs, exp_begin, exp_end, act_out);
 }
+extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mixed_even_tc_up_situ_packed_scales(
+    const uint4* __restrict__ w13_u128,
+    const uint32_t* __restrict__ s13_u32,
+    const float* __restrict__ a13,
+    const uint4* __restrict__ sorted_x_codes_u128,
+    const uint2* __restrict__ sorted_x_sc_u64,
+    const float* __restrict__ sorted_x_gs,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_toks,
+    const int32_t* __restrict__ exp_pairs,
+    int32_t exp_begin,
+    int32_t exp_end,
+    float* __restrict__ act_out) {
+    pdl_wait();
+    (void)exp_toks;
+    grouped_nvfp4_tc_impl<true, true, false, true>(
+        w13_u128, s13_u32, a13, sorted_x_codes_u128, sorted_x_sc_u64, sorted_x_gs,
+        exp_counts, exp_pairs, exp_begin, exp_end, act_out);
+}
 
 extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_nvfp4_tc_down(
     const uint4* __restrict__ w2_u128,
@@ -10749,7 +10831,7 @@ struct Nvfp4TcSmem192x160_3Stage {
     int32_t sm_row_off[129];   //    516 B
 }; // Total = 57,608 B (`+ 32 B + 1,024 B sys <= 64 KiB` carveout -> `64 KiB` full L1 preserved!)
 
-template <bool GateUp, bool PackedScales, bool Ternary = false>
+template <bool GateUp, bool PackedScales, bool Ternary = false, bool MixedEven = false>
 __device__ __forceinline__ void grouped_nvfp4_tc_t160_impl(
     const uint4* __restrict__ weight_data,
     const uint32_t* __restrict__ weight_scales_u32,
@@ -10809,7 +10891,15 @@ __device__ __forceinline__ void grouped_nvfp4_tc_t160_impl(
     const size_t full_exp_base_row = static_cast<size_t>(expert) * (GateUp ? 2 * kFf : kD);
     const int wr_r = tid >> 1; // 0..191 (`384` threads load `192 x 32B` in `1` single pass!)
     const int wq2 = tid & 1;   // 0..1
-    const size_t grow_wr = exp_base_row + map_w_row(wr_r);
+    const size_t grow_wr = (MixedEven ? 0 : exp_base_row) + map_w_row(wr_r);
+    const unsigned* plane = nullptr;
+    bool compact_expert = false;
+    if constexpr (MixedEven) {
+        const unsigned* frame = reinterpret_cast<const unsigned*>(weight_data);
+        unsigned descriptor = frame[expert];
+        plane = frame + (descriptor & 0x7fffffffu);
+        compact_expert = (descriptor >> 31) != 0;
+    }
     const size_t grow_sc_tid192 = full_exp_base_row + map_w_row(tid < 192 ? tid : 0);
     const float expert_scale = amax[expert] * (1.0f / 2688.0f);
 
@@ -10830,10 +10920,21 @@ __device__ __forceinline__ void grouped_nvfp4_tc_t160_impl(
     const uint64_t evict_pol = Ternary ? 0ull : make_l2_evict_first_policy();
 
     auto issue_stage = [&](int st, int ks64) {
-        stage_nvfp4_weight<Ternary>(
-            &s->sm_w[st][wr_r][wq2 ^ ((wr_r >> 2) & 1)],
-            weight_data, grow_wr * kWRowU128 + ks64 * 2 + wq2,
-            is_last_tile, evict_pol);
+        if constexpr (MixedEven) {
+            unsigned i = grow_wr * kWRowU128 + ks64 * 2 + wq2;
+            uint4* destination = &s->sm_w[st][wr_r][wq2 ^ ((wr_r >> 2) & 1)];
+            if (compact_expert) {
+                *destination = load_mixed_even_cell(plane, i);
+            } else {
+                cp_async16_cg_evict_last_tile(destination, reinterpret_cast<const uint4*>(plane) + i,
+                                              is_last_tile, evict_pol);
+            }
+        } else {
+            stage_nvfp4_weight<Ternary>(
+                &s->sm_w[st][wr_r][wq2 ^ ((wr_r >> 2) & 1)],
+                weight_data, grow_wr * kWRowU128 + ks64 * 2 + wq2,
+                is_last_tile, evict_pol);
+        }
         #pragma unroll
         for (int p = 0; p < 2; ++p) {
             const int lin = p * 384 + tid; // 0..639 (`160` tokens x `4` uint4s)
@@ -11070,6 +11171,25 @@ extern "C" __global__ __launch_bounds__(384, 1) void ink2_moe_ternary_tc_up_situ
     pdl_wait();
     (void)exp_toks;
     grouped_nvfp4_tc_t160_impl<true, true, true>(
+        w13_u128, s13_u32, a13, sorted_x_codes_u128, sorted_x_sc_u64, sorted_x_gs,
+        exp_counts, exp_pairs, exp_begin, exp_end, act_out);
+}
+extern "C" __global__ __launch_bounds__(384, 1) void ink2_moe_mixed_even_tc_up_situ_t160_packed_scales(
+    const uint4* __restrict__ w13_u128,
+    const uint32_t* __restrict__ s13_u32,
+    const float* __restrict__ a13,
+    const uint4* __restrict__ sorted_x_codes_u128,
+    const uint2* __restrict__ sorted_x_sc_u64,
+    const float* __restrict__ sorted_x_gs,
+    const int32_t* __restrict__ exp_counts,
+    const int32_t* __restrict__ exp_toks,
+    const int32_t* __restrict__ exp_pairs,
+    int32_t exp_begin,
+    int32_t exp_end,
+    float* __restrict__ act_out) {
+    pdl_wait();
+    (void)exp_toks;
+    grouped_nvfp4_tc_t160_impl<true, true, false, true>(
         w13_u128, s13_u32, a13, sorted_x_codes_u128, sorted_x_sc_u64, sorted_x_gs,
         exp_counts, exp_pairs, exp_begin, exp_end, act_out);
 }
@@ -15199,6 +15319,21 @@ extern "C" __global__ __launch_bounds__(256, 6) void ink2_argmax_par_and_inc_pos
         if (lane == 0) {
             *out_tok = ci;
             *pos_ptr += 1;
+        }
+    }
+}
+
+extern "C" __global__ void ink2_expand_mixed_up(const unsigned* frame, uint4* raw) {
+    constexpr unsigned cells = 2304u * 2304u / 32u;
+    const unsigned expert = blockIdx.y;
+    const unsigned descriptor = frame[expert];
+    const unsigned* data = frame + (descriptor & 0x7fffffffu);
+    uint4* output = raw + expert * cells;
+    for (unsigned i = blockIdx.x * blockDim.x + threadIdx.x; i < cells; i += gridDim.x * blockDim.x) {
+        if ((descriptor >> 31) == 0) {
+            output[i] = reinterpret_cast<const uint4*>(data)[i];
+        } else {
+            output[i] = load_mixed_even_cell(data, i);
         }
     }
 }
