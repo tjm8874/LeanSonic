@@ -10,8 +10,12 @@ The optional loader stores each pair of MXFP8 weight codes as two four-bit indic
 |---|---|---:|---:|---:|---:|
 | RTX 5060 Ti | Original bytes | 20/24 | 380.387 (2,692.0) | 746.732 (42.85) | 16,554,917,888 |
 | RTX 5060 Ti | Four-bit indices | 24/24 | 403.469 (2,538.0) | 366.373 (87.34) | 16,598,958,080 |
+| RTX 5070 Ti | Original bytes | 20/24 | 160.442 (6,382.4) | 304.018 (105.26) | 16,546,529,280 |
+| RTX 5070 Ti | Four-bit indices | 24/24 | 539.920 (1,896.6) | 205.162 (155.97) | 16,596,860,928 |
 
 RTX 5060 Ti: prefill delta +23.082 ms (95% interval +22.296 to +24.610); decode delta -380.359 ms (-380.415 to -380.277). The two modes predicted the same 32 tokens across all 100 requests. Separately, at context 2,048, all eight paired free-generation requests matched on all 64 generated IDs, the following token, and the hash of the final 200,058 finite FP32 logits. That check used both 32- and 1,024-token prompts.
+
+RTX 5070 Ti: prefill delta +379.478 ms (95% interval +379.338 to +379.620); decode delta -98.856 ms (-99.001 to -98.712). The two modes predicted the same 32 tokens across all 100 requests. Separately, at context 2,048, all eight paired free-generation requests matched on all 64 generated IDs, the following token, and the hash of the final 200,058 finite FP32 logits. That check used both 32- and 1,024-token prompts.
 
 ## Original llama.cpp Q3_K_XL comparison
 
