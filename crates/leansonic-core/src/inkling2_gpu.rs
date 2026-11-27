@@ -652,25 +652,6 @@ pub fn pack_q8_rows(bf16_bytes: &[u8], cols: usize, codes: &mut [u8], scales_byt
     });
 }
 
-fn upload_rans(
-    matrix: &crate::inkling_mxfp8::Matrix<'_>,
-    count: usize,
-    buf: &DeviceBuf,
-) -> Result<(), String> {
-    // Bound temporary host memory even for a 648 MiB expert matrix.
-    let mut staging = vec![0u8; count.min(16 << 20)];
-    let chunk = staging.len();
-    for offset in (0..count).step_by(chunk) {
-        let len = chunk.min(count - offset);
-        let dst = &mut staging[..len];
-        // decode_at writes only initialized bytes; upload after successful decode.
-        let target = unsafe { std::slice::from_raw_parts_mut(dst.as_mut_ptr().cast(), len) };
-        matrix.decode_at(offset, target)?;
-        buf.copy_from_host_at(offset, dst)?;
-    }
-    Ok(())
-}
-
 #[derive(Clone, Copy)]
 enum ExpertMatrix<'a> {
     Raw(&'a [u8]),
@@ -714,7 +695,9 @@ impl<'a> ExpertMatrix<'a> {
                 if on_device {
                     match DeviceBuf::alloc_zeroed(ctx, count) {
                         Ok(buf) => {
-                            upload_rans(&matrix, count, &buf)?;
+                            matrix.for_each_chunk(|offset, bytes| {
+                                buf.copy_from_host_at(offset, bytes)
+                            })?;
                             return Ok(TierBuf::Vram(buf));
                         }
                         Err(e) if e.starts_with("CUDA error 2 in `cuMemAlloc_v2`") => {}
@@ -1247,7 +1230,9 @@ impl Inkling2GpuEngine {
                         let matrix = crate::inkling_mxfp8::Matrix::parse(t.data, count)
                             .map_err(|e| format!("{name}: {e}"))?;
                         let buf = DeviceBuf::alloc_zeroed(&ctx, count)?;
-                        upload_rans(&matrix, count, &buf).map_err(|e| format!("{name}: {e}"))?;
+                        matrix
+                            .for_each_chunk(|offset, bytes| buf.copy_from_host_at(offset, bytes))
+                            .map_err(|e| format!("{name}: {e}"))?;
                         Ok(buf)
                     }
                     _ => Err(format!(
