@@ -7336,6 +7336,11 @@ extern "C" __global__ void ink2_ctrl_apply_coalesced_b(
     cur_inout[row] = c - ptx_tanh(forget_acc) * c + ptx_tanh(gain_acc) * m;
 }
 
+// Keep the per-head and three-head FP16 KV paths on the same FP32 recurrence.
+__device__ __forceinline__ float fp16_kv_weighted_value(float prior, float alpha, float p, float value) {
+    return __fmaf_rn(p, value, __fmul_rn(prior, alpha));
+}
+
 // Unified `G=0` Attention + In-Register `Q8_64` Epilogue (`Grid: (24, B)`, `Block: 256`):
 // Eliminates `d_attn_out` DRAM writes/reads and `48` `ink2_quant_q8_64` launches per token/step!
 template<bool kInt8, bool PipelineDecode>
@@ -7439,10 +7444,10 @@ __device__ __forceinline__ void gqa_rel_sink_attn_q8(
         m_w = m_new;
     };
     auto add_value = [&](uint64_t vw, float alpha, float p) {
-        o0 = o0 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>(vw & 0xFFFFu));
-        o1 = o1 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>((vw >> 16) & 0xFFFFu));
-        o2 = o2 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>((vw >> 32) & 0xFFFFu));
-        o3 = o3 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>((vw >> 48) & 0xFFFFu));
+        o0 = fp16_kv_weighted_value(o0, alpha, p, fp16_bits_to_f32(static_cast<uint16_t>(vw & 0xFFFFu)));
+        o1 = fp16_kv_weighted_value(o1, alpha, p, fp16_bits_to_f32(static_cast<uint16_t>((vw >> 16) & 0xFFFFu)));
+        o2 = fp16_kv_weighted_value(o2, alpha, p, fp16_bits_to_f32(static_cast<uint16_t>((vw >> 32) & 0xFFFFu)));
+        o3 = fp16_kv_weighted_value(o3, alpha, p, fp16_bits_to_f32(static_cast<uint16_t>((vw >> 48) & 0xFFFFu)));
     };
     int j = first + warp_id;
     if constexpr (kInt8) {
@@ -14106,11 +14111,10 @@ __device__ __forceinline__ void gqa_attn_g1_q8_decode_body(
                 const float p = ptx_exp(dot - m_new);
                 l_w[hh] = __fmaf_rn(l_w[hh], alpha, p);
                 m_w[hh] = m_new;
-                // Match the FP16 per-head fallback: round p*v before fusing the rescaled state.
-                o[hh][0] = __fmaf_rn(o[hh][0], alpha, __fmul_rn(p, v0));
-                o[hh][1] = __fmaf_rn(o[hh][1], alpha, __fmul_rn(p, v1));
-                o[hh][2] = __fmaf_rn(o[hh][2], alpha, __fmul_rn(p, v2));
-                o[hh][3] = __fmaf_rn(o[hh][3], alpha, __fmul_rn(p, v3));
+                o[hh][0] = fp16_kv_weighted_value(o[hh][0], alpha, p, v0);
+                o[hh][1] = fp16_kv_weighted_value(o[hh][1], alpha, p, v1);
+                o[hh][2] = fp16_kv_weighted_value(o[hh][2], alpha, p, v2);
+                o[hh][3] = fp16_kv_weighted_value(o[hh][3], alpha, p, v3);
             }
             wk = nwk; wv = nwv;
             j = jn;
