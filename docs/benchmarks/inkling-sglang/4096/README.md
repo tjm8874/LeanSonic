@@ -14,7 +14,7 @@ The complete downloaded SGLang distribution is 20,191,643,333 bytes including an
 
 ## Quality on separate BF16 corpus runs
 
-These quality runs score 25,500 positions per split on the same WikiText references. The LeanSonic scores come from the same physical package in its existing four-bank corpus evaluation. The exact timing revision/cubin is undergoing its own corpus replay on PRO 5000. Single-prompt token agreement does not establish corpus equivalence.
+On RTX PRO 5000 the exact timed LeanSonic source and CUDA module reproduced every published four-bank corpus statistic on both splits (25,500 positions each). The timing example and corpus CLI are separate binaries built from that source. To repeat, build the release leansonic-cli at the revision below, retain the timing environment, and run `leansonic eval-kld --weights MODEL --ref ORACLE --chunks 100` once per split. The recorded worst positions are test chunk 36 position 319 and validation chunk 11 position 374. [Scorer and module digests, full results](quality-replay.json)
 
 | Split | Package | Mean KL | Worst KL | Top-1 / 25,500 | PPL |
 |---|---|---:|---:|---:|---:|
