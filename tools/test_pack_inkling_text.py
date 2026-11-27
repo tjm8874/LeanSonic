@@ -284,6 +284,30 @@ class PackInklingTextTest(unittest.TestCase):
             lo, hi = h["nv.small"]["data_offsets"]
             self.assertEqual(data[lo:hi], small)
 
+    def test_canonical_nvfp4_from_raw_and_both_frame_types(self):
+        import random
+        rng = random.Random(42)
+        weights = bytes(rng.choices([0x08, 0x80, 0x88, 0, 0x18, 0x81, 0x10, 0x01], k=1 << 20))
+        header = {
+            "model.llm.embed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [0, 2]},
+            "model.llm.unembed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [2, 4]},
+            "expert": {"dtype": "U8", "shape": [len(weights)], "data_offsets": [4, 4 + len(weights)]},
+        }
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "pack_inkling_text.expert_weight_shapes", return_value={"expert": [len(weights)]}
+        ):
+            src = Path(tmp) / "input"
+            encoded = json.dumps(header).encode()
+            src.write_bytes(struct.pack("<Q", len(encoded)) + encoded + b"EEHH" + weights)
+            direct = Path(tmp) / "canonical"
+            pack(src, direct, canonical_nvfp4_zeros=True)
+            for option in ("prepack_nvfp4", "contextual_nvfp4", "canonical_nvfp4_zeros"):
+                old = Path(tmp) / option
+                repacked = Path(tmp) / (option + "-canonical")
+                pack(src, old, **{option: True})
+                pack(old, repacked, canonical_nvfp4_zeros=True)
+                self.assertEqual(repacked.read_bytes(), direct.read_bytes())
+
     def test_q8_dictionary_from_bf16_and_native_are_identical(self):
         name = "projection.weight"
         prefix = name + ".q8_64."
