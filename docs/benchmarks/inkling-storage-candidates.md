@@ -26,13 +26,24 @@ For each selected gate/up and down tensor, we round each finite E4M3 weight code
 | Layer 23 only | 15,396,463,478 | 151,694,064 | 2 |
 | Layers 20–23 | 14,941,300,742 | 606,856,800 | 8 |
 
-These two packages change the numerical weights. The sub-15-GB package is a research candidate pending BF16 corpus validation. [Tensor receipts and shard hashes](inkling-mxfp8-rounding.json).
+These two packages change the numerical weights. Both candidates increased mean and worst KL in the 100-chunk WikiText test. [Tensor receipts and shard hashes](inkling-mxfp8-rounding.json).
 
 Reproduce from the official checkpoint and the parent from #125. Reserve space for both complete output folders plus temporary expert frames.
 
 ```sh
 cargo build --release -p leansonic-core --example inkling_mxfp8_round
 python3 tools/inkling_storage_probe/pack_mxfp8.py "$OFFICIAL" "$CANONICAL" "$OUTPUT"
+```
+
+## Keeping larger-magnitude weights at full precision
+
+The layer-23 experiment saved 151,694,064 bytes. To test whether the same byte budget can preserve more quality, we selected a cutoff for each of the eight planes in layers 20–23. Only odd codes at or below that magnitude are rounded. We counted official codes and their block scales, evaluated the actual 12-bit rANS frequency quantization, and chose between adjacent magnitude bins. Among thresholds within 100,000 predicted bytes of the closest match, we selected the lowest average per-plane relative squared weight error. Selection uses no tokens or language-model outputs.
+
+The resulting package is **15,396,361,558 bytes** (151,795,984 fewer than the canonical parent and 101,920 fewer than the layer-23 experiment). The same reader decodes both. [Actual tensor sizes, cutoffs and SHA-256](inkling-budget-rounding.json). To reproduce using NumPy:
+
+```sh
+python3 tools/inkling_storage_probe/choose_cutoffs.py "$OFFICIAL/model-00001-of-00001.safetensors" cutoffs.json
+python3 tools/inkling_storage_probe/pack_mxfp8.py "$OFFICIAL" "$CANONICAL" "$OUTPUT" --cutoffs cutoffs.json
 ```
 
 ## BF16 corpus scores
@@ -43,6 +54,7 @@ Same canonical BF16 oracle, context 512, greedy, FP16 KV, PDL. Each row covers 1
 |---|---|---:|---:|---:|---:|---|
 | test | parent | 0.003158426 | 0.680977332 | 24,865 | 7.07295554 | 69, 353 |
 | test | last | 0.003405436 | 0.691573425 | 24,822 | 7.07310191 | 69, 353 |
+| test | all | 0.004220401 | 0.735487623 | 24,756 | 7.07591407 | 69, 353 |
 | valid | parent | 0.002760741 | 0.352436097 | 24,963 | 6.50462099 | 46, 379 |
 | valid | last | 0.003007726 | 0.379497650 | 24,942 | 6.50520427 | 46, 379 |
 

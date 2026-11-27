@@ -9,9 +9,17 @@ use std::{
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = env::args().skip(1).collect();
-    let [source, offset, len, dest] = args.as_slice() else {
-        return Err("expected SHARD OFFSET LENGTH OUTPUT".into());
+    let [source, offset, len, dest, options @ ..] = args.as_slice() else {
+        return Err("expected SHARD OFFSET LENGTH OUTPUT [CUTOFF]".into());
     };
+    let cutoff: u8 = match options {
+        [] => 125,
+        [value] => value.parse()?,
+        _ => return Err("expected a single cutoff".into()),
+    };
+    if cutoff > 125 {
+        return Err("cutoff exceeds the largest odd finite magnitude".into());
+    }
     let n: usize = len.parse()?;
     if n == 0 || n > 128 * 2304 * 2304 {
         return Err("invalid length".into());
@@ -27,7 +35,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         if mag == 127 {
             return Err("nonfinite E4M3 code".into());
         }
-        if mag % 2 == 1 {
+        if mag % 2 == 1 && mag <= cutoff {
             let even = if mag & 2 == 0 { mag - 1 } else { mag + 1 };
             *value = (*value & 128) | even;
         }
