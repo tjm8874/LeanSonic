@@ -444,11 +444,11 @@ def kInk2MoeNvfp4GroupedDown : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
-/-- Tile-4 Grouped-Expert MXFP8 Up+SITU (`48` regs, `37,008` B SMEM -> `64` KiB L1!). -/
+/-- Tile-4 Grouped-Expert MXFP8 Up+SITU (`67` regs with the hoisted row loads, `37,008` B SMEM -> `64` KiB L1!). -/
 def kInk2MoeMxfp8GroupedUpSitu : KernelResourceSpec :=
   { name := "ink2_moe_mxfp8_grouped_up_situ"
     threadsPerCta := 256
-    rawRegsPerThread := 48
+    rawRegsPerThread := 67
     userSmemPerCtaBytes := 37008    -- 1 * (37008 + 1024) = 38,032 B <= 64 KiB carveout -> 64 KiB L1!
     smemAlignPadBytes := 0
     ctasPerSm := 1
@@ -457,11 +457,11 @@ def kInk2MoeMxfp8GroupedUpSitu : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
-/-- Tile-8 Grouped-Expert MXFP8 Down (`64` regs, `36,896` B SMEM -> `64` KiB L1!). -/
+/-- Tile-8 Grouped-Expert MXFP8 Down (`72` regs with the hoisted row loads, `36,896` B SMEM -> `64` KiB L1!). -/
 def kInk2MoeMxfp8GroupedDown : KernelResourceSpec :=
   { name := "ink2_moe_mxfp8_grouped_down"
     threadsPerCta := 256
-    rawRegsPerThread := 64
+    rawRegsPerThread := 72
     userSmemPerCtaBytes := 36896    -- 1 * (36896 + 1024) = 37,920 B <= 64 KiB carveout -> 64 KiB L1!
     smemAlignPadBytes := 0
     ctasPerSm := 1
