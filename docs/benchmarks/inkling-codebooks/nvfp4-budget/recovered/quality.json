@@ -1,0 +1,77 @@
+{
+  "corpus": {
+    "test": {
+      "trim": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.0812852862390345,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.008164516322373465,
+        "median_kld": 0.003760848148428874,
+        "p99_kld": 0.074978267673552,
+        "max_kld": 1.220277480931089,
+        "start_chunk": 0,
+        "max_kld_chunk": 99,
+        "max_kld_position": 398,
+        "ref_floor_targets": 14,
+        "top1_matches": 24500,
+        "top1_agreement": 0.9607843137254902
+      },
+      "recovered": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.083731056644495,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.007748134459063128,
+        "median_kld": 0.003487042737626023,
+        "p99_kld": 0.06828254024125002,
+        "max_kld": 1.4620403544509677,
+        "start_chunk": 0,
+        "max_kld_chunk": 36,
+        "max_kld_position": 319,
+        "ref_floor_targets": 14,
+        "top1_matches": 24537,
+        "top1_agreement": 0.9622352941176471
+      }
+    },
+    "valid": {
+      "trim": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 6.5299140011746095,
+        "ref_ppl": 6.498588819010602,
+        "mean_kld": 0.007508880434600751,
+        "median_kld": 0.0032247987925921283,
+        "p99_kld": 0.07208797893240551,
+        "max_kld": 1.442934325424319,
+        "start_chunk": 0,
+        "max_kld_chunk": 12,
+        "max_kld_position": 317,
+        "ref_floor_targets": 10,
+        "top1_matches": 24566,
+        "top1_agreement": 0.9633725490196079
+      },
+      "recovered": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 6.530796538895046,
+        "ref_ppl": 6.498588819010602,
+        "mean_kld": 0.0069527481936567555,
+        "median_kld": 0.0029995884805433387,
+        "p99_kld": 0.06561031666002116,
+        "max_kld": 0.7446714344476419,
+        "start_chunk": 0,
+        "max_kld_chunk": 12,
+        "max_kld_position": 317,
+        "ref_floor_targets": 10,
+        "top1_matches": 24645,
+        "top1_agreement": 0.9664705882352941
+      }
+    }
+  },
+  "fixed_rows": {}
+}
