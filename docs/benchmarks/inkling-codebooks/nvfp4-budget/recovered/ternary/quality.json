@@ -3,7 +3,8 @@
     "13.48 GB control": 13479710294,
     "ternary": 7718950382,
     "scale refit": 7734665510,
-    "rate-constrained": 7679612078
+    "rate-constrained": 7679612078,
+    "energy refit": 7748141470
   },
   "quality": {
     "13.48 GB control": {
@@ -114,7 +115,26 @@
         "top1_agreement": 0.6985490196078431
       }
     },
-    "rate-constrained": {}
+    "rate-constrained": {
+      "test": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 13.475100799927912,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.7000745375776061,
+        "median_kld": 0.46205200305325567,
+        "p99_kld": 3.892842001777745,
+        "max_kld": 10.08547940300702,
+        "start_chunk": 0,
+        "max_kld_chunk": 1,
+        "max_kld_position": 260,
+        "ref_floor_targets": 14,
+        "top1_matches": 17118,
+        "top1_agreement": 0.6712941176470588
+      }
+    },
+    "energy refit": {}
   },
   "native_iq1": {},
   "oracles": {
