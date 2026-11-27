@@ -6,5 +6,7 @@ The 61-expert model used RTX 5060 Ti, all expert layers resident, one sequence, 
 |---|---|---:|---:|---:|---:|
 | test | LeanSonic 61-expert | 0.2247122 | 6.6547808 | 20,453/25,500 | 8.482171 |
 | test | Original IQ1_S | 0.1130210 | 5.8886900 | 21,921/25,500 | 7.707463 |
+| valid | LeanSonic 61-expert | 0.2077958 | 6.5760688 | 20,786/25,500 | 7.841980 |
+| valid | Original IQ1_S | 0.1076170 | 5.5685180 | 22,138/25,500 | 7.121110 |
 
 On the test split, the original IQ1_S is better on all four measures. The exact equivalence between two storage modes of LeanSonic on the smaller prompt set does not imply equivalence to BF16 or the native model. [Raw scores, worst prefix, token target and checksums](scores.json).
