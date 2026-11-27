@@ -1,0 +1,646 @@
+{
+  "model": "Inkling-2-Mini, 16,086,645,336-byte entropy text shard",
+  "baseline": "9092c530b85b0b14fe6e6f1f37a0c6e09a9cc060",
+  "candidate": "b40f36cbda0cfac1a550eba924ba9b899a2d6c62",
+  "input_file": "docs/benchmarks/inputs/inkling-readme1024.ids",
+  "input_sha256": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843",
+  "continuation": [
+    145026,
+    220,
+    39446,
+    220,
+    19,
+    154978,
+    152792,
+    189134,
+    149860,
+    185136,
+    198,
+    84375,
+    149859,
+    23033,
+    220,
+    137294
+  ],
+  "method": "Identical 1024-token prefix, 16 decode steps, FP16 KV, 8192 context, spec off, default raw resident scales. Five ABBA cycles, one fresh process per leg. Each process uses --repeat 2. Report the second run. Both runs validated all 16 generated IDs. Resample five paired cycle means with replacement for the prefill/decode time-saved intervals.",
+  "command": "LEANSONIC_CTX=8192 LEANSONIC_KV=fp16 LEANSONIC_CUBIN_PATH=<arm>.cubin <arm>-cli bench --weights <text-directory> --tokens @inkling-readme1024.ids --gen 16 --spec 0 --repeat 2",
+  "native_build": "nvcc -O3 -arch=sm_120a --cubin kernels/inkling2_sm120.cu",
+  "artifacts": {
+    "current-cli": {
+      "sha256": "fe073e9df229a6708c97df49f51d056008cd3ed6de7bd1c8b33b68680bfcaf8e",
+      "bytes": 2283776
+    },
+    "tiled-cli": {
+      "sha256": "a0a8350cfd29b37ee1edd8f718fd4755a151465be9d3621875370c2cd5d4a98b",
+      "bytes": 2287784
+    },
+    "current.cubin": {
+      "sha256": "eec39c7d9e426633a82823a7797a2e1e61dbd03cba43da51f480d217d9e197c4",
+      "bytes": 1319600
+    },
+    "tiled.cubin": {
+      "sha256": "6b6f92b4d7043ee4dd67ec59226a6bd2f3689f420d894f6b678e1cae0063d64e",
+      "bytes": 1405760
+    }
+  },
+  "hardware": {
+    "PRO4500": {
+      "name": "NVIDIA RTX PRO 4500 Blackwell",
+      "uuid": "GPU-2de24713-6ee5-0469-ca31-719f8e9417c9",
+      "driver": "595.99.02",
+      "power_limit": "200.00 W"
+    },
+    "PRO5000": {
+      "name": "NVIDIA RTX PRO 5000 72GB Blackwell",
+      "uuid": "GPU-4636fd80-68e6-909c-cea4-60f0f4f5601e",
+      "driver": "595.99.02",
+      "power_limit": "350.00 W"
+    },
+    "5070Ti": {
+      "name": "NVIDIA GeForce RTX 5070 Ti",
+      "uuid": "GPU-89bb4635-8b8b-2b17-2060-4f8097fa0f70",
+      "driver": "595.99.02",
+      "power_limit": "300.00 W"
+    },
+    "5060Ti": {
+      "name": "NVIDIA GeForce RTX 5060 Ti",
+      "uuid": "GPU-2dea8452-6bf2-393f-21c0-85cad3978c40",
+      "driver": "595.99.02",
+      "power_limit": "180.00 W"
+    }
+  },
+  "results": {
+    "PRO4500": {
+      "prefill": {
+        "baseline_ms": 632.4350000000001,
+        "candidate_ms": 608.393,
+        "time_saved_pct": 3.8014973870832636,
+        "bootstrap95_pct": [
+          3.768446026097272,
+          3.829502829822007
+        ]
+      },
+      "decode16": {
+        "baseline_ms": 126.39399999999999,
+        "candidate_ms": 126.393,
+        "time_saved_pct": 0.0007911767963553196,
+        "bootstrap95_pct": [
+          -0.016607748701025216,
+          0.013453731036161543
+        ]
+      },
+      "matching_generated_sequences": 40,
+      "runs": [
+        {
+          "cycle": 1,
+          "arm": "a1",
+          "prefill_ms": 636.36,
+          "decode16_ms": 126.56
+        },
+        {
+          "cycle": 1,
+          "arm": "b1",
+          "prefill_ms": 611.34,
+          "decode16_ms": 126.56
+        },
+        {
+          "cycle": 1,
+          "arm": "b2",
+          "prefill_ms": 611.01,
+          "decode16_ms": 126.52
+        },
+        {
+          "cycle": 1,
+          "arm": "a2",
+          "prefill_ms": 634.38,
+          "decode16_ms": 126.44
+        },
+        {
+          "cycle": 2,
+          "arm": "a1",
+          "prefill_ms": 633.99,
+          "decode16_ms": 126.4
+        },
+        {
+          "cycle": 2,
+          "arm": "b1",
+          "prefill_ms": 609.08,
+          "decode16_ms": 126.35
+        },
+        {
+          "cycle": 2,
+          "arm": "b2",
+          "prefill_ms": 608.94,
+          "decode16_ms": 126.35
+        },
+        {
+          "cycle": 2,
+          "arm": "a2",
+          "prefill_ms": 632.48,
+          "decode16_ms": 126.35
+        },
+        {
+          "cycle": 3,
+          "arm": "a1",
+          "prefill_ms": 632.34,
+          "decode16_ms": 126.38
+        },
+        {
+          "cycle": 3,
+          "arm": "b1",
+          "prefill_ms": 608.13,
+          "decode16_ms": 126.36
+        },
+        {
+          "cycle": 3,
+          "arm": "b2",
+          "prefill_ms": 608.12,
+          "decode16_ms": 126.4
+        },
+        {
+          "cycle": 3,
+          "arm": "a2",
+          "prefill_ms": 631.79,
+          "decode16_ms": 126.38
+        },
+        {
+          "cycle": 4,
+          "arm": "a1",
+          "prefill_ms": 631.25,
+          "decode16_ms": 126.33
+        },
+        {
+          "cycle": 4,
+          "arm": "b1",
+          "prefill_ms": 606.95,
+          "decode16_ms": 126.37
+        },
+        {
+          "cycle": 4,
+          "arm": "b2",
+          "prefill_ms": 607.18,
+          "decode16_ms": 126.34
+        },
+        {
+          "cycle": 4,
+          "arm": "a2",
+          "prefill_ms": 631.42,
+          "decode16_ms": 126.39
+        },
+        {
+          "cycle": 5,
+          "arm": "a1",
+          "prefill_ms": 630.85,
+          "decode16_ms": 126.33
+        },
+        {
+          "cycle": 5,
+          "arm": "b1",
+          "prefill_ms": 606.65,
+          "decode16_ms": 126.37
+        },
+        {
+          "cycle": 5,
+          "arm": "b2",
+          "prefill_ms": 606.53,
+          "decode16_ms": 126.31
+        },
+        {
+          "cycle": 5,
+          "arm": "a2",
+          "prefill_ms": 629.49,
+          "decode16_ms": 126.38
+        }
+      ]
+    },
+    "PRO5000": {
+      "prefill": {
+        "baseline_ms": 444.176,
+        "candidate_ms": 414.705,
+        "time_saved_pct": 6.634982529447786,
+        "bootstrap95_pct": [
+          6.577117267320231,
+          6.693074131136523
+        ]
+      },
+      "decode16": {
+        "baseline_ms": 107.047,
+        "candidate_ms": 107.025,
+        "time_saved_pct": 0.020551720272399265,
+        "bootstrap95_pct": [
+          -0.0168207006756127,
+          0.0513778608126958
+        ]
+      },
+      "matching_generated_sequences": 40,
+      "runs": [
+        {
+          "cycle": 1,
+          "arm": "a1",
+          "prefill_ms": 442.26,
+          "decode16_ms": 106.97
+        },
+        {
+          "cycle": 1,
+          "arm": "b1",
+          "prefill_ms": 412.71,
+          "decode16_ms": 106.97
+        },
+        {
+          "cycle": 1,
+          "arm": "b2",
+          "prefill_ms": 412.93,
+          "decode16_ms": 106.96
+        },
+        {
+          "cycle": 1,
+          "arm": "a2",
+          "prefill_ms": 442.81,
+          "decode16_ms": 107.01
+        },
+        {
+          "cycle": 2,
+          "arm": "a1",
+          "prefill_ms": 443.17,
+          "decode16_ms": 107.0
+        },
+        {
+          "cycle": 2,
+          "arm": "b1",
+          "prefill_ms": 413.66,
+          "decode16_ms": 107.01
+        },
+        {
+          "cycle": 2,
+          "arm": "b2",
+          "prefill_ms": 414.01,
+          "decode16_ms": 106.99
+        },
+        {
+          "cycle": 2,
+          "arm": "a2",
+          "prefill_ms": 444.07,
+          "decode16_ms": 106.9
+        },
+        {
+          "cycle": 3,
+          "arm": "a1",
+          "prefill_ms": 443.79,
+          "decode16_ms": 107.11
+        },
+        {
+          "cycle": 3,
+          "arm": "b1",
+          "prefill_ms": 414.65,
+          "decode16_ms": 107.09
+        },
+        {
+          "cycle": 3,
+          "arm": "b2",
+          "prefill_ms": 415.11,
+          "decode16_ms": 107.1
+        },
+        {
+          "cycle": 3,
+          "arm": "a2",
+          "prefill_ms": 444.68,
+          "decode16_ms": 107.11
+        },
+        {
+          "cycle": 4,
+          "arm": "a1",
+          "prefill_ms": 444.65,
+          "decode16_ms": 107.09
+        },
+        {
+          "cycle": 4,
+          "arm": "b1",
+          "prefill_ms": 415.41,
+          "decode16_ms": 107.0
+        },
+        {
+          "cycle": 4,
+          "arm": "b2",
+          "prefill_ms": 415.83,
+          "decode16_ms": 107.1
+        },
+        {
+          "cycle": 4,
+          "arm": "a2",
+          "prefill_ms": 445.11,
+          "decode16_ms": 107.1
+        },
+        {
+          "cycle": 5,
+          "arm": "a1",
+          "prefill_ms": 445.58,
+          "decode16_ms": 107.08
+        },
+        {
+          "cycle": 5,
+          "arm": "b1",
+          "prefill_ms": 416.35,
+          "decode16_ms": 106.97
+        },
+        {
+          "cycle": 5,
+          "arm": "b2",
+          "prefill_ms": 416.39,
+          "decode16_ms": 107.06
+        },
+        {
+          "cycle": 5,
+          "arm": "a2",
+          "prefill_ms": 445.64,
+          "decode16_ms": 107.1
+        }
+      ]
+    },
+    "5070Ti": {
+      "prefill": {
+        "baseline_ms": 791.1410000000001,
+        "candidate_ms": 762.437,
+        "time_saved_pct": 3.6281775309331743,
+        "bootstrap95_pct": [
+          3.608049971618521,
+          3.64845221392186
+        ]
+      },
+      "decode16": {
+        "baseline_ms": 235.167,
+        "candidate_ms": 235.063,
+        "time_saved_pct": 0.04422389195763987,
+        "bootstrap95_pct": [
+          -0.02975355554990511,
+          0.11432748662283387
+        ]
+      },
+      "matching_generated_sequences": 40,
+      "runs": [
+        {
+          "cycle": 1,
+          "arm": "a1",
+          "prefill_ms": 791.44,
+          "decode16_ms": 235.09
+        },
+        {
+          "cycle": 1,
+          "arm": "b1",
+          "prefill_ms": 762.45,
+          "decode16_ms": 234.67
+        },
+        {
+          "cycle": 1,
+          "arm": "b2",
+          "prefill_ms": 762.78,
+          "decode16_ms": 234.75
+        },
+        {
+          "cycle": 1,
+          "arm": "a2",
+          "prefill_ms": 791.48,
+          "decode16_ms": 234.6
+        },
+        {
+          "cycle": 2,
+          "arm": "a1",
+          "prefill_ms": 791.2,
+          "decode16_ms": 235.11
+        },
+        {
+          "cycle": 2,
+          "arm": "b1",
+          "prefill_ms": 762.58,
+          "decode16_ms": 234.35
+        },
+        {
+          "cycle": 2,
+          "arm": "b2",
+          "prefill_ms": 762.61,
+          "decode16_ms": 235.14
+        },
+        {
+          "cycle": 2,
+          "arm": "a2",
+          "prefill_ms": 791.35,
+          "decode16_ms": 235.03
+        },
+        {
+          "cycle": 3,
+          "arm": "a1",
+          "prefill_ms": 791.11,
+          "decode16_ms": 235.55
+        },
+        {
+          "cycle": 3,
+          "arm": "b1",
+          "prefill_ms": 762.09,
+          "decode16_ms": 236.24
+        },
+        {
+          "cycle": 3,
+          "arm": "b2",
+          "prefill_ms": 762.11,
+          "decode16_ms": 234.58
+        },
+        {
+          "cycle": 3,
+          "arm": "a2",
+          "prefill_ms": 791.06,
+          "decode16_ms": 234.86
+        },
+        {
+          "cycle": 4,
+          "arm": "a1",
+          "prefill_ms": 791.07,
+          "decode16_ms": 235.54
+        },
+        {
+          "cycle": 4,
+          "arm": "b1",
+          "prefill_ms": 762.56,
+          "decode16_ms": 235.42
+        },
+        {
+          "cycle": 4,
+          "arm": "b2",
+          "prefill_ms": 762.27,
+          "decode16_ms": 235.48
+        },
+        {
+          "cycle": 4,
+          "arm": "a2",
+          "prefill_ms": 790.8,
+          "decode16_ms": 235.92
+        },
+        {
+          "cycle": 5,
+          "arm": "a1",
+          "prefill_ms": 790.87,
+          "decode16_ms": 235.05
+        },
+        {
+          "cycle": 5,
+          "arm": "b1",
+          "prefill_ms": 762.51,
+          "decode16_ms": 234.83
+        },
+        {
+          "cycle": 5,
+          "arm": "b2",
+          "prefill_ms": 762.41,
+          "decode16_ms": 235.17
+        },
+        {
+          "cycle": 5,
+          "arm": "a2",
+          "prefill_ms": 791.03,
+          "decode16_ms": 234.92
+        }
+      ]
+    },
+    "5060Ti": {
+      "prefill": {
+        "baseline_ms": 1939.7450000000001,
+        "candidate_ms": 1911.078,
+        "time_saved_pct": 1.4778746690931044,
+        "bootstrap95_pct": [
+          1.4645159526985863,
+          1.4868984086764625
+        ]
+      },
+      "decode16": {
+        "baseline_ms": 397.081,
+        "candidate_ms": 397.067,
+        "time_saved_pct": 0.003525729007436418,
+        "bootstrap95_pct": [
+          -0.001259312616808117,
+          0.009065178634370952
+        ]
+      },
+      "matching_generated_sequences": 40,
+      "runs": [
+        {
+          "cycle": 1,
+          "arm": "a1",
+          "prefill_ms": 1937.22,
+          "decode16_ms": 396.9
+        },
+        {
+          "cycle": 1,
+          "arm": "b1",
+          "prefill_ms": 1909.53,
+          "decode16_ms": 396.97
+        },
+        {
+          "cycle": 1,
+          "arm": "b2",
+          "prefill_ms": 1910.35,
+          "decode16_ms": 397.07
+        },
+        {
+          "cycle": 1,
+          "arm": "a2",
+          "prefill_ms": 1938.95,
+          "decode16_ms": 397.11
+        },
+        {
+          "cycle": 2,
+          "arm": "a1",
+          "prefill_ms": 1939.43,
+          "decode16_ms": 396.98
+        },
+        {
+          "cycle": 2,
+          "arm": "b1",
+          "prefill_ms": 1910.65,
+          "decode16_ms": 397.01
+        },
+        {
+          "cycle": 2,
+          "arm": "b2",
+          "prefill_ms": 1910.7,
+          "decode16_ms": 397.11
+        },
+        {
+          "cycle": 2,
+          "arm": "a2",
+          "prefill_ms": 1939.7,
+          "decode16_ms": 397.14
+        },
+        {
+          "cycle": 3,
+          "arm": "a1",
+          "prefill_ms": 1939.83,
+          "decode16_ms": 397.04
+        },
+        {
+          "cycle": 3,
+          "arm": "b1",
+          "prefill_ms": 1911.23,
+          "decode16_ms": 397.03
+        },
+        {
+          "cycle": 3,
+          "arm": "b2",
+          "prefill_ms": 1911.24,
+          "decode16_ms": 397.13
+        },
+        {
+          "cycle": 3,
+          "arm": "a2",
+          "prefill_ms": 1940.0,
+          "decode16_ms": 397.18
+        },
+        {
+          "cycle": 4,
+          "arm": "a1",
+          "prefill_ms": 1940.31,
+          "decode16_ms": 397.07
+        },
+        {
+          "cycle": 4,
+          "arm": "b1",
+          "prefill_ms": 1911.49,
+          "decode16_ms": 397.11
+        },
+        {
+          "cycle": 4,
+          "arm": "b2",
+          "prefill_ms": 1911.71,
+          "decode16_ms": 397.04
+        },
+        {
+          "cycle": 4,
+          "arm": "a2",
+          "prefill_ms": 1940.57,
+          "decode16_ms": 397.09
+        },
+        {
+          "cycle": 5,
+          "arm": "a1",
+          "prefill_ms": 1940.81,
+          "decode16_ms": 397.16
+        },
+        {
+          "cycle": 5,
+          "arm": "b1",
+          "prefill_ms": 1911.96,
+          "decode16_ms": 397.09
+        },
+        {
+          "cycle": 5,
+          "arm": "b2",
+          "prefill_ms": 1911.92,
+          "decode16_ms": 397.11
+        },
+        {
+          "cycle": 5,
+          "arm": "a2",
+          "prefill_ms": 1940.63,
+          "decode16_ms": 397.14
+        }
+      ]
+    }
+  }
+}
