@@ -1,0 +1,202 @@
+{
+  "model.llm.layers.0.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3600,
+    "all_zero": 0
+  },
+  "model.llm.layers.0.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3606,
+    "all_zero": 0
+  },
+  "model.llm.layers.1.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3562,
+    "all_zero": 0
+  },
+  "model.llm.layers.1.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3586,
+    "all_zero": 0
+  },
+  "model.llm.layers.10.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3395,
+    "all_zero": 0
+  },
+  "model.llm.layers.10.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3292,
+    "all_zero": 0
+  },
+  "model.llm.layers.11.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3362,
+    "all_zero": 0
+  },
+  "model.llm.layers.11.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3339,
+    "all_zero": 0
+  },
+  "model.llm.layers.12.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3385,
+    "all_zero": 0
+  },
+  "model.llm.layers.12.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3388,
+    "all_zero": 0
+  },
+  "model.llm.layers.13.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3330,
+    "all_zero": 0
+  },
+  "model.llm.layers.13.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3337,
+    "all_zero": 0
+  },
+  "model.llm.layers.14.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3360,
+    "all_zero": 0
+  },
+  "model.llm.layers.14.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3317,
+    "all_zero": 0
+  },
+  "model.llm.layers.15.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3392,
+    "all_zero": 0
+  },
+  "model.llm.layers.15.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3340,
+    "all_zero": 0
+  },
+  "model.llm.layers.16.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3387,
+    "all_zero": 0
+  },
+  "model.llm.layers.16.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3358,
+    "all_zero": 0
+  },
+  "model.llm.layers.17.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3349,
+    "all_zero": 0
+  },
+  "model.llm.layers.17.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3317,
+    "all_zero": 0
+  },
+  "model.llm.layers.18.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3600,
+    "all_zero": 0
+  },
+  "model.llm.layers.18.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3596,
+    "all_zero": 0
+  },
+  "model.llm.layers.19.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3586,
+    "all_zero": 0
+  },
+  "model.llm.layers.19.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3587,
+    "all_zero": 0
+  },
+  "model.llm.layers.2.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3610,
+    "all_zero": 0
+  },
+  "model.llm.layers.2.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3654,
+    "all_zero": 0
+  },
+  "model.llm.layers.3.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3578,
+    "all_zero": 0
+  },
+  "model.llm.layers.3.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3589,
+    "all_zero": 0
+  },
+  "model.llm.layers.4.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3592,
+    "all_zero": 0
+  },
+  "model.llm.layers.4.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3615,
+    "all_zero": 0
+  },
+  "model.llm.layers.5.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3569,
+    "all_zero": 0
+  },
+  "model.llm.layers.5.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3563,
+    "all_zero": 0
+  },
+  "model.llm.layers.6.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3372,
+    "all_zero": 0
+  },
+  "model.llm.layers.6.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3350,
+    "all_zero": 0
+  },
+  "model.llm.layers.7.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3372,
+    "all_zero": 0
+  },
+  "model.llm.layers.7.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3368,
+    "all_zero": 0
+  },
+  "model.llm.layers.8.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3361,
+    "all_zero": 0
+  },
+  "model.llm.layers.8.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3308,
+    "all_zero": 0
+  },
+  "model.llm.layers.9.mlp.experts.w13_weight": {
+    "sampled": 4096,
+    "changed": 3366,
+    "all_zero": 0
+  },
+  "model.llm.layers.9.mlp.experts.w2_weight": {
+    "sampled": 4096,
+    "changed": 3386,
+    "all_zero": 0
+  }
+}
