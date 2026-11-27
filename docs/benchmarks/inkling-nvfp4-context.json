@@ -359,16 +359,17 @@
     "5060Ti": {
       "cycles": [
         1,
-        2
+        2,
+        3
       ],
       "arms": {
         "flat": {
-          "load_s": 9.035,
-          "warm_decode64_ms": 1331.50125
+          "load_s": 9.013333333333334,
+          "warm_decode64_ms": 1331.4241666666667
         },
         "dest": {
-          "load_s": 9.945,
-          "warm_decode64_ms": 1331.55625
+          "load_s": 9.998333333333333,
+          "warm_decode64_ms": 1331.4975
         }
       }
     }
@@ -491,6 +492,66 @@
         1331.58,
         1331.42,
         1331.54
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+    },
+    {
+      "gpu": "5060Ti",
+      "cache_resident_fraction": 1.0,
+      "arm": "flat",
+      "cycle": 3,
+      "leg": 0,
+      "shard": 15898104040,
+      "loader_s": 8.9,
+      "decode64_ms": [
+        1331.47,
+        1331.31,
+        1331.39
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+    },
+    {
+      "gpu": "5060Ti",
+      "cache_resident_fraction": 1.0,
+      "arm": "dest",
+      "cycle": 3,
+      "leg": 1,
+      "shard": 15850005248,
+      "loader_s": 10.06,
+      "decode64_ms": [
+        1331.41,
+        1331.2,
+        1331.24
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+    },
+    {
+      "gpu": "5060Ti",
+      "cache_resident_fraction": 1.0,
+      "arm": "dest",
+      "cycle": 3,
+      "leg": 2,
+      "shard": 15850005248,
+      "loader_s": 10.15,
+      "decode64_ms": [
+        1331.64,
+        1331.59,
+        1331.49
+      ],
+      "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+    },
+    {
+      "gpu": "5060Ti",
+      "cache_resident_fraction": 1.0,
+      "arm": "flat",
+      "cycle": 3,
+      "leg": 3,
+      "shard": 15898104040,
+      "loader_s": 9.04,
+      "decode64_ms": [
+        1331.43,
+        1331.18,
+        1331.2
       ],
       "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
     }
