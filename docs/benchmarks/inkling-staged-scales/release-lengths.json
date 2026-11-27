@@ -502,6 +502,206 @@
           }
         ]
       }
+    },
+    "PRO5000": {
+      "2048": {
+        "summary": {
+          "prefill_ms": {
+            "control": 136.883,
+            "candidate": 136.058,
+            "delta": -0.825,
+            "ci95": [
+              -0.8689999999999998,
+              -0.792999999999995
+            ]
+          },
+          "decode_ms": {
+            "control": 156.067,
+            "candidate": 156.1,
+            "delta": 0.033000000000004096,
+            "ci95": [
+              -0.027999999999991587,
+              0.0990000000000066
+            ]
+          }
+        },
+        "greedy_ids": [
+          14422,
+          14436,
+          14422,
+          14436,
+          14422,
+          14436,
+          14422,
+          14436,
+          14422,
+          14436,
+          14422,
+          14436,
+          14422,
+          14436,
+          14422,
+          14436,
+          14422,
+          14436,
+          14422,
+          14436,
+          14422,
+          14436,
+          14422,
+          14436,
+          14422,
+          14436,
+          14422,
+          14436,
+          14422,
+          14436,
+          14422,
+          14436
+        ],
+        "runs": [
+          {
+            "cycle": 1,
+            "leg": 0,
+            "arm": "prior",
+            "prefill_ms": 136.7,
+            "decode_ms": 156.04
+          },
+          {
+            "cycle": 1,
+            "leg": 1,
+            "arm": "candidate",
+            "prefill_ms": 135.94,
+            "decode_ms": 156.28
+          },
+          {
+            "cycle": 1,
+            "leg": 2,
+            "arm": "candidate",
+            "prefill_ms": 135.92,
+            "decode_ms": 155.98
+          },
+          {
+            "cycle": 1,
+            "leg": 3,
+            "arm": "prior",
+            "prefill_ms": 136.75,
+            "decode_ms": 156.07
+          },
+          {
+            "cycle": 2,
+            "leg": 0,
+            "arm": "candidate",
+            "prefill_ms": 136.0,
+            "decode_ms": 156.25
+          },
+          {
+            "cycle": 2,
+            "leg": 1,
+            "arm": "prior",
+            "prefill_ms": 136.94,
+            "decode_ms": 156.03
+          },
+          {
+            "cycle": 2,
+            "leg": 2,
+            "arm": "prior",
+            "prefill_ms": 136.94,
+            "decode_ms": 156.25
+          },
+          {
+            "cycle": 2,
+            "leg": 3,
+            "arm": "candidate",
+            "prefill_ms": 136.06,
+            "decode_ms": 156.07
+          },
+          {
+            "cycle": 3,
+            "leg": 0,
+            "arm": "prior",
+            "prefill_ms": 136.89,
+            "decode_ms": 156.06
+          },
+          {
+            "cycle": 3,
+            "leg": 1,
+            "arm": "candidate",
+            "prefill_ms": 136.09,
+            "decode_ms": 156.0
+          },
+          {
+            "cycle": 3,
+            "leg": 2,
+            "arm": "candidate",
+            "prefill_ms": 136.06,
+            "decode_ms": 155.98
+          },
+          {
+            "cycle": 3,
+            "leg": 3,
+            "arm": "prior",
+            "prefill_ms": 136.87,
+            "decode_ms": 155.98
+          },
+          {
+            "cycle": 4,
+            "leg": 0,
+            "arm": "candidate",
+            "prefill_ms": 136.1,
+            "decode_ms": 156.06
+          },
+          {
+            "cycle": 4,
+            "leg": 1,
+            "arm": "prior",
+            "prefill_ms": 136.87,
+            "decode_ms": 156.06
+          },
+          {
+            "cycle": 4,
+            "leg": 2,
+            "arm": "prior",
+            "prefill_ms": 136.93,
+            "decode_ms": 156.11
+          },
+          {
+            "cycle": 4,
+            "leg": 3,
+            "arm": "candidate",
+            "prefill_ms": 136.13,
+            "decode_ms": 156.01
+          },
+          {
+            "cycle": 5,
+            "leg": 0,
+            "arm": "prior",
+            "prefill_ms": 136.95,
+            "decode_ms": 156.01
+          },
+          {
+            "cycle": 5,
+            "leg": 1,
+            "arm": "candidate",
+            "prefill_ms": 136.12,
+            "decode_ms": 156.18
+          },
+          {
+            "cycle": 5,
+            "leg": 2,
+            "arm": "candidate",
+            "prefill_ms": 136.16,
+            "decode_ms": 156.19
+          },
+          {
+            "cycle": 5,
+            "leg": 3,
+            "arm": "prior",
+            "prefill_ms": 136.99,
+            "decode_ms": 156.06
+          }
+        ]
+      }
     }
   }
 }
