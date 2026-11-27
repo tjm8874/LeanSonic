@@ -119,6 +119,122 @@
         "VRAM used: 17.09 GiB / 71.12 GiB | Resident expert layers: 24/24 (Spilled: 0) | Mixed VRAM/host layers: 0 | Spec: off | KV: fp16 | Prefill chunk: 1024"
       ],
       "component": "Both controller stages matched the reference bit-for-bit at every tested shape."
+    },
+    "current-ti5060": {
+      "prefill": {
+        "means_ms": {
+          "baseline": 1943.802,
+          "candidate": 1939.494
+        },
+        "paired": {
+          "mean_speedup_pct": 0.2216,
+          "ci95_lo_pct": 0.2145,
+          "ci95_hi_pct": 0.228,
+          "rounds": 5.0
+        },
+        "rounds": [
+          {
+            "a1_ms": 1943.59,
+            "b1_ms": 1939.37,
+            "b2_ms": 1939.37,
+            "a2_ms": 1943.87
+          },
+          {
+            "a1_ms": 1943.62,
+            "b1_ms": 1939.54,
+            "b2_ms": 1939.38,
+            "a2_ms": 1943.8
+          },
+          {
+            "a1_ms": 1943.9,
+            "b1_ms": 1939.56,
+            "b2_ms": 1939.36,
+            "a2_ms": 1944.04
+          },
+          {
+            "a1_ms": 1943.64,
+            "b1_ms": 1939.36,
+            "b2_ms": 1939.77,
+            "a2_ms": 1943.56
+          },
+          {
+            "a1_ms": 1943.77,
+            "b1_ms": 1939.64,
+            "b2_ms": 1939.59,
+            "a2_ms": 1944.23
+          }
+        ]
+      },
+      "decode": {
+        "means_ms": {
+          "baseline": 397.457,
+          "candidate": 397.468
+        },
+        "paired": {
+          "mean_speedup_pct": -0.0028,
+          "ci95_lo_pct": -0.0126,
+          "ci95_hi_pct": 0.0081,
+          "rounds": 5.0
+        },
+        "rounds": [
+          {
+            "a1_ms": 397.53,
+            "b1_ms": 397.57,
+            "b2_ms": 397.44,
+            "a2_ms": 397.46
+          },
+          {
+            "a1_ms": 397.5,
+            "b1_ms": 397.44,
+            "b2_ms": 397.58,
+            "a2_ms": 397.4
+          },
+          {
+            "a1_ms": 397.43,
+            "b1_ms": 397.41,
+            "b2_ms": 397.45,
+            "a2_ms": 397.51
+          },
+          {
+            "a1_ms": 397.44,
+            "b1_ms": 397.44,
+            "b2_ms": 397.53,
+            "a2_ms": 397.39
+          },
+          {
+            "a1_ms": 397.34,
+            "b1_ms": 397.38,
+            "b2_ms": 397.44,
+            "a2_ms": 397.57
+          }
+        ]
+      },
+      "generated_token_ids": [
+        145026,
+        220,
+        39446,
+        220,
+        19,
+        154978,
+        152792,
+        189134,
+        149860,
+        185136,
+        198,
+        84375,
+        149859,
+        23033,
+        220,
+        137294
+      ],
+      "fp32_eight_row_score_sha256_by_spec": {
+        "0": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce",
+        "7": "b1bb32a1d22a4dee0a56f5a8a5e2c5f282d19f9aba164c203c87d0fd012c16ce"
+      },
+      "config": [
+        "VRAM used: 15.44 GiB / 15.48 GiB | Resident expert layers: 20/24 (Spilled: 4) | Mixed VRAM/host layers: 4 | Spec: off | KV: fp16 | Prefill chunk: 256"
+      ],
+      "component": "Both controller stages matched the reference bit-for-bit at every tested shape."
     }
   },
   "source_commit": "c22b17c",
