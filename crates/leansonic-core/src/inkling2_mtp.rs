@@ -1684,21 +1684,3 @@ mod tests {
         assert_eq!(RNN_JCTX_COLS % 64, 0);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn projection_table_matches_the_drafter_kernel_shapes() {
-        let shape = |(_, parts, cols): Projection| (parts.iter().map(|p| p.1).sum::<usize>(), cols);
-        let shapes = LAYER_PROJECTIONS.map(shape);
-        assert_eq!(
-            shapes,
-            [(5120, D), (2048, D), (D, 3072), (2 * DFF, D), (D, DFF)]
-        );
-        assert!(LAYER_PROJECTIONS.iter().all(|&(_, _, cols)| cols % 64 == 0));
-        assert_eq!(RNN_J01_COLS + RNN_JCTX_COLS, 5120);
-        assert_eq!(RNN_JCTX_COLS % 64, 0);
-    }
-}
