@@ -95,10 +95,20 @@ These runs use LeanSonic `7a02b538` (default Tensor Core prefill), a text-only B
 | RTX PRO 4500 / Basalt | 32 | 55.90 | 16 | 115.70 | 18.096 |
 | RTX PRO 4500 / LeanSonic | 1,024 | 134.86 | 16 | 118.68 | 16.895 |
 | RTX PRO 4500 / Basalt | 1,024 | 131.10 | 16 | 121.10 | 18.096 |
+| RTX 5070 Ti / LeanSonic | 32 | 107.74 | 16 | 168.76 | 15.412 |
+| RTX 5070 Ti / Basalt | 32 | 265.80 | 16 | 312.60 | 14.453 |
+| RTX 5070 Ti / LeanSonic | 1,024 | 164.99 | 16 | 190.29 | 15.410 |
+| RTX 5070 Ti / Basalt | 1,024 | 450.10 | 16 | 324.10 | 14.455 |
+| RTX PRO 5000 / LeanSonic | 32 | 33.18 | 16 | 96.22 | 16.447 |
+| RTX PRO 5000 / Basalt | 32 | 50.30 | 16 | 87.00 | 18.174 |
+| RTX PRO 5000 / LeanSonic | 1,024 | 102.63 | 16 | 98.34 | 16.953 |
+| RTX PRO 5000 / Basalt | 1,024 | 106.60 | 16 | 93.00 | 18.174 |
 | RTX PRO 5000 / LeanSonic | 1,024 | 94.65 | 32 | 196.62 | 17.004 |
 | RTX PRO 5000 / llama.cpp BF16 | 1,024 | 598.69 | 32 | 566.38 | 51.762 |
 
 The RTX 5060 Ti comparison uses the README prompt and its first 32 IDs, FP16 KV, context 8,192, greedy selection and speculation disabled. Each prompt ran once per fresh process. Five balanced cycles compared native Q8 scales, dictionary Q8 scales and Basalt in mirrored, rotating order. All three produced the same first 16 IDs at both lengths. For the 1,024-token prompt the dictionary package saved 69.73% of Basalt's prefill time. Its 16-step decode difference was within run-to-run variation (paired 95% interval for time saved −0.18% to +0.58%). LeanSonic used about 0.96 GiB more peak VRAM. Basalt's CLI reports its phase times to whole milliseconds.
+
+On RTX 5070 Ti at 1,024 input tokens, LeanSonic took 164.99 ms for prefill and 190.29 ms for 16 decode steps. Basalt took 450.10 ms and 324.10 ms. LeanSonic used 0.955 GiB more sampled peak VRAM. On PRO 5000 the ordering split by phase: prefill took 102.63 vs 106.60 ms, while decode took 98.34 vs 93.00 ms. The paired 95% interval for the PRO 5000 decode time saved by LeanSonic was −6.32% to −5.25%. All 240 processes across four cards returned the same first 16 IDs for their prompt.
 
 On PRO 4500 the same balanced comparison returned identical first-16 token IDs in every run. At 1,024 input tokens the paired 95% interval for prefill time saved against Basalt ranged from −8.23% to +0.43%. LeanSonic's 16-step decode time was lower (paired interval for time saved 1.81% to 2.21%). At 32 input tokens the prefill time reduction was 31.1% and the decode interval included zero.
 
@@ -112,4 +122,4 @@ target/release/leansonic bench --weights "$DICT" --tokens "@$PROMPT" --gen 16 --
 "$BASALT" --model "$TEXT_BASALT" --tokens-file "$PROMPT" --gpu 0 --kv fp16 --max-context 8192 --spec 0 --temperature 0 --max-new 17
 ```
 
-On the separate 25,500-position WikiText BF16 evaluation, V12 had mean KL 0.003176, worst KL 0.674716, 24,879 top-1 matches and PPL 7.072582. Basalt had mean KL 0.002984, worst KL 0.330612, 24,948 matches and PPL 7.068542. BF16 PPL was 7.064408. The [measurement file](benchmarks/inkling-v12-matched-engines.json) includes the run-level timings, sampled VRAM, token IDs, input hashes and quality results.
+On the separate 25,500-position WikiText BF16 evaluation, V12 had mean KL 0.003176, worst KL 0.674716, 24,879 top-1 matches and PPL 7.072582. Basalt had mean KL 0.002984, worst KL 0.330612, 24,948 matches and PPL 7.068542. The raw BF16 generator reported PPL 7.0724; the clipped and quantized reference file gives 7.064408. The [measurement file](benchmarks/inkling-v12-matched-engines.json) includes the run-level timings, sampled VRAM, token IDs, input hashes and quality results.
