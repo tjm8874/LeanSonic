@@ -1,0 +1,1218 @@
+{
+  "decoder_commit": "9183a1c",
+  "baseline_main": "8acb3b2020888c9f610bc822c5c36bf11870c907",
+  "integration_loader": "#85 (4b238be) with or without only the decoder implementation from 9183a1c",
+  "binary_sha256": {
+    "old": "a2c90f2756878242b76391b955c69a132d1b95b1b6231a41614300d4ddbcf9e9",
+    "fast": "2ff20d9e7e1ea794847444cbbc4f647f913014218d92b2c4afdf8b30b1ae516e",
+    "cubin": "dac6ba886186c45d76a6811cf1169a85803a374373f66fce7c7f638f7761b65a"
+  },
+  "package_shard_sha256": {
+    "native": "0fde715a53bfbd9bad98769663c2d088bd6ffee6397c72f62824c0f21af6c472",
+    "codes": "7a635c2c618ca2e79cfb3b3940a1f69c079c4cdc22a065195d7bc2f5f08c9923"
+  },
+  "method": "Five 4-process blocks per host and model package, ABBA in odd cycles and BAAB in even cycles, alternating package order. OS page-cache residency (mincore) measured before each run. Same cubin, driver, FP16 KV, context 8192, speculation off, one README-1024 prompt and 16 greedy decode steps per process. Model load is the CLI loader timer; phase times are from that same request. Each process matched the 16-token continuation from #84. Paired bootstrap resamples the five complete blocks as units.",
+  "input": "docs/benchmarks/inputs/inkling-readme1024.ids",
+  "input_sha256": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843",
+  "byte_verification_categories_count_and_decoded_bytes": {
+    "q8": [
+      177,
+      1106938368
+    ],
+    "expert_scale": [
+      48,
+      1401421824
+    ],
+    "expert_weight": [
+      8,
+      4076863488
+    ]
+  },
+  "verification": "Checked every byte against the original BF16 distribution for the 48 expert scale and eight MXFP8 expert weight planes, and against the previous native Q8 package for the 177 Q8 code planes. The remaining tensors skip this decoder.",
+  "microbenchmark": "Single logical CPU 2, portable x86-64 rustc -O, input and output resident. Each timing decodes the first 16 frames of layer 0 gate_attn Q8 codes or w13_weight_scale 24 times for 48 MiB total. Ordered baseline, quad, branch, one and reverse, repeated three times. All variants matched the baseline bytes. quad = this PR; branch = conditional normalization; one = special case when all four lanes consume one byte.",
+  "micro": {
+    "AMD Ryzen 9 9900X": {
+      "q8": {
+        "baseline": {
+          "seconds": [
+            0.11888,
+            0.119896,
+            0.11737,
+            0.112863,
+            0.11764,
+            0.120124
+          ],
+          "median_s": 0.11826
+        },
+        "quad": {
+          "seconds": [
+            0.072962,
+            0.072012,
+            0.071514,
+            0.06989,
+            0.073631,
+            0.07429
+          ],
+          "median_s": 0.072487
+        },
+        "branch": {
+          "seconds": [
+            0.072835,
+            0.074,
+            0.078642,
+            0.07871,
+            0.084917,
+            0.084923
+          ],
+          "median_s": 0.078676
+        },
+        "one": {
+          "seconds": [
+            0.080435,
+            0.089224,
+            0.086947,
+            0.087933,
+            0.093284,
+            0.093491
+          ],
+          "median_s": 0.0885785
+        }
+      },
+      "moe": {
+        "baseline": {
+          "seconds": [
+            0.103535,
+            0.107902,
+            0.102675,
+            0.108085,
+            0.109066,
+            0.106745
+          ],
+          "median_s": 0.1073235
+        },
+        "quad": {
+          "seconds": [
+            0.078097,
+            0.073033,
+            0.069038,
+            0.069165,
+            0.074201,
+            0.072628
+          ],
+          "median_s": 0.07283049999999999
+        },
+        "branch": {
+          "seconds": [
+            0.086743,
+            0.085164,
+            0.084772,
+            0.085279,
+            0.091186,
+            0.088946
+          ],
+          "median_s": 0.086011
+        },
+        "one": {
+          "seconds": [
+            0.104203,
+            0.104592,
+            0.101841,
+            0.103457,
+            0.107631,
+            0.104865
+          ],
+          "median_s": 0.1043975
+        }
+      }
+    },
+    "Intel Core i5-14400": {
+      "q8": {
+        "baseline": {
+          "seconds": [
+            0.113447,
+            0.094484,
+            0.095842,
+            0.094086,
+            0.092677,
+            0.092666
+          ],
+          "median_s": 0.09428500000000001
+        },
+        "quad": {
+          "seconds": [
+            0.081678,
+            0.082992,
+            0.081747,
+            0.081628,
+            0.081336,
+            0.081526
+          ],
+          "median_s": 0.081653
+        },
+        "branch": {
+          "seconds": [
+            0.084512,
+            0.085361,
+            0.086011,
+            0.087678,
+            0.084919,
+            0.084815
+          ],
+          "median_s": 0.08514
+        },
+        "one": {
+          "seconds": [
+            0.088228,
+            0.088568,
+            0.089759,
+            0.089922,
+            0.088459,
+            0.08836
+          ],
+          "median_s": 0.0885135
+        }
+      },
+      "moe": {
+        "baseline": {
+          "seconds": [
+            0.082271,
+            0.08227,
+            0.082022,
+            0.080806,
+            0.080893,
+            0.080781
+          ],
+          "median_s": 0.0814575
+        },
+        "quad": {
+          "seconds": [
+            0.082178,
+            0.080954,
+            0.081652,
+            0.080809,
+            0.08067,
+            0.080066
+          ],
+          "median_s": 0.0808815
+        },
+        "branch": {
+          "seconds": [
+            0.09197,
+            0.08991,
+            0.091935,
+            0.090054,
+            0.090084,
+            0.089878
+          ],
+          "median_s": 0.090069
+        },
+        "one": {
+          "seconds": [
+            0.111104,
+            0.110642,
+            0.120758,
+            0.110475,
+            0.108607,
+            0.108281
+          ],
+          "median_s": 0.1105585
+        }
+      }
+    }
+  },
+  "summary": {
+    "PRO5000_native": {
+      "complete_cycles": 5,
+      "mean": {
+        "old": {
+          "load_s": 2.98,
+          "prefill_ms": 102.695,
+          "decode16_ms": 97.687
+        },
+        "fast": {
+          "load_s": 2.675,
+          "prefill_ms": 102.444,
+          "decode16_ms": 97.76599999999999
+        }
+      },
+      "time_reduction_pct": 10.23489932885907,
+      "paired_bootstrap_95_pct": [
+        8.862933699759523,
+        11.810012836970497
+      ],
+      "min_file_residency": 1.0
+    },
+    "PRO5000_codes": {
+      "complete_cycles": 5,
+      "mean": {
+        "old": {
+          "load_s": 3.331,
+          "prefill_ms": 102.276,
+          "decode16_ms": 97.729
+        },
+        "fast": {
+          "load_s": 2.849,
+          "prefill_ms": 102.496,
+          "decode16_ms": 97.804
+        }
+      },
+      "time_reduction_pct": 14.470129090363248,
+      "paired_bootstrap_95_pct": [
+        12.657828282828277,
+        16.277729760875825
+      ],
+      "min_file_residency": 1.0
+    },
+    "5060Ti_native": {
+      "complete_cycles": 5,
+      "mean": {
+        "old": {
+          "load_s": 5.1370000000000005,
+          "prefill_ms": 388.963,
+          "decode16_ms": 392.825
+        },
+        "fast": {
+          "load_s": 5.0600000000000005,
+          "prefill_ms": 388.938,
+          "decode16_ms": 392.837
+        }
+      },
+      "time_reduction_pct": 1.498929336188437,
+      "paired_bootstrap_95_pct": [
+        0.625855662037933,
+        2.1848414539829775
+      ],
+      "min_file_residency": 1.0
+    },
+    "5060Ti_codes": {
+      "complete_cycles": 5,
+      "mean": {
+        "old": {
+          "load_s": 5.7010000000000005,
+          "prefill_ms": 388.909,
+          "decode16_ms": 392.783
+        },
+        "fast": {
+          "load_s": 5.47,
+          "prefill_ms": 388.89,
+          "decode16_ms": 392.76800000000003
+        }
+      },
+      "time_reduction_pct": 4.051920715663937,
+      "paired_bootstrap_95_pct": [
+        3.2907404165937293,
+        4.989458889669718
+      ],
+      "min_file_residency": 1.0
+    }
+  },
+  "runs": [
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "format": "codes",
+      "leg": 0,
+      "loader": "old",
+      "load_s": 3.14,
+      "prefill_ms": 102.16,
+      "decode16_ms": 97.66,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "format": "codes",
+      "leg": 1,
+      "loader": "fast",
+      "load_s": 2.71,
+      "prefill_ms": 101.91,
+      "decode16_ms": 97.59,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "format": "codes",
+      "leg": 2,
+      "loader": "fast",
+      "load_s": 2.68,
+      "prefill_ms": 101.91,
+      "decode16_ms": 97.65,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "format": "codes",
+      "leg": 3,
+      "loader": "old",
+      "load_s": 3.06,
+      "prefill_ms": 101.72,
+      "decode16_ms": 97.73,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "format": "native",
+      "leg": 0,
+      "loader": "old",
+      "load_s": 2.89,
+      "prefill_ms": 101.82,
+      "decode16_ms": 97.77,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "format": "native",
+      "leg": 1,
+      "loader": "fast",
+      "load_s": 2.62,
+      "prefill_ms": 102.1,
+      "decode16_ms": 97.74,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "format": "native",
+      "leg": 2,
+      "loader": "fast",
+      "load_s": 2.63,
+      "prefill_ms": 101.78,
+      "decode16_ms": 97.79,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "format": "native",
+      "leg": 3,
+      "loader": "old",
+      "load_s": 2.94,
+      "prefill_ms": 101.83,
+      "decode16_ms": 97.59,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "format": "codes",
+      "leg": 0,
+      "loader": "fast",
+      "load_s": 2.68,
+      "prefill_ms": 101.82,
+      "decode16_ms": 97.58,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "format": "codes",
+      "leg": 1,
+      "loader": "old",
+      "load_s": 3.03,
+      "prefill_ms": 101.6,
+      "decode16_ms": 97.57,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "format": "codes",
+      "leg": 2,
+      "loader": "old",
+      "load_s": 3.11,
+      "prefill_ms": 101.8,
+      "decode16_ms": 97.59,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "format": "codes",
+      "leg": 3,
+      "loader": "fast",
+      "load_s": 2.68,
+      "prefill_ms": 101.84,
+      "decode16_ms": 97.64,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "format": "native",
+      "leg": 0,
+      "loader": "fast",
+      "load_s": 2.81,
+      "prefill_ms": 102.28,
+      "decode16_ms": 97.83,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "format": "native",
+      "leg": 1,
+      "loader": "old",
+      "load_s": 2.99,
+      "prefill_ms": 106.62,
+      "decode16_ms": 97.81,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "format": "native",
+      "leg": 2,
+      "loader": "old",
+      "load_s": 2.92,
+      "prefill_ms": 101.71,
+      "decode16_ms": 97.57,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "format": "native",
+      "leg": 3,
+      "loader": "fast",
+      "load_s": 2.59,
+      "prefill_ms": 101.65,
+      "decode16_ms": 97.58,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "format": "codes",
+      "leg": 0,
+      "loader": "old",
+      "load_s": 3.41,
+      "prefill_ms": 103.98,
+      "decode16_ms": 98.14,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "format": "codes",
+      "leg": 1,
+      "loader": "fast",
+      "load_s": 2.79,
+      "prefill_ms": 102.5,
+      "decode16_ms": 98.15,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "format": "codes",
+      "leg": 2,
+      "loader": "fast",
+      "load_s": 3.08,
+      "prefill_ms": 101.78,
+      "decode16_ms": 97.72,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "format": "codes",
+      "leg": 3,
+      "loader": "old",
+      "load_s": 3.69,
+      "prefill_ms": 101.77,
+      "decode16_ms": 97.6,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "format": "native",
+      "leg": 0,
+      "loader": "old",
+      "load_s": 3.41,
+      "prefill_ms": 103.94,
+      "decode16_ms": 97.97,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "format": "native",
+      "leg": 1,
+      "loader": "fast",
+      "load_s": 2.89,
+      "prefill_ms": 105.21,
+      "decode16_ms": 98.01,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "format": "native",
+      "leg": 2,
+      "loader": "fast",
+      "load_s": 2.8,
+      "prefill_ms": 103.04,
+      "decode16_ms": 98.08,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "format": "native",
+      "leg": 3,
+      "loader": "old",
+      "load_s": 3.14,
+      "prefill_ms": 103.67,
+      "decode16_ms": 97.65,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "format": "codes",
+      "leg": 0,
+      "loader": "fast",
+      "load_s": 2.89,
+      "prefill_ms": 102.48,
+      "decode16_ms": 97.77,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "format": "codes",
+      "leg": 1,
+      "loader": "old",
+      "load_s": 3.56,
+      "prefill_ms": 101.74,
+      "decode16_ms": 97.75,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "format": "codes",
+      "leg": 2,
+      "loader": "old",
+      "load_s": 3.71,
+      "prefill_ms": 101.71,
+      "decode16_ms": 97.6,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "format": "codes",
+      "leg": 3,
+      "loader": "fast",
+      "load_s": 3.2,
+      "prefill_ms": 104.75,
+      "decode16_ms": 98.12,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "format": "native",
+      "leg": 0,
+      "loader": "fast",
+      "load_s": 2.56,
+      "prefill_ms": 102.71,
+      "decode16_ms": 97.52,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "format": "native",
+      "leg": 1,
+      "loader": "old",
+      "load_s": 2.85,
+      "prefill_ms": 102.11,
+      "decode16_ms": 97.64,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "format": "native",
+      "leg": 2,
+      "loader": "old",
+      "load_s": 2.88,
+      "prefill_ms": 101.69,
+      "decode16_ms": 97.61,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "format": "native",
+      "leg": 3,
+      "loader": "fast",
+      "load_s": 2.68,
+      "prefill_ms": 102.05,
+      "decode16_ms": 97.91,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "format": "codes",
+      "leg": 0,
+      "loader": "old",
+      "load_s": 3.49,
+      "prefill_ms": 104.46,
+      "decode16_ms": 98.03,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "format": "codes",
+      "leg": 1,
+      "loader": "fast",
+      "load_s": 3.04,
+      "prefill_ms": 103.87,
+      "decode16_ms": 98.22,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "format": "codes",
+      "leg": 2,
+      "loader": "fast",
+      "load_s": 2.74,
+      "prefill_ms": 102.1,
+      "decode16_ms": 97.6,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "format": "codes",
+      "leg": 3,
+      "loader": "old",
+      "load_s": 3.11,
+      "prefill_ms": 101.82,
+      "decode16_ms": 97.62,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "format": "native",
+      "leg": 0,
+      "loader": "old",
+      "load_s": 2.85,
+      "prefill_ms": 101.68,
+      "decode16_ms": 97.6,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "format": "native",
+      "leg": 1,
+      "loader": "fast",
+      "load_s": 2.58,
+      "prefill_ms": 101.91,
+      "decode16_ms": 97.63,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "format": "native",
+      "leg": 2,
+      "loader": "fast",
+      "load_s": 2.59,
+      "prefill_ms": 101.71,
+      "decode16_ms": 97.57,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "format": "native",
+      "leg": 3,
+      "loader": "old",
+      "load_s": 2.93,
+      "prefill_ms": 101.88,
+      "decode16_ms": 97.66,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "format": "codes",
+      "leg": 0,
+      "loader": "old",
+      "load_s": 5.77,
+      "prefill_ms": 388.64,
+      "decode16_ms": 392.57,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "format": "codes",
+      "leg": 1,
+      "loader": "fast",
+      "load_s": 5.42,
+      "prefill_ms": 388.7,
+      "decode16_ms": 392.61,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "format": "codes",
+      "leg": 2,
+      "loader": "fast",
+      "load_s": 5.42,
+      "prefill_ms": 388.65,
+      "decode16_ms": 392.64,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "format": "codes",
+      "leg": 3,
+      "loader": "old",
+      "load_s": 5.74,
+      "prefill_ms": 388.7,
+      "decode16_ms": 392.67,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "format": "native",
+      "leg": 0,
+      "loader": "old",
+      "load_s": 5.15,
+      "prefill_ms": 388.81,
+      "decode16_ms": 392.78,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "format": "native",
+      "leg": 1,
+      "loader": "fast",
+      "load_s": 4.97,
+      "prefill_ms": 388.84,
+      "decode16_ms": 392.81,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "format": "native",
+      "leg": 2,
+      "loader": "fast",
+      "load_s": 5.12,
+      "prefill_ms": 388.87,
+      "decode16_ms": 392.94,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "format": "native",
+      "leg": 3,
+      "loader": "old",
+      "load_s": 5.09,
+      "prefill_ms": 388.77,
+      "decode16_ms": 392.73,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "format": "codes",
+      "leg": 0,
+      "loader": "fast",
+      "load_s": 5.49,
+      "prefill_ms": 388.84,
+      "decode16_ms": 392.72,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "format": "codes",
+      "leg": 1,
+      "loader": "old",
+      "load_s": 5.71,
+      "prefill_ms": 388.98,
+      "decode16_ms": 392.8,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "format": "codes",
+      "leg": 2,
+      "loader": "old",
+      "load_s": 5.76,
+      "prefill_ms": 388.97,
+      "decode16_ms": 392.79,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "format": "codes",
+      "leg": 3,
+      "loader": "fast",
+      "load_s": 5.64,
+      "prefill_ms": 388.99,
+      "decode16_ms": 392.8,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "format": "native",
+      "leg": 0,
+      "loader": "fast",
+      "load_s": 4.95,
+      "prefill_ms": 388.74,
+      "decode16_ms": 392.72,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "format": "native",
+      "leg": 1,
+      "loader": "old",
+      "load_s": 5.19,
+      "prefill_ms": 388.78,
+      "decode16_ms": 392.78,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "format": "native",
+      "leg": 2,
+      "loader": "old",
+      "load_s": 5.17,
+      "prefill_ms": 388.92,
+      "decode16_ms": 392.75,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "format": "native",
+      "leg": 3,
+      "loader": "fast",
+      "load_s": 5.14,
+      "prefill_ms": 388.76,
+      "decode16_ms": 392.79,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "format": "codes",
+      "leg": 0,
+      "loader": "old",
+      "load_s": 5.73,
+      "prefill_ms": 388.97,
+      "decode16_ms": 392.81,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "format": "codes",
+      "leg": 1,
+      "loader": "fast",
+      "load_s": 5.56,
+      "prefill_ms": 388.97,
+      "decode16_ms": 392.76,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "format": "codes",
+      "leg": 2,
+      "loader": "fast",
+      "load_s": 5.5,
+      "prefill_ms": 389.16,
+      "decode16_ms": 392.9,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "format": "codes",
+      "leg": 3,
+      "loader": "old",
+      "load_s": 5.73,
+      "prefill_ms": 389.35,
+      "decode16_ms": 392.83,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "format": "native",
+      "leg": 0,
+      "loader": "old",
+      "load_s": 5.16,
+      "prefill_ms": 389.07,
+      "decode16_ms": 392.81,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "format": "native",
+      "leg": 1,
+      "loader": "fast",
+      "load_s": 4.96,
+      "prefill_ms": 389.14,
+      "decode16_ms": 392.86,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "format": "native",
+      "leg": 2,
+      "loader": "fast",
+      "load_s": 5.07,
+      "prefill_ms": 389.27,
+      "decode16_ms": 392.9,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "format": "native",
+      "leg": 3,
+      "loader": "old",
+      "load_s": 5.07,
+      "prefill_ms": 389.19,
+      "decode16_ms": 392.91,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "format": "codes",
+      "leg": 0,
+      "loader": "fast",
+      "load_s": 5.39,
+      "prefill_ms": 388.98,
+      "decode16_ms": 392.74,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "format": "codes",
+      "leg": 1,
+      "loader": "old",
+      "load_s": 5.68,
+      "prefill_ms": 388.98,
+      "decode16_ms": 392.91,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "format": "codes",
+      "leg": 2,
+      "loader": "old",
+      "load_s": 5.59,
+      "prefill_ms": 388.86,
+      "decode16_ms": 392.77,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "format": "codes",
+      "leg": 3,
+      "loader": "fast",
+      "load_s": 5.48,
+      "prefill_ms": 388.97,
+      "decode16_ms": 392.89,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "format": "native",
+      "leg": 0,
+      "loader": "fast",
+      "load_s": 5.25,
+      "prefill_ms": 389.13,
+      "decode16_ms": 392.84,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "format": "native",
+      "leg": 1,
+      "loader": "old",
+      "load_s": 5.14,
+      "prefill_ms": 389.16,
+      "decode16_ms": 392.87,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "format": "native",
+      "leg": 2,
+      "loader": "old",
+      "load_s": 5.08,
+      "prefill_ms": 389.23,
+      "decode16_ms": 392.95,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "format": "native",
+      "leg": 3,
+      "loader": "fast",
+      "load_s": 4.98,
+      "prefill_ms": 389.1,
+      "decode16_ms": 392.99,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "format": "codes",
+      "leg": 0,
+      "loader": "old",
+      "load_s": 5.61,
+      "prefill_ms": 388.72,
+      "decode16_ms": 392.84,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "format": "codes",
+      "leg": 1,
+      "loader": "fast",
+      "load_s": 5.38,
+      "prefill_ms": 388.9,
+      "decode16_ms": 392.89,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "format": "codes",
+      "leg": 2,
+      "loader": "fast",
+      "load_s": 5.42,
+      "prefill_ms": 388.74,
+      "decode16_ms": 392.73,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "format": "codes",
+      "leg": 3,
+      "loader": "old",
+      "load_s": 5.69,
+      "prefill_ms": 388.92,
+      "decode16_ms": 392.84,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "format": "native",
+      "leg": 0,
+      "loader": "old",
+      "load_s": 5.1,
+      "prefill_ms": 388.76,
+      "decode16_ms": 392.94,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "format": "native",
+      "leg": 1,
+      "loader": "fast",
+      "load_s": 5.08,
+      "prefill_ms": 388.81,
+      "decode16_ms": 392.76,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "format": "native",
+      "leg": 2,
+      "loader": "fast",
+      "load_s": 5.08,
+      "prefill_ms": 388.72,
+      "decode16_ms": 392.76,
+      "cache_resident_fraction": 1.0
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "format": "native",
+      "leg": 3,
+      "loader": "old",
+      "load_s": 5.22,
+      "prefill_ms": 388.94,
+      "decode16_ms": 392.73,
+      "cache_resident_fraction": 1.0
+    }
+  ],
+  "cross_gpu_parity": {
+    "PRO4500": {
+      "full_f32_final_prefill_position_sha256": "c762e59bc1eef45d386c210f403f27542a852c51d92366c278f2df9cbf293176",
+      "greedy16_ids_sha256": "96c73ddedfc364f80e1698ef13a4a6c344050a248288f7e8ced5080a7658f587"
+    },
+    "5070Ti": {
+      "full_f32_final_prefill_position_sha256": "c762e59bc1eef45d386c210f403f27542a852c51d92366c278f2df9cbf293176",
+      "greedy16_ids_sha256": "96c73ddedfc364f80e1698ef13a4a6c344050a248288f7e8ced5080a7658f587"
+    }
+  },
+  "bf16_corpus": {
+    "chunks": 100,
+    "context": 512,
+    "rows": 25500,
+    "ppl": 7.072582283191336,
+    "ref_ppl": 7.064408191101908,
+    "mean_kld": 0.003175525720314373,
+    "median_kld": 0.0012816721567639787,
+    "p99_kld": 0.030938605542115,
+    "max_kld": 0.674715904066122,
+    "start_chunk": 0,
+    "max_kld_chunk": 69,
+    "max_kld_position": 353,
+    "ref_floor_targets": 14,
+    "top1_matches": 24879,
+    "top1_agreement": 0.9756470588235294
+  }
+}
