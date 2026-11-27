@@ -1,0 +1,89 @@
+{
+  "package_bytes": {
+    "13.48 GB control": 13479710294,
+    "ternary": 7718950382,
+    "scale refit": 7734665510,
+    "rate-constrained": 7679612078
+  },
+  "quality": {
+    "13.48 GB control": {
+      "test": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.083731056644495,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.007748134459063128,
+        "median_kld": 0.003487042737626023,
+        "p99_kld": 0.06828254024125002,
+        "max_kld": 1.4620403544509677,
+        "start_chunk": 0,
+        "max_kld_chunk": 36,
+        "max_kld_position": 319,
+        "ref_floor_targets": 14,
+        "top1_matches": 24537,
+        "top1_agreement": 0.9622352941176471
+      },
+      "valid": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 6.530796538895046,
+        "ref_ppl": 6.498588819010602,
+        "mean_kld": 0.0069527481936567555,
+        "median_kld": 0.0029995884805433387,
+        "p99_kld": 0.06561031666002116,
+        "max_kld": 0.7446714344476419,
+        "start_chunk": 0,
+        "max_kld_chunk": 12,
+        "max_kld_position": 317,
+        "ref_floor_targets": 10,
+        "top1_matches": 24645,
+        "top1_agreement": 0.9664705882352941
+      }
+    },
+    "ternary": {
+      "test": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 8.56662628880769,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.23414767184777024,
+        "median_kld": 0.13668206396000399,
+        "p99_kld": 1.682537391074335,
+        "max_kld": 7.503567709623498,
+        "start_chunk": 0,
+        "max_kld_chunk": 90,
+        "max_kld_position": 424,
+        "ref_floor_targets": 14,
+        "top1_matches": 20385,
+        "top1_agreement": 0.7994117647058824
+      },
+      "valid": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.904898821127078,
+        "ref_ppl": 6.498588819010602,
+        "mean_kld": 0.21613753203660624,
+        "median_kld": 0.12327773987000806,
+        "p99_kld": 1.5564686714466998,
+        "max_kld": 6.585380475019004,
+        "start_chunk": 0,
+        "max_kld_chunk": 10,
+        "max_kld_position": 471,
+        "ref_floor_targets": 10,
+        "top1_matches": 20643,
+        "top1_agreement": 0.8095294117647058
+      }
+    },
+    "scale refit": {},
+    "rate-constrained": {}
+  },
+  "native_iq1": {},
+  "oracles": {
+    "valid.kld": "b3d804824373950c9b6d7cd37e5607d132d2f3caca6f80ffd26739b2776a2ca0",
+    "test.kld": "895fac2136c06dce1854568c83eb76a0225a05fab3c37897a12fec1d56949b97"
+  }
+}
