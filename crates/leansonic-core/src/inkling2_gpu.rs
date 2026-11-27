@@ -6443,7 +6443,10 @@ impl Inkling2GpuEngine {
         let avail_stage = pair_end.saturating_sub(stage_ptr) as usize;
         let half_stage_bytes = (avail_stage / 2) & !4095;
         let pingpong_exps = (half_stage_bytes / EXP_W13_BYTES).min(N_EXP);
+        // A short suffix selects few experts. Let its active warps read mapped
+        // host weights directly instead of staging every expert across PCIe.
         let use_async_w13_pingpong = has_nvfp4_tc
+            && !self.prefill_tc_tail
             && !record_seq
             && stream == self.ctx.compute_stream
             && pingpong_exps >= 3
@@ -7573,6 +7576,7 @@ impl Inkling2GpuEngine {
 
         let mut spilled_schedule = Vec::new();
         if self.tc_rows(b_len)
+            && !self.prefill_tc_tail
             && !record_seq
             && stream == self.ctx.compute_stream
             && self.tc_nvfp4
