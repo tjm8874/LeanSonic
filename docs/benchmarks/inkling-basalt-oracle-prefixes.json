@@ -1,0 +1,99 @@
+{
+  "model": "Inkling-2-Mini",
+  "device": "RTX PRO 4500 Blackwell",
+  "lean": "b207e5f4c7b7ef4fbc770b64e654427a71841178",
+  "basalt": "5fe1928dcc82ad62286d2a622bcbb5d85ebfba2b",
+  "mode": "One whole prefix per fresh process, no generated prefix tokens, FP16 KV, spec 0, context 8192, all 200058 logits. Row labels are zero-based. These four deliberately selected prefixes are not a full-corpus comparison. Basalt normal prefill ends with one decode-window token.",
+  "oracle": "The original 100-chunk llama.cpp _logits_ reference documented in docs/inkling-reference.md. Each prefix comprises the input IDs through and including the scored position.",
+  "commands": {
+    "lean": "LEANSONIC_CTX=8192 LEANSONIC_KV=fp16 LEANSONIC_CUBIN_PATH=<native> LEANSONIC_EVAL_DUMP=row.f32 leansonic bench --weights <entropy-shard-directory> --tokens @prefix.ids --spec 0 --gen 0",
+    "basalt": "basalt --model Inkling-2-Mini-NVFP4-mxfp8.basalt --tokens-file prefix.ids --gpu 0 --kv fp16 --max-context 8192 --spec 0 --temperature 0 --max-new 1 --diag-logits row.f32",
+    "scorer": "Unchanged score_row from crates/leansonic-cli/src/eval_kld.rs at the LeanSonic revision above. Each dump must be exactly 200058 little-endian FP32 words."
+  },
+  "rows": [
+    {
+      "chunk": 0,
+      "position": 256,
+      "prompt_ids_sha256": "e1e7457cbad84a35ff1edbdac27e16df0ff89ae4e10354716a91b8d1c3231b89",
+      "oracle_row_sha256": "c3e3a5a36593a9792379fecc35cd600c90ef23e95d8f167adf093fac35f17261",
+      "target_id": 149894,
+      "reference_top1": 149881,
+      "lean": {
+        "kl_ref_to_engine": 0.0003865527236216462,
+        "target_nll": 3.684659957885742,
+        "top1": 149881,
+        "matches_reference": true
+      },
+      "reference_target_nll": 3.709946632385254,
+      "basalt": {
+        "kl_ref_to_engine": 0.00012121030163576157,
+        "target_nll": 3.663297653198242,
+        "top1": 149881,
+        "matches_reference": true
+      }
+    },
+    {
+      "chunk": 0,
+      "position": 400,
+      "prompt_ids_sha256": "c867a1ff85cc71a57d6a7ecc2e5e3858c2b19edd0d4e1e6f18e2f2b76c0151c1",
+      "oracle_row_sha256": "02573150d20effc52d33269e520d7858f120f0afcd6d00a8b5ccd19a452cf997",
+      "target_id": 23,
+      "reference_top1": 23,
+      "lean": {
+        "kl_ref_to_engine": 4.007928228050295e-05,
+        "target_nll": 0.07622337341308594,
+        "top1": 23,
+        "matches_reference": true
+      },
+      "reference_target_nll": 0.07391166687011719,
+      "basalt": {
+        "kl_ref_to_engine": 0.00017481635581495514,
+        "target_nll": 0.07885932922363281,
+        "top1": 23,
+        "matches_reference": true
+      }
+    },
+    {
+      "chunk": 29,
+      "position": 443,
+      "prompt_ids_sha256": "ea41b6345db8cddd476756d3f64143e189a65c5c47deb7390acc63c70d315a41",
+      "oracle_row_sha256": "266304f78c7ab2517255404ccce2e87512b873342f13fb26d3d1cbce8b995380",
+      "target_id": 149918,
+      "reference_top1": 149918,
+      "lean": {
+        "kl_ref_to_engine": 0.1935466551641499,
+        "target_nll": 0.15486717224121094,
+        "top1": 149918,
+        "matches_reference": true
+      },
+      "reference_target_nll": 0.4700145721435547,
+      "basalt": {
+        "kl_ref_to_engine": 0.20918484565593243,
+        "target_nll": 0.15044021606445312,
+        "top1": 149918,
+        "matches_reference": true
+      }
+    },
+    {
+      "chunk": 69,
+      "position": 353,
+      "prompt_ids_sha256": "45535f6d08488cd3b14808fed825601b8fd1f9d924f816eba60599cbe6b24499",
+      "oracle_row_sha256": "4d982033e985830fab5d33a6399f7089ac3834cb7d70aa37a4f613e56515e39a",
+      "target_id": 1057,
+      "reference_top1": 2952,
+      "lean": {
+        "kl_ref_to_engine": 0.6639923296258949,
+        "target_nll": 0.1369495391845703,
+        "top1": 1057,
+        "matches_reference": false
+      },
+      "reference_target_nll": 0.9361362457275391,
+      "basalt": {
+        "kl_ref_to_engine": 0.020158282028879378,
+        "target_nll": 0.7250843048095703,
+        "top1": 1057,
+        "matches_reference": false
+      }
+    }
+  ]
+}
