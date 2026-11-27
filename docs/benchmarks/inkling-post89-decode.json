@@ -1,0 +1,1795 @@
+{
+  "leansonic_main": "b02cce093b3f1e4a1c9359242dcbe24680727e09",
+  "leansonic_v12": "7a02b538048d819fa76d2efb084b734d4c3bf2cb",
+  "basalt": "5fe1928d",
+  "main_binary_sha256": {
+    "current-cli": "a06f3b9d5c605637a081cdd5c5aa689a970197fa53bc293fa200ed518c707da7",
+    "current.cubin": "62cb5ec556de2361f27acec4d3012e1f65e4787627c8e5313d2a91a279f43ac9"
+  },
+  "package": {
+    "main_text_bytes": 15982139902,
+    "v12_text_bytes": 16038568990,
+    "basalt_text_bytes": 18327104737,
+    "main_shard_sha256": "7a635c2c618ca2e79cfb3b3940a1f69c079c4cdc22a065195d7bc2f5f08c9923",
+    "v12_shard_sha256": "0fde715a53bfbd9bad98769663c2d088bd6ffee6397c72f62824c0f21af6c472",
+    "basalt_text_container_sha256": "0f589432ce7ec1d18bb7a77f105fb11ccb19a68dd41f6711145e84f7c7ba6b1c"
+  },
+  "input_sha256": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843",
+  "method": "Five paired cycles per GPU, three rotating arms in mirrored order. Fresh process per prompt, lengths 32 and 1024 from inkling-readme1024.ids. FP16 KV, context 8192, speculation off, greedy. Lean --gen 16 vs Basalt --max-new 17 executes sixteen decode forwards. Peak per process via NVML at 4ms target. Confidence interval resamples whole cycles; Basalt phase timers are reported to integer milliseconds.",
+  "summary": {
+    "PRO5000_32": {
+      "cycles": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "mean_ms": {
+        "v12": {
+          "prefill_ms": 33.171,
+          "decode16_ms": 96.174
+        },
+        "main": {
+          "prefill_ms": 33.166,
+          "decode16_ms": 93.749
+        },
+        "basalt": {
+          "prefill_ms": 49.7,
+          "decode16_ms": 86.4
+        }
+      },
+      "sampled_process_peak_bytes": {
+        "v12": 17660116992,
+        "main": 17660116992,
+        "basalt": 19513999360
+      },
+      "all_first16_match": true,
+      "main_time_saved_percent_bootstrap_95": {
+        "basalt": {
+          "prefill_ms": [
+            31.489669421487598,
+            35.33528265107212
+          ],
+          "decode16_ms": [
+            -8.879210220673638,
+            -8.134948096885818
+          ]
+        },
+        "v12": {
+          "prefill_ms": [
+            -0.012060543930547674,
+            0.036168545421666476
+          ],
+          "decode16_ms": [
+            2.343075338403744,
+            2.65481210660794
+          ]
+        }
+      }
+    },
+    "PRO5000_1024": {
+      "cycles": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "mean_ms": {
+        "v12": {
+          "prefill_ms": 102.541,
+          "decode16_ms": 98.32300000000001
+        },
+        "main": {
+          "prefill_ms": 102.28,
+          "decode16_ms": 95.792
+        },
+        "basalt": {
+          "prefill_ms": 102.9,
+          "decode16_ms": 93.2
+        }
+      },
+      "sampled_process_peak_bytes": {
+        "v12": 18249416704,
+        "main": 18249416704,
+        "basalt": 19513999360
+      },
+      "all_first16_match": true,
+      "main_time_saved_percent_bootstrap_95": {
+        "basalt": {
+          "prefill_ms": [
+            -0.3011811023621913,
+            1.5062200956937777
+          ],
+          "decode16_ms": [
+            -3.5881081081081234,
+            -1.9861554845580276
+          ]
+        },
+        "v12": {
+          "prefill_ms": [
+            -0.06708342650476595,
+            0.5159868125865774
+          ],
+          "decode16_ms": [
+            2.524826443592887,
+            2.620313786897399
+          ]
+        }
+      }
+    },
+    "5070Ti_32": {
+      "cycles": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "mean_ms": {
+        "v12": {
+          "prefill_ms": 107.446,
+          "decode16_ms": 168.808
+        },
+        "main": {
+          "prefill_ms": 107.471,
+          "decode16_ms": 166.271
+        },
+        "basalt": {
+          "prefill_ms": 263.4,
+          "decode16_ms": 312.5
+        }
+      },
+      "sampled_process_peak_bytes": {
+        "v12": 16548626432,
+        "main": 16548626432,
+        "basalt": 15518924800
+      },
+      "all_first16_match": true,
+      "main_time_saved_percent_bootstrap_95": {
+        "basalt": {
+          "prefill_ms": [
+            58.91472275334608,
+            59.443186107965275
+          ],
+          "decode16_ms": [
+            46.530526992287925,
+            47.050685368186166
+          ]
+        },
+        "v12": {
+          "prefill_ms": [
+            -0.11636458420607454,
+            0.10693595930855171
+          ],
+          "decode16_ms": [
+            1.420994933483466,
+            1.5900295722980462
+          ]
+        }
+      }
+    },
+    "5070Ti_1024": {
+      "cycles": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "mean_ms": {
+        "v12": {
+          "prefill_ms": 164.676,
+          "decode16_ms": 190.24
+        },
+        "main": {
+          "prefill_ms": 165.041,
+          "decode16_ms": 187.992
+        },
+        "basalt": {
+          "prefill_ms": 449.6,
+          "decode16_ms": 322.8
+        }
+      },
+      "sampled_process_peak_bytes": {
+        "v12": 16546529280,
+        "main": 16546529280,
+        "basalt": 15521021952
+      },
+      "all_first16_match": true,
+      "main_time_saved_percent_bootstrap_95": {
+        "basalt": {
+          "prefill_ms": [
+            63.25016692632984,
+            63.33874194265392
+          ],
+          "decode16_ms": [
+            41.40461346633416,
+            42.09208500153988
+          ]
+        },
+        "v12": {
+          "prefill_ms": [
+            -0.33285753333129886,
+            -0.11049254175343748
+          ],
+          "decode16_ms": [
+            1.1182612535882153,
+            1.247990079135719
+          ]
+        }
+      }
+    }
+  },
+  "runs": [
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "leg": 0,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 33.16,
+      "decode16_ms": 96.21,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "leg": 1,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 33.16,
+      "decode16_ms": 93.67,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "leg": 2,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 48.0,
+      "decode16_ms": 86.0,
+      "peak": 19513999360,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "leg": 3,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 48.0,
+      "decode16_ms": 86.0,
+      "peak": 19513999360,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "leg": 4,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 33.15,
+      "decode16_ms": 93.81,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "leg": 5,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 33.17,
+      "decode16_ms": 96.29,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "leg": 0,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 33.15,
+      "decode16_ms": 93.79,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "leg": 1,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 48.0,
+      "decode16_ms": 86.0,
+      "peak": 19513999360,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "leg": 2,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 33.16,
+      "decode16_ms": 96.21,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "leg": 3,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 33.15,
+      "decode16_ms": 96.21,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "leg": 4,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 49.0,
+      "decode16_ms": 86.0,
+      "peak": 19513999360,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "leg": 5,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 33.16,
+      "decode16_ms": 93.76,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "leg": 0,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 50.0,
+      "decode16_ms": 86.0,
+      "peak": 19513999360,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "leg": 1,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 33.17,
+      "decode16_ms": 96.24,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "leg": 2,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 33.18,
+      "decode16_ms": 93.77,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "leg": 3,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 33.17,
+      "decode16_ms": 93.62,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "leg": 4,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 33.16,
+      "decode16_ms": 96.4,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "leg": 5,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 51.0,
+      "decode16_ms": 87.0,
+      "peak": 19513999360,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "leg": 0,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 33.18,
+      "decode16_ms": 96.06,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "leg": 1,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 33.15,
+      "decode16_ms": 93.55,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "leg": 2,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 50.0,
+      "decode16_ms": 86.0,
+      "peak": 19513999360,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "leg": 3,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 55.0,
+      "decode16_ms": 88.0,
+      "peak": 19513999360,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "leg": 4,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 33.19,
+      "decode16_ms": 94.31,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "leg": 5,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 33.18,
+      "decode16_ms": 96.01,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "leg": 0,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 33.17,
+      "decode16_ms": 93.58,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "leg": 1,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 49.0,
+      "decode16_ms": 86.0,
+      "peak": 19513999360,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "leg": 2,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 33.17,
+      "decode16_ms": 96.08,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "leg": 3,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 33.21,
+      "decode16_ms": 96.03,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "leg": 4,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 49.0,
+      "decode16_ms": 87.0,
+      "peak": 19513999360,
+      "output_ids_index": 1
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "leg": 5,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 33.18,
+      "decode16_ms": 93.63,
+      "peak": 17660116992,
+      "output_ids_index": 0
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "leg": 0,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 102.21,
+      "decode16_ms": 98.4,
+      "peak": 18232639488,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "leg": 1,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 101.75,
+      "decode16_ms": 95.74,
+      "peak": 18249416704,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "leg": 2,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 102.0,
+      "decode16_ms": 95.0,
+      "peak": 19513999360,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "leg": 3,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 101.0,
+      "decode16_ms": 92.0,
+      "peak": 19513999360,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "leg": 4,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 101.78,
+      "decode16_ms": 95.79,
+      "peak": 18077450240,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "leg": 5,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 101.78,
+      "decode16_ms": 98.23,
+      "peak": 18249416704,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "leg": 0,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 101.77,
+      "decode16_ms": 95.73,
+      "peak": 18186502144,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "leg": 1,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 101.0,
+      "decode16_ms": 92.0,
+      "peak": 19513999360,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "leg": 2,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 101.87,
+      "decode16_ms": 98.35,
+      "peak": 18010341376,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "leg": 3,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 102.33,
+      "decode16_ms": 98.3,
+      "peak": 18090033152,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "leg": 4,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 101.0,
+      "decode16_ms": 92.0,
+      "peak": 19513999360,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "leg": 5,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 101.85,
+      "decode16_ms": 95.69,
+      "peak": 18010341376,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "leg": 0,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 102.0,
+      "decode16_ms": 92.0,
+      "peak": 19513999360,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "leg": 1,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 102.46,
+      "decode16_ms": 98.22,
+      "peak": 18073255936,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "leg": 2,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 101.95,
+      "decode16_ms": 95.64,
+      "peak": 18069061632,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "leg": 3,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 102.81,
+      "decode16_ms": 96.27,
+      "peak": 18119393280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "leg": 4,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 103.7,
+      "decode16_ms": 98.67,
+      "peak": 18207473664,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "leg": 5,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 104.0,
+      "decode16_ms": 93.0,
+      "peak": 19513999360,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "leg": 0,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 104.98,
+      "decode16_ms": 98.63,
+      "peak": 18232639488,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "leg": 1,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 103.46,
+      "decode16_ms": 96.08,
+      "peak": 18203279360,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "leg": 2,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 103.0,
+      "decode16_ms": 93.0,
+      "peak": 19513999360,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "leg": 3,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 109.0,
+      "decode16_ms": 95.0,
+      "peak": 19513999360,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "leg": 4,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 103.96,
+      "decode16_ms": 95.77,
+      "peak": 18115198976,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "leg": 5,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 101.78,
+      "decode16_ms": 98.14,
+      "peak": 18207473664,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "leg": 0,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 101.83,
+      "decode16_ms": 95.55,
+      "peak": 18035507200,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "leg": 1,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 103.0,
+      "decode16_ms": 96.0,
+      "peak": 19513999360,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "leg": 2,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 102.42,
+      "decode16_ms": 98.15,
+      "peak": 18127781888,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "leg": 3,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 101.88,
+      "decode16_ms": 98.14,
+      "peak": 18115198976,
+      "output_ids_index": 2
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "leg": 4,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 103.0,
+      "decode16_ms": 92.0,
+      "peak": 19513999360,
+      "output_ids_index": 3
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "leg": 5,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 101.64,
+      "decode16_ms": 95.66,
+      "peak": 18106810368,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 1,
+      "leg": 0,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 107.54,
+      "decode16_ms": 168.61,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 1,
+      "leg": 1,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 107.42,
+      "decode16_ms": 165.85,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 1,
+      "leg": 2,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 265.0,
+      "decode16_ms": 315.0,
+      "peak": 15518924800,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 1,
+      "leg": 3,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 265.0,
+      "decode16_ms": 313.0,
+      "peak": 15518924800,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 1,
+      "leg": 4,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 107.6,
+      "decode16_ms": 166.09,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 1,
+      "leg": 5,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 107.35,
+      "decode16_ms": 168.89,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 2,
+      "leg": 0,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 107.42,
+      "decode16_ms": 166.44,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 2,
+      "leg": 1,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 266.0,
+      "decode16_ms": 314.0,
+      "peak": 15518924800,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 2,
+      "leg": 2,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 107.49,
+      "decode16_ms": 168.95,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 2,
+      "leg": 3,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 107.6,
+      "decode16_ms": 168.86,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 2,
+      "leg": 4,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 263.0,
+      "decode16_ms": 313.0,
+      "peak": 15518924800,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 2,
+      "leg": 5,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 107.89,
+      "decode16_ms": 166.36,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 3,
+      "leg": 0,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 265.0,
+      "decode16_ms": 314.0,
+      "peak": 15518924800,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 3,
+      "leg": 1,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 107.51,
+      "decode16_ms": 169.21,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 3,
+      "leg": 2,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 107.17,
+      "decode16_ms": 166.86,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 3,
+      "leg": 3,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 107.57,
+      "decode16_ms": 166.14,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 3,
+      "leg": 4,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 107.7,
+      "decode16_ms": 168.73,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 3,
+      "leg": 5,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 255.0,
+      "decode16_ms": 307.0,
+      "peak": 15518924800,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 4,
+      "leg": 0,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 107.48,
+      "decode16_ms": 168.93,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 4,
+      "leg": 1,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 107.24,
+      "decode16_ms": 166.51,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 4,
+      "leg": 2,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 266.0,
+      "decode16_ms": 312.0,
+      "peak": 15518924800,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 4,
+      "leg": 3,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 264.0,
+      "decode16_ms": 310.0,
+      "peak": 15518924800,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 4,
+      "leg": 4,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 107.26,
+      "decode16_ms": 166.29,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 4,
+      "leg": 5,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 106.98,
+      "decode16_ms": 168.46,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 5,
+      "leg": 0,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 107.56,
+      "decode16_ms": 166.14,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 5,
+      "leg": 1,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 262.0,
+      "decode16_ms": 316.0,
+      "peak": 15518924800,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 5,
+      "leg": 2,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 107.3,
+      "decode16_ms": 168.73,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 5,
+      "leg": 3,
+      "arm": "v12",
+      "n": 32,
+      "prefill_ms": 107.51,
+      "decode16_ms": 168.71,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 5,
+      "leg": 4,
+      "arm": "basalt",
+      "n": 32,
+      "prefill_ms": 263.0,
+      "decode16_ms": 311.0,
+      "peak": 15518924800,
+      "output_ids_index": 1
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 5,
+      "leg": 5,
+      "arm": "main",
+      "n": 32,
+      "prefill_ms": 107.58,
+      "decode16_ms": 166.03,
+      "peak": 16548626432,
+      "output_ids_index": 0
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 1,
+      "leg": 0,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 164.66,
+      "decode16_ms": 190.25,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 1,
+      "leg": 1,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 164.05,
+      "decode16_ms": 187.83,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 1,
+      "leg": 2,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 449.0,
+      "decode16_ms": 321.0,
+      "peak": 15521021952,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 1,
+      "leg": 3,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 449.0,
+      "decode16_ms": 321.0,
+      "peak": 15521021952,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 1,
+      "leg": 4,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 165.66,
+      "decode16_ms": 188.17,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 1,
+      "leg": 5,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 164.77,
+      "decode16_ms": 190.37,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 2,
+      "leg": 0,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 164.66,
+      "decode16_ms": 187.82,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 2,
+      "leg": 1,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 449.0,
+      "decode16_ms": 320.0,
+      "peak": 15521021952,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 2,
+      "leg": 2,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 164.8,
+      "decode16_ms": 190.27,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 2,
+      "leg": 3,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 164.63,
+      "decode16_ms": 190.44,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 2,
+      "leg": 4,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 449.0,
+      "decode16_ms": 319.0,
+      "peak": 15521021952,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 2,
+      "leg": 5,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 165.01,
+      "decode16_ms": 187.92,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 3,
+      "leg": 0,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 450.0,
+      "decode16_ms": 326.0,
+      "peak": 15521021952,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 3,
+      "leg": 1,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 164.89,
+      "decode16_ms": 190.44,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 3,
+      "leg": 2,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 165.02,
+      "decode16_ms": 188.0,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 3,
+      "leg": 3,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 165.79,
+      "decode16_ms": 188.52,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 3,
+      "leg": 4,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 164.61,
+      "decode16_ms": 190.24,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 3,
+      "leg": 5,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 451.0,
+      "decode16_ms": 323.0,
+      "peak": 15521021952,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 4,
+      "leg": 0,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 164.5,
+      "decode16_ms": 190.28,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 4,
+      "leg": 1,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 165.46,
+      "decode16_ms": 188.15,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 4,
+      "leg": 2,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 450.0,
+      "decode16_ms": 323.0,
+      "peak": 15521021952,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 4,
+      "leg": 3,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 448.0,
+      "decode16_ms": 324.0,
+      "peak": 15521021952,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 4,
+      "leg": 4,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 164.77,
+      "decode16_ms": 187.94,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 4,
+      "leg": 5,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 164.95,
+      "decode16_ms": 190.03,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 5,
+      "leg": 0,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 165.12,
+      "decode16_ms": 187.74,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 5,
+      "leg": 1,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 449.0,
+      "decode16_ms": 328.0,
+      "peak": 15521021952,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 5,
+      "leg": 2,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 164.44,
+      "decode16_ms": 189.97,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 5,
+      "leg": 3,
+      "arm": "v12",
+      "n": 1024,
+      "prefill_ms": 164.51,
+      "decode16_ms": 190.11,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 5,
+      "leg": 4,
+      "arm": "basalt",
+      "n": 1024,
+      "prefill_ms": 452.0,
+      "decode16_ms": 323.0,
+      "peak": 15521021952,
+      "output_ids_index": 3
+    },
+    {
+      "card": "5070Ti",
+      "cycle": 5,
+      "leg": 5,
+      "arm": "main",
+      "n": 1024,
+      "prefill_ms": 164.87,
+      "decode16_ms": 187.83,
+      "peak": 16546529280,
+      "output_ids_index": 2
+    }
+  ],
+  "output_id_lists": [
+    [
+      9,
+      9,
+      68014,
+      58,
+      0,
+      58,
+      39446,
+      220,
+      19,
+      60,
+      7,
+      68713,
+      25,
+      145055,
+      3247,
+      13
+    ],
+    [
+      9,
+      9,
+      68014,
+      58,
+      0,
+      58,
+      39446,
+      220,
+      19,
+      60,
+      7,
+      68713,
+      25,
+      145055,
+      3247,
+      13,
+      32291
+    ],
+    [
+      145026,
+      220,
+      39446,
+      220,
+      19,
+      154978,
+      152792,
+      189134,
+      149860,
+      185136,
+      198,
+      84375,
+      149859,
+      23033,
+      220,
+      137294
+    ],
+    [
+      145026,
+      220,
+      39446,
+      220,
+      19,
+      154978,
+      152792,
+      189134,
+      149860,
+      185136,
+      198,
+      84375,
+      149859,
+      23033,
+      220,
+      137294,
+      196997
+    ]
+  ],
+  "profile": {
+    "commit": "b02cce093b3f1e4a1c9359242dcbe24680727e09",
+    "gpu": "RTX PRO 5000 72 GB Blackwell",
+    "prompt_tokens": 32,
+    "generated": 64,
+    "decode_delimiters_observed": 64,
+    "measured_1based_decode_steps": [
+      17,
+      48
+    ],
+    "sampled_steps": 32,
+    "profiled_wall_ms_per_token": 6.29705621875,
+    "summed_kernel_ms_per_token": 5.89384346875,
+    "kernels": [
+      {
+        "kernel": "ink2_moe_nvfp4_dp4a_up_situ_packed_scales",
+        "calls": 1408,
+        "us_per_token": 978.06565625,
+        "percent_kernel_time": 16.59470023993416
+      },
+      {
+        "kernel": "ink2_q8_dp4a_gemv",
+        "calls": 672,
+        "us_per_token": 784.17665625,
+        "percent_kernel_time": 13.30501328051579
+      },
+      {
+        "kernel": "ink2_moe_nvfp4_dp4a_down_xw_packed_scales",
+        "calls": 1408,
+        "us_per_token": 554.53609375,
+        "percent_kernel_time": 9.408734668476175
+      },
+      {
+        "kernel": "ink2_q8_dp4a_qkv3_gemv",
+        "calls": 896,
+        "us_per_token": 537.29471875,
+        "percent_kernel_time": 9.116202722362976
+      },
+      {
+        "kernel": "ink2_q8_dp4a_gemv_c3072",
+        "calls": 1536,
+        "us_per_token": 404.49753125,
+        "percent_kernel_time": 6.863051816606663
+      },
+      {
+        "kernel": "ink2_gqa_attn_split_dec",
+        "calls": 1536,
+        "us_per_token": 320.83059375,
+        "percent_kernel_time": 5.443486842687452
+      },
+      {
+        "kernel": "ink2_ctrl_down",
+        "calls": 1536,
+        "us_per_token": 302.9251875,
+        "percent_kernel_time": 5.139688373234759
+      },
+      {
+        "kernel": "ink2_depth_mix",
+        "calls": 1600,
+        "us_per_token": 231.52725,
+        "percent_kernel_time": 3.928289769275186
+      },
+      {
+        "kernel": "ink2_depth_mix_rmsnorm_d_quant_q8_16_b",
+        "calls": 768,
+        "us_per_token": 223.57096875,
+        "percent_kernel_time": 3.7932966821295
+      },
+      {
+        "kernel": "ink2_depth_mix_rmsnorm_quant_q8_64_b",
+        "calls": 768,
+        "us_per_token": 218.1429375,
+        "percent_kernel_time": 3.701200051488049
+      },
+      {
+        "kernel": "ink2_ctrl_apply_coalesced_b",
+        "calls": 1536,
+        "us_per_token": 158.37878125,
+        "percent_kernel_time": 2.68719015171928
+      },
+      {
+        "kernel": "ink2_moe_mxfp8_up_situ_packed_scales",
+        "calls": 128,
+        "us_per_token": 150.2646875,
+        "percent_kernel_time": 2.549519482434931
+      },
+      {
+        "kernel": "ink2_rmsnorm_d_quant_q8_16_b",
+        "calls": 768,
+        "us_per_token": 129.93171875,
+        "percent_kernel_time": 2.2045329069038995
+      },
+      {
+        "kernel": "ink2_bf16_gemv",
+        "calls": 1536,
+        "us_per_token": 129.25146875,
+        "percent_kernel_time": 2.1929912023505502
+      },
+      {
+        "kernel": "ink2_router_topk8",
+        "calls": 1536,
+        "us_per_token": 122.28765625,
+        "percent_kernel_time": 2.0748371906784873
+      },
+      {
+        "kernel": "ink2_rmsnorm_quant_q8_64",
+        "calls": 800,
+        "us_per_token": 119.80228125,
+        "percent_kernel_time": 2.0326681881731132
+      },
+      {
+        "kernel": "ink2_gqa_attn_combine_q8",
+        "calls": 1536,
+        "us_per_token": 90.74446875,
+        "percent_kernel_time": 1.539648435373965
+      },
+      {
+        "kernel": "ink2_prep_qkv_and_cache",
+        "calls": 1536,
+        "us_per_token": 89.24725,
+        "percent_kernel_time": 1.5142453387709
+      },
+      {
+        "kernel": "ink2_moe_mxfp8_down_packed_scales",
+        "calls": 128,
+        "us_per_token": 87.57434375,
+        "percent_kernel_time": 1.4858613774582186
+      },
+      {
+        "kernel": "ink2_short_conv4_save",
+        "calls": 1536,
+        "us_per_token": 64.83734375,
+        "percent_kernel_time": 1.1000859472053655
+      },
+      {
+        "kernel": "ink2_short_conv4_kv2",
+        "calls": 1536,
+        "us_per_token": 60.52828125,
+        "percent_kernel_time": 1.026974699462746
+      },
+      {
+        "kernel": "ink2_short_conv4",
+        "calls": 1536,
+        "us_per_token": 58.41134375,
+        "percent_kernel_time": 0.9910569233761516
+      },
+      {
+        "kernel": "ink2_quant_q8_16_packed",
+        "calls": 1408,
+        "us_per_token": 38.609,
+        "percent_kernel_time": 0.6550733864024457
+      },
+      {
+        "kernel": "ink2_argmax_and_inc_pos",
+        "calls": 32,
+        "us_per_token": 25.258125,
+        "percent_kernel_time": 0.42855099790013407
+      },
+      {
+        "kernel": "ink2_embed_rmsnorm",
+        "calls": 32,
+        "us_per_token": 8.47903125,
+        "percent_kernel_time": 0.1438625117032211
+      },
+      {
+        "kernel": "ink2_loop_pass_setup_b",
+        "calls": 96,
+        "us_per_token": 4.67009375,
+        "percent_kernel_time": 0.07923681337588119
+      }
+    ]
+  }
+}
