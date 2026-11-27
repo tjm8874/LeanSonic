@@ -19,6 +19,8 @@ The reconstruction tables change 361,479,065 out of 4,076,863,488 weights. The s
 | test | group tables | 0.0136808 | 0.7296384 | 24,282/25,500 | 7.129212 |
 | valid | compact | 0.0131739 | 0.9835867 | 24,341/25,500 | 6.564200 |
 | valid | group tables | 0.0130798 | 0.9699828 | 24,342/25,500 | 6.563246 |
+| chat | compact | 0.0126191 | 0.4765965 | 585/613 | 3.732578 |
+| chat | group tables | 0.0126144 | 0.5051568 | 587/613 | 3.729317 |
 
 WikiText uses the same PRO 4500 scorer and 100 chunks per split as compact. The bilingual suite uses the same PRO 5000 full-vocabulary capture and checks exact repeat bytes.
 
