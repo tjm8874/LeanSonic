@@ -570,6 +570,9 @@ struct KernelFns {
     depth_mix_multi_ctrl_norm_bf16_b: Option<CUfunction>,
     // v0.8.0 Solo & Spec Decode PDL + Hoisted Kernels (`Issue #11` / `#104` / `#106`)
     depth_mix_inv: Option<CUfunction>,
+    /// Present when every kernel in the cubin waits on `griddepcontrol.wait` before its first
+    /// global access, so every launch may use programmatic dependent launch (#152 P0-B).
+    pdl_all_marker: Option<CUfunction>,
     ctrl_down_r4_fast: Option<CUfunction>,
     q8_dp4a_gemm_b8_fast: Option<CUfunction>,
     q8_dp4a_gemm_b_ms4: Option<CUfunction>,
@@ -825,6 +828,8 @@ pub struct Inkling2GpuEngine {
     tc_bf16: bool,
     par_conv: bool,
     pdl: bool,
+    /// Launch every kernel with PDL, not only the single-sequence decode chain.
+    pdl_all: bool,
     max_prefill_chunk: usize,
     // Persistent device scratch buffers
     d_token_in: DeviceBuf,
@@ -933,6 +938,54 @@ fn concat_slices(slices: &[&[u8]]) -> Vec<u8> {
         out.extend_from_slice(s);
     }
     out
+}
+
+/// `LEANSONIC_PDL_ALL=0` (or `LEANSONIC_PDL=0`) keeps PDL on the single-sequence decode chain only.
+/// Otherwise every launch uses PDL when the cubin carries `ink2_pdl_all_marker`, i.e. every
+/// kernel executes `griddepcontrol.wait` before touching global memory (#152 P0-B).
+pub(crate) fn pdl_all_enabled(ctx: &CudaContextHandle, marker: Option<CUfunction>) -> bool {
+    let on = |k: &str| std::env::var(k).map(|v| v != "0").unwrap_or(true);
+    on("LEANSONIC_PDL")
+        && on("LEANSONIC_PDL_ALL")
+        && ctx.api.cuLaunchKernelEx.is_some()
+        && marker.is_some()
+}
+
+/// Programmatic dependent launch: the kernel may be scheduled while its stream predecessor drains.
+pub(crate) fn launch_pdl_3d(
+    ctx: &CudaContextHandle,
+    stream: CUstream,
+    func: CUfunction,
+    grid: (u32, u32, u32),
+    block: u32,
+    shared_mem_bytes: u32,
+    params: &mut [*mut c_void],
+) -> Result<(), String> {
+    let launch_ex = ctx
+        .api
+        .cuLaunchKernelEx
+        .ok_or_else(|| "cuLaunchKernelEx unavailable".to_string())?;
+    let mut attr = CUlaunchAttribute::programmatic_stream_serialization();
+    let cfg = CUlaunchConfig {
+        gridDimX: grid.0,
+        gridDimY: grid.1,
+        gridDimZ: grid.2,
+        blockDimX: block,
+        blockDimY: 1,
+        blockDimZ: 1,
+        sharedMemBytes: shared_mem_bytes,
+        _pad0: 0,
+        hStream: stream,
+        attrs: &mut attr,
+        numAttrs: 1,
+        _pad1: 0,
+    };
+    unsafe {
+        check_cu(
+            launch_ex(&cfg, func, params.as_mut_ptr(), core::ptr::null_mut()),
+            &format!("cuLaunchKernelEx(grid={grid:?}, block={block}, smem={shared_mem_bytes})"),
+        )
+    }
 }
 
 /// Multi-threaded load-time repack of row-major `BF16 [rows, cols]` (`cols % 64 == 0`)
@@ -1583,6 +1636,7 @@ impl Inkling2GpuEngine {
                 markov_step_q8: fns.mtp_markov_step_q8,
                 fold_mv_q8: fns.mtp_fold_mv_q8,
                 fold_fin: fns.mtp_fold_fin,
+                pdl_all: pdl_all_enabled(&ctx, fns.pdl_all_marker),
             };
             Some(DsparkDrafterGpu::load_from_file(
                 &ctx,
@@ -2008,6 +2062,7 @@ impl Inkling2GpuEngine {
             .unwrap_or(true)
             && ctx.api.cuLaunchKernelEx.is_some()
             && fns.depth_mix_inv.is_some();
+        let pdl_all = pdl && pdl_all_enabled(&ctx, fns.pdl_all_marker);
         let d_ms_rows = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 8)?;
         let d_ms_j = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 4)?;
         let d_ms_runs = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 16)?;
@@ -2169,6 +2224,7 @@ impl Inkling2GpuEngine {
             tc_bf16,
             par_conv,
             pdl,
+            pdl_all,
             max_prefill_chunk: EXPERT_PAGE,
             host_pos: 0,
             decode_graph: None,
@@ -2761,6 +2817,7 @@ impl Inkling2GpuEngine {
             flash_attn_split_combine_q8_b: get_fn("ink2_flash_attn_split_combine_q8_b").ok(),
             depth_mix_multi_ctrl_norm_bf16_b: get_fn("ink2_depth_mix_multi_ctrl_norm_bf16_b").ok(),
             depth_mix_inv: get_fn("ink2_depth_mix_inv").ok(),
+            pdl_all_marker: get_fn("ink2_pdl_all_marker").ok(),
             ctrl_down_r4_fast: get_fn("ink2_ctrl_down_r4_fast").ok(),
             q8_dp4a_gemm_b8_fast: get_fn("ink2_q8_dp4a_gemm_b8_fast").ok(),
             q8_dp4a_gemm_b_ms4: get_fn("ink2_q8_dp4a_gemm_b_ms4").ok(),
@@ -2832,6 +2889,17 @@ impl Inkling2GpuEngine {
         shared_mem_bytes: u32,
         params: &mut [*mut c_void],
     ) -> Result<(), String> {
+        if self.pdl_all {
+            return launch_pdl_3d(
+                &self.ctx,
+                stream,
+                func,
+                grid,
+                block,
+                shared_mem_bytes,
+                params,
+            );
+        }
         unsafe {
             check_cu(
                 (self.ctx.api.cuLaunchKernel)(
@@ -5669,6 +5737,14 @@ impl Inkling2GpuEngine {
             return Ok((out_ids, cur_tok));
         }
 
+        // Draft pause: after `PAUSE_AFTER` steps in a row without an accepted draft, decode
+        // the next `pause_len` tokens without drafting (8, doubling to 64 while drafts keep
+        // failing). Drafting a context that rejects everything costs a full drafter pass per
+        // token (e.g. 128K: drafter attention over the whole context). The emitted tokens are
+        // the greedy tokens either way. `LEANSONIC_SPEC_PAUSE=0` disables the pause.
+        const PAUSE_AFTER: usize = 4;
+        let pause_enabled = std::env::var("LEANSONIC_SPEC_PAUSE").map_or(true, |v| v != "0");
+        let (mut zero_streak, mut pause_left, mut pause_len) = (0usize, 0usize, 8usize);
         while steps_done < n_gen {
             if Some(cur_tok) == stop_tok {
                 break;
@@ -5679,7 +5755,9 @@ impl Inkling2GpuEngine {
                 .min(rem_steps.saturating_sub(1))
                 .min(self.max_ctx.saturating_sub(self.host_pos + 1));
 
-            let drafts = if max_draft == 0 {
+            let paused = pause_left > 0;
+            pause_left = pause_left.saturating_sub(1);
+            let drafts = if max_draft == 0 || paused {
                 Vec::new()
             } else if let Some(ref mut d) = self.drafter {
                 d.draft_tokens(
@@ -5695,6 +5773,14 @@ impl Inkling2GpuEngine {
             };
 
             if drafts.is_empty() {
+                if pause_enabled && !paused && max_draft > 0 {
+                    zero_streak += 1;
+                    if zero_streak >= PAUSE_AFTER {
+                        pause_left = pause_len;
+                        pause_len = (pause_len * 2).min(64);
+                        zero_streak = 0;
+                    }
+                }
                 out_ids.push(cur_tok);
                 on_token(cur_tok);
                 if self.drafter.is_none() {
@@ -5730,6 +5816,17 @@ impl Inkling2GpuEngine {
                 }
             }
             self.spec_accepted_total += accepted;
+            if accepted > 0 {
+                zero_streak = 0;
+                pause_len = 8;
+            } else if pause_enabled {
+                zero_streak += 1;
+                if zero_streak >= PAUSE_AFTER {
+                    pause_left = pause_len;
+                    pause_len = (pause_len * 2).min(64);
+                    zero_streak = 0;
+                }
+            }
             let keep = accepted + 1; // `1 <= keep <= b_len`
 
             if keep < b_len {
@@ -6819,11 +6916,14 @@ impl Inkling2GpuEngine {
             if use_long_split {
                 // `n_splits = 6` (`1,536` CTAs = `99.7%` wave eff on 110-SM PRO 5000) or `5` (`1,280` CTAs = `100%` on 80-SM PRO 4500),
                 // reusing dead `k_raw .. pair_output_end` (`<= 9,504 * b_len <= 9,832 * capacity` dwords, `0` extra VRAM)!
-                let long_splits: u32 = if self.ctx.device_name.contains("4500") {
-                    5
-                } else {
-                    6
-                };
+                let long_splits: u32 = std::env::var("LEANSONIC_LONG_SPLITS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(if self.ctx.device_name.contains("4500") {
+                        5
+                    } else {
+                        6
+                    });
                 let mut part_o_ptr = self.prefill.layer_workspace.k_raw;
                 let mut part_ml_ptr =
                     part_o_ptr + (long_splits as usize * b_len * N_HEAD * 64 * 4) as u64;
@@ -9014,6 +9114,70 @@ impl Inkling2GpuEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every kernel may be launched with PDL (`pdl_all`), so each one must reach `pdl_wait()`
+    /// before it touches memory a preceding kernel may write (#152 P0-B).
+    #[test]
+    fn every_kernel_waits_on_its_pdl_predecessor() {
+        let src = CUDA_KERNEL_SRC;
+        let mut missing = Vec::new();
+        let mut seen = 0;
+        let mut macro_entries = 0;
+        for (at, _) in src.match_indices("extern \"C\" __global__") {
+            let line_start = src[..at].rfind('\n').map_or(0, |i| i + 1);
+            let prev_line_end = line_start.saturating_sub(1);
+            let prev_line_start = src[..prev_line_end].rfind('\n').map_or(0, |i| i + 1);
+            if src[prev_line_start..prev_line_end]
+                .trim_end()
+                .ends_with('\\')
+            {
+                let entry = src[at..].lines().next().unwrap();
+                let (_, body) = entry.split_once('{').expect("kernel macro entry body");
+                assert!(
+                    body.trim_start().starts_with("pdl_wait();"),
+                    "kernel macro reads before waiting on its predecessor: {entry}"
+                );
+                macro_entries += 1;
+                continue;
+            }
+            let open = at + src[at..].find('{').expect("kernel body");
+            let mut depth = 0usize;
+            let mut close = open;
+            for (i, c) in src[open..].char_indices() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            close = open + i;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            seen += 1;
+            if !src[open..close].contains("pdl_wait()") {
+                missing.push(
+                    src[at..open]
+                        .split('(')
+                        .next()
+                        .unwrap_or_default()
+                        .to_string(),
+                );
+            }
+        }
+        assert!(seen > 100, "parsed only {seen} kernels");
+        assert!(
+            missing.is_empty(),
+            "kernels without pdl_wait(): {missing:?}"
+        );
+        assert!(
+            macro_entries >= 4,
+            "parsed only {macro_entries} macro entries"
+        );
+        assert!(src.contains("void ink2_pdl_all_marker()"));
+    }
 
     #[test]
     fn device_codebook_roundtrips_every_nibble_across_rans_tiles() {
