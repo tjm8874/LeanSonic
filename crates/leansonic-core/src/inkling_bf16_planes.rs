@@ -2,6 +2,8 @@
 use crate::inkling_mxfp8::{self, Matrix};
 use std::io;
 
+pub mod row_exponents;
+
 pub fn pack(raw: &[u8]) -> io::Result<Vec<u8>> {
     if raw.is_empty() || !raw.len().is_multiple_of(2) {
         return Err(io::Error::other("invalid BF16 plane size"));
