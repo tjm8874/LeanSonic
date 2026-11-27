@@ -13,6 +13,15 @@ The optional loader stores each pair of MXFP8 weight codes as two four-bit indic
 
 RTX 5060 Ti: prefill delta +23.082 ms (95% interval +22.296 to +24.610); decode delta -380.359 ms (-380.415 to -380.277). The two modes predicted the same 32 tokens across all 100 requests. Separately, at context 2,048, all eight paired free-generation requests matched on all 64 generated IDs, the following token, and the hash of the final 200,058 finite FP32 logits. That check used both 32- and 1,024-token prompts.
 
+## Original llama.cpp Q3_K_XL comparison
+
+The native Unsloth build at `8832860` used microbatch 512 with all 25 layers on GPU. Each engine consumed exactly the same prompt and continuation, including inputs following any prediction difference. The original GGUF occupies 13,631,778,016 bytes. This is a separate set of five mirrored cycles with the same protocol.
+
+| GPU | Engine | Prefill ms (tok/s) | Decode 32 ms (tok/s) | Peak bytes | Fixed IDs matched |
+|---|---|---:|---:|---:|---:|
+| RTX 5060 Ti | LeanSonic four-bit indices | 402.960 (2,541.2) | 366.465 (87.32) | 16,605,249,536 | 32/32 |
+| RTX 5060 Ti | Original llama.cpp Q3_K_XL | 882.688 (1,160.1) | 574.616 (55.69) | 16,030,629,888 | 30/32 |
+
 ## Quality and adoption
 
 The file used here is the compact model from [PR #147](https://github.com/tjm8874/LeanSonic/pull/147). On 613 bilingual teacher-forced positions its worst KL was 0.476597, compared with 0.293811 for original Q3 and 0.095679 for canonical LeanSonic. The byte representation and model quantization are independent changes. Keep the runtime feature opt-in. The 8K-context prefill regression on 5060 Ti and the compact package’s bilingual worst case both matter for deployment.
