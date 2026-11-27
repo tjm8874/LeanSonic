@@ -132,6 +132,23 @@
         "ref_floor_targets": 14,
         "top1_matches": 17118,
         "top1_agreement": 0.6712941176470588
+      },
+      "valid": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 12.128177212720574,
+        "ref_ppl": 6.498588819010602,
+        "mean_kld": 0.6553958883009428,
+        "median_kld": 0.4138195348417332,
+        "p99_kld": 3.791016395194412,
+        "max_kld": 11.999408173297695,
+        "start_chunk": 0,
+        "max_kld_chunk": 76,
+        "max_kld_position": 476,
+        "ref_floor_targets": 10,
+        "top1_matches": 17443,
+        "top1_agreement": 0.6840392156862745
       }
     },
     "energy refit": {

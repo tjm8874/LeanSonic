@@ -12,6 +12,7 @@ LeanSonic uses its a200846 release host with bc526e3 cubin, RTX PRO 4500, spec 0
 | valid | 13.48 GB control | 13,479,710,294 | 0.0069527 | 0.7446714 (12/317) | 24,645 (96.65%) | 6.530797 |
 | valid | ternary | 7,718,950,382 | 0.2161375 | 6.5853805 (10/471) | 20,643 (80.95%) | 7.904899 |
 | valid | scale refit | 7,734,665,510 | 0.5779062 | 12.2230370 (76/476) | 17,813 (69.85%) | 11.258599 |
+| valid | rate-constrained | 7,679,612,078 | 0.6553959 | 11.9994082 (76/476) | 17,443 (68.40%) | 12.128177 |
 | valid | energy refit | 7,748,141,470 | 0.2620454 | 6.1510133 (73/443) | 20,187 (79.16%) | 8.243544 |
 
 ternary / test: fails the four-metric nonregression criterion against the 13.48 GB control.
@@ -23,6 +24,8 @@ scale refit / test: fails the four-metric nonregression criterion against the 13
 scale refit / valid: fails the four-metric nonregression criterion against the 13.48 GB control.
 
 rate-constrained / test: fails the four-metric nonregression criterion against the 13.48 GB control.
+
+rate-constrained / valid: fails the four-metric nonregression criterion against the 13.48 GB control.
 
 energy refit / test: fails the four-metric nonregression criterion against the 13.48 GB control.
 
