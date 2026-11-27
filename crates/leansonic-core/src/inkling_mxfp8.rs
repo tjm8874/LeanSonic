@@ -193,7 +193,7 @@ impl<'a> Matrix<'a> {
             return Err("invalid MXFP8 output extent".into());
         }
         let frames = &self.frames[offset / TILE..end.div_ceil(TILE)];
-        let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(8));
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(24));
         let group = frames.len().div_ceil(threads);
         std::thread::scope(|scope| {
             let mut workers = Vec::new();
