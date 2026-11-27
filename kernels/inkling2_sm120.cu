@@ -12527,6 +12527,7 @@ extern "C" __global__ void ink2_depth_mix_multi_ctrl_norm_bf16_b(
 extern "C" __global__ void ink2_expand_mxfp8_indices(
     const unsigned char* __restrict__ plane, ushort4* __restrict__ output,
     const int* __restrict__ selected, unsigned vectors_per_expert) {
+    pdl_wait();
     __shared__ unsigned short pair[256];
     const unsigned lane = threadIdx.x;
     pair[lane] = plane[lane & 15] | (unsigned(plane[lane >> 4]) << 8);
