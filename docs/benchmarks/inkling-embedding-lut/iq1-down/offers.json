@@ -1,0 +1,110 @@
+{
+  "cap": 7880785292,
+  "parent_bytes": 7763991646,
+  "plan_sha256": "ccb3d4b24c379a32f74338a2d2b08bd6eeb027507a3a19637a686955412f90a5",
+  "offers": [
+    {
+      "plane": "model.llm.layers.0.mlp.experts.w2_weight",
+      "extra_bytes": 87163144,
+      "training_gain": 39215.55503906367
+    },
+    {
+      "plane": "model.llm.layers.1.mlp.experts.w2_weight",
+      "extra_bytes": 87566920,
+      "training_gain": 39358.344920521144
+    },
+    {
+      "plane": "model.llm.layers.10.mlp.experts.w2_weight",
+      "extra_bytes": 101266192,
+      "training_gain": 119961.56347061342
+    },
+    {
+      "plane": "model.llm.layers.11.mlp.experts.w2_weight",
+      "extra_bytes": 102122640,
+      "training_gain": 120736.12195355585
+    },
+    {
+      "plane": "model.llm.layers.12.mlp.experts.w2_weight",
+      "extra_bytes": 101637864,
+      "training_gain": 119967.72132669465
+    },
+    {
+      "plane": "model.llm.layers.13.mlp.experts.w2_weight",
+      "extra_bytes": 101346352,
+      "training_gain": 120286.19338532086
+    },
+    {
+      "plane": "model.llm.layers.14.mlp.experts.w2_weight",
+      "extra_bytes": 101535296,
+      "training_gain": 120539.2033650653
+    },
+    {
+      "plane": "model.llm.layers.15.mlp.experts.w2_weight",
+      "extra_bytes": 101547144,
+      "training_gain": 121723.85837840606
+    },
+    {
+      "plane": "model.llm.layers.16.mlp.experts.w2_weight",
+      "extra_bytes": 102152456,
+      "training_gain": 123425.47650096145
+    },
+    {
+      "plane": "model.llm.layers.18.mlp.experts.w2_weight",
+      "extra_bytes": 87186240,
+      "training_gain": 39123.510771431036
+    },
+    {
+      "plane": "model.llm.layers.19.mlp.experts.w2_weight",
+      "extra_bytes": 87199192,
+      "training_gain": 39109.78313266492
+    },
+    {
+      "plane": "model.llm.layers.2.mlp.experts.w2_weight",
+      "extra_bytes": 87403344,
+      "training_gain": 39158.97394551538
+    },
+    {
+      "plane": "model.llm.layers.3.mlp.experts.w2_weight",
+      "extra_bytes": 87756728,
+      "training_gain": 39237.54930129377
+    },
+    {
+      "plane": "model.llm.layers.4.mlp.experts.w2_weight",
+      "extra_bytes": 87713256,
+      "training_gain": 39115.77012190315
+    },
+    {
+      "plane": "model.llm.layers.5.mlp.experts.w2_weight",
+      "extra_bytes": 87786568,
+      "training_gain": 39373.78885661342
+    },
+    {
+      "plane": "model.llm.layers.6.mlp.experts.w2_weight",
+      "extra_bytes": 101370248,
+      "training_gain": 119514.82847572603
+    },
+    {
+      "plane": "model.llm.layers.7.mlp.experts.w2_weight",
+      "extra_bytes": 101627048,
+      "training_gain": 119093.6315458176
+    },
+    {
+      "plane": "model.llm.layers.8.mlp.experts.w2_weight",
+      "extra_bytes": 101387672,
+      "training_gain": 119310.82913299263
+    },
+    {
+      "plane": "model.llm.layers.9.mlp.experts.w2_weight",
+      "extra_bytes": 101401144,
+      "training_gain": 119344.26398805279
+    }
+  ],
+  "train_objective_parent": 1645703.800241459,
+  "train_objective_candidate": 1522278.3237404975,
+  "whole_plane_selected": [
+    "model.llm.layers.16.mlp.experts.w2_weight"
+  ],
+  "whole_plane_extra_bytes": 102152456,
+  "domain": "19 non-layer17 down projections; gate/up and the 61 experts restored in layer 17 stay fixed",
+  "embedding_bytes_saved": 116493516
+}
