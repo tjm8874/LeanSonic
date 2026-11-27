@@ -6,6 +6,8 @@ All three binaries processed the same prefix of the [1,024-token prompt](inputs/
 |---|---:|---:|---:|---:|---:|
 | 5070Ti | 32 | 105.49 / 149.64 | 105.91 / 135.47 | 267.20 / 314.70 | 16,548,626,432 / 15,518,924,800 |
 | 5070Ti | 1024 | 161.22 / 166.03 | 160.73 / 152.12 | 450.10 / 324.30 | 16,546,529,280 / 15,521,021,952 |
+| 5060Ti | 32 | 242.74 / 332.34 | 242.78 / 316.33 | 297.50 / 411.10 | 16,559,112,192 / 15,525,216,256 |
+| 5060Ti | 1024 | 380.84 / 389.61 | 380.53 / 374.08 | 1284.90 / 397.40 | 16,554,917,888 / 15,527,313,408 |
 
 All three engines predicted the same first 16 IDs in each reported row. NVML was sampled at a 4 ms target interval. Distribution sizes including tokenizer are 15,901,490,534 B (older LeanSonic), 15,853,391,742 B (PDL + compact) and 18,327,104,737 B (Basalt). This comparison measures the complete configurations. It does not isolate the effect of PDL from the new controller kernel.
 
