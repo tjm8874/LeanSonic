@@ -20,6 +20,9 @@ use crate::cuda_ffi::{
     CUlaunchConfig, CUmodule, CUstream, CapturedGraphExec, CudaContextHandle, DeviceBuf,
     PinnedHostBuf, CU_EVENT_DISABLE_TIMING,
 };
+use crate::inkling2_dflash2::{
+    find_dflash2, load_dflash2_kernels, Dflash2DrafterGpu, Dflash2KernelFns,
+};
 use crate::inkling2_mtp::{
     spec_copy_match, ContextCopyIndex, DsparkDrafterGpu, MtpKernelFns, SuffixDrafter,
 };
@@ -563,6 +566,7 @@ struct KernelFns {
     mtp_markov_step_q8: CUfunction,
     mtp_fold_mv_q8: CUfunction,
     mtp_fold_fin: CUfunction,
+    /// DFlash 2 drafter kernels (#103); `None` with an older cubin.
     // v0.6.0 0-ULP fused glue & coalesced controller kernels (`Issue #11`)
     depth_mix_rmsnorm_quant_q8_64_b: Option<CUfunction>,
     depth_mix_rmsnorm_d_quant_q8_16_b: Option<CUfunction>,
@@ -963,6 +967,8 @@ pub struct Inkling2GpuEngine {
     d_conv_seq: DeviceBuf,
     d_conv_hist_ptrs: DeviceBuf,
     pub drafter: Option<DsparkDrafterGpu>,
+    /// DFlash 2 block drafter (#103), preferred over DSpark for solo speculative rounds.
+    pub dflash2: Option<Dflash2DrafterGpu>,
     pub spec_k: usize,
     pub spec_drafted_total: usize,
     pub spec_accepted_total: usize,
@@ -1887,6 +1893,37 @@ impl Inkling2GpuEngine {
         } else {
             None
         };
+        // DFlash 2 (#103): `LEANSONIC_DRAFTER=auto` (default) prefers it when its checkpoint is found.
+        let drafter_choice = std::env::var("LEANSONIC_DRAFTER").unwrap_or_else(|_| "auto".into());
+        let dflash2 = match (spec_k > 0, drafter_choice.as_str(), find_dflash2(model_dir)) {
+            (true, "auto" | "dflash2", Some(path)) => {
+                let k = load_dflash2_kernels(&ctx)?;
+                Some(Dflash2DrafterGpu::load_from_file(
+                    &ctx,
+                    Dflash2KernelFns {
+                        pdl_all: pdl_all_enabled(&ctx, fns.pdl_all_marker),
+                        quant_q8_64_b: fns.quant_q8_64_b,
+                        q8_gemm_ktiled: fns.q8_dp4a_gemm_ktiled,
+                        q8_gemm_b8_fast: fns.q8_dp4a_gemm_b8_fast,
+                        block_init: k[0],
+                        rmsnorm: k[1],
+                        conv2: k[2],
+                        qk_prep: k[3],
+                        attn: k[4],
+                        silu_mul: k[5],
+                        tap_gather: k[6],
+                        top16_part: k[7],
+                        top16_merge: k[8],
+                        select: k[9],
+                    },
+                    &path,
+                )?)
+            }
+            (true, "dflash2", None) => {
+                return Err("LEANSONIC_DRAFTER=dflash2 but no DFlash 2 checkpoint was found".into())
+            }
+            _ => None,
+        };
 
         let cross_q = st
             .require("model.llm.middle_cycle_cross_pass_queries", "F32", &[24, D])
@@ -2416,7 +2453,7 @@ impl Inkling2GpuEngine {
                 EXPERT_PAGE,
                 attn_split_g,
                 has_flash_tc,
-                drafter.is_some(),
+                drafter.is_some() || dflash2.is_some(),
             )?,
             d_b_exp_counts: DeviceBuf::alloc_zeroed(&ctx, N_EXP * 4)?,
             d_b_active_exps: DeviceBuf::alloc_zeroed(&ctx, N_EXP * 4)?,
@@ -2425,6 +2462,7 @@ impl Inkling2GpuEngine {
             d_conv_seq,
             d_conv_hist_ptrs,
             drafter,
+            dflash2,
             spec_k,
             spec_drafted_total: 0,
             spec_accepted_total: 0,
@@ -3221,6 +3259,9 @@ impl Inkling2GpuEngine {
         self.spec_copy_rounds = 0;
         self.spec_verify_steps = 0;
         if let Some(ref mut d) = self.drafter {
+            d.reset();
+        }
+        if let Some(ref mut d) = self.dflash2 {
             d.reset();
         }
         unsafe {
@@ -5566,6 +5607,19 @@ impl Inkling2GpuEngine {
     }
 
     fn enqueue_drafter_context(&mut self, rows: usize) -> Result<(), String> {
+        if let Some(df2) = &mut self.dflash2 {
+            let taps = self
+                .prefill
+                .d_taps
+                .as_ref()
+                .ok_or("missing drafter tap storage")?;
+            df2.enqueue_add_ctx(
+                self.ctx.compute_stream,
+                taps.ptr,
+                self.prefill.capacity,
+                rows,
+            )?;
+        }
         if let Some(drafter) = &mut self.drafter {
             let taps = self
                 .prefill
@@ -6620,6 +6674,15 @@ impl Inkling2GpuEngine {
             } else if !copied.is_empty() {
                 self.spec_copy_rounds += 1;
                 copied
+            } else if let Some(ref mut d) = self.dflash2.as_mut().filter(|_| self.n_seqs == 1) {
+                d.draft_tokens(
+                    self.ctx.compute_stream,
+                    self.embed.ptr(),
+                    self.embed_norm.ptr,
+                    &self.unembed_q8,
+                    cur_tok,
+                    max_draft,
+                )?
             } else if let Some(ref mut d) = self.drafter {
                 d.draft_tokens(
                     self.ctx.compute_stream,
@@ -10321,6 +10384,25 @@ mod tests {
         assert!(counts.macro_entries >= 4, "{counts:?}");
         assert!(counts.indexed >= 7, "{counts:?}");
         assert!(CUDA_KERNEL_SRC.contains("void ink2_pdl_all_marker()"));
+    }
+
+    /// The DFlash 2 module (#103) honours the same PDL contract, and exports exactly the entry
+    /// points the host loads.
+    #[test]
+    fn dflash2_kernels_honour_pdl_contract() {
+        use crate::inkling2_dflash2::{DF2_KERNEL_NAMES, DF2_KERNEL_SRC};
+        let counts = pdl_audit(DF2_KERNEL_SRC).unwrap();
+        assert_eq!(counts.kernels, DF2_KERNEL_NAMES.len(), "{counts:?}");
+        for name in DF2_KERNEL_NAMES {
+            assert!(
+                DF2_KERNEL_SRC.contains(&format!("__global__ void {name}(")),
+                "{name}"
+            );
+            assert!(
+                !CUDA_KERNEL_SRC.contains(&format!("void {name}(")),
+                "{name}"
+            );
+        }
     }
 
     /// Planted-fault controls for `pdl_audit` (#179): each minimal violation of the PDL

@@ -2448,4 +2448,154 @@ def cycle11PrefillKernelSuite : List KernelResourceSpec :=
 theorem cycle11_prefill_kernels_all_valid :
     (cycle11PrefillKernelSuite.all checkSm120Kernel) = true := by decide
 
+-- ============================================================================
+-- DFlash 2 block-diffusion drafter (#103, `kernels/inkling2_dflash2_sm120.cu`): resources
+-- measured with `cuobjdump -res-usage` (CI flags: `-std=c++17 -O3 -arch=sm_120a`).
+-- ============================================================================
+
+/-- DFlash 2: Anchor + mask rows: embedding RMSNorm (`20` regs, `32` B SMEM). -/
+def kDf2BlockInit : KernelResourceSpec :=
+  { name := "df2_block_init"
+    threadsPerCta := 256
+    rawRegsPerThread := 20
+    userSmemPerCtaBytes := 32
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- DFlash 2: Row RMSNorm with FP32 weights (`20` regs, `32` B SMEM). -/
+def kDf2Rmsnorm : KernelResourceSpec :=
+  { name := "df2_rmsnorm"
+    threadsPerCta := 256
+    rawRegsPerThread := 20
+    userSmemPerCtaBytes := 32
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- DFlash 2: Dynamic two-tap group-16 causal convolution (`28` regs, `0` B SMEM). -/
+def kDf2Conv2 : KernelResourceSpec :=
+  { name := "df2_conv2"
+    threadsPerCta := 256
+    rawRegsPerThread := 28
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- DFlash 2: Per-head RMSNorm + NeoX RoPE, K / V ring commit (`25` regs, `512` B SMEM). -/
+def kDf2QkPrep : KernelResourceSpec :=
+  { name := "df2_qk_prep"
+    threadsPerCta := 128
+    rawRegsPerThread := 25
+    userSmemPerCtaBytes := 512
+    smemAlignPadBytes := 0
+    ctasPerSm := 8
+    clusterCtas := 1
+    minRequiredL1KiB := 112
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- DFlash 2: Non-causal sliding-window block attention (`44` regs, `4160` B SMEM). -/
+def kDf2Attn : KernelResourceSpec :=
+  { name := "df2_attn"
+    threadsPerCta := 256
+    rawRegsPerThread := 44
+    userSmemPerCtaBytes := 4160
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- DFlash 2: SwiGLU activation (`14` regs, `0` B SMEM). -/
+def kDf2SiluMul : KernelResourceSpec :=
+  { name := "df2_silu_mul"
+    threadsPerCta := 256
+    rawRegsPerThread := 14
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- DFlash 2: Target tap gather for context commits (`28` regs, `0` B SMEM). -/
+def kDf2TapGather : KernelResourceSpec :=
+  { name := "df2_tap_gather"
+    threadsPerCta := 256
+    rawRegsPerThread := 28
+    userSmemPerCtaBytes := 0
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- DFlash 2: Chunk Top-16 + softcapped chunk LSE (`31` regs, `40512` B SMEM). -/
+def kDf2Top16Part : KernelResourceSpec :=
+  { name := "df2_top16_part"
+    threadsPerCta := 256
+    rawRegsPerThread := 31
+    userSmemPerCtaBytes := 40512
+    smemAlignPadBytes := 0
+    ctasPerSm := 2
+    clusterCtas := 1
+    minRequiredL1KiB := 28
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- DFlash 2: Row Top-16 + full-vocabulary LSE merge (`40` regs, `5184` B SMEM). -/
+def kDf2Top16Merge : KernelResourceSpec :=
+  { name := "df2_top16_merge"
+    threadsPerCta := 256
+    rawRegsPerThread := 40
+    userSmemPerCtaBytes := 5184
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- DFlash 2: Rank-256 bilinear candidate selector (`40` regs, `132` B SMEM). -/
+def kDf2Select : KernelResourceSpec :=
+  { name := "df2_select"
+    threadsPerCta := 512
+    rawRegsPerThread := 40
+    userSmemPerCtaBytes := 132
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def dflash2DrafterKernelSuite : List KernelResourceSpec :=
+  [ kDf2BlockInit
+  , kDf2Rmsnorm
+  , kDf2Conv2
+  , kDf2QkPrep
+  , kDf2Attn
+  , kDf2SiluMul
+  , kDf2TapGather
+  , kDf2Top16Part
+  , kDf2Top16Merge
+  , kDf2Select ]
+
+theorem dflash2_drafter_kernels_all_valid :
+    (dflash2DrafterKernelSuite.all checkSm120Kernel) = true := by decide
+
 end LeanSonic.Proofs
