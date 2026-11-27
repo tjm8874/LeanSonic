@@ -12,6 +12,14 @@ Using the #113 cubin, PDL enabled, greedy sampling, FP16 KV and the same 32-toke
 - PRO4500: `68538b83e50b2df69e032bc05740bd5f019a9dd279f7077905553fe792df3489`.
 - 5060Ti: `68538b83e50b2df69e032bc05740bd5f019a9dd279f7077905553fe792df3489`.
 
+## Loading and generation
+
+Five mirrored cycles used fresh processes, the same CLI and cubin, and fully page-cached model files before each measurement. Each of the ten processes per arm ran three 64-step generations. Decode reports the mean of the last two runs. All 64 IDs matched in every run.
+
+| GPU | Previous load / neighbor load (s) | Previous decode64 / neighbor decode64 (ms) |
+|---|---:|---:|
+| PRO4500 | 5.132 / 5.551 | 390.38 / 390.35 |
+
 ## Matched BF16 quality
 
 | WikiText-2 split | scored positions | mean KL | maximum KL | top-1 matches | PPL |

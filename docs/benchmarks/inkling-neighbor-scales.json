@@ -314,7 +314,309 @@
       "raw_scale_bytes_verified": 1401421824
     }
   },
-  "timings": {},
+  "timings": {
+    "PRO4500": {
+      "cycles": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "means": {
+        "prior": {
+          "load_s": 5.132,
+          "decode64_ms": 390.3845
+        },
+        "dest": {
+          "load_s": 5.551,
+          "decode64_ms": 390.354
+        }
+      },
+      "runs": [
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 1,
+          "leg": 0,
+          "shard": 15850005248,
+          "loader_s": 5.29,
+          "decode64_ms": [
+            390.28,
+            390.17,
+            390.16
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 1,
+          "leg": 1,
+          "shard": 15770570696,
+          "loader_s": 5.54,
+          "decode64_ms": [
+            390.2,
+            389.96,
+            390.09
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 1,
+          "leg": 2,
+          "shard": 15770570696,
+          "loader_s": 5.46,
+          "decode64_ms": [
+            390.31,
+            390.12,
+            390.14
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 1,
+          "leg": 3,
+          "shard": 15850005248,
+          "loader_s": 4.99,
+          "decode64_ms": [
+            390.33,
+            390.11,
+            390.07
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 2,
+          "leg": 0,
+          "shard": 15770570696,
+          "loader_s": 5.43,
+          "decode64_ms": [
+            390.31,
+            390.11,
+            390.05
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 2,
+          "leg": 1,
+          "shard": 15850005248,
+          "loader_s": 5.1,
+          "decode64_ms": [
+            390.28,
+            390.22,
+            390.17
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 2,
+          "leg": 2,
+          "shard": 15850005248,
+          "loader_s": 4.99,
+          "decode64_ms": [
+            390.49,
+            390.26,
+            390.48
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 2,
+          "leg": 3,
+          "shard": 15770570696,
+          "loader_s": 5.45,
+          "decode64_ms": [
+            390.38,
+            390.29,
+            390.33
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 3,
+          "leg": 0,
+          "shard": 15850005248,
+          "loader_s": 4.99,
+          "decode64_ms": [
+            390.51,
+            390.4,
+            390.4
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 3,
+          "leg": 1,
+          "shard": 15770570696,
+          "loader_s": 5.49,
+          "decode64_ms": [
+            390.48,
+            390.37,
+            390.38
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 3,
+          "leg": 2,
+          "shard": 15770570696,
+          "loader_s": 5.46,
+          "decode64_ms": [
+            390.6,
+            390.44,
+            390.44
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 3,
+          "leg": 3,
+          "shard": 15850005248,
+          "loader_s": 5.02,
+          "decode64_ms": [
+            390.54,
+            390.36,
+            390.31
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 4,
+          "leg": 0,
+          "shard": 15770570696,
+          "loader_s": 5.5,
+          "decode64_ms": [
+            390.66,
+            390.41,
+            390.52
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 4,
+          "leg": 1,
+          "shard": 15850005248,
+          "loader_s": 5.0,
+          "decode64_ms": [
+            390.58,
+            390.36,
+            390.36
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 4,
+          "leg": 2,
+          "shard": 15850005248,
+          "loader_s": 5.16,
+          "decode64_ms": [
+            390.77,
+            390.54,
+            390.52
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 4,
+          "leg": 3,
+          "shard": 15770570696,
+          "loader_s": 5.48,
+          "decode64_ms": [
+            390.7,
+            390.42,
+            390.43
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 5,
+          "leg": 0,
+          "shard": 15850005248,
+          "loader_s": 5.42,
+          "decode64_ms": [
+            391.11,
+            390.75,
+            390.61
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 5,
+          "leg": 1,
+          "shard": 15770570696,
+          "loader_s": 5.52,
+          "decode64_ms": [
+            390.79,
+            390.62,
+            390.68
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "dest",
+          "cycle": 5,
+          "leg": 2,
+          "shard": 15770570696,
+          "loader_s": 6.18,
+          "decode64_ms": [
+            391.09,
+            390.6,
+            390.68
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        },
+        {
+          "cache_resident_fraction": 1.0,
+          "arm": "prior",
+          "cycle": 5,
+          "leg": 3,
+          "shard": 15850005248,
+          "loader_s": 5.36,
+          "decode64_ms": [
+            391.3,
+            390.67,
+            390.77
+          ],
+          "ids_sha256": "c2ee138238327416b78a4939eafd54b2eb0150f0853ac3c485165af868d3b710"
+        }
+      ]
+    }
+  },
   "parity": {
     "PRO4500": "68538b83e50b2df69e032bc05740bd5f019a9dd279f7077905553fe792df3489",
     "5060Ti": "68538b83e50b2df69e032bc05740bd5f019a9dd279f7077905553fe792df3489"
