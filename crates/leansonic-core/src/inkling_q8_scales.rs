@@ -9,10 +9,8 @@ pub fn pack(raw: &[u8]) -> Result<Vec<u8>, String> {
     if raw.is_empty() || !raw.len().is_multiple_of(4) {
         return Err("invalid Q8 scale plane length".into());
     }
-    let words = || {
-        raw.chunks_exact(4)
-            .map(|w| u32::from_le_bytes(w.try_into().unwrap()))
-    };
+    let (chunks, _) = raw.as_chunks::<4>();
+    let words = || chunks.iter().copied().map(u32::from_le_bytes);
     let mut counts = HashMap::new();
     for word in words() {
         *counts.entry(word).or_insert(0usize) += 1;
