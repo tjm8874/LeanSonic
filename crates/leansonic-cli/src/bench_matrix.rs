@@ -625,6 +625,8 @@ struct Opts {
     ctx: usize,
     quick: bool,
     long: bool,
+    /// `--kld <ref.kld>`: run `eval-kld` once per GPU for the `kld_mean` cell.
+    kld_ref: Option<PathBuf>,
     spec_prompts: Option<PathBuf>,
     targets: PathBuf,
     out: Option<PathBuf>,
@@ -641,6 +643,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         ctx: 20480,
         quick: false,
         long: false,
+        kld_ref: None,
         spec_prompts: None,
         targets: PathBuf::from("docs/benchmarks/targets.json"),
         out: None,
@@ -664,6 +667,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--ctx" => o.ctx = val(&mut i, "--ctx")?.parse().map_err(|_| "bad --ctx")?,
             "--quick" => o.quick = true,
             "--long" => o.long = true,
+            "--kld" => o.kld_ref = Some(PathBuf::from(val(&mut i, "--kld")?)),
             "--require-idle" => o.require_idle = true,
             "--spec-prompts" => {
                 o.spec_prompts = Some(PathBuf::from(val(&mut i, "--spec-prompts")?))
@@ -811,6 +815,66 @@ fn run_probe(o: &Opts, gpu: usize, p: &Probe) -> ProbeSamples {
     s
 }
 
+/// 100-chunk teacher-forced KLD for the `kld_mean` cell. `eval-kld` is deterministic for a
+/// fixed binary, weights and GPU, so one run is the sample.
+#[derive(Default)]
+struct KldRun {
+    mean: Option<f64>,
+    max: Option<f64>,
+    top1: Option<f64>,
+    ppl: Option<f64>,
+    error: Option<String>,
+}
+
+fn json_num(line: &str, key: &str) -> Option<f64> {
+    let pat = format!("\"{key}\":");
+    let start = line.find(&pat)? + pat.len();
+    let rest = &line[start..];
+    let end = rest.find([',', '}']).unwrap_or(rest.len());
+    rest[..end].trim().parse().ok()
+}
+
+fn parse_kld_output(text: &str) -> KldRun {
+    match text.lines().rev().find(|l| l.contains("\"mean_kld\"")) {
+        Some(line) => KldRun {
+            mean: json_num(line, "mean_kld"),
+            max: json_num(line, "max_kld"),
+            top1: json_num(line, "top1_agreement"),
+            ppl: json_num(line, "ppl"),
+            error: None,
+        },
+        None => KldRun {
+            error: Some(
+                text.lines()
+                    .find(|l| l.contains("ERROR"))
+                    .unwrap_or("eval-kld produced no result")
+                    .to_string(),
+            ),
+            ..Default::default()
+        },
+    }
+}
+
+fn run_kld(o: &Opts, gpu: usize, reference: &Path) -> KldRun {
+    let out = Command::new(&o.bin)
+        .args(["eval-kld", "--weights", &o.weights, "--ref"])
+        .arg(reference)
+        .env("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
+        .env("CUDA_VISIBLE_DEVICES", gpu.to_string())
+        .output();
+    match out {
+        Ok(out) => parse_kld_output(&format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )),
+        Err(e) => KldRun {
+            error: Some(format!("spawn {}: {e}", o.bin.display())),
+            ..Default::default()
+        },
+    }
+}
+
 /// (cell id, label, higher_is_better, extractor over probes)
 type Extract = fn(&BTreeMap<&'static str, ProbeSamples>) -> Vec<f64>;
 
@@ -908,6 +972,9 @@ fn fmt_opt(v: Option<f64>) -> String {
     v.map(|x| {
         if x >= 100.0 {
             format!("{x:.0}")
+        } else if x.abs() < 0.1 {
+            // KLD-scale values (e.g. 0.003151) would print as `0.00` with two decimals.
+            format!("{x:.5}")
         } else {
             format!("{x:.2}")
         }
@@ -1032,9 +1099,29 @@ pub fn run(args: &[String]) -> Result<(), String> {
             probe_samples.insert(p.id, s);
         }
 
+        let kld = o.kld_ref.as_ref().map(|r| {
+            eprint!("[bench-matrix] GPU {idx} eval-kld x1 ");
+            let k = run_kld(&o, idx, r);
+            eprintln!(
+                " {}",
+                k.mean
+                    .map(|m| format!("mean={m:.6}"))
+                    .unwrap_or_else(|| "failed".into())
+            );
+            if let Some(e) = &k.error {
+                errors.push(Json::Str(format!("kld: {e}")));
+            }
+            k
+        });
+
         let mut cells = BTreeMap::new();
         for (id, _, hib, f) in CELLS {
-            let samples = f(&probe_samples);
+            let mut samples = f(&probe_samples);
+            if *id == "kld_mean" {
+                if let Some(m) = kld.as_ref().and_then(|k| k.mean) {
+                    samples = vec![m];
+                }
+            }
             let target = sku_t.and_then(|t| t.get(id)).and_then(Json::as_f64);
             let (j, _) = cell_json(&samples, target, *hib);
             cells.insert(id.to_string(), j);
@@ -1070,6 +1157,19 @@ pub fn run(args: &[String]) -> Result<(), String> {
             (
                 "foreign_processes",
                 Json::Arr(foreign.into_iter().map(Json::Str).collect()),
+            ),
+            (
+                "kld",
+                kld.as_ref()
+                    .map(|k| {
+                        obj(vec![
+                            ("mean", num_or_null(k.mean)),
+                            ("max", num_or_null(k.max)),
+                            ("top1_agreement", num_or_null(k.top1)),
+                            ("ppl", num_or_null(k.ppl)),
+                        ])
+                    })
+                    .unwrap_or(Json::Null),
             ),
             ("inputs", Json::Obj(inputs)),
             ("errors", Json::Arr(errors)),
@@ -1174,6 +1274,20 @@ mod tests {
         let (lo, hi) = bootstrap_ci(&v).unwrap();
         assert!(lo <= 10.0 && hi >= 10.0 && lo >= 9.9 && hi <= 10.1);
         assert_eq!(bootstrap_ci(&v), bootstrap_ci(&v), "deterministic");
+    }
+
+    #[test]
+    fn kld_output_parse() {
+        let text = "[LeanSonic GPU] x\n{\"chunks\":100,\"ppl\":7.065,\"mean_kld\":0.003151,\"max_kld\":0.608,\"top1_agreement\":0.977}\n";
+        let k = parse_kld_output(text);
+        assert_eq!(k.mean, Some(0.003151));
+        assert_eq!(k.max, Some(0.608));
+        assert_eq!(k.top1, Some(0.977));
+        assert_eq!(k.ppl, Some(7.065));
+        assert!(k.error.is_none());
+        let bad = parse_kld_output("[ERROR] no ref\n");
+        assert!(bad.mean.is_none());
+        assert_eq!(bad.error.as_deref(), Some("[ERROR] no ref"));
     }
 
     #[test]

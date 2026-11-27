@@ -29,6 +29,7 @@ leansonic bench-matrix --merge results_cuda01.json results_cudaserver.json
 | `--ctx` | 20480 | `LEANSONIC_CTX` |
 | `--quick` | — | N=1 にし、16K を省く（動作確認用） |
 | `--long` | — | 128K のセル（`prefill_128k` / `long_128k_decode`）も計測する |
+| `--kld` | — | BF16 参照ファイル（`.kld`）を指定すると、GPU ごとに `eval-kld` を 1 回実行して `kld_mean` を埋める（決定的なので N=1）。max / Top-1 / PPL も JSON の `kld` に記録する |
 | `--require-idle` | — | 他のプロセスが GPU を使っていたら中止する |
 | `--bin` | 自分自身 | 計測する別のバイナリ |
 | `--targets` | `docs/benchmarks/targets.json` | 目標値ファイル |
@@ -56,4 +57,5 @@ leansonic bench-matrix --merge results_cuda01.json results_cudaserver.json
 | `spec_avg` | conv / struct / prose、`--spec 7 --gen 256` の平均 |
 | `vram_gib` | `decode_short` 実行時の `VRAM used` |
 | `prefill_128k` / `long_128k_decode` | `--long` 指定時のみ。`synth:131072`、`--spec 0 --gen 128`、`LEANSONIC_CTX=131584` |
-| `c64_total` / `kld_mean` | 未実装（現状は UNMEASURED。T010 / T005 で追加する） |
+| `kld_mean` | `--kld <ref.kld>` 指定時のみ。`eval-kld`（100 chunk × 512、teacher forcing）の平均 KLD |
+| `c64_total` | 未実装（現状は UNMEASURED。T010 で追加する） |
