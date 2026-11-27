@@ -1,6 +1,6 @@
 {
   "schema": "leansonic.targets.v1",
-  "source": "Issue #8 and docs/goals/leansonic-fastest-engine/goal.md (target table). Model: Inkling-2-Mini, FP16 KV, single request. null = record only (計測して記録).",
+  "source": "Issue #78 (superseding #8) and docs/goals/leansonic-fastest-engine/goal.md. Adaptive Ratchet Policy: P0 = initial Basalt-class target; P1 = +15% stretch once initial target is cleared; P3 = Measured * 1.05 (+5% modest priority) once +15% is cleared. Model: Inkling-2-Mini, single request. null = record only.",
   "units": {
     "prefill_2k": "tok/s", "prefill_16k": "tok/s", "decode_short": "tok/s", "decode_16k": "tok/s",
     "spec_avg": "tok/s (mean of conv/struct/prose)", "vram_gib": "GiB (max)", "prefill_128k": "tok/s", "long_128k_decode": "tok/s",
@@ -9,23 +9,35 @@
   "skus": {
     "rtx_pro_5000": {
       "match": "RTX PRO 5000",
-      "prefill_2k": 14000, "prefill_16k": 14000, "decode_short": 220, "decode_16k": 185,
+      "prefill_2k": 16100, "prefill_16k": 14000, "decode_short": 220, "decode_16k": 185,
       "spec_avg": 310, "vram_gib": 16.6, "prefill_128k": 9300, "long_128k_decode": 113, "c64_total": 1340, "kld_mean": 0.003
     },
     "rtx_pro_4500": {
       "match": "RTX PRO 4500",
       "prefill_2k": 11500, "prefill_16k": 11500, "decode_short": 149, "decode_16k": 125,
-      "spec_avg": 210, "vram_gib": 16.6, "prefill_128k": 7600, "long_128k_decode": 77, "c64_total": 910, "kld_mean": 0.003
+      "spec_avg": 242, "vram_gib": 16.6, "prefill_128k": 7600, "long_128k_decode": 89, "c64_total": 910, "kld_mean": 0.003
     },
     "rtx_5070_ti": {
       "match": "RTX 5070 Ti",
-      "prefill_2k": 3700, "prefill_16k": 5300, "decode_short": 105, "decode_16k": 85,
-      "spec_avg": 100, "vram_gib": null, "prefill_128k": null, "long_128k_decode": null, "c64_total": null, "kld_mean": 0.003
+      "prefill_2k": 7080, "prefill_16k": 6095, "decode_short": 105, "decode_16k": 85,
+      "spec_avg": 152, "vram_gib": null, "prefill_128k": null, "long_128k_decode": null, "c64_total": null, "kld_mean": 0.003
     },
     "rtx_5060_ti": {
       "match": "RTX 5060 Ti",
-      "prefill_2k": 1800, "prefill_16k": 1800, "decode_short": 45, "decode_16k": 40,
+      "prefill_2k": 3070, "prefill_16k": 2695, "decode_short": 45, "decode_16k": 40,
       "spec_avg": null, "vram_gib": null, "prefill_128k": null, "long_128k_decode": null, "c64_total": null, "kld_mean": 0.003
     }
+  },
+  "initial_basalt_targets": {
+    "rtx_pro_5000": { "prefill_2k": 14000, "prefill_16k": 14000, "decode_short": 220, "decode_16k": 185, "spec_avg": 310, "vram_gib": 16.6, "prefill_128k": 9300, "long_128k_decode": 113, "c64_total": 1340, "kld_mean": 0.003 },
+    "rtx_pro_4500": { "prefill_2k": 11500, "prefill_16k": 11500, "decode_short": 149, "decode_16k": 125, "spec_avg": 210, "vram_gib": 16.6, "prefill_128k": 7600, "long_128k_decode": 77, "c64_total": 910, "kld_mean": 0.003 },
+    "rtx_5070_ti":  { "prefill_2k": 3700,  "prefill_16k": 5300,  "decode_short": 105, "decode_16k": 85,  "spec_avg": 100, "kld_mean": 0.003 },
+    "rtx_5060_ti":  { "prefill_2k": 1800,  "prefill_16k": 1800,  "decode_short": 45,  "decode_16k": 40,  "kld_mean": 0.003 }
+  },
+  "priorities": {
+    "rtx_pro_5000": { "prefill_2k": "P1(+15%)", "prefill_16k": "P0", "decode_short": "P0", "decode_16k": "P0", "spec_avg": "P0", "vram_gib": "PASS", "prefill_128k": "P0", "long_128k_decode": "P0", "c64_total": "P0", "kld_mean": "P1" },
+    "rtx_pro_4500": { "prefill_2k": "P0", "prefill_16k": "P0", "decode_short": "P0", "decode_16k": "P0", "spec_avg": "P1(+15%)", "vram_gib": "PASS", "prefill_128k": "P0", "long_128k_decode": "P1(+15%)", "c64_total": "P0", "kld_mean": "P1" },
+    "rtx_5070_ti":  { "prefill_2k": "P3(+5%)", "prefill_16k": "P1(+15%)", "decode_short": "P0", "decode_16k": "P0", "spec_avg": "P3(+5%)", "kld_mean": "P1" },
+    "rtx_5060_ti":  { "prefill_2k": "P3(+5%)", "prefill_16k": "P3(+5%)", "decode_short": "P0", "decode_16k": "P0", "kld_mean": "P1" }
   }
 }
