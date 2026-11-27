@@ -254,10 +254,10 @@ pub fn pack_four_scale_banks(
 /// The frame layout and decoder are shared with the median-cut encoder.
 pub fn pack_four_scale_quantiles(
     raw: &[u8],
-    mut scales: Vec<u8>,
+    scales: Vec<u8>,
     base: &[u8; 128],
     quartiles: [u8; 2],
-    mut output: impl Write,
+    output: impl Write,
 ) -> io::Result<usize> {
     if quartiles.iter().any(|q| !(1..=3).contains(q)) {
         return Err(io::Error::other("invalid scale quartile"));
@@ -296,8 +296,21 @@ pub fn pack_four_scale_quantiles(
             cuts[(side + 1) * 128 + expert] = best.1 as u8;
         }
     }
-    four_scale_banks(&mut scales, &cuts).map_err(io::Error::other)?;
-    output.write_all(&cuts)?;
+    pack_four_scale_boundaries(raw, scales, &cuts, output)
+}
+
+/// Encode the existing four-bank format using explicit per-expert boundaries.
+pub fn pack_four_scale_boundaries(
+    raw: &[u8],
+    mut scales: Vec<u8>,
+    cuts: &[u8; 384],
+    mut output: impl Write,
+) -> io::Result<usize> {
+    if scales.len().checked_mul(8) != Some(raw.len()) {
+        return Err(io::Error::other("invalid four-bank weight dimensions"));
+    }
+    four_scale_banks(&mut scales, cuts).map_err(io::Error::other)?;
+    output.write_all(cuts)?;
     Ok(cuts.len() + pack_nvfp4_tables::<false>(raw, &scales, 4 * NVFP4_CONTEXTS, output)?)
 }
 
