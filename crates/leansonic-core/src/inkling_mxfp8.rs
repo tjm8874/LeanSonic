@@ -243,10 +243,25 @@ fn four_scale_banks(scales: &mut [u8], cuts: &[u8; 384]) -> Result<(), String> {
 
 pub fn pack_four_scale_banks(
     raw: &[u8],
+    scales: Vec<u8>,
+    base: &[u8; 128],
+    output: impl Write,
+) -> io::Result<usize> {
+    pack_four_scale_quantiles(raw, scales, base, [2, 2], output)
+}
+
+/// Split each side of the original scale cutoff at a chosen quartile.
+/// The frame layout and decoder are shared with the median-cut encoder.
+pub fn pack_four_scale_quantiles(
+    raw: &[u8],
     mut scales: Vec<u8>,
     base: &[u8; 128],
+    quartiles: [u8; 2],
     mut output: impl Write,
 ) -> io::Result<usize> {
+    if quartiles.iter().any(|q| !(1..=3).contains(q)) {
+        return Err(io::Error::other("invalid scale quartile"));
+    }
     if scales.is_empty()
         || !scales.len().is_multiple_of(128)
         || scales.len().checked_mul(8) != Some(raw.len())
@@ -270,11 +285,12 @@ pub fn pack_four_scale_banks(
             let bins = &counts[lo..hi];
             let total = bins.iter().sum::<usize>();
             let mut prefix = 0;
-            let mut best = (total, lo);
+            let target = usize::from(quartiles[side]) * total;
+            let mut best = (target, lo);
             for (i, &n) in bins.iter().enumerate() {
                 if lo + i < 127 {
                     prefix += n;
-                    best = best.min(((2 * prefix).abs_diff(total), lo + i + 1));
+                    best = best.min(((4 * prefix).abs_diff(target), lo + i + 1));
                 }
             }
             cuts[(side + 1) * 128 + expert] = best.1 as u8;
