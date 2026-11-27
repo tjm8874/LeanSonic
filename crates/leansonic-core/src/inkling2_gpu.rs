@@ -20,7 +20,9 @@ use crate::cuda_ffi::{
     CUlaunchConfig, CUmodule, CUstream, CapturedGraphExec, CudaContextHandle, DeviceBuf,
     PinnedHostBuf, CU_EVENT_DISABLE_TIMING,
 };
-use crate::inkling2_mtp::{DsparkDrafterGpu, MtpKernelFns, SuffixDrafter};
+use crate::inkling2_mtp::{
+    spec_copy_match, ContextCopyIndex, DsparkDrafterGpu, MtpKernelFns, SuffixDrafter,
+};
 use crate::safetensors::MappedSafeTensors;
 
 const CUDA_KERNEL_SRC: &str = include_str!("../../../kernels/inkling2_sm120.cu");
@@ -951,6 +953,8 @@ pub struct Inkling2GpuEngine {
     pub spec_k: usize,
     pub spec_drafted_total: usize,
     pub spec_accepted_total: usize,
+    /// Verify rounds whose draft was a context copy (`LEANSONIC_SPEC_COPY`).
+    pub spec_copy_rounds: usize,
     pub spec_verify_steps: usize,
     host_pos: usize,
     decode_graph: Option<CapturedGraphExec>,
@@ -2317,6 +2321,7 @@ impl Inkling2GpuEngine {
             spec_k,
             spec_drafted_total: 0,
             spec_accepted_total: 0,
+            spec_copy_rounds: 0,
             spec_verify_steps: 0,
             ctx,
             fns,
@@ -3075,6 +3080,7 @@ impl Inkling2GpuEngine {
         self.host_pos = 0;
         self.spec_drafted_total = 0;
         self.spec_accepted_total = 0;
+        self.spec_copy_rounds = 0;
         self.spec_verify_steps = 0;
         if let Some(ref mut d) = self.drafter {
             d.reset();
@@ -6285,7 +6291,18 @@ impl Inkling2GpuEngine {
         }
 
         // Speculative Decoding (`DSpark` `mtp.safetensors` GPU Drafter or `SuffixDrafter` fallback)
-        let mut full_hist: Vec<u32> = if self.drafter.is_none() {
+        // Context copy (#177): with the neural drafter loaded, a round whose last
+        // `spec_copy_match()` tokens already occurred in the prompt or output proposes the
+        // tokens that followed them instead of running the drafter. Verification keeps the
+        // output greedy-exact.
+        let copy_match = if self.drafter.is_some() {
+            spec_copy_match()
+        } else {
+            0
+        };
+        let mut copy_index = ContextCopyIndex::new(copy_match);
+        let track_hist = self.drafter.is_none() || copy_match > 0;
+        let mut full_hist: Vec<u32> = if track_hist {
             let mut h = Vec::with_capacity(prompt_tokens.len() + n_gen + 8);
             h.extend_from_slice(prompt_tokens);
             h
@@ -6385,8 +6402,16 @@ impl Inkling2GpuEngine {
 
             let paused = pause_left > 0;
             pause_left = pause_left.saturating_sub(1);
+            let copied = if max_draft == 0 || paused {
+                Vec::new()
+            } else {
+                copy_index.run(&full_hist, cur_tok, max_draft)
+            };
             let drafts = if max_draft == 0 || paused {
                 Vec::new()
+            } else if !copied.is_empty() {
+                self.spec_copy_rounds += 1;
+                copied
             } else if let Some(ref mut d) = self.drafter {
                 d.draft_tokens(
                     self.ctx.compute_stream,
@@ -6411,7 +6436,7 @@ impl Inkling2GpuEngine {
                 }
                 out_ids.push(cur_tok);
                 on_token(cur_tok);
-                if self.drafter.is_none() {
+                if track_hist {
                     full_hist.push(cur_tok);
                 }
                 steps_done += 1;
@@ -6472,7 +6497,7 @@ impl Inkling2GpuEngine {
                 if out_ids.len() < n_gen {
                     out_ids.push(accepted_tok);
                     on_token(accepted_tok);
-                    if self.drafter.is_none() {
+                    if track_hist {
                         full_hist.push(accepted_tok);
                     }
                 }
