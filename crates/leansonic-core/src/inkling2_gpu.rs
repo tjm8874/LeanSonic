@@ -6384,6 +6384,7 @@ impl Inkling2GpuEngine {
         const PAUSE_AFTER: usize = 4;
         let pause_enabled = std::env::var("LEANSONIC_SPEC_PAUSE").map_or(true, |v| v != "0");
         let (mut zero_streak, mut pause_left, mut pause_len) = (0usize, 0usize, 8usize);
+        let mut last_verify_row = None;
         while steps_done < n_gen {
             if Some(cur_tok) == stop_tok {
                 break;
@@ -6444,6 +6445,7 @@ impl Inkling2GpuEngine {
                     break;
                 }
                 cur_tok = self.forward_greedy_token(cur_tok)?;
+                last_verify_row = None;
                 continue;
             }
 
@@ -6480,33 +6482,51 @@ impl Inkling2GpuEngine {
                     zero_streak = 0;
                 }
             }
-            let keep = accepted + 1; // `1 <= keep <= b_len`
-
+            // With a stop policy the scalar path leaves its terminal token
+            // unconsumed, both for EOS and for the output-length limit.
+            let verified = accepted + 1;
+            let hit_stop = Some(verify_in[accepted]) == stop_tok;
+            let terminal = stop_tok.is_some() && (hit_stop || verified == rem_steps);
+            let keep = verified - usize::from(terminal);
+            // A verify round starts with a non-stop token and rem_steps >= 2.
+            debug_assert!(keep > 0);
             if keep < b_len {
                 self.rewind_speculative(keep, b_len)?;
             }
             self.enqueue_drafter_context(keep)?;
 
-            let mut hit_stop = false;
-            for &accepted_tok in &verify_in[..keep] {
-                if Some(accepted_tok) == stop_tok {
-                    cur_tok = accepted_tok;
-                    hit_stop = true;
-                    break;
-                }
-                if out_ids.len() < n_gen {
-                    out_ids.push(accepted_tok);
-                    on_token(accepted_tok);
-                    if track_hist {
-                        full_hist.push(accepted_tok);
-                    }
+            let emitted = verified - usize::from(hit_stop);
+            for &token in &verify_in[..emitted] {
+                out_ids.push(token);
+                on_token(token);
+                if track_hist {
+                    full_hist.push(token);
                 }
             }
-            steps_done += keep;
-            if hit_stop || (stop_tok.is_some() && out_ids.len() >= n_gen) {
+            last_verify_row = Some(keep - 1);
+            steps_done += emitted;
+            if terminal {
+                cur_tok = verify_in[accepted];
                 break;
             }
             cur_tok = preds[accepted];
+        }
+
+        // A verify batch writes all rows into d_spec_logits. Preserve the
+        // last committed row once so read_last_logits() observes it even
+        // after a rejected draft or an EOS exit. Scalar steps write d_logits.
+        if let Some(row) = last_verify_row {
+            unsafe {
+                check_cu(
+                    (self.ctx.api.cuMemcpyDtoDAsync_v2)(
+                        self.d_logits.ptr,
+                        self.d_spec_logits.ptr + (row * VOCAB * 4) as u64,
+                        VOCAB * 4,
+                        self.ctx.compute_stream,
+                    ),
+                    "copy committed speculative logits",
+                )?;
+            }
         }
 
         Ok((out_ids, cur_tok))
