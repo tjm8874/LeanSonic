@@ -2,7 +2,7 @@
 
 The four-bank Inkling-2-Mini target plus tokenizer occupies **13,454,179,366 bytes**, saving **960,016 bytes** against the 13,455,139,382-byte median-cut file. The same loader reads both. All 40 expert planes shrank and a full decode matched all **10,192,158,720** original expert-weight bytes. The unchanged tokenizer is 3,386,494 bytes. The assembler reread the final payloads of all 999 tensors and verified their hashes.
 
-For each expert, keep the existing split between trimmed and original scales. Try the first, second and third quartiles on each side of that split, nine combinations per plane. Select the combination producing the smallest actual rANS frame on a deterministic sample of one block in every 64. Prefer the original median rule on ties. Recompute its boundaries over the full scale histogram, encode and decode the whole plane, then retain the candidate only if it is smaller. Thirty-eight planes chose the second and third quartiles, two chose the first and third. The new file uses the same decoder tables and frame layout as the previous package.
+For each expert, keep the existing split between trimmed and original scales. Try the first, second and third quartiles on each side of that split, nine combinations per plane. Select the combination producing the smallest actual rANS frame on a deterministic sample of one block in every 64. Prefer the original median rule on ties. Recompute its boundaries over the full scale histogram, encode and decode the whole plane, then retain the candidate only if it is smaller. Thirty-eight planes chose the second and third quartiles, two chose the first and third. The new file uses the same number of decoder tables and the same frame layout as the previous package.
 
 ## Reproduction
 

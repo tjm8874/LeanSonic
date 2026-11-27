@@ -742,6 +742,22 @@ mod tests {
     }
 
     #[test]
+    fn nonmedian_quartiles_use_the_existing_decoder() {
+        let scales: Vec<u8> = (0..128).cycle().take(128 * 128).collect();
+        let raw = vec![0x65; 8 * scales.len()];
+        let cuts = [64; 128];
+        let mut frame = Vec::new();
+        pack_four_scale_quantiles(&raw, scales.clone(), &cuts, [1, 3], &mut frame).unwrap();
+        assert_eq!(&frame[128..256], &[16; 128]);
+        assert_eq!(&frame[256..384], &[112; 128]);
+        assert_eq!(
+            unpack_four_scale_banks(&frame, scales.clone()).unwrap(),
+            raw
+        );
+        assert!(pack_four_scale_quantiles(&raw, scales, &cuts, [0, 3], Vec::new()).is_err());
+    }
+
+    #[test]
     fn trim_lookup_matches_all_encoder_transitions() {
         for (previous, transitions) in TRIM_PREFIX.iter().enumerate() {
             for (symbol, &next) in transitions.iter().enumerate() {
