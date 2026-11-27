@@ -30,3 +30,14 @@ python3 "$check/verify.py" "$FIRST" "$SECOND" "$decoder" second.json > second-de
 cmp first-decode.json "$check/first-decode.json"
 cmp second-decode.json "$check/second-decode.json"
 ```
+
+## BF16 replay
+
+RTX PRO 4500 (GPU-2de24713-6ee5-0469-ca31-719f8e9417c9, driver 595.99.02, 200 W) ran each physical package through the same scorer, cubin, FP16 KV, 512-row prefill and two 100-chunk oracles as the [four-bank baseline](../../paired-quality.md). For both models, both complete scorer outputs matched the existing control byte-for-byte. Model hashes and the decoded-weight checks above distinguish the two on-disk runs.
+
+| WikiText-2 split | Mean KL | Worst KL (chunk / position) | Top-1 matches | PPL |
+|---|---:|---:|---:|---:|
+| test | 0.0076817 | 1.5215775 (36 / 319) | 24,542 / 25,500 | 7.079444 |
+| valid | 0.0068862 | 1.1576402 (11 / 374) | 24,655 / 25,500 | 6.532434 |
+
+[Raw scores and SHA-256 per package and split](bf16.json).
