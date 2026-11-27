@@ -166,6 +166,8 @@ Use `--entropy-scales` in place of `--prepack-scales` when converting the offici
 
 Add `--compact-q8-scales` to that command to store the attention and output-head Q8 scales in per-matrix dictionaries. You can also pass this flag alone when repacking the native Q8 shard. The loader restores every F32 bit before GPU upload. On Inkling-2-Mini this reduces the shard to **16,035,182,496 bytes**. The tokenizer is distributed separately. This format requires a reader with Q8 scale dictionary support.
 
+To also compress the signed Q8 code bytes, add `--compact-q8-codes` or apply it to the dictionary package. Each matrix falls back to raw storage if rANS would expand it. With both Q8 options and the earlier packing flags the text shard is **15,978,753,408 bytes**. Including the original tokenizer brings the distribution to **15,982,139,902 bytes**. A compatible loader restores the same native Q8 codes before inference, staging at most 16 MiB of decoded codes at once.
+
 ### 2. Query the OpenAI-Compatible Server (`GET /v1/models`, `POST /v1/chat/completions`, SSE)
 
 ```bash

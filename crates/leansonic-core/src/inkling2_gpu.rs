@@ -82,6 +82,44 @@ pub struct PlanarQ8Gpu {
     pub cols: i32,
 }
 
+enum NativeQ8Codes<'a> {
+    Raw(&'a [u8]),
+    Encoded(crate::inkling_mxfp8::Matrix<'a>),
+}
+
+impl<'a> NativeQ8Codes<'a> {
+    fn lookup(
+        st: &'a MappedSafeTensors,
+        name: &str,
+        rows: usize,
+        cols: usize,
+    ) -> Result<Option<Self>, String> {
+        match (st.get(name), st.get(&format!("{name}.rans_v1"))) {
+            (None, None) => Ok(None),
+            (Some(t), None)
+                if t.dtype == "I8" && t.shape == [rows, cols] && t.data.len() == rows * cols =>
+            {
+                Ok(Some(Self::Raw(t.data)))
+            }
+            (None, Some(t)) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                crate::inkling_mxfp8::Matrix::parse(t.data, rows * cols)
+                    .map(|m| Some(Self::Encoded(m)))
+                    .map_err(|e| format!("{name}: {e}"))
+            }
+            _ => Err(format!("invalid or conflicting native codes for {name}")),
+        }
+    }
+
+    fn upload(&self, dst: &DeviceBuf, offset: usize) -> Result<(), String> {
+        match self {
+            Self::Raw(bytes) => dst.copy_from_host_at(offset, bytes),
+            Self::Encoded(matrix) => {
+                matrix.for_each_chunk(|pos, bytes| dst.copy_from_host_at(offset + pos, bytes))
+            }
+        }
+    }
+}
+
 fn native_q8_scales<'a>(
     st: &'a MappedSafeTensors,
     name: &str,
@@ -112,7 +150,7 @@ fn load_output_head(
     st: &MappedSafeTensors,
 ) -> Result<PlanarQ8Gpu, String> {
     let dense = st.get("model.llm.unembed.weight");
-    let codes = st.get("leansonic.unembed_q8_64.codes");
+    let codes = NativeQ8Codes::lookup(st, "leansonic.unembed_q8_64.codes", VOCAB, D)?;
     let scales = native_q8_scales(st, "leansonic.unembed_q8_64.scales", VOCAB, D)?;
     match (dense, codes, scales) {
         (Some(w), None, None)
@@ -122,14 +160,11 @@ fn load_output_head(
         {
             repack_bf16_to_planar_q8_64(ctx, &w.data[..VOCAB * D * 2], VOCAB, D)
         }
-        (None, Some(c), Some(s))
-            if c.dtype == "I8" && c.shape == [VOCAB, D] && c.data.len() == VOCAB * D =>
-        {
-            Ok(PlanarQ8Gpu {
-                codes: DeviceBuf::from_host_bytes(ctx, c.data)?,
-                scales64: DeviceBuf::from_host_bytes(ctx, &s)?,
-                cols: D as i32,
-            })
+        (None, Some(c), Some(s)) => {
+            let matrix = allocate_planar_q8(ctx, VOCAB, D)?;
+            c.upload(&matrix.codes, 0)?;
+            matrix.scales64.copy_from_host_bytes(&s)?;
+            Ok(matrix)
         }
         _ => Err(
             "invalid Inkling output head: expected the BF16 weight or both native Q8_64 planes"
@@ -153,7 +188,7 @@ fn load_attention_matrix(
     for &(suffix, rows) in parts {
         let name = format!("{prefix}attn.{suffix}");
         let dense = st.get(&name);
-        let codes = st.get(&format!("{name}.q8_64.codes"));
+        let codes = NativeQ8Codes::lookup(st, &format!("{name}.q8_64.codes"), rows, cols)?;
         let scales = native_q8_scales(st, &format!("{name}.q8_64.scales"), rows, cols)?;
         match (dense, codes, scales) {
             (Some(w), None, None)
@@ -163,10 +198,8 @@ fn load_attention_matrix(
             {
                 upload_bf16_rows(&result, w.data, row, rows, cols)?;
             }
-            (None, Some(c), Some(s))
-                if c.dtype == "I8" && c.shape == [rows, cols] && c.data.len() == rows * cols =>
-            {
-                result.codes.copy_from_host_at(row * cols, c.data)?;
+            (None, Some(c), Some(s)) => {
+                c.upload(&result.codes, row * cols)?;
                 result.scales64.copy_from_host_at(row * scale_stride, &s)?;
             }
             _ => {

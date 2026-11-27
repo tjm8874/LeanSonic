@@ -74,12 +74,20 @@ fn main() -> io::Result<()> {
             return dst.flush();
         }
     }
-    let (mode, dimensions) = match args.as_slice() {
-        [mode, dims @ ..] if matches!(mode.as_str(), "matrix-dict-size" | "matrix-dict-pack") => {
-            (mode.as_str(), dims)
+    let (mode, encode_codes, encode_scales, dimensions) = match args.as_slice() {
+        [mode, codes, scales, dims @ ..]
+            if matches!(mode.as_str(), "matrix-size" | "matrix-pack")
+                && matches!(codes.as_str(), "raw" | "rans")
+                && matches!(scales.as_str(), "raw" | "dict") =>
+        {
+            (mode.as_str(), codes == "rans", scales == "dict", dims)
         }
-        dims => ("raw", dims),
+        [mode, dims @ ..] if matches!(mode.as_str(), "matrix-dict-size" | "matrix-dict-pack") => {
+            (mode.as_str(), false, true, dims)
+        }
+        dims => ("raw", false, false, dims),
     };
+    let sizing = mode.ends_with("-size");
     let (rows, cols) = match dimensions {
         [rows, cols] => (rows.parse::<usize>().ok(), cols.parse::<usize>().ok()),
         _ => (None, None),
@@ -101,6 +109,9 @@ fn main() -> io::Result<()> {
     let mut bf16 = vec![0; 1024.min(rows) * cols * 2];
     let mut codes = vec![0; 1024.min(rows) * cols];
     let mut scales = vec![0; rows * (cols / 64) * 4];
+    // The encoder needs a histogram for the whole code plane. Only offline
+    // entropy packing collects it; raw conversion continues to stream tiles.
+    let mut all_codes = Vec::with_capacity(if encode_codes { rows * cols } else { 0 });
     for first in (0..rows).step_by(1024) {
         let elements = (rows - first).min(1024) * cols;
         let src_tile = &mut bf16[..elements * 2];
@@ -113,19 +124,28 @@ fn main() -> io::Result<()> {
             codes_tile,
             &mut scales[offset..offset + elements / 64 * 4],
         );
-        if mode != "matrix-dict-size" {
+        if encode_codes {
+            all_codes.extend_from_slice(codes_tile);
+        } else if !sizing {
             dst.write_all(codes_tile)?;
         }
     }
-    if mode == "raw" {
-        dst.write_all(&scales)?;
+    let code_len = if !encode_codes {
+        rows * cols
+    } else if sizing {
+        leansonic_core::inkling_mxfp8::pack(&all_codes, io::sink())?
     } else {
-        let packed = leansonic_core::inkling_q8_scales::pack(&scales).map_err(io::Error::other)?;
-        if mode == "matrix-dict-size" {
-            writeln!(dst, "{}", packed.len())?;
-        } else {
-            dst.write_all(&packed)?;
-        }
+        leansonic_core::inkling_mxfp8::pack(&all_codes, &mut dst)?
+    };
+    let scale_plane = if encode_scales {
+        leansonic_core::inkling_q8_scales::pack(&scales).map_err(io::Error::other)?
+    } else {
+        scales
+    };
+    match mode {
+        "matrix-size" => writeln!(dst, "{} {}", code_len, scale_plane.len())?,
+        "matrix-dict-size" => writeln!(dst, "{}", scale_plane.len())?,
+        _ => dst.write_all(&scale_plane)?,
     }
     dst.flush()
 }
