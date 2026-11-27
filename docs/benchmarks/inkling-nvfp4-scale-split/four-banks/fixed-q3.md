@@ -6,8 +6,12 @@ Both drivers take the same 1,024 README token IDs and 32 fixed continuation IDs,
 
 | GPU | Engine | Prefill ms (tok/s) | Decode 32 ms (tok/s) | Peak VRAM bytes | Top-1 matches to forced IDs |
 |---|---|---:|---:|---:|---:|
+| 5070Ti | LeanSonic | 122.684 (8,346.6) | 187.176 (170.96) | 16,013,852,672 | 32/32 |
+| 5070Ti | llama.cpp Q3_K_XL | 526.028 (1,946.7) | 402.088 (79.58) | 16,150,167,552 | 31/32 |
 | 5060Ti | LeanSonic | 258.972 (3,954.1) | 338.632 (94.50) | 16,009,658,368 | 32/32 |
 | 5060Ti | llama.cpp Q3_K_XL | 880.835 (1,162.5) | 573.763 (55.77) | 16,030,629,888 | 30/32 |
+
+On 5070Ti, LeanSonic's speed ratios over native Q3_K_XL were 4.288× for prefill (paired cycle bootstrap 95% interval 4.284–4.292) and 2.148× for decode (2.146–2.151).
 
 On 5060Ti, LeanSonic's speed ratios over native Q3_K_XL were 3.401× for prefill (paired cycle bootstrap 95% interval 3.399–3.403) and 1.694× for decode (1.694–1.695).
 
