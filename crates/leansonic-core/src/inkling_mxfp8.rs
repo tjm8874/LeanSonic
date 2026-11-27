@@ -772,6 +772,47 @@ impl<'a> Matrix<'a> {
 mod tests {
     use super::*;
     #[test]
+    fn class_frames_scatter_interleaved_experts_and_reject_invalid_extents() {
+        let scales: Vec<u8> = (0..128 * 128).map(|i| 64 + ((i / 37) % 61) as u8).collect();
+        let bytes: Vec<u8> = (0..scales.len() * 8)
+            .map(|i| (i / 97 + i / 1024) as u8)
+            .collect();
+        let mut mask = [0u8; 16];
+        let mut parts = Vec::new();
+        for e in (0..128).step_by(3) {
+            mask[e / 8] |= 1 << (e % 8);
+        }
+        for class in 0..2 {
+            let mut sc = vec![];
+            let mut raw = vec![];
+            for e in 0..128 {
+                if ((mask[e / 8] >> (e % 8)) & 1) == class {
+                    sc.extend_from_slice(&scales[e * 128..(e + 1) * 128]);
+                    raw.extend_from_slice(&bytes[e * 1024..(e + 1) * 1024]);
+                }
+            }
+            let mut part = Vec::new();
+            pack_four_scale_banks(&raw, sc, &[96; 128], &mut part).unwrap();
+            parts.push(part);
+        }
+        let mut frame = b"INKCL2V1".to_vec();
+        frame.extend_from_slice(&mask);
+        for p in &parts {
+            frame.extend_from_slice(&(p.len() as u64).to_le_bytes());
+        }
+        for p in parts {
+            frame.extend_from_slice(&p);
+        }
+        assert_eq!(unpack_class_scale_banks(&frame, &scales).unwrap(), bytes);
+        assert!(unpack_class_scale_banks(&frame[..frame.len() - 1], &scales).is_err());
+        let mut bad = frame.clone();
+        bad[24..32].fill(255);
+        assert!(unpack_class_scale_banks(&bad, &scales).is_err());
+        frame[8..24].fill(0);
+        assert!(unpack_class_scale_banks(&frame, &scales).is_err());
+    }
+
+    #[test]
     fn scale_direct_roundtrip_crosses_tile_and_expert_boundaries() {
         let raw: Vec<_> = (0..TILE + 1024).map(|i| (i * 13 + i / 7) as u8).collect();
         let scales: Vec<_> = (0..raw.len() / 8).map(|i| (i % 127) as u8).collect();
