@@ -1,0 +1,90 @@
+{
+  "last": {
+    "raw_source": "official Inkling-2-Mini",
+    "parent_sha256": "9b242a81188f0f552625639dec98879a0090a7f9a003141631d3a836aed3fcb3",
+    "unchanged_tensors": 997,
+    "shard_sha256": "7fb4ef03c362beded8f09a9c00e973bf381833e62bca1510d884f9c1d7503fbb",
+    "package_bytes": 15396463478,
+    "selected": {
+      "model.llm.layers.23.mlp.experts.w13_weight.rans_v1": {
+        "bytes": 455062000,
+        "sha256": "08e6e5644fc949559b36f6484b8cd8c0b85015bb8efe9a48bfd667ce4615ecb2",
+        "changed_codes": 339010907,
+        "codes": 679477248,
+        "normalized_code_mse": 0.0041587713402755615
+      },
+      "model.llm.layers.23.mlp.experts.w2_weight.rans_v1": {
+        "bytes": 228472472,
+        "sha256": "4207e8db13de21e6c68be3f7ff2ffce8c900c12896411b19e99a6e7343abf32d",
+        "changed_codes": 169486808,
+        "codes": 339738624,
+        "normalized_code_mse": 0.004121614663104145
+      }
+    }
+  },
+  "all": {
+    "raw_source": "official Inkling-2-Mini",
+    "parent_sha256": "9b242a81188f0f552625639dec98879a0090a7f9a003141631d3a836aed3fcb3",
+    "unchanged_tensors": 991,
+    "shard_sha256": "dfbd45ac5307775979dda43e64c08c38f359f602080c883ae27b14ba3cc83a39",
+    "package_bytes": 14941300742,
+    "selected": {
+      "model.llm.layers.23.mlp.experts.w13_weight.rans_v1": {
+        "bytes": 455062000,
+        "sha256": "08e6e5644fc949559b36f6484b8cd8c0b85015bb8efe9a48bfd667ce4615ecb2",
+        "changed_codes": 339010907,
+        "codes": 679477248,
+        "normalized_code_mse": 0.0041587713402755615
+      },
+      "model.llm.layers.23.mlp.experts.w2_weight.rans_v1": {
+        "bytes": 228472472,
+        "sha256": "4207e8db13de21e6c68be3f7ff2ffce8c900c12896411b19e99a6e7343abf32d",
+        "changed_codes": 169486808,
+        "codes": 339738624,
+        "normalized_code_mse": 0.004121614663104145
+      },
+      "model.llm.layers.22.mlp.experts.w13_weight.rans_v1": {
+        "bytes": 454965376,
+        "sha256": "40a1ece85c502a9e7ef3332369dc156187965c1bb67085ec4bd4ad60f04baaf3",
+        "changed_codes": 339001793,
+        "codes": 679477248,
+        "normalized_code_mse": 0.00415909956478243
+      },
+      "model.llm.layers.22.mlp.experts.w2_weight.rans_v1": {
+        "bytes": 228123576,
+        "sha256": "4f51979240eeef59de3dbcb08cdad0bdd115e16bc4b2bd2bfc6203f6980c2a33",
+        "changed_codes": 169486410,
+        "codes": 339738624,
+        "normalized_code_mse": 0.004119053966560074
+      },
+      "model.llm.layers.21.mlp.experts.w13_weight.rans_v1": {
+        "bytes": 454901000,
+        "sha256": "5967f35a6522b44577aee13d79908d1d674dad4684589903b3f2ea341c97604c",
+        "changed_codes": 338994042,
+        "codes": 679477248,
+        "normalized_code_mse": 0.004159546784717241
+      },
+      "model.llm.layers.21.mlp.experts.w2_weight.rans_v1": {
+        "bytes": 228008640,
+        "sha256": "fabf8182faf498f2c4f8ed58b18bf6d3027d8278441f9f9e2fe94db514b495c6",
+        "changed_codes": 169477834,
+        "codes": 339738624,
+        "normalized_code_mse": 0.004118363044259013
+      },
+      "model.llm.layers.20.mlp.experts.w13_weight.rans_v1": {
+        "bytes": 454881304,
+        "sha256": "7da3a7b907d2259d5d314f49245c1ad1d024f600c080a5f6186ff0e15f85d8f7",
+        "changed_codes": 339001416,
+        "codes": 679477248,
+        "normalized_code_mse": 0.004159374634682672
+      },
+      "model.llm.layers.20.mlp.experts.w2_weight.rans_v1": {
+        "bytes": 227920992,
+        "sha256": "a1023773c88d6ecf90cf6d831c46c02e41323cc0b56d6ed1c1ad337c760db8f3",
+        "changed_codes": 169476226,
+        "codes": 339738624,
+        "normalized_code_mse": 0.004118946407092563
+      }
+    }
+  }
+}
