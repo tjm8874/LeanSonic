@@ -3754,6 +3754,14 @@ __device__ __forceinline__ void gqa_attn_split_body(
     }
     const float scale = 0.08838834764831845f; // 1 / sqrt(128)
 
+    // Ring row of key `j` without a per-key `%`: a SWA window spans at most kv_cap rows, so after
+    // removing the kv_cap multiple below `first` each key needs at most one wrap. Global slots
+    // have kv_cap >= n, so their row is `j`. Same rows as `is_global ? j : j % kv_cap`.
+    const int ring_off = is_global ? 0 : first - first % kv_cap;
+    auto ring_row = [&](int j) {
+        const int r = j - ring_off;
+        return r < kv_cap ? r : r - kv_cap;
+    };
     const int total = n - first;
     const int n_chunks = (total + kChunk - 1) / kChunk;
     for (int c = g; c < n_chunks; c += G) {
@@ -3786,8 +3794,8 @@ __device__ __forceinline__ void gqa_attn_split_body(
             uint32_t wk = 0u, wv = 0u;
             float sk = 0.0f, sv = 0.0f;
             if (jj < kChunk && j < n) {
-                kv_raw_i8(k_cache_fp16, k_scale, is_global ? j : (j % kv_cap), kvh, lane, wk, sk);
-                kv_raw_i8(v_cache_fp16, v_scale, is_global ? j : (j % kv_cap), kvh, lane, wv, sv);
+                kv_raw_i8(k_cache_fp16, k_scale, ring_row(j), kvh, lane, wk, sk);
+                kv_raw_i8(v_cache_fp16, v_scale, ring_row(j), kvh, lane, wv, sv);
             }
             while (jj < kChunk && j < n) {
                 const int jn = jj + 8;
@@ -3795,8 +3803,8 @@ __device__ __forceinline__ void gqa_attn_split_body(
                 uint32_t nwk = 0u, nwv = 0u;
                 float nsk = 0.0f, nsv = 0.0f;
                 if (jn < kChunk && jnx < n) {
-                    kv_raw_i8(k_cache_fp16, k_scale, is_global ? jnx : (jnx % kv_cap), kvh, lane, nwk, nsk);
-                    kv_raw_i8(v_cache_fp16, v_scale, is_global ? jnx : (jnx % kv_cap), kvh, lane, nwv, nsv);
+                    kv_raw_i8(k_cache_fp16, k_scale, ring_row(jnx), kvh, lane, nwk, nsk);
+                    kv_raw_i8(v_cache_fp16, v_scale, ring_row(jnx), kvh, lane, nwv, nsv);
                 }
                 float k0, k1, k2, k3, v0, v1, v2, v3;
                 kv_dequant_i8(wk, sk, k0, k1, k2, k3);
@@ -3836,7 +3844,7 @@ __device__ __forceinline__ void gqa_attn_split_body(
             for (int jj = warp_id; jj < kChunk; jj += 8) {
                 const int j = j0 + jj;
                 if (j >= n) break;
-                const int slot_row = is_global ? j : (j % kv_cap);
+                const int slot_row = ring_row(j);
                 float k0, k1, k2, k3, v0, v1, v2, v3;
                 kv_load4_t<kInt8>(k_cache_fp16, k_scale, slot_row, kvh, lane, k0, k1, k2, k3);
                 kv_load4_t<kInt8>(v_cache_fp16, v_scale, slot_row, kvh, lane, v0, v1, v2, v3);
@@ -4593,6 +4601,12 @@ __device__ __forceinline__ void gqa_rel_sink_attn_q8(
     int j = first + warp_id;
     if constexpr (kInt8) {
         // INT8 KV: same staging as the FP16 path, on raw INT8 words + per-row/head scales.
+        // Ring rows without a per-key `%` (see `gqa_attn_split_body`).
+        const int ring_off = is_global ? 0 : first - first % kv_cap;
+        auto ring_row = [&](int key) {
+            const int r = key - ring_off;
+            return r < kv_cap ? r : r - kv_cap;
+        };
         auto score_i8 = [&](int j, uint32_t kw, float ks) {
             float k0, k1, k2, k3;
             kv_dequant_i8(kw, ks, k0, k1, k2, k3);
@@ -4619,7 +4633,7 @@ __device__ __forceinline__ void gqa_rel_sink_attn_q8(
                 #pragma unroll
                 for (int i = 0; i < steps; ++i) {
                     const int position = j + i * 8;
-                    const int row = is_global ? position : position % kv_cap;
+                    const int row = ring_row(position);
                     kv_raw_i8(k_cache_fp16, k_scale, row, kvh, lane, keys[i], kscales[i]);
                     kv_raw_i8(v_cache_fp16, v_scale, row, kvh, lane, values[i], vscales[i]);
                 }
@@ -4636,7 +4650,7 @@ __device__ __forceinline__ void gqa_rel_sink_attn_q8(
             }
         }
         for (; j < n; j += 8) {
-            const int slot_row = is_global ? j : (j % kv_cap);
+            const int slot_row = ring_row(j);
             uint32_t kw, vw;
             float ks, vs;
             kv_raw_i8(k_cache_fp16, k_scale, slot_row, kvh, lane, kw, ks);
