@@ -4,6 +4,8 @@ The exact 13,445,948,726-byte LeanSonic package in the [storage receipt](storage
 
 | GPU | Engine | Prefill ms (tok/s) | Decode 32 ms (tok/s) | Peak VRAM B | Predicted fixture IDs |
 |---|---|---:|---:|---:|---:|
+| 5070Ti | LeanSonic trim | 121.842 (8,404.3) | 192.461 (166.27) | 16,018,046,976 | 32/32 |
+| 5070Ti | Unsloth llama.cpp | 526.583 (1,944.6) | 402.570 (79.49) | 16,150,167,552 | 31/32 |
 | 5060Ti | LeanSonic trim | 257.647 (3,974.4) | 339.854 (94.16) | 16,015,949,824 | 32/32 |
 | 5060Ti | Unsloth llama.cpp | 882.146 (1,160.8) | 573.947 (55.75) | 16,030,629,888 | 30/32 |
 
