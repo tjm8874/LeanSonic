@@ -62,21 +62,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut new_error = 0.;
     let mut counts = [0u64; 5];
     for ((raw, codes), word) in source
-        .chunks_exact(128)
-        .zip(codes.chunks_exact_mut(64))
-        .zip(scales.chunks_exact_mut(4))
+        .as_chunks::<128>()
+        .0
+        .iter()
+        .zip(codes.as_chunks_mut::<64>().0)
+        .zip(scales.as_chunks_mut::<4>().0)
     {
         let mut w = [0.; 64];
         let mut peak = 0u16;
-        for (i, b) in raw.chunks_exact(2).enumerate() {
-            let bits = u16::from_le_bytes([b[0], b[1]]);
+        for (i, &b) in raw.as_chunks::<2>().0.iter().enumerate() {
+            let bits = u16::from_le_bytes(b);
             peak = peak.max(bits & 0x7fff);
             w[i] = f32::from_bits(u32::from(bits) << 16);
         }
         if peak >= 0x7f80 {
             return Err("nonfinite BF16 weight".into());
         }
-        let mut best_scale = f32::from_le_bytes(word.try_into()?);
+        let mut best_scale = f32::from_le_bytes(*word);
         let mut best = error(&w, codes, best_scale);
         old_error += best;
         let original_error = best;
