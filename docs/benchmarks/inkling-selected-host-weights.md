@@ -31,3 +31,14 @@ cmp 0.f32 auto.f32 && sha256sum auto.f32
 ```
 
 The default is automatic selection. A value of `0` keeps mapped reads and `1` forces staging when the necessary buffer and kernels are available. A microbenchmark of all eight selected host matrices found 1,215.6 → 886.8 µs per packed up operation on 5070 Ti, versus 3,193.5 → 3,225.8 µs on 5060 Ti. The real decoder uses six smaller tiles to avoid allocating another 20.25 MiB.
+
+## Comparison with Basalt
+
+The same compact weights were used for both LeanSonic builds. Basalt used its text-only container for the same model (`5fe1928d`). The prompt was the 1,024 IDs from the README, FP16 KV, context 8192 and greedy decoding. Each process ran 16 decode forwards (Basalt `--max-new 17` includes the first prefill prediction). All first 16 output IDs matched across all arms on both GPUs. NVML sampled memory per process at a target interval of 4 ms. Each timing is the mean over three rotated, mirrored cycles.
+
+| GPU | #98 prefill / decode16 | Staging auto prefill / decode16 | Basalt prefill / decode16 |
+|---|---:|---:|---:|
+| RTX 5070 Ti | 161.25 / 187.22 ms | 161.11 / 166.08 ms | 450.50 / 323.50 ms |
+| RTX 5060 Ti | 380.83 / 389.37 ms | 380.78 / 389.38 ms | 1,284.00 / 395.67 ms |
+
+On 5070 Ti the observed peak was 16,546,529,280 B in either LeanSonic arm and 15,521,021,952 B in Basalt. The packages in this comparison occupy 15,982,139,902 B and 18,327,104,737 B respectively. [Inputs, timing and peak samples, generated IDs and package fingerprints](inkling-host-weights-engines.json)
