@@ -5542,6 +5542,14 @@ impl Inkling2GpuEngine {
             return Ok((out_ids, cur_tok));
         }
 
+        // Draft pause: after `PAUSE_AFTER` steps in a row without an accepted draft, decode
+        // the next `pause_len` tokens without drafting (8, doubling to 64 while drafts keep
+        // failing). Drafting a context that rejects everything costs a full drafter pass per
+        // token (e.g. 128K: drafter attention over the whole context). The emitted tokens are
+        // the greedy tokens either way. `LEANSONIC_SPEC_PAUSE=0` disables the pause.
+        const PAUSE_AFTER: usize = 4;
+        let pause_enabled = std::env::var("LEANSONIC_SPEC_PAUSE").map_or(true, |v| v != "0");
+        let (mut zero_streak, mut pause_left, mut pause_len) = (0usize, 0usize, 8usize);
         while steps_done < n_gen {
             if Some(cur_tok) == stop_tok {
                 break;
@@ -5552,7 +5560,9 @@ impl Inkling2GpuEngine {
                 .min(rem_steps.saturating_sub(1))
                 .min(self.max_ctx.saturating_sub(self.host_pos + 1));
 
-            let drafts = if max_draft == 0 {
+            let paused = pause_left > 0;
+            pause_left = pause_left.saturating_sub(1);
+            let drafts = if max_draft == 0 || paused {
                 Vec::new()
             } else if let Some(ref mut d) = self.drafter {
                 d.draft_tokens(
@@ -5568,6 +5578,14 @@ impl Inkling2GpuEngine {
             };
 
             if drafts.is_empty() {
+                if pause_enabled && !paused && max_draft > 0 {
+                    zero_streak += 1;
+                    if zero_streak >= PAUSE_AFTER {
+                        pause_left = pause_len;
+                        pause_len = (pause_len * 2).min(64);
+                        zero_streak = 0;
+                    }
+                }
                 out_ids.push(cur_tok);
                 on_token(cur_tok);
                 if self.drafter.is_none() {
@@ -5603,6 +5621,17 @@ impl Inkling2GpuEngine {
                 }
             }
             self.spec_accepted_total += accepted;
+            if accepted > 0 {
+                zero_streak = 0;
+                pause_len = 8;
+            } else if pause_enabled {
+                zero_streak += 1;
+                if zero_streak >= PAUSE_AFTER {
+                    pause_left = pause_len;
+                    pause_len = (pause_len * 2).min(64);
+                    zero_streak = 0;
+                }
+            }
             let keep = accepted + 1; // `1 <= keep <= b_len`
 
             if keep < b_len {
@@ -6692,11 +6721,14 @@ impl Inkling2GpuEngine {
             if use_long_split {
                 // `n_splits = 6` (`1,536` CTAs = `99.7%` wave eff on 110-SM PRO 5000) or `5` (`1,280` CTAs = `100%` on 80-SM PRO 4500),
                 // reusing dead `k_raw .. pair_output_end` (`<= 9,504 * b_len <= 9,832 * capacity` dwords, `0` extra VRAM)!
-                let long_splits: u32 = if self.ctx.device_name.contains("4500") {
-                    5
-                } else {
-                    6
-                };
+                let long_splits: u32 = std::env::var("LEANSONIC_LONG_SPLITS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(if self.ctx.device_name.contains("4500") {
+                        5
+                    } else {
+                        6
+                    });
                 let mut part_o_ptr = self.prefill.layer_workspace.k_raw;
                 let mut part_ml_ptr =
                     part_o_ptr + (long_splits as usize * b_len * N_HEAD * 64 * 4) as u64;
