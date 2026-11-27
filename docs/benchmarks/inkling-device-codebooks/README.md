@@ -23,6 +23,8 @@ The native Unsloth build at `8832860` used microbatch 512 with all 25 layers on 
 
 | GPU | Engine | Prefill ms (tok/s) | Decode 32 ms (tok/s) | Peak bytes | Fixed IDs matched |
 |---|---|---:|---:|---:|---:|
+| RTX 5070 Ti | LeanSonic four-bit indices | 540.199 (1,895.6) | 205.153 (155.98) | 16,596,860,928 | 32/32 |
+| RTX 5070 Ti | Original llama.cpp Q3_K_XL | 525.924 (1,947.0) | 402.170 (79.57) | 16,150,167,552 | 31/32 |
 | RTX 5060 Ti | LeanSonic four-bit indices | 402.960 (2,541.2) | 366.465 (87.32) | 16,605,249,536 | 32/32 |
 | RTX 5060 Ti | Original llama.cpp Q3_K_XL | 882.688 (1,160.1) | 574.616 (55.69) | 16,030,629,888 | 30/32 |
 

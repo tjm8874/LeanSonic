@@ -488,9 +488,11 @@ struct KernelFns {
     ctrl_apply_t8_b: Option<CUfunction>,
     q8_dp4a_gemm_b: CUfunction,
     short_conv4_b: CUfunction,
+    short_conv4_pair_b: Option<CUfunction>,
     prep_qkv_and_cache_b: CUfunction,
     gqa_rel_sink_attn_b: CUfunction,
     bf16_gemm_router_b: CUfunction,
+    bf16_gemv_router_b: Option<CUfunction>,
     router_topk8_b: CUfunction,
     build_expert_groups_b: CUfunction,
     build_expert_groups_wide_b: Option<CUfunction>,
@@ -560,6 +562,7 @@ struct KernelFns {
     bf16_tc_gemm_b: Option<CUfunction>,
     ctrl_apply_tc_b: Option<CUfunction>,
     moe_combine_top8_vec4_b: Option<CUfunction>,
+    moe_combine_conv4_b: Option<CUfunction>,
     moe_combine_top8_f16_b: Option<CUfunction>,
     depth_mix_multi_b: Option<CUfunction>,
     // v0.8.0 V13 Prefill Suite (`Issue #79`)
@@ -580,6 +583,7 @@ struct KernelFns {
     kv_conv4_prep_cache: Option<CUfunction>,
     wo_conv4_save_c3072: Option<CUfunction>,
     build_expert_groups_active_b: Option<CUfunction>,
+    router_topk8_groups_b: Option<CUfunction>,
 }
 
 unsafe impl Send for KernelFns {}
@@ -938,6 +942,26 @@ fn concat_slices(slices: &[&[u8]]) -> Vec<u8> {
         out.extend_from_slice(s);
     }
     out
+}
+
+/// By-value arguments of one `ink2_short_conv4_b` launch (`Conv4BArgs` in the kernel source).
+#[repr(C)]
+struct Conv4BArgs {
+    cur_base: CUdeviceptr,
+    w_conv4: CUdeviceptr,
+    dyn_base: CUdeviceptr,
+    hist3: CUdeviceptr,
+    out_base: CUdeviceptr,
+    res_base: CUdeviceptr,
+    seq_out: CUdeviceptr,
+    in_stride: i32,
+    dyn_f4_stride: i32,
+    out_stride: i32,
+    res_stride: i32,
+    channels: i32,
+    b: i32,
+    has_dyn: i32,
+    do_res_add: i32,
 }
 
 /// `LEANSONIC_PDL_ALL=0` (or `LEANSONIC_PDL=0`) keeps PDL on the single-sequence decode chain only.
@@ -2751,9 +2775,11 @@ impl Inkling2GpuEngine {
             ctrl_apply_t8_b: get_fn("ink2_ctrl_apply_t8_b").ok(),
             q8_dp4a_gemm_b: get_fn("ink2_q8_dp4a_gemm_b")?,
             short_conv4_b: get_fn("ink2_short_conv4_b")?,
+            short_conv4_pair_b: get_fn("ink2_short_conv4_pair_b").ok(),
             prep_qkv_and_cache_b: get_fn("ink2_prep_qkv_and_cache_b")?,
             gqa_rel_sink_attn_b: get_fn("ink2_gqa_rel_sink_attn_b")?,
             bf16_gemm_router_b: get_fn("ink2_bf16_gemm_router_b")?,
+            bf16_gemv_router_b: get_fn("ink2_bf16_gemv_router_b").ok(),
             router_topk8_b: get_fn("ink2_router_topk8_b")?,
             build_expert_groups_b: get_fn("ink2_build_expert_groups_b")?,
             build_expert_groups_wide_b: get_fn("ink2_build_expert_groups_wide_b").ok(),
@@ -2823,6 +2849,7 @@ impl Inkling2GpuEngine {
             bf16_tc_gemm_b: get_fn("ink2_bf16_tc_gemm_b").ok(),
             ctrl_apply_tc_b: get_fn("ink2_ctrl_apply_tc_b").ok(),
             moe_combine_top8_vec4_b: get_fn("ink2_moe_combine_top8_vec4_b").ok(),
+            moe_combine_conv4_b: get_fn("ink2_moe_combine_conv4_b").ok(),
             moe_combine_top8_f16_b: get_fn("ink2_moe_combine_top8_f16_b").ok(),
             depth_mix_multi_b: get_fn("ink2_depth_mix_multi_b").ok(),
             quant_nvfp4_2term_1p_b: get_fn("ink2_quant_nvfp4_2term_1p_b").ok(),
@@ -2839,6 +2866,7 @@ impl Inkling2GpuEngine {
             kv_conv4_prep_cache: get_fn("ink2_kv_conv4_prep_cache").ok(),
             wo_conv4_save_c3072: get_fn("ink2_wo_conv4_save_c3072").ok(),
             build_expert_groups_active_b: get_fn("ink2_build_expert_groups_active_b").ok(),
+            router_topk8_groups_b: get_fn("ink2_router_topk8_groups_b").ok(),
         })
     }
 
@@ -6740,6 +6768,7 @@ impl Inkling2GpuEngine {
         }
 
         // 4. Register-Persistent / Token-Parallel Causal `short_conv4` for K & V
+        let mut kv_pair: Vec<Conv4BArgs> = Vec::with_capacity(2);
         for (raw_ptr, raw_stride, conv_w, hist_ptr, dst_ptr, seq_off_floats) in [
             (
                 k_raw_ptr,
@@ -6825,6 +6854,30 @@ impl Inkling2GpuEngine {
             let mut bi = b_i32;
             let mut hd = i32::from(l.global);
             let mut dr = 0i32;
+            if self.fns.short_conv4_pair_b.is_some()
+                && conv == self.fns.short_conv4_b
+                && std::env::var("LEANSONIC_CONV_PAIR").map_or(true, |v| v != "0")
+            {
+                // K and V go out as one `ink2_short_conv4_pair_b` launch below.
+                kv_pair.push(Conv4BArgs {
+                    cur_base: p_cur,
+                    w_conv4: p_w,
+                    dyn_base: p_dyn,
+                    hist3: p_hist,
+                    out_base: p_out,
+                    res_base: p_res,
+                    seq_out: p_seq,
+                    in_stride: ins,
+                    dyn_f4_stride: df4,
+                    out_stride: outs,
+                    res_stride: ress,
+                    channels: ch,
+                    b: bi,
+                    has_dyn: hd,
+                    do_res_add: dr,
+                });
+                continue;
+            }
             let mut args: [*mut c_void; 15] = [
                 (&mut p_cur as *mut _) as *mut c_void,
                 (&mut ins as *mut _) as *mut c_void,
@@ -6843,6 +6896,17 @@ impl Inkling2GpuEngine {
                 (&mut dr as *mut _) as *mut c_void,
             ];
             self.launch(stream, conv, kv_conv_grid, 256, &mut args)?;
+        }
+        match (kv_pair.as_mut_slice(), self.fns.short_conv4_pair_b) {
+            ([k_args, v_args], Some(f_pair)) => {
+                let mut args: [*mut c_void; 2] = [
+                    (k_args as *mut Conv4BArgs).cast(),
+                    (v_args as *mut Conv4BArgs).cast(),
+                ];
+                self.launch(stream, f_pair, (kv_conv_grid.0, 2), 256, &mut args)?;
+            }
+            ([], _) => {}
+            _ => return Err("short_conv4 K/V pair: expected two launches".into()),
         }
 
         // 5. Batched Q/R/K Clip + V RMSNorm + KV Cache Write (Ring-Hazard-Free via `1088 >= 1024 + 64`!)
@@ -7656,15 +7720,54 @@ impl Inkling2GpuEngine {
                 (&mut py as *mut _) as *mut c_void,
                 (&mut bi as *mut _) as *mut c_void,
             ];
-            self.launch(
-                stream,
-                self.fns.bf16_gemm_router_b,
-                (16, b_u32.div_ceil(4)),
-                256,
-                &mut args,
-            )?;
+            match self.fns.bf16_gemv_router_b {
+                Some(f) if std::env::var("LEANSONIC_ROUTER_GEMV").map_or(true, |v| v != "0") => {
+                    self.launch(stream, f, (N_EXP as u32, b_u32.div_ceil(4)), 32, &mut args)?
+                }
+                _ => self.launch(
+                    stream,
+                    self.fns.bf16_gemm_router_b,
+                    (16, b_u32.div_ceil(4)),
+                    256,
+                    &mut args,
+                )?,
+            }
         }
-        {
+        // Speculative verify: top-8 and the active-expert groups in one CTA.
+        let fused_groups = match self.fns.router_topk8_groups_b {
+            Some(f)
+                if self.verify_moe
+                    && b_len <= MAX_SPEC_TOKENS
+                    && self.fns.build_expert_groups_active_b.is_some()
+                    && std::env::var("LEANSONIC_TOPK_GROUPS").map_or(true, |v| v != "0") =>
+            {
+                Some(f)
+            }
+            _ => None,
+        };
+        if let Some(f_fused) = fused_groups {
+            let mut pl = self.prefill.layer_workspace.router_logits;
+            let mut pb = l.router_bias.ptr;
+            let mut pids = self.prefill.d_b_sel_ids.ptr;
+            let mut pwts = self.prefill.d_b_sel_wts.ptr;
+            let mut pcnt = self.d_b_exp_counts.ptr;
+            let mut ptok = self.prefill.d_b_exp_toks.ptr;
+            let mut ppair = self.prefill.d_b_exp_pairs.ptr;
+            let mut pact_exps = self.d_b_active_exps.ptr;
+            let mut bi = b_i32;
+            let mut args: [*mut c_void; 9] = [
+                (&mut pl as *mut _) as *mut c_void,
+                (&mut pb as *mut _) as *mut c_void,
+                (&mut pids as *mut _) as *mut c_void,
+                (&mut pwts as *mut _) as *mut c_void,
+                (&mut pcnt as *mut _) as *mut c_void,
+                (&mut ptok as *mut _) as *mut c_void,
+                (&mut ppair as *mut _) as *mut c_void,
+                (&mut pact_exps as *mut _) as *mut c_void,
+                (&mut bi as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, f_fused, (1, 1), 256, &mut args)?;
+        } else {
             let mut pl = self.prefill.layer_workspace.router_logits;
             let mut pb = l.router_bias.ptr;
             let mut pids = self.prefill.d_b_sel_ids.ptr;
@@ -7677,8 +7780,10 @@ impl Inkling2GpuEngine {
             ];
             self.launch(stream, self.fns.router_topk8_b, (b_u32, 1), 32, &mut args)?;
         }
-        let mut active_groups_ready = false;
-        if let (true, Some(f_act)) = (
+        let mut active_groups_ready = fused_groups.is_some();
+        if active_groups_ready {
+            // Groups were built by `ink2_router_topk8_groups_b`.
+        } else if let (true, Some(f_act)) = (
             self.verify_moe && b_len <= MAX_SPEC_TOKENS,
             self.fns.build_expert_groups_active_b,
         ) {
@@ -8479,7 +8584,43 @@ impl Inkling2GpuEngine {
             }
         }
 
-        {
+        // Speculative verify: top-8 combine + MLP conv in one launch.
+        let combine_conv = match self.fns.moe_combine_conv4_b {
+            Some(f)
+                if !moe_wrote_f16
+                    && self.ms_rows.get() == 0
+                    && b_len <= MAX_SPEC_TOKENS
+                    && std::env::var("LEANSONIC_COMBINE_CONV").map_or(true, |v| v != "0") =>
+            {
+                Some(f)
+            }
+            _ => None,
+        };
+        if let Some(f_cc) = combine_conv {
+            let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
+            let mut pwts = self.prefill.d_b_sel_wts.ptr;
+            let mut pout = self.prefill.d_b_activations.ptr;
+            let mut p_w = l.mlp_conv4.ptr;
+            let mut p_hist = st.hist_mlp_at(self.cur_seq);
+            let mut p_cur = self.prefill.d_b_cur.ptr;
+            let mut p_seq = if record_seq {
+                slot_seq_base + (4352 * CONV_SEQ_STEPS * 4) as u64
+            } else {
+                0
+            };
+            let mut bi = b_i32;
+            let mut args: [*mut c_void; 8] = [
+                (&mut ppy as *mut _) as *mut c_void,
+                (&mut pwts as *mut _) as *mut c_void,
+                (&mut pout as *mut _) as *mut c_void,
+                (&mut p_w as *mut _) as *mut c_void,
+                (&mut p_hist as *mut _) as *mut c_void,
+                (&mut p_cur as *mut _) as *mut c_void,
+                (&mut p_seq as *mut _) as *mut c_void,
+                (&mut bi as *mut _) as *mut c_void,
+            ];
+            self.launch(stream, f_cc, (D as u32 / 256, 1), 256, &mut args)?;
+        } else {
             let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
             let mut pwts = self.prefill.d_b_sel_wts.ptr;
             let mut pout = self.prefill.d_b_activations.ptr;
@@ -8510,7 +8651,9 @@ impl Inkling2GpuEngine {
         }
 
         // 10. `mlp_sconv` + Residual Add into `d_b_cur`
-        if self.ms_rows.get() != 0 {
+        if combine_conv.is_some() {
+            // Done by `ink2_moe_combine_conv4_b` above.
+        } else if self.ms_rows.get() != 0 {
             self.enqueue_short_conv4_ms(
                 stream,
                 self.prefill.d_b_activations.ptr,
@@ -9128,6 +9271,15 @@ impl Inkling2GpuEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn conv4_pair_args_match_the_kernel_struct() {
+        // `struct Conv4BArgs` in `kernels/inkling2_sm120.cu`: 7 pointers then 8 `int32_t`.
+        assert_eq!(core::mem::size_of::<Conv4BArgs>(), 88);
+        assert_eq!(core::mem::align_of::<Conv4BArgs>(), 8);
+        assert_eq!(core::mem::offset_of!(Conv4BArgs, in_stride), 56);
+        assert_eq!(core::mem::offset_of!(Conv4BArgs, do_res_add), 84);
+    }
 
     /// Every kernel may be launched with PDL (`pdl_all`), so each one must reach `pdl_wait()`
     /// before it touches memory a preceding kernel may write (#152 P0-B).
