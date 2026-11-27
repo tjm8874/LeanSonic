@@ -23,3 +23,5 @@ On RTX 5060 Ti, the same 1,024 MiB setting saved 1,075,838,976 sampled GPU bytes
 LEANSONIC_VRAM_RESERVE_MIB="$MIB" LEANSONIC_KV=fp16 LEANSONIC_PDL=1 LEANSONIC_CUBIN_PATH="$CUBIN" \
   "$REPLAY" "$CANONICAL" docs/benchmarks/inputs/inkling-readme1024.ids "$CONTINUATION_IDS"
 ```
+
+The main-based implementation at `69d6ac0` independently reproduced the 20/24 and 17/24 fully resident layer counts and all 33 predictions at 0 and 1,024 MiB on both 16 GB cards.
