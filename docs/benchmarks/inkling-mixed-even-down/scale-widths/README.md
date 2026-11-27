@@ -7,6 +7,8 @@ To test the GPU read cost, we use the same layer-0 mixed gate/up weights for eac
 | GPU and format | Fixed-six baseline, µs per launch | Candidate, µs per launch | Median within-cycle time ratio |
 | --- | ---: | ---: | ---: |
 | RTX 5060 Ti, group of 128 scales | 49.246 | 67.553 | 1.372 |
+| RTX PRO 4500, group of 128 scales | 27.028 | 35.146 | 1.301 |
+| RTX 5060 Ti, one descriptor per expert | 49.273 | 62.299 | 1.262 |
 | RTX PRO 4500, one descriptor per expert | 27.083 | 31.721 | 1.172 |
 
 Each pair has its own same-GPU control. The group-of-128 reader is 37% slower in this kernel on the 5060 Ti. Moving the descriptor outside the per-word loads and specializing at five or six bits still costs 17% on the PRO 4500. We retain the fixed-six reader for inference. Model-wide throughput and peak process VRAM for either alternative have not been measured. [Group-of-128 timings](verified.json) · [Expert-width timings](expert/verified.json).

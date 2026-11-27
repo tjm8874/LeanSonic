@@ -1,0 +1,186 @@
+{
+  "source": "0ad1bb4e0dc500852d78de9131cf4dcb77db978f",
+  "digests": [
+    "e3dec1f1a13af6da843eb4d5e02114a896a3cab74e2916411291c541412b201a  cli",
+    "0f9bd3137b2e59ce2997ea8dbf2adfa564a0dce7b3d667e07496f4fd2d5e55ff  engine.cubin"
+  ],
+  "gpu": "RTX 5060 Ti",
+  "runs": {
+    "0-00": {
+      "scores": {
+        "chunks": 1,
+        "context": 512,
+        "rows": 255,
+        "ppl": 5.364285220614122,
+        "ref_ppl": 5.251680690456401,
+        "mean_kld": 0.017273866545907436,
+        "median_kld": 0.0045332933926647,
+        "p99_kld": 0.19284309056538468,
+        "max_kld": 0.24587949920189445,
+        "start_chunk": 0,
+        "max_kld_chunk": 0,
+        "max_kld_position": 476,
+        "ref_floor_targets": 0,
+        "top1_matches": 245,
+        "top1_agreement": 0.9607843137254902
+      },
+      "rows_sha256": "767c1d984f624a49f2baf80992a4d27f81fcb2530133d4dd8307983e561ab769",
+      "requested_mapped_bytes": 0,
+      "peak_host_kib": 6656748
+    },
+    "0-01": {
+      "scores": {
+        "chunks": 1,
+        "context": 512,
+        "rows": 255,
+        "ppl": 5.364285220614122,
+        "ref_ppl": 5.251680690456401,
+        "mean_kld": 0.017273866545907436,
+        "median_kld": 0.0045332933926647,
+        "p99_kld": 0.19284309056538468,
+        "max_kld": 0.24587949920189445,
+        "start_chunk": 0,
+        "max_kld_chunk": 0,
+        "max_kld_position": 476,
+        "ref_floor_targets": 0,
+        "top1_matches": 245,
+        "top1_agreement": 0.9607843137254902
+      },
+      "rows_sha256": "767c1d984f624a49f2baf80992a4d27f81fcb2530133d4dd8307983e561ab769",
+      "requested_mapped_bytes": 169869312,
+      "peak_host_kib": 6656876
+    },
+    "0-10": {
+      "scores": {
+        "chunks": 1,
+        "context": 512,
+        "rows": 255,
+        "ppl": 5.364285220614122,
+        "ref_ppl": 5.251680690456401,
+        "mean_kld": 0.017273866545907436,
+        "median_kld": 0.0045332933926647,
+        "p99_kld": 0.19284309056538468,
+        "max_kld": 0.24587949920189445,
+        "start_chunk": 0,
+        "max_kld_chunk": 0,
+        "max_kld_position": 476,
+        "ref_floor_targets": 0,
+        "top1_matches": 245,
+        "top1_agreement": 0.9607843137254902
+      },
+      "rows_sha256": "767c1d984f624a49f2baf80992a4d27f81fcb2530133d4dd8307983e561ab769",
+      "requested_mapped_bytes": 339738624,
+      "peak_host_kib": 6656960
+    },
+    "0-11": {
+      "scores": {
+        "chunks": 1,
+        "context": 512,
+        "rows": 255,
+        "ppl": 5.364285220614122,
+        "ref_ppl": 5.251680690456401,
+        "mean_kld": 0.017273866545907436,
+        "median_kld": 0.0045332933926647,
+        "p99_kld": 0.19284309056538468,
+        "max_kld": 0.24587949920189445,
+        "start_chunk": 0,
+        "max_kld_chunk": 0,
+        "max_kld_position": 476,
+        "ref_floor_targets": 0,
+        "top1_matches": 245,
+        "top1_agreement": 0.9607843137254902
+      },
+      "rows_sha256": "767c1d984f624a49f2baf80992a4d27f81fcb2530133d4dd8307983e561ab769",
+      "requested_mapped_bytes": 339738624,
+      "peak_host_kib": 6656780
+    },
+    "1-00": {
+      "scores": {
+        "chunks": 1,
+        "context": 512,
+        "rows": 255,
+        "ppl": 5.363048430051103,
+        "ref_ppl": 5.251680690456401,
+        "mean_kld": 0.017206684559237583,
+        "median_kld": 0.004478935708035828,
+        "p99_kld": 0.2061205640241528,
+        "max_kld": 0.2392269028053909,
+        "start_chunk": 0,
+        "max_kld_chunk": 0,
+        "max_kld_position": 458,
+        "ref_floor_targets": 0,
+        "top1_matches": 246,
+        "top1_agreement": 0.9647058823529412
+      },
+      "rows_sha256": "238285a76ccf7695a11539af9c9323f16c2a037a2d2044dd5b3844204bada48c",
+      "requested_mapped_bytes": 0,
+      "peak_host_kib": 6657108
+    },
+    "1-01": {
+      "scores": {
+        "chunks": 1,
+        "context": 512,
+        "rows": 255,
+        "ppl": 5.363048430051103,
+        "ref_ppl": 5.251680690456401,
+        "mean_kld": 0.017206684559237583,
+        "median_kld": 0.004478935708035828,
+        "p99_kld": 0.2061205640241528,
+        "max_kld": 0.2392269028053909,
+        "start_chunk": 0,
+        "max_kld_chunk": 0,
+        "max_kld_position": 458,
+        "ref_floor_targets": 0,
+        "top1_matches": 246,
+        "top1_agreement": 0.9647058823529412
+      },
+      "rows_sha256": "238285a76ccf7695a11539af9c9323f16c2a037a2d2044dd5b3844204bada48c",
+      "requested_mapped_bytes": 169869312,
+      "peak_host_kib": 6652360
+    },
+    "1-10": {
+      "scores": {
+        "chunks": 1,
+        "context": 512,
+        "rows": 255,
+        "ppl": 5.363048430051103,
+        "ref_ppl": 5.251680690456401,
+        "mean_kld": 0.017206684559237583,
+        "median_kld": 0.004478935708035828,
+        "p99_kld": 0.2061205640241528,
+        "max_kld": 0.2392269028053909,
+        "start_chunk": 0,
+        "max_kld_chunk": 0,
+        "max_kld_position": 458,
+        "ref_floor_targets": 0,
+        "top1_matches": 246,
+        "top1_agreement": 0.9647058823529412
+      },
+      "rows_sha256": "238285a76ccf7695a11539af9c9323f16c2a037a2d2044dd5b3844204bada48c",
+      "requested_mapped_bytes": 339738624,
+      "peak_host_kib": 6656520
+    },
+    "1-11": {
+      "scores": {
+        "chunks": 1,
+        "context": 512,
+        "rows": 255,
+        "ppl": 5.363048430051103,
+        "ref_ppl": 5.251680690456401,
+        "mean_kld": 0.017206684559237583,
+        "median_kld": 0.004478935708035828,
+        "p99_kld": 0.2061205640241528,
+        "max_kld": 0.2392269028053909,
+        "start_chunk": 0,
+        "max_kld_chunk": 0,
+        "max_kld_position": 458,
+        "ref_floor_targets": 0,
+        "top1_matches": 246,
+        "top1_agreement": 0.9647058823529412
+      },
+      "rows_sha256": "238285a76ccf7695a11539af9c9323f16c2a037a2d2044dd5b3844204bada48c",
+      "requested_mapped_bytes": 339738624,
+      "peak_host_kib": 6656688
+    }
+  }
+}
