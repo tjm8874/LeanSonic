@@ -151,7 +151,32 @@ impl<'a> Matrix<'a> {
             }
         }
         let mut cursor = 0;
-        for (i, out) in dst.iter_mut().enumerate() {
+        // Four independent states share one byte stream. Each symbol needs at
+        // most two normalization bytes. With eight input bytes in hand we can
+        // advance all four states before consuming their bytes in lane order.
+        let mut output = dst;
+        while let (Some(payload), Some(group)) = (
+            bytes[cursor..].first_chunk::<8>(),
+            output.first_chunk_mut::<4>(),
+        ) {
+            for (state, byte) in states.iter_mut().zip(group) {
+                let entry = self.lookup[(*state & (TOTAL - 1)) as usize];
+                byte.write((entry >> 24) as u8);
+                *state = ((entry & 4095) + 1) * (*state >> PRECISION) + ((entry >> 12) & 4095);
+            }
+            let mut consumed = 0;
+            for state in &mut states {
+                // Below LOWER / 256 a single byte cannot normalize the state.
+                let needed = usize::from(*state < LOWER) + usize::from(*state < (LOWER >> 8));
+                let word = u16::from_be_bytes([payload[consumed], payload[consumed + 1]]);
+                *state = (*state << (8 * needed)) | (u32::from(word) >> (16 - 8 * needed));
+                consumed += needed;
+            }
+            cursor += consumed;
+            output = &mut output[4..];
+        }
+        // The final bytes and any partial four-symbol group need exact bounds checks.
+        for (i, out) in output.iter_mut().enumerate() {
             let x = &mut states[i % 4];
             let entry = self.lookup[(*x & (TOTAL - 1)) as usize];
             out.write((entry >> 24) as u8);
@@ -248,6 +273,26 @@ mod tests {
         let matrix = Matrix::parse(&packed, raw.len()).unwrap();
         let mut out = vec![MaybeUninit::uninit(); raw.len()];
         assert!(matrix.decode_at(0, &mut out).is_err());
+    }
+
+    #[test]
+    fn mixed_rare_symbols_restore_across_four_lane_and_frame_tails() {
+        // Frequent zeroes need little input, while rare symbols can require two bytes.
+        let input: Vec<u8> = (0..TILE + 67)
+            .map(|i| if i % 31 < 4 { (i % 251 + 1) as u8 } else { 0 })
+            .collect();
+        for tail in 0..4 {
+            let raw = &input[..TILE + 64 + tail];
+            let mut packed = Vec::new();
+            pack(raw, &mut packed).unwrap();
+            let matrix = Matrix::parse(&packed, raw.len()).unwrap();
+            let mut out = vec![MaybeUninit::uninit(); raw.len()];
+            matrix.decode_at(0, &mut out).unwrap();
+            assert!(out.iter().zip(raw).all(|(decoded, expected)| {
+                // A successful decode_at initializes every output byte.
+                unsafe { decoded.assume_init() == *expected }
+            }));
+        }
     }
 
     #[test]
