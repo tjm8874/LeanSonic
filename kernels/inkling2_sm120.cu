@@ -1646,10 +1646,10 @@ struct Mxfp8Row {
 
 #define INK2_INDEXED_KERNEL(name, bounds, params, args) \
     template<bool PackedScales, bool Indexed> __device__ __forceinline__ void name##_impl params; \
-    extern "C" __global__ bounds void name params { name##_impl<false, false> args; } \
-    extern "C" __global__ bounds void name##_packed_scales params { name##_impl<true, false> args; } \
-    extern "C" __global__ bounds void name##_u4 params { name##_impl<false, true> args; } \
-    extern "C" __global__ bounds void name##_u4_packed_scales params { name##_impl<true, true> args; } \
+    extern "C" __global__ bounds void name params { pdl_wait(); name##_impl<false, false> args; } \
+    extern "C" __global__ bounds void name##_packed_scales params { pdl_wait(); name##_impl<true, false> args; } \
+    extern "C" __global__ bounds void name##_u4 params { pdl_wait(); name##_impl<false, true> args; } \
+    extern "C" __global__ bounds void name##_u4_packed_scales params { pdl_wait(); name##_impl<true, true> args; } \
     template<bool PackedScales, bool Indexed> __device__ __forceinline__ void name##_impl params
 
 template<bool PackedScales, bool Indexed>
@@ -10839,6 +10839,7 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_up_situ_u
     const int32_t* __restrict__ exp_toks,
     const int32_t* __restrict__ exp_pairs,
     float* __restrict__ act_out) {
+    pdl_wait();
     grouped_mxfp8_tc_impl<true, false, true>(w13_u128, s13_u32, x_u128, x_sc_u32, exp_counts, exp_toks, exp_pairs, act_out);
 }
 
@@ -10864,6 +10865,7 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_up_situ_u
     const int32_t* __restrict__ exp_toks,
     const int32_t* __restrict__ exp_pairs,
     float* __restrict__ act_out) {
+    pdl_wait();
     grouped_mxfp8_tc_impl<true, true, true>(w13_u128, s13_u32, x_u128, x_sc_u32, exp_counts, exp_toks, exp_pairs, act_out);
 }
 
@@ -10887,6 +10889,7 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_down_u4(
     const int32_t* __restrict__ exp_counts,
     const int32_t* __restrict__ exp_pairs,
     void* __restrict__ pair_y_f16) {
+    pdl_wait();
     grouped_mxfp8_tc_impl<false, false, true>(w2_u128, s2_u32, act_u128, act_sc_u32, exp_counts, exp_pairs, exp_pairs, pair_y_f16);
 }
 
@@ -10910,6 +10913,7 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_mxfp8_tc_down_u4_p
     const int32_t* __restrict__ exp_counts,
     const int32_t* __restrict__ exp_pairs,
     void* __restrict__ pair_y_f16) {
+    pdl_wait();
     grouped_mxfp8_tc_impl<false, true, true>(w2_u128, s2_u32, act_u128, act_sc_u32, exp_counts, exp_pairs, exp_pairs, pair_y_f16);
 }
 
@@ -11178,6 +11182,7 @@ extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_up_situ_t
     const int32_t* __restrict__ exp_toks,
     const int32_t* __restrict__ exp_pairs,
     float* __restrict__ act_out) {
+    pdl_wait();
     grouped_mxfp8_tc_t160_impl<true, false, true>(w13_u128, s13_u32, x_u128, x_sc_u32, exp_counts, exp_toks, exp_pairs, act_out);
 }
 
@@ -11203,6 +11208,7 @@ extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_up_situ_t
     const int32_t* __restrict__ exp_toks,
     const int32_t* __restrict__ exp_pairs,
     float* __restrict__ act_out) {
+    pdl_wait();
     grouped_mxfp8_tc_t160_impl<true, true, true>(w13_u128, s13_u32, x_u128, x_sc_u32, exp_counts, exp_toks, exp_pairs, act_out);
 }
 
@@ -11226,6 +11232,7 @@ extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_down_t160
     const int32_t* __restrict__ exp_counts,
     const int32_t* __restrict__ exp_pairs,
     void* __restrict__ pair_y_f16) {
+    pdl_wait();
     grouped_mxfp8_tc_t160_impl<false, false, true>(w2_u128, s2_u32, act_u128, act_sc_u32, exp_counts, exp_pairs, exp_pairs, pair_y_f16);
 }
 
@@ -11249,6 +11256,7 @@ extern "C" __global__ __launch_bounds__(256, 1) void ink2_moe_mxfp8_tc_down_t160
     const int32_t* __restrict__ exp_counts,
     const int32_t* __restrict__ exp_pairs,
     void* __restrict__ pair_y_f16) {
+    pdl_wait();
     grouped_mxfp8_tc_t160_impl<false, true, true>(w2_u128, s2_u32, act_u128, act_sc_u32, exp_counts, exp_pairs, exp_pairs, pair_y_f16);
 }
 
@@ -12702,6 +12710,7 @@ extern "C" __global__ void ink2_depth_mix_multi_ctrl_norm_bf16_b(
 extern "C" __global__ void ink2_expand_mxfp8_indices(
     const unsigned char* __restrict__ plane, ushort4* __restrict__ output,
     const int* __restrict__ selected, unsigned vectors_per_expert) {
+    pdl_wait();
     __shared__ unsigned short pair[256];
     const unsigned lane = threadIdx.x;
     pair[lane] = plane[lane & 15] | (unsigned(plane[lane >> 4]) << 8);

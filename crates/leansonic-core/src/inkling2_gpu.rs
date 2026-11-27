@@ -9158,6 +9158,7 @@ mod tests {
         let src = CUDA_KERNEL_SRC;
         let mut missing = Vec::new();
         let mut seen = 0;
+        let mut macro_entries = 0;
         for (at, _) in src.match_indices("extern \"C\" __global__") {
             let line_start = src[..at].rfind('\n').map_or(0, |i| i + 1);
             let prev_line_end = line_start.saturating_sub(1);
@@ -9166,7 +9167,13 @@ mod tests {
                 .trim_end()
                 .ends_with('\\')
             {
-                // Inside `INK2_SCALE_KERNEL*`; the macro body is checked below.
+                let entry = src[at..].lines().next().unwrap();
+                let (_, body) = entry.split_once('{').expect("kernel macro entry body");
+                assert!(
+                    body.trim_start().starts_with("pdl_wait();"),
+                    "kernel macro reads before waiting on its predecessor: {entry}"
+                );
+                macro_entries += 1;
                 continue;
             }
             let open = at + src[at..].find('{').expect("kernel body");
@@ -9201,7 +9208,10 @@ mod tests {
             missing.is_empty(),
             "kernels without pdl_wait(): {missing:?}"
         );
-        assert_eq!(src.matches("{ pdl_wait(); name##_impl<").count(), 4);
+        assert!(
+            macro_entries >= 4,
+            "parsed only {macro_entries} macro entries"
+        );
         assert!(src.contains("void ink2_pdl_all_marker()"));
     }
 
