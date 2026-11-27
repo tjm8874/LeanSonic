@@ -26,3 +26,14 @@ A one-process pilot per setting used the same card, executable, 217-expert packa
 | 64 | 1,365.4 | 171.00 | 15,521,021,952 |
 
 Capping the workspace at 512 saves 316,669,952 bytes versus the pilot default and costs about 29% of prefill throughput. Even at 64 the peak is above the native five-cycle maximum. Keep the default as the speed candidate. To reproduce, run the same LeanSonic fixed-token command once with each LEANSONIC_PREFILL_CHUNK setting, and unset it for default. [Pilot traces, timings and sampling counts](workspace-pilot.json).
+
+## Matching the workspace to the 1,024-token prompt
+
+The same single-process pilot with two larger explicit caps preserved all predicted IDs. Each row includes four measured requests after a warmup. [Measurements and token traces](workspace-extended.json).
+
+| Prefill cap | Prefill tok/s | Decode tok/s | Peak process GPU bytes |
+| --- | ---: | ---: | ---: |
+| 1024 | 8,427.8 | 171.10 | 15,758,000,128 |
+| 2048 | 8,427.1 | 171.11 | 16,171,139,072 |
+
+The explicit 1,024 cap saved 192,937,984 bytes versus the earlier one-process default while preserving prefill throughput for this prompt length. A separate default run instrumented allocations at the CUDA driver interface. At the high-water mark, the loader’s decoded expert buffers accounted for 10,192,158,720 bytes, compared with 15,561,009,448 tracked bytes and a sampled NVML process peak of 15,911,092,224 bytes. The profile includes every tracked allocation site and phase totals. To reproduce, apply the instrumentation to revision `d15b1d69f38eac343fb8cda80695552cb1266694` with the fixed-decode example installed, rebuild that example, and run the same default profile. [Instrumentation](instrument-allocations.py) · [Allocation profile](allocations.json).
