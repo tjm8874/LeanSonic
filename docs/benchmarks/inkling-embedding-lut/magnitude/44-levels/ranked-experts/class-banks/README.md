@@ -33,3 +33,10 @@ On RTX 5070 Ti, the original release binary loaded all 24 expert layers from the
 | --- | ---: | ---: | ---: | ---: |
 | valid | 0.0157347 | 2.5524491 | 24,200 / 25,500 | 6.566551 |
 | test | 0.0169571 | 2.8585658 | 24,084 / 25,500 | 7.127375 |
+
+Five mirrored cycles on the same 5070 Ti, 1,024 prompt tokens, 32 forced decode steps, context 8,192, one sequence, FP16 KV and speculation disabled. LeanSonic had its prefill workspace set to 1,024 tokens. Both engines retained all layers. Each process excluded a warmup and timed four requests. [Raw timings, input hashes and sampled memory](5070-timing.json.gz).
+
+| Engine | Prefill tok/s | Decode tok/s | Peak process VRAM bytes |
+| --- | ---: | ---: | ---: |
+| LeanSonic class-specific | 8,418.02 | 171.02 | 15,758,000,128 |
+| llama.cpp IQ3_XXS | 1,934.76 | 79.99 | 15,049,162,752 |
