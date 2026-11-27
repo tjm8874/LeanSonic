@@ -1803,13 +1803,40 @@ def kInk2ShortConv4Ms : KernelResourceSpec :=
 def kInk2ShortConv4SaveMs : KernelResourceSpec :=
   { kInk2ShortConv4Ms with name := "ink2_short_conv4_save_ms" }        -- 30 <= 32 regs
 
+-- #107: `ink2_q8_dp4a_gemm_b` arithmetic with 4 / 8 token tiles per CTA (multi-sequence rounds).
+def kInk2Q8Dp4aGemmBMs4 : KernelResourceSpec :=
+  { name := "ink2_q8_dp4a_gemm_b_ms4"
+    threadsPerCta := 256
+    rawRegsPerThread := 123         -- aligns to 128 -> 32,768 regs/CTA; 2 CTAs = 65,536
+    userSmemPerCtaBytes := 16384    -- partials[4][8][128] FP32
+    smemAlignPadBytes := 0
+    ctasPerSm := 2
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def kInk2Q8Dp4aGemmBMs8 : KernelResourceSpec :=
+  { name := "ink2_q8_dp4a_gemm_b_ms8"
+    threadsPerCta := 256
+    rawRegsPerThread := 160         -- 40,960 regs/CTA; 1 CTA
+    userSmemPerCtaBytes := 32768    -- partials[8][8][128] FP32
+    smemAlignPadBytes := 0
+    ctasPerSm := 1
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
 def multiSeqRoundKernelSuite : List KernelResourceSpec :=
   [ kInk2PrepQkvAndCacheMs
   , kInk2GqaAttnSplitDecMs
   , kInk2GqaAttnSplitI8Ms
   , kInk2GqaAttnCombineQ8DynMs
   , kInk2ShortConv4Ms
-  , kInk2ShortConv4SaveMs ]
+  , kInk2ShortConv4SaveMs
+  , kInk2Q8Dp4aGemmBMs4
+  , kInk2Q8Dp4aGemmBMs8 ]
 
 theorem multiseq_round_all_kernels_valid :
     (multiSeqRoundKernelSuite.all checkSm120Kernel) = true := by decide

@@ -548,6 +548,8 @@ struct KernelFns {
     depth_mix_inv: Option<CUfunction>,
     ctrl_down_r4_fast: Option<CUfunction>,
     q8_dp4a_gemm_b8_fast: Option<CUfunction>,
+    q8_dp4a_gemm_b_ms4: Option<CUfunction>,
+    q8_dp4a_gemm_b_ms8: Option<CUfunction>,
 }
 
 unsafe impl Send for KernelFns {}
@@ -763,6 +765,9 @@ pub struct Inkling2GpuEngine {
     stage_host_up: bool,
     /// `LEANSONIC_MOE_DOWN_XW`: 0 = off, 1 = VRAM-resident layers (default), 2 = all layers.
     moe_down_xw: u8,
+    /// Multi-sequence dense GEMMs use the token-tiled kernels (`LEANSONIC_MS_GEMM=0` keeps
+    /// `ink2_q8_dp4a_gemm_b`).
+    ms_gemm_tiles: bool,
     tc_q8: bool,
     tc_attn: bool,
     tc_nvfp4: bool,
@@ -1965,6 +1970,7 @@ impl Inkling2GpuEngine {
             max_ctx,
             use_moe_dp4a,
             stage_host_up: false,
+            ms_gemm_tiles: std::env::var("LEANSONIC_MS_GEMM").map_or(true, |v| v != "0"),
             moe_down_xw: std::env::var("LEANSONIC_MOE_DOWN_XW")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -2531,6 +2537,8 @@ impl Inkling2GpuEngine {
             depth_mix_inv: get_fn("ink2_depth_mix_inv").ok(),
             ctrl_down_r4_fast: get_fn("ink2_ctrl_down_r4_fast").ok(),
             q8_dp4a_gemm_b8_fast: get_fn("ink2_q8_dp4a_gemm_b8_fast").ok(),
+            q8_dp4a_gemm_b_ms4: get_fn("ink2_q8_dp4a_gemm_b_ms4").ok(),
+            q8_dp4a_gemm_b_ms8: get_fn("ink2_q8_dp4a_gemm_b_ms8").ok(),
         })
     }
 
@@ -5258,6 +5266,20 @@ impl Inkling2GpuEngine {
             }
         }
         let grid_y = (b_len as u32).div_ceil(8);
+        // #107: multi-sequence rounds use `ink2_q8_dp4a_gemm_b` arithmetic with 4 or 8 token
+        // tiles per block, so each weight fragment is loaded once for up to 64 tokens.
+        if self.ms_rows.get() != 0 && self.ms_gemm_tiles {
+            let wide = grid_y > 4;
+            let f = if wide {
+                self.fns.q8_dp4a_gemm_b_ms8
+            } else {
+                self.fns.q8_dp4a_gemm_b_ms4
+            };
+            if let Some(f) = f {
+                let gy = grid_y.div_ceil(if wide { 8 } else { 4 });
+                return self.launch(stream, f, (grid_x, gy), 256, &mut args);
+            }
+        }
         self.launch(
             stream,
             self.fns.q8_dp4a_gemm_b,
