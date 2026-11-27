@@ -38,6 +38,7 @@ Automatic prefill width, FP16 KV, PDL, context 256, 64 independent prompts, 2 fo
 | 5070Ti | 32–95 | 0 | 0 | 0 |
 | 5070Ti | 96–159 | 0 | 0 | 0 |
 | 5070Ti | 160–223 | 0 | 0 | 0 |
+| 5060Ti | 32–95 | 0 | 0 | 0 |
 
 ### Latency on 5070Ti
 
@@ -56,3 +57,4 @@ One sequence, FP16 KV, context 2,048, fixed prefill width 64. Three ABBA/BAAB cy
 | WikiText split | Positions | Mean KL | Worst KL | Top-1 matches | PPL |
 |---|---:|---:|---:|---:|---:|
 | valid | 25,500 | 0.002760741 | 0.352436097 | 24,963 | 6.50462099 |
+| test | 25,500 | 0.003158426 | 0.680977332 | 24,865 | 7.07295554 |

@@ -264,6 +264,16 @@
           }
         }
       }
+    },
+    "5060Ti": {
+      "windows": {
+        "32": {
+          "prefill_mismatches": 0,
+          "logit_mismatches": 0,
+          "top_changes": 0,
+          "worst_abs": 0.0
+        }
+      }
     }
   },
   "quality": {
@@ -283,6 +293,23 @@
       "ref_floor_targets": 10,
       "top1_matches": 24963,
       "top1_agreement": 0.9789411764705882
+    },
+    "test": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.072955538814124,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.003158425985163431,
+      "median_kld": 0.0012734924757468779,
+      "p99_kld": 0.030384473744206587,
+      "max_kld": 0.6809773323028823,
+      "start_chunk": 0,
+      "max_kld_chunk": 69,
+      "max_kld_position": 353,
+      "ref_floor_targets": 14,
+      "top1_matches": 24865,
+      "top1_agreement": 0.9750980392156863
     }
   }
 }
