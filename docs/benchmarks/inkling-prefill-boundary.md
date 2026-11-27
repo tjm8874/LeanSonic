@@ -25,3 +25,15 @@ The two final arguments are concurrency and the prefill policy. The first comman
 On the parent scheduler, the automatic configuration changed 12,003,288 of 25,607,424 logits, including four next-token changes out of 128 positions. The complete per-row CSV was byte-identical on RTX PRO 5000, RTX 5070 Ti and RTX 5060 Ti. Holding both widths at 64 restored equality on the 5070 Ti and 5060 Ti. These fixtures exercise end-to-end prompt processing and decode; a corpus comparison to BF16 is a separate measurement. [Investigation and reproducer](https://github.com/tjm8874/LeanSonic/issues/107#issuecomment-7212247468)
 
 The [BF16 observer, timing driver and instructions](https://github.com/tjm8874/LeanSonic/blob/90eb3b1/docs/benchmarks/inkling-prefill-schedule-probe.md) also allow separate comparisons of schedule-dependent quality and latency.
+
+## Candidate measurements
+
+Automatic prefill width, FP16 KV, PDL, context 256, 64 independent prompts, 2 forced rounds per slot. Each completed window compares 25,607,424 FP32 logits and 128 decode predictions, plus the initial greedy prediction following prefill.
+
+| GPU | Prompt lengths | Unequal FP32 values | Changed first tokens after prefill | Changed decode top-1 |
+|---|---|---:|---:|---:|
+| PRO4500 | 32–95 | 0 | 0 | 0 |
+| PRO4500 | 96–159 | 0 | 0 | 0 |
+| 5070Ti | 32–95 | 0 | 0 | 0 |
+| 5070Ti | 96–159 | 0 | 0 | 0 |
+| 5070Ti | 160–223 | 0 | 0 | 0 |

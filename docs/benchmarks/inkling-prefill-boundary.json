@@ -1,0 +1,44 @@
+{
+  "commit": "8d1762b6fb4dc77d632f542c7e5ffd38439b030e",
+  "baseline": "d912b30",
+  "gpus": {
+    "PRO4500": {
+      "windows": {
+        "32": {
+          "prefill_mismatches": 0,
+          "logit_mismatches": 0,
+          "top_changes": 0,
+          "worst_abs": 0.0
+        },
+        "96": {
+          "prefill_mismatches": 0,
+          "logit_mismatches": 0,
+          "top_changes": 0,
+          "worst_abs": 0.0
+        }
+      }
+    },
+    "5070Ti": {
+      "windows": {
+        "32": {
+          "prefill_mismatches": 0,
+          "logit_mismatches": 0,
+          "top_changes": 0,
+          "worst_abs": 0.0
+        },
+        "96": {
+          "prefill_mismatches": 0,
+          "logit_mismatches": 0,
+          "top_changes": 0,
+          "worst_abs": 0.0
+        },
+        "160": {
+          "prefill_mismatches": 0,
+          "logit_mismatches": 0,
+          "top_changes": 0,
+          "worst_abs": 0.0
+        }
+      }
+    }
+  }
+}
