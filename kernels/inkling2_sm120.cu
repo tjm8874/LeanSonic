@@ -1870,25 +1870,26 @@ extern "C" __global__ void ink2_depth_mix_b(
     const float4* q4 = reinterpret_cast<const float4*>(queries + static_cast<size_t>(q_idx) * kD);
     const float inv_sqrt_d = 0.020833333333333332f;
 
-    float4 q_reg[3];
+    // Reductions use the element -> thread mapping of `ink2_depth_mix` (`tid + t * 256`) so B >= 1
+    // verify rows stay bit-identical to the B = 1 decode graph (`--spec 0 == --spec K`, #88).
+    const float* q = reinterpret_cast<const float*>(q4);
+    float q_reg[9];
     #pragma unroll
-    for (int p = 0; p < 3; ++p) {
-        const int i4 = p * 256 + tid;
-        q_reg[p] = (i4 < 576) ? q4[i4] : make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+    for (int t = 0; t < 9; ++t) {
+        q_reg[t] = q[tid + t * 256];
     }
 
     for (int s = 0; s < total_states; ++s) {
-        const float4* st4 = reinterpret_cast<const float4*>((s < n_blocks)
+        const float* st = (s < n_blocks)
             ? (blocks_buf + (static_cast<size_t>(s) * stride_B + b_src) * kD)
-            : (cur_opt + static_cast<size_t>(b_src) * kD));
+            : (cur_opt + static_cast<size_t>(b_src) * kD);
         float sq = 0.0f;
         float dq = 0.0f;
         #pragma unroll
-        for (int p = 0; p < 3; ++p) {
-            const int i4 = p * 256 + tid;
-            const float4 v = (i4 < 576) ? st4[i4] : make_float4(0.0f, 0.0f, 0.0f, 0.0f);
-            sq += v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w;
-            dq += v.x * q_reg[p].x + v.y * q_reg[p].y + v.z * q_reg[p].z + v.w * q_reg[p].w;
+        for (int t = 0; t < 9; ++t) {
+            float v = st[tid + t * 256];
+            sq += v * v;
+            dq += v * q_reg[t];
         }
         sq = warp_sum(sq);
         dq = warp_sum(dq);
@@ -7995,29 +7996,20 @@ extern "C" __global__ void ink2_depth_mix_multi_b(
         const float4* st4 = reinterpret_cast<const float4*>((s < n_blocks)
             ? (blocks_buf + (static_cast<size_t>(s) * stride_B + b_src) * kD)
             : (cur_opt + static_cast<size_t>(b_src) * kD));
+        // Same element -> thread mapping and accumulation order as `ink2_depth_mix` (#88).
+        const float* st = reinterpret_cast<const float*>(st4);
+        const float* qf = reinterpret_cast<const float*>(q4_base);
         float sq = 0.0f;
         float dq0 = 0.0f, dq1 = 0.0f, dq2 = 0.0f, dq3 = 0.0f;
         #pragma unroll
-        for (int p = 0; p < 3; ++p) {
-            const int i4 = p * 256 + tid;
-            if (i4 < 576) {
-                const float4 v = st4[i4];
-                sq += v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w;
-                const float4 q0 = q4_base[i4];
-                dq0 += v.x * q0.x + v.y * q0.y + v.z * q0.z + v.w * q0.w;
-                if (n_q > 1) {
-                    const float4 q1 = q4_base[576 + i4];
-                    dq1 += v.x * q1.x + v.y * q1.y + v.z * q1.z + v.w * q1.w;
-                }
-                if (n_q > 2) {
-                    const float4 q2 = q4_base[1152 + i4];
-                    dq2 += v.x * q2.x + v.y * q2.y + v.z * q2.z + v.w * q2.w;
-                }
-                if (n_q > 3) {
-                    const float4 q3 = q4_base[1728 + i4];
-                    dq3 += v.x * q3.x + v.y * q3.y + v.z * q3.z + v.w * q3.w;
-                }
-            }
+        for (int t = 0; t < 9; ++t) {
+            const int i = tid + t * 256;
+            float v = st[i];
+            sq += v * v;
+            dq0 += v * qf[i];
+            if (n_q > 1) dq1 += v * qf[kD + i];
+            if (n_q > 2) dq2 += v * qf[2 * kD + i];
+            if (n_q > 3) dq3 += v * qf[3 * kD + i];
         }
         sq = warp_sum(sq);
         dq0 = warp_sum(dq0);
