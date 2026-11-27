@@ -1,0 +1,513 @@
+{
+  "commit": "4b238be65c62e6d9c8d5f3a4f2f206ebe6313928",
+  "base": "8acb3b2020888c9f610bc822c5c36bf11870c907",
+  "model": "Inkling-2-Mini",
+  "source_shard_sha256": "65e60f51aa1284d4fb022584908c315270334d991828bb774af60584523539d1",
+  "previous_native_shard_sha256": "0fde715a53bfbd9bad98769663c2d088bd6ffee6397c72f62824c0f21af6c472",
+  "package": {
+    "shard": 15978753408,
+    "with_tokenizer": 15982139902,
+    "sha256": "7a635c2c618ca2e79cfb3b3940a1f69c079c4cdc22a065195d7bc2f5f08c9923",
+    "accepted_planes": 177,
+    "payload_saved": 56430128,
+    "actual_saved": 56429088
+  },
+  "integrity": {
+    "changed": 177,
+    "unchanged": 822,
+    "decoded": 1106938368
+  },
+  "text_only_basalt_bytes": 18327104737,
+  "previous_native_text_distribution_bytes": 16038568990,
+  "input_ids": "docs/benchmarks/inputs/inkling-readme1024.ids",
+  "input_sha256": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843",
+  "method": "Warm files, fresh processes. Each card listed in results completed 5 A/B/B/A cycles, where A loads raw native Q8 codes and B loads rANS Q8 codes. Both use dictionary Q8 scales. Same CLI/cubin on each leg, FP16 KV, context 8,192, greedy, spec 0. Record the second of two README 1024-token bench requests and 16 decode forwards. Each process must produce the recorded 16 IDs. Per-process peak VRAM via NVML at 4 ms target interval; bootstrap resamples whole paired cycles.",
+  "results": {
+    "5060Ti": {
+      "mean": {
+        "native_codes": {
+          "load_s": 5.181,
+          "prefill_ms": 388.765,
+          "decode16_ms": 392.558,
+          "peak_bytes": 16554917888
+        },
+        "rans_codes": {
+          "load_s": 5.785,
+          "prefill_ms": 388.756,
+          "decode16_ms": 392.567,
+          "peak_bytes": 16554917888
+        }
+      },
+      "paired_load_delta_s": 0.6040000000000001,
+      "bootstrap_load_delta_95_s": [
+        0.5050000000000001,
+        0.7140000000000002
+      ],
+      "peak_ranges": {
+        "native_codes": [
+          16554917888,
+          16554917888
+        ],
+        "rans_codes": [
+          16554917888,
+          16554917888
+        ]
+      }
+    },
+    "PRO5000": {
+      "mean": {
+        "native_codes": {
+          "load_s": 3.154,
+          "prefill_ms": 94.519,
+          "decode16_ms": 97.613,
+          "peak_bytes": 18123168153.6
+        },
+        "rans_codes": {
+          "load_s": 3.267,
+          "prefill_ms": 94.553,
+          "decode16_ms": 97.628,
+          "peak_bytes": 18131137331.2
+        }
+      },
+      "paired_load_delta_s": 0.11299999999999999,
+      "bootstrap_load_delta_95_s": [
+        -0.013000000000000168,
+        0.19400000000000012
+      ],
+      "peak_ranges": {
+        "native_codes": [
+          18001952768,
+          18224250880
+        ],
+        "rans_codes": [
+          18035507200,
+          18249416704
+        ]
+      }
+    }
+  },
+  "runs": [
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": "a1",
+      "load_s": 5.39,
+      "prefill_ms": 388.33,
+      "decode16_ms": 392.48,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": "a2",
+      "load_s": 5.16,
+      "prefill_ms": 388.59,
+      "decode16_ms": 392.39,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": "b1",
+      "load_s": 6.49,
+      "prefill_ms": 388.41,
+      "decode16_ms": 392.43,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 1,
+      "leg": "b2",
+      "load_s": 5.63,
+      "prefill_ms": 388.62,
+      "decode16_ms": 392.42,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": "a1",
+      "load_s": 5.0,
+      "prefill_ms": 388.7,
+      "decode16_ms": 392.44,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": "a2",
+      "load_s": 5.16,
+      "prefill_ms": 388.68,
+      "decode16_ms": 392.5,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": "b1",
+      "load_s": 5.85,
+      "prefill_ms": 388.7,
+      "decode16_ms": 392.5,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 2,
+      "leg": "b2",
+      "load_s": 5.7,
+      "prefill_ms": 388.6,
+      "decode16_ms": 392.6,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": "a1",
+      "load_s": 5.25,
+      "prefill_ms": 388.71,
+      "decode16_ms": 392.58,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": "a2",
+      "load_s": 5.25,
+      "prefill_ms": 388.84,
+      "decode16_ms": 392.6,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": "b1",
+      "load_s": 5.73,
+      "prefill_ms": 388.76,
+      "decode16_ms": 392.58,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 3,
+      "leg": "b2",
+      "load_s": 5.7,
+      "prefill_ms": 388.76,
+      "decode16_ms": 392.62,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": "a1",
+      "load_s": 5.29,
+      "prefill_ms": 388.78,
+      "decode16_ms": 392.64,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": "a2",
+      "load_s": 5.03,
+      "prefill_ms": 388.93,
+      "decode16_ms": 392.67,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": "b1",
+      "load_s": 5.73,
+      "prefill_ms": 388.77,
+      "decode16_ms": 392.58,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 4,
+      "leg": "b2",
+      "load_s": 5.7,
+      "prefill_ms": 388.93,
+      "decode16_ms": 392.65,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": "a1",
+      "load_s": 5.1,
+      "prefill_ms": 388.96,
+      "decode16_ms": 392.61,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": "a2",
+      "load_s": 5.18,
+      "prefill_ms": 389.13,
+      "decode16_ms": 392.67,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": "b1",
+      "load_s": 5.65,
+      "prefill_ms": 389.0,
+      "decode16_ms": 392.62,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "5060Ti",
+      "cycle": 5,
+      "leg": "b2",
+      "load_s": 5.67,
+      "prefill_ms": 389.01,
+      "decode16_ms": 392.67,
+      "peak_bytes": 16554917888
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "leg": "a1",
+      "load_s": 3.14,
+      "prefill_ms": 94.59,
+      "decode16_ms": 97.79,
+      "peak_bytes": 18144559104
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "leg": "a2",
+      "load_s": 3.38,
+      "prefill_ms": 94.53,
+      "decode16_ms": 97.69,
+      "peak_bytes": 18001952768
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "leg": "b1",
+      "load_s": 3.25,
+      "prefill_ms": 94.57,
+      "decode16_ms": 97.82,
+      "peak_bytes": 18249416704
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 1,
+      "leg": "b2",
+      "load_s": 3.66,
+      "prefill_ms": 94.59,
+      "decode16_ms": 97.53,
+      "peak_bytes": 18035507200
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "leg": "a1",
+      "load_s": 2.89,
+      "prefill_ms": 94.53,
+      "decode16_ms": 97.54,
+      "peak_bytes": 18111004672
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "leg": "a2",
+      "load_s": 3.43,
+      "prefill_ms": 94.47,
+      "decode16_ms": 97.57,
+      "peak_bytes": 18098421760
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "leg": "b1",
+      "load_s": 3.03,
+      "prefill_ms": 94.52,
+      "decode16_ms": 97.53,
+      "peak_bytes": 18111004672
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 2,
+      "leg": "b2",
+      "load_s": 3.03,
+      "prefill_ms": 94.49,
+      "decode16_ms": 97.51,
+      "peak_bytes": 18211667968
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "leg": "a1",
+      "load_s": 3.24,
+      "prefill_ms": 94.58,
+      "decode16_ms": 97.72,
+      "peak_bytes": 18178113536
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "leg": "a2",
+      "load_s": 3.23,
+      "prefill_ms": 94.52,
+      "decode16_ms": 97.55,
+      "peak_bytes": 18178113536
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "leg": "b1",
+      "load_s": 3.43,
+      "prefill_ms": 94.61,
+      "decode16_ms": 97.64,
+      "peak_bytes": 18232639488
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 3,
+      "leg": "b2",
+      "load_s": 3.3,
+      "prefill_ms": 94.59,
+      "decode16_ms": 97.88,
+      "peak_bytes": 18115198976
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "leg": "a1",
+      "load_s": 3.34,
+      "prefill_ms": 94.52,
+      "decode16_ms": 97.54,
+      "peak_bytes": 18064867328
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "leg": "a2",
+      "load_s": 3.12,
+      "prefill_ms": 94.49,
+      "decode16_ms": 97.7,
+      "peak_bytes": 18199085056
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "leg": "b1",
+      "load_s": 3.51,
+      "prefill_ms": 94.59,
+      "decode16_ms": 97.63,
+      "peak_bytes": 18077450240
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 4,
+      "leg": "b2",
+      "load_s": 3.37,
+      "prefill_ms": 94.66,
+      "decode16_ms": 97.73,
+      "peak_bytes": 18115198976
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "leg": "a1",
+      "load_s": 2.89,
+      "prefill_ms": 94.49,
+      "decode16_ms": 97.5,
+      "peak_bytes": 18224250880
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "leg": "a2",
+      "load_s": 2.88,
+      "prefill_ms": 94.47,
+      "decode16_ms": 97.53,
+      "peak_bytes": 18031312896
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "leg": "b1",
+      "load_s": 3.05,
+      "prefill_ms": 94.46,
+      "decode16_ms": 97.48,
+      "peak_bytes": 18094227456
+    },
+    {
+      "card": "PRO5000",
+      "cycle": 5,
+      "leg": "b2",
+      "load_s": 3.04,
+      "prefill_ms": 94.45,
+      "decode16_ms": 97.53,
+      "peak_bytes": 18069061632
+    }
+  ],
+  "codes_bf16_corpus": {
+    "chunks": 100,
+    "context": 512,
+    "rows": 25500,
+    "ppl": 7.072582283191336,
+    "ref_ppl": 7.064408191101908,
+    "mean_kld": 0.003175525720314373,
+    "median_kld": 0.0012816721567639787,
+    "p99_kld": 0.030938605542115,
+    "max_kld": 0.674715904066122,
+    "start_chunk": 0,
+    "max_kld_chunk": 69,
+    "max_kld_position": 353,
+    "ref_floor_targets": 14,
+    "top1_matches": 24879,
+    "top1_agreement": 0.9756470588235294
+  },
+  "native_bf16_corpus": {
+    "chunks": 100,
+    "context": 512,
+    "rows": 25500,
+    "ppl": 7.072582283191336,
+    "ref_ppl": 7.064408191101908,
+    "mean_kld": 0.003175525720314373,
+    "median_kld": 0.0012816721567639787,
+    "p99_kld": 0.030938605542115,
+    "max_kld": 0.674715904066122,
+    "start_chunk": 0,
+    "max_kld_chunk": 69,
+    "max_kld_position": 353,
+    "ref_floor_targets": 14,
+    "top1_matches": 24879,
+    "top1_agreement": 0.9756470588235294
+  },
+  "bf16_oracle_sha256": "895fac2136c06dce1854568c83eb76a0225a05fab3c37897a12fec1d56949b97",
+  "cli_sha256": "a2c90f2756878242b76391b955c69a132d1b95b1b6231a41614300d4ddbcf9e9",
+  "cubin_sha256": "dac6ba886186c45d76a6811cf1169a85803a374373f66fce7c7f638f7761b65a",
+  "smoke": {
+    "PRO4500": {
+      "first_logit_row_bytes": 800232,
+      "first_logit_row_sha256": "c762e59bc1eef45d386c210f403f27542a852c51d92366c278f2df9cbf293176",
+      "comma_separated_16_ids_sha256": "96c73ddedfc364f80e1698ef13a4a6c344050a248288f7e8ced5080a7658f587",
+      "method": "One README-1024 prefill logit row compared byte-for-byte across both loaders using LEANSONIC_EVAL_DUMP; independent greedy 16-step CLI runs compared with the Basalt continuation."
+    },
+    "5070Ti": {
+      "first_logit_row_bytes": 800232,
+      "first_logit_row_sha256": "c762e59bc1eef45d386c210f403f27542a852c51d92366c278f2df9cbf293176",
+      "comma_separated_16_ids_sha256": "96c73ddedfc364f80e1698ef13a4a6c344050a248288f7e8ced5080a7658f587",
+      "method": "One README-1024 prefill logit row compared byte-for-byte across both loaders using LEANSONIC_EVAL_DUMP; independent greedy 16-step CLI runs compared with the Basalt continuation."
+    }
+  },
+  "reproduce": [
+    "cargo build --release -p leansonic-cli",
+    "python3 tools/pack_inkling_text.py \"$OFFICIAL/model-00001-of-00001.safetensors\" \"$OUT/model-00001-of-00001.safetensors\" --prepack-head --prepack-attention --prepack-embedding --prepack-mxfp8 --entropy-scales --compact-q8-scales --compact-q8-codes",
+    "python3 tools/pack_inkling_text.py \"$PREVIOUS/model-00001-of-00001.safetensors\" \"$SECOND/model-00001-of-00001.safetensors\" --compact-q8-codes",
+    "cmp \"$OUT/model-00001-of-00001.safetensors\" \"$SECOND/model-00001-of-00001.safetensors\"",
+    "nvcc -std=c++17 -O3 -arch=sm_120a --cubin kernels/inkling2_sm120.cu -o inkling.cubin",
+    "export LEANSONIC_KV=fp16 LEANSONIC_CTX=8192 LEANSONIC_CUBIN_PATH=\"$PWD/inkling.cubin\"",
+    "target/release/leansonic bench --weights \"$OUT\" --tokens \"@docs/benchmarks/inputs/inkling-readme1024.ids\" --spec 0 --gen 16 --repeat 2",
+    "target/release/leansonic eval-kld --weights \"$OUT\" --ref \"$BF16_KLD\" --chunks 100"
+  ],
+  "verification": "Both hosts produced the same file bytes. An independent shard walker compared every unchanged tensor and streamed the decoded rANS planes against the native code bytes. Direct official conversion and incremental conversion produced the same SHA-256. Create fresh output directories and copy the official tiktoken/tokenizer.model to each. The optional drafter and vision weights are excluded."
+}

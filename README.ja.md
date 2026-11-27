@@ -123,6 +123,8 @@ Attentionの176個の重みも事前変換するには、上のコマンドに `
 
 配布容量をさらに減らすには、公式ファイルの変換時に `--prepack-head --prepack-attention --prepack-embedding --prepack-mxfp8 --entropy-scales --compact-q8-scales` を指定します。最後のオプションは Attention と出力層の Q8 スケールを辞書圧縮し、読み込み時に元の FP32 値をビット単位で復元します。Inkling-2-Mini のテキスト重みは 16,035,182,496 バイトで、別途 tokenizer が必要です。すでに他のオプションで変換したファイルには `--compact-q8-scales` だけを指定できます。読み込みには辞書形式に対応した LeanSonic を使ってください。
 
+Q8 の整数値も圧縮するには `--compact-q8-codes` を加えます。行列ごとにサイズを比較し、小さくなる場合だけ rANS 形式で保存します。上記のオプションと併用すると重みは 15,978,753,408 バイト、tokenizer を含む配布容量は 15,982,139,902 バイトです。対応するローダーが読み込み時に元の整数値を復元します。RTX 5060 Ti では配布容量が 56,429,088 バイト減り、モデルの読み込みは平均 5.181 秒から 5.785 秒になりました。ファイルが OS のキャッシュにある状態で、毎回プロセスを起動して計 20 回測定しました。[測定結果と再現手順](docs/benchmarks/inkling-rans-q8-codes.json)
+
 ### 2. OpenAI API 互換エンドポイントの呼び出し（`/v1/models`, `/v1/chat/completions`, SSE）
 
 Lean 4（`ServingAndPrompt.lean`）で帰納法により完全性を証明した SSE 状態機械（`SseProtocolGuard`）と、`2048`-token チャンク Prefill 分離則により、`leansonic -p` と複数スロット同時稼働時の `serve` が **`0-ULP` で完全一致**します。

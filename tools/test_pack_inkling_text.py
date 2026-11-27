@@ -236,6 +236,52 @@ class PackInklingTextTest(unittest.TestCase):
                 self.assertEqual(prefix + "scales.dict_v1" in tensors, use_dict)
                 self.assertEqual(prefix + "scales" in tensors, not use_dict)
 
+    def test_entropy_q8_codes_and_scale_dictionary_compose_in_either_order(self):
+        name = "projection.weight"
+        prefix = name + ".q8_64."
+        with tempfile.TemporaryDirectory() as tmp, patch("pack_inkling_text.attention_matrices",
+                return_value={name: (1, 1, 2304, prefix)}):
+            folder = Path(tmp)
+            source = folder / "source"
+            header = {
+                "model.llm.embed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [0, 2]},
+                "model.llm.unembed.weight": {"dtype": "BF16", "shape": [1], "data_offsets": [2, 4]},
+                name: {"dtype": "BF16", "shape": [1, 2304], "data_offsets": [4, 4612]},
+            }
+            encoded = json.dumps(header).encode()
+            source.write_bytes(struct.pack("<Q", len(encoded)) + encoded + b"EEHH" + bytes(4608))
+            raw, direct = folder / "raw", folder / "direct"
+            pack(source, raw, prepack_attention=True)
+            pack(source, direct, prepack_attention=True, compact_q8_scales=True, compact_q8_codes=True)
+            for first, second in (("compact_q8_codes", "compact_q8_scales"), ("compact_q8_scales", "compact_q8_codes")):
+                intermediate, output = folder / first, folder / (first + "-complete")
+                pack(raw, intermediate, **{first: True})
+                pack(intermediate, output, **{second: True})
+                self.assertEqual(direct.read_bytes(), output.read_bytes())
+            with direct.open("rb") as f:
+                tensors = json.loads(f.read(struct.unpack("<Q", f.read(8))[0]))
+            self.assertIn(prefix + "codes.rans_v1", tensors)
+            self.assertIn(prefix + "scales.dict_v1", tensors)
+            # Duplicate raw and encoded representations must never be published.
+            conflict = folder / "conflict"
+            with raw.open("rb") as f:
+                old = json.loads(f.read(struct.unpack("<Q", f.read(8))[0]))
+                data = f.read()
+            noisy, fallback = folder / "noisy", folder / "fallback"
+            code_start, code_end = old[prefix + "codes"]["data_offsets"]
+            noisy_data = data[:code_start] + bytes(range(256)) * 9 + data[code_end:]
+            encoded = json.dumps(old, separators=(",", ":")).encode()
+            encoded += b" " * (-len(encoded) % 8)
+            noisy.write_bytes(struct.pack("<Q", len(encoded)) + encoded + noisy_data)
+            pack(noisy, fallback, compact_q8_codes=True)
+            self.assertEqual(fallback.read_bytes(), noisy.read_bytes())
+            old[prefix + "codes.rans_v1"] = {"dtype": "U8", "shape": [8], "data_offsets": [len(data), len(data)+8]}
+            encoded = json.dumps(old).encode()
+            conflict.write_bytes(struct.pack("<Q", len(encoded)) + encoded + data + bytes(8))
+            with self.assertRaisesRegex(ValueError, "conflicting native Q8"):
+                pack(conflict, folder / "bad-output", compact_q8_codes=True)
+            self.assertFalse((folder / "bad-output").exists())
+
     def test_attention_projection_catalog(self):
         matrices = attention_matrices()
         self.assertEqual(len(matrices), 176)
