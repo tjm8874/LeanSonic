@@ -992,9 +992,13 @@ impl Inkling2GpuEngine {
         let conv_history = DeviceBuf::alloc_zeroed(&ctx, N_SLOT * slot_history_bytes)?;
         // `LEANSONIC_KV=int8` stores Full-attention (global) KV as int8 + per-(row, head) FP32
         // absmax scales (#14). Default FP16 is unchanged bit-for-bit.
-        let kv_int8 = std::env::var("LEANSONIC_KV")
-            .map(|v| v.eq_ignore_ascii_case("int8"))
-            .unwrap_or(false);
+        // `LEANSONIC_KV=int8-all` also stores the sliding-window rings as INT8 (same kernels:
+        // each slot picks the INT8 path from its own scale buffers).
+        let kv_mode = std::env::var("LEANSONIC_KV")
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let kv_int8 = kv_mode == "int8" || kv_mode == "int8-all";
+        let kv_int8_swa = kv_mode == "int8-all";
         let mut slots = Vec::with_capacity(N_SLOT);
         for s_idx in 0..N_SLOT {
             let hist_k = conv_history.ptr + (s_idx * slot_history_bytes) as u64;
@@ -1014,8 +1018,9 @@ impl Inkling2GpuEngine {
             } else {
                 max_ctx.min(EXTENT + EXPERT_PAGE)
             };
-            // Opt-in INT8 KV for Full-attention layers only (`1 + 4/128` B/value vs `2`).
-            let int8 = kv_int8 && is_global;
+            // Opt-in INT8 KV (`1 + 4/128` B/value vs `2`): Full-attention layers, and with
+            // `int8-all` the sliding-window rings too.
+            let int8 = kv_int8 && (is_global || kv_int8_swa);
             let kv_bytes_per_value = if int8 { 1 } else { 2 };
             slots.push(SlotStateGpu {
                 kv_cap,
@@ -1679,7 +1684,9 @@ impl Inkling2GpuEngine {
             eng.spilled_expert_layers,
             mixed_layers,
             drafter_tag,
-            if eng.slots.iter().any(|st| st.k_scale.is_some()) {
+            if eng.slots.iter().all(|st| st.k_scale.is_some()) {
+                "int8 (all layers)"
+            } else if eng.slots.iter().any(|st| st.k_scale.is_some()) {
                 "int8 (global layers)"
             } else {
                 "fp16"
@@ -1704,17 +1711,30 @@ impl Inkling2GpuEngine {
             if slot.is_global || slot.kv_cap == cap {
                 continue;
             }
-            let bytes = cap * N_KV * HD * 2;
+            let int8 = slot.k_scale.is_some();
+            let bytes = cap * N_KV * HD * if int8 { 1 } else { 2 };
             let k = DeviceBuf::alloc_zeroed(&self.ctx, bytes)?;
             let v = DeviceBuf::alloc_zeroed(&self.ctx, bytes)?;
-            replacements.push((index, k, v));
+            let scales = if int8 {
+                Some((
+                    DeviceBuf::alloc_zeroed(&self.ctx, cap * N_KV * 4)?,
+                    DeviceBuf::alloc_zeroed(&self.ctx, cap * N_KV * 4)?,
+                ))
+            } else {
+                None
+            };
+            replacements.push((index, k, v, scales));
         }
         // No token has run yet. Commit only after every allocation succeeds.
         self.prefill = buffers;
-        for (i, k, v) in replacements {
+        for (i, k, v, scales) in replacements {
             self.slots[i].kv_cap = cap;
             self.slots[i].k_cache = k;
             self.slots[i].v_cache = v;
+            if let Some((ks, vs)) = scales {
+                self.slots[i].k_scale = Some(ks);
+                self.slots[i].v_scale = Some(vs);
+            }
         }
         Ok(())
     }
