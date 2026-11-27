@@ -6,7 +6,7 @@ Compute Sanitizer memcheck completed with zero errors on 5070Ti.
 
 The engine test uses four sequence slots and the [fixed prompt](../engine/prompt.ids). It varies the four prefixes (31, 64, 129, 257 tokens), interleaves the slots, verifies 3–6 tokens per sequence, commits a different number of tokens in each slot, and compares two subsequent decode steps and the final FP32 logit hash with serial replay. Repeat after reset. Check the entire trace across four-bit vs two-bit resident down weights.
 
-Verified on 5060Ti.
+Verified on PRO4500, 5060Ti.
 
 ## Reproduce
 
