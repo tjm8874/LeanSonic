@@ -808,6 +808,41 @@ impl PrefillBuffers {
     }
 }
 
+// Local to one greedy stream. Compare whole neural rounds with scalar steps
+// while the same drafter remains resident and its context stays up to date.
+#[derive(Default)]
+struct DraftPrice {
+    scalar_ns: f64,
+    rounds: usize,
+    round_ns: f64,
+    tokens: usize,
+    skip_left: usize,
+}
+
+impl DraftPrice {
+    fn observe_scalar(&mut self, ns: f64) {
+        self.scalar_ns = if self.scalar_ns == 0.0 {
+            ns
+        } else {
+            (self.scalar_ns * 3.0 + ns) * 0.25
+        };
+    }
+
+    fn observe_neural(&mut self, ns: f64, tokens: usize) {
+        self.rounds += 1;
+        self.round_ns += ns;
+        self.tokens += tokens;
+        if self.rounds == 8 {
+            if self.scalar_ns > 0.0 && self.round_ns > 1.02 * self.scalar_ns * self.tokens as f64 {
+                self.skip_left = 24;
+            }
+            self.rounds = 0;
+            self.round_ns = 0.0;
+            self.tokens = 0;
+        }
+    }
+}
+
 pub struct Inkling2GpuEngine {
     pub ctx: Arc<CudaContextHandle>,
     fns: KernelFns,
@@ -955,6 +990,7 @@ pub struct Inkling2GpuEngine {
     pub spec_accepted_total: usize,
     /// Verify rounds whose draft was a context copy (`LEANSONIC_SPEC_COPY`).
     pub spec_copy_rounds: usize,
+    pub spec_price_skips: usize,
     pub spec_verify_steps: usize,
     host_pos: usize,
     decode_graph: Option<CapturedGraphExec>,
@@ -2343,6 +2379,7 @@ impl Inkling2GpuEngine {
             spec_drafted_total: 0,
             spec_accepted_total: 0,
             spec_copy_rounds: 0,
+            spec_price_skips: 0,
             spec_verify_steps: 0,
             ctx,
             fns,
@@ -3102,6 +3139,7 @@ impl Inkling2GpuEngine {
         self.spec_drafted_total = 0;
         self.spec_accepted_total = 0;
         self.spec_copy_rounds = 0;
+        self.spec_price_skips = 0;
         self.spec_verify_steps = 0;
         if let Some(ref mut d) = self.drafter {
             d.reset();
@@ -6405,6 +6443,9 @@ impl Inkling2GpuEngine {
         const PAUSE_AFTER: usize = 4;
         let pause_enabled = std::env::var("LEANSONIC_SPEC_PAUSE").map_or(true, |v| v != "0");
         let (mut zero_streak, mut pause_left, mut pause_len) = (0usize, 0usize, 8usize);
+        let price_enabled =
+            self.drafter.is_some() && std::env::var("LEANSONIC_SPEC_PRICE").is_ok_and(|v| v == "1");
+        let mut price = DraftPrice::default();
         let mut last_verify_row = None;
         while steps_done < n_gen {
             if Some(cur_tok) == stop_tok {
@@ -6429,7 +6470,13 @@ impl Inkling2GpuEngine {
             } else {
                 copy_index.run(&full_hist, cur_tok, max_draft)
             };
-            let drafts = if max_draft == 0 || paused {
+            let price_skip = max_draft > 0 && !paused && copied.is_empty() && price.skip_left > 0;
+            price.skip_left = price.skip_left.saturating_sub(1);
+            self.spec_price_skips += usize::from(price_skip);
+            let neural_start =
+                (price_enabled && max_draft > 0 && !paused && !price_skip && copied.is_empty())
+                    .then(Instant::now);
+            let drafts = if max_draft == 0 || paused || price_skip {
                 Vec::new()
             } else if !copied.is_empty() {
                 self.spec_copy_rounds += 1;
@@ -6448,7 +6495,8 @@ impl Inkling2GpuEngine {
             };
 
             if drafts.is_empty() {
-                if pause_enabled && !paused && max_draft > 0 {
+                let draft_ns = neural_start.map(|t| t.elapsed().as_nanos() as f64);
+                if pause_enabled && !paused && !price_skip && max_draft > 0 {
                     zero_streak += 1;
                     if zero_streak >= PAUSE_AFTER {
                         pause_left = pause_len;
@@ -6465,7 +6513,15 @@ impl Inkling2GpuEngine {
                 if stop_tok.is_some() && out_ids.len() >= n_gen {
                     break;
                 }
+                let scalar_start = price_enabled.then(Instant::now);
                 cur_tok = self.forward_greedy_token(cur_tok)?;
+                if let Some(start) = scalar_start {
+                    let ns = start.elapsed().as_nanos() as f64;
+                    price.observe_scalar(ns);
+                    if let Some(draft_ns) = draft_ns {
+                        price.observe_neural(draft_ns + ns, 1);
+                    }
+                }
                 last_verify_row = None;
                 continue;
             }
@@ -6516,6 +6572,9 @@ impl Inkling2GpuEngine {
             }
             self.enqueue_drafter_context(keep)?;
 
+            if let Some(start) = neural_start {
+                price.observe_neural(start.elapsed().as_nanos() as f64, keep);
+            }
             let emitted = verified - usize::from(hit_stop);
             for &token in &verify_in[..emitted] {
                 out_ids.push(token);
