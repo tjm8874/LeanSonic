@@ -186,7 +186,9 @@ fn main() -> io::Result<()> {
             "expected row and column counts",
         ));
     };
-    if rows == 0 || rows > 200_058 || !matches!(cols, 2304 | 3072) {
+    let supported =
+        matches!(cols, 2304 | 3072) || matches!((rows, cols), (2304, 9216) | (768, 4608));
+    if rows == 0 || rows > 200_058 || !supported {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "invalid Inkling projection dimensions",
