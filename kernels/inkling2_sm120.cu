@@ -774,6 +774,27 @@ extern "C" __global__ void ink2_ctrl_down(
     const float* cur = cur_base + static_cast<size_t>(c_idx) * kD;
     const float* msg = msg_base + static_cast<size_t>(c_idx) * kD;
 
+    const uint4* w_row = down_bf16_u128 + (static_cast<size_t>(c_idx) * 64u + r) * 576u;
+    // These source/weight pairs do not depend on either RMS. Start their
+    // loads and arithmetic before the block-wide reductions, preserving the
+    // original pair order and using each RMS only at the accumulation step.
+    float terms[3][4];
+    #pragma unroll
+    for (int visit = 0; visit < 3; ++visit) {
+        int c8 = tid + visit * 256;
+        if (c8 >= 576) continue;
+        uint4 pack = w_row[c8];
+        uint32_t w_u32[4] = {pack.x, pack.y, pack.z, pack.w};
+        int base = c8 * 8;
+        const float* src = (base < kD) ? (cur + base) : (msg + (base - kD));
+        #pragma unroll
+        for (int p = 0; p < 4; ++p) {
+            float w0 = bf16_to_f32(static_cast<uint16_t>(w_u32[p] & 0xFFFFu));
+            float w1 = bf16_to_f32(static_cast<uint16_t>(w_u32[p] >> 16));
+            terms[visit][p] = w0 * src[p * 2] + w1 * src[p * 2 + 1];
+        }
+    }
+
     float sq_a = 0.0f;
     float sq_b = 0.0f;
     for (int i = tid; i < kD; i += 256) {
@@ -801,22 +822,14 @@ extern "C" __global__ void ink2_ctrl_down(
     }
     __syncthreads();
 
-    const uint4* w_row = down_bf16_u128 + (static_cast<size_t>(c_idx) * 64u + r) * 576u;
-    const float ka = inv_ab[0];
-    const float kb = inv_ab[1];
-    float dot_acc = 0.0f;
-    for (int c8 = tid; c8 < 576; c8 += 256) {
-        uint4 pack = w_row[c8];
-        uint32_t w_u32[4] = {pack.x, pack.y, pack.z, pack.w};
-        int base = c8 * 8;
-        const float* src = (base < kD) ? (cur + base) : (msg + (base - kD));
-        float k_scale = (base < kD) ? ka : kb;
+    float dot_acc = 0.f;
+    #pragma unroll
+    for (int visit = 0; visit < 3; ++visit) {
+        const int c8 = tid + visit * 256;
+        if (c8 >= 576) continue;
+        const float scale = c8 < 288 ? inv_ab[0] : inv_ab[1];
         #pragma unroll
-        for (int p = 0; p < 4; ++p) {
-            float w0 = bf16_to_f32(static_cast<uint16_t>(w_u32[p] & 0xFFFFu));
-            float w1 = bf16_to_f32(static_cast<uint16_t>(w_u32[p] >> 16));
-            dot_acc += (w0 * src[p * 2] + w1 * src[p * 2 + 1]) * k_scale;
-        }
+        for (int p = 0; p < 4; ++p) dot_acc += terms[visit][p] * scale;
     }
     dot_acc = warp_sum(dot_acc);
     if (lane == 0) smem_red_a[warp_id] = dot_acc;
