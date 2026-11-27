@@ -1,0 +1,11 @@
+{
+  "frame_bytes": 502097692,
+  "sha256": "9231e6975e67b3eb1f32a3203df03807229dca55afe3a8f42377c886f72f846c",
+  "budget_bytes": 503316480,
+  "literals": 19468942,
+  "restored_min_abs_error": 0.00836181640625,
+  "exact_values": 107927968,
+  "values": 463159296,
+  "relative_rmse": 0.005396038536617311,
+  "max_abs_error": 0.00830078125
+}
