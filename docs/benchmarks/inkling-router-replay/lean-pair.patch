@@ -1,0 +1,81 @@
+--- a/crates/leansonic-core/src/inkling2_gpu.rs
++++ b/crates/leansonic-core/src/inkling2_gpu.rs
+@@ -1475,6 +1475,14 @@
+         let st = &self.slots[slot_idx];
+         let d_bytes = (D * 4) as u64;
+ 
++        let diagnostic = std::env::var_os("DIAG_LEAN_ROUTE");
++        let snapshot = |ptr: CUdeviceptr, words: usize| -> Result<Vec<u8>, String> {
++            self.ctx.sync_compute()?;
++            let mut bytes = vec![0u8; words*4];
++            unsafe { check_cu((self.ctx.api.cuMemcpyDtoH_v2)(bytes.as_mut_ptr().cast(), ptr, bytes.len()), "trace read")?; }
++            Ok(bytes)
++        };
++        let hidden = if diagnostic.is_some() { snapshot(self.d_cur.ptr, D)? } else { Vec::new() };
+         // 1. Attention inputs `[xq, xk, xv]` (`broadcast3` eliminates extra `copy_d` launches!)
+         if let Some(ref aq) = l.attn_query {
+             let n_q: u32 = if l.global { 3 } else { 1 };
+@@ -1792,6 +1800,34 @@
+             self.launch(stream, self.fns.router_topk8, (1, 1), 32, &mut args)?;
+         }
+ 
++        if diagnostic.is_some() && std::env::var("PROBE_SLOT").ok().and_then(|v| v.parse().ok()) == Some(slot_idx) {
++            let file=std::env::var("PROBE_PAIR").map_err(|e| e.to_string())?;
++            let input=std::fs::read(file).map_err(|e| e.to_string())?;
++            if input.len()!=TOP_K*8 { return Err("Unexpected routing vector size".into()); }
++            let mut seen = [false; N_EXP];
++            for word in input[..TOP_K*4].chunks_exact(4) {
++                let id = u32::from_le_bytes(word.try_into().unwrap()) as usize;
++                if id >= N_EXP || seen[id] { return Err("Invalid or repeated expert ID".into()); }
++                seen[id] = true;
++            }
++            if input[TOP_K*4..].chunks_exact(4).any(|b| !f32::from_le_bytes(b.try_into().unwrap()).is_finite()) {
++                return Err("Non-finite expert weight".into());
++            }
++            for (ptr, bytes) in [(self.d_sel_ids.ptr,&input[..TOP_K*4]), (self.d_sel_wts.ptr,&input[TOP_K*4..])] {
++                self.ctx.sync_compute()?;
++                unsafe {check_cu((self.ctx.api.cuMemcpyHtoDAsync_v2)(ptr,bytes.as_ptr().cast(),bytes.len(),stream),"probe copy routing")?;}
++                self.ctx.sync_compute()?;
++                if snapshot(ptr, TOP_K)? != bytes { return Err("Routing probe readback mismatch".into()); }
++            }
++        }
++        if let Some(path) = diagnostic {
++            use std::io::Write;
++            let mut f=std::fs::OpenOptions::new().append(true).create(true).open(path).map_err(|e|e.to_string())?;
++            for n in [il,slot_idx,self.host_pos] { f.write_all(&(n as i32).to_le_bytes()).map_err(|e|e.to_string())?; }
++            for data in [snapshot(self.d_sel_ids.ptr, TOP_K)?,snapshot(self.d_sel_wts.ptr, TOP_K)?,snapshot(self.d_mlp_h.ptr,D)?, hidden] {
++                f.write_all(&data).map_err(|e|e.to_string())?;
++            }
++        }
+         match &l.experts {
+             ExpertsGpu::Nvfp4 {
+                 w13,
+--- /dev/null
++++ b/crates/leansonic-core/examples/route_probe.rs
+@@ -0,0 +1,26 @@
++use leansonic_core::inkling2_gpu::Inkling2GpuEngine;
++use std::{env, fs, io::Write};
++fn main() -> Result<(), Box<dyn std::error::Error>> {
++    let a: Vec<_> = env::args().collect();
++    let ids: Vec<u32> = fs::read_to_string(&a[2])?
++        .trim()
++        .split(',')
++        .map(str::parse)
++        .collect::<Result<_, _>>()?;
++    let n = ids.len();
++    let mut eng = Inkling2GpuEngine::load_from_dir_with_spec(&a[1], 512, false, 0)?;
++    eng.reset()?;
++    eng.prefill_tokens(&ids[..257])?;
++    for &id in &ids[257..n - 1] {
++        eng.forward_greedy_token(id)?;
++    }
++    env::set_var("DIAG_LEAN_ROUTE", &a[3]);
++    let next = eng.forward_greedy_token(ids[n - 1])?;
++    let logits = eng.read_last_logits()?;
++    let mut f = fs::File::create(&a[4])?;
++    for x in logits {
++        f.write_all(&x.to_le_bytes())?;
++    }
++    println!("position={} top={next}", n - 1);
++    Ok(())
++}
