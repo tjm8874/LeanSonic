@@ -1,0 +1,236 @@
+[
+  {
+    "case": "ja_name",
+    "generated": {
+      "128": {
+        "text": "",
+        "finish": "length",
+        "tokens": 128,
+        "passed": false
+      },
+      "384": {
+        "text": "𠮷野家🍵",
+        "finish": "stop",
+        "tokens": 213,
+        "passed": true
+      }
+    },
+    "token_sha256": "760bac968879f68d3d8bad6179f7c6fd0ca93eab501edc6c3e7e9c42916c2185"
+  },
+  {
+    "case": "en_count",
+    "generated": {
+      "128": {
+        "text": "3",
+        "finish": "stop",
+        "tokens": 92,
+        "passed": true
+      },
+      "384": {
+        "text": "3",
+        "finish": "stop",
+        "tokens": 92,
+        "passed": true
+      }
+    },
+    "token_sha256": "d0cdf867fd8dd2ca8652a7013db572321dcb368671638b13b7fb58e4cc997933"
+  },
+  {
+    "case": "ja_stock",
+    "generated": {
+      "128": {
+        "text": "42",
+        "finish": "stop",
+        "tokens": 74,
+        "passed": true
+      },
+      "384": {
+        "text": "42",
+        "finish": "stop",
+        "tokens": 74,
+        "passed": true
+      }
+    },
+    "token_sha256": "4e14b104b2bd4f5526a042000451dbda10af5bf415bca1b6b36f3b7520697c4d"
+  },
+  {
+    "case": "en_sort",
+    "generated": {
+      "128": {
+        "text": "[-2, 0, 3, 6, 6]",
+        "finish": "stop",
+        "tokens": 80,
+        "passed": true
+      },
+      "384": {
+        "text": "[-2, 0, 3, 6, 6]",
+        "finish": "stop",
+        "tokens": 80,
+        "passed": true
+      }
+    },
+    "token_sha256": "8f9b0f4fd2ae7ca0ea6fd4d3c7b8f62d849867c6b0e1af1621ac7e58b5a46c69"
+  },
+  {
+    "case": "ja_reading",
+    "generated": {
+      "128": {
+        "text": "C",
+        "finish": "length",
+        "tokens": 128,
+        "passed": false
+      },
+      "384": {
+        "text": "C",
+        "finish": "stop",
+        "tokens": 129,
+        "passed": true
+      }
+    },
+    "token_sha256": "6296ac795fec93637ea10a60e218700269ab9ca258d83424b4d985f93543dfce"
+  },
+  {
+    "case": "en_boolean",
+    "generated": {
+      "128": {
+        "text": "{\"ready\":false,\"count\":0}",
+        "finish": "stop",
+        "tokens": 62,
+        "passed": true
+      },
+      "384": {
+        "text": "{\"ready\":false,\"count\":0}",
+        "finish": "stop",
+        "tokens": 62,
+        "passed": true
+      }
+    },
+    "token_sha256": "d6f1922e33bc02e0883e54dacbf3b980a4fd9dd8291c10e8d4ffdb3d55d1466c"
+  },
+  {
+    "case": "ja_filter",
+    "generated": {
+      "128": {
+        "text": "[4, 8, 6]",
+        "finish": "stop",
+        "tokens": 113,
+        "passed": true
+      },
+      "384": {
+        "text": "[4, 8, 6]",
+        "finish": "stop",
+        "tokens": 113,
+        "passed": true
+      }
+    },
+    "token_sha256": "18931db907ef4a9c1a378950d04f401c2f5bf3cfea6d974a2a328b27c3f2c641"
+  },
+  {
+    "case": "en_code",
+    "generated": {
+      "128": {
+        "text": "",
+        "finish": "length",
+        "tokens": 128,
+        "passed": false
+      },
+      "384": {
+        "text": "pio",
+        "finish": "stop",
+        "tokens": 160,
+        "passed": true
+      }
+    },
+    "token_sha256": "4c0a773c6216ac7900bf901d56b5edc8db2622fb0ec4d2e5e2bb4a9b7385de4a"
+  },
+  {
+    "case": "ja_time",
+    "generated": {
+      "128": {
+        "text": "",
+        "finish": "length",
+        "tokens": 128,
+        "passed": false
+      },
+      "384": {
+        "text": "15:20",
+        "finish": "stop",
+        "tokens": 290,
+        "passed": true
+      }
+    },
+    "token_sha256": "f643f9fe181e5151547698a6aabfabdec02d555e824562213213faa0523cf641"
+  },
+  {
+    "case": "en_extract",
+    "generated": {
+      "128": {
+        "text": "green",
+        "finish": "stop",
+        "tokens": 62,
+        "passed": true
+      },
+      "384": {
+        "text": "green",
+        "finish": "stop",
+        "tokens": 62,
+        "passed": true
+      }
+    },
+    "token_sha256": "322f9267d936d8dea0d0249cd07ec1f9d36f0c171e60a747410b5ae1c4ce63b1"
+  },
+  {
+    "case": "ja_json",
+    "generated": {
+      "128": {
+        "text": "",
+        "finish": "length",
+        "tokens": 128,
+        "passed": false
+      },
+      "384": {
+        "text": "{\"item\":\"茶\",\"quantity\":2}",
+        "finish": "stop",
+        "tokens": 167,
+        "passed": true
+      }
+    },
+    "token_sha256": "c1acaa172c66b9989d15b4874aed114c0511cac792b47e461139e02679cd5255"
+  },
+  {
+    "case": "en_days",
+    "generated": {
+      "128": {
+        "text": "Monday",
+        "finish": "stop",
+        "tokens": 112,
+        "passed": true
+      },
+      "384": {
+        "text": "Monday",
+        "finish": "stop",
+        "tokens": 112,
+        "passed": true
+      }
+    },
+    "token_sha256": "d98cb60142525b877feadf0997e93cdce3a8f8e1e19796a7821398b3989fb57a"
+  },
+  {
+    "case": "ja_name",
+    "generated": {
+      "128": {
+        "text": "",
+        "finish": "length",
+        "tokens": 128,
+        "passed": false
+      },
+      "384": {
+        "text": "𠮷野家🍵",
+        "finish": "stop",
+        "tokens": 213,
+        "passed": true
+      }
+    },
+    "token_sha256": "760bac968879f68d3d8bad6179f7c6fd0ca93eab501edc6c3e7e9c42916c2185"
+  }
+]

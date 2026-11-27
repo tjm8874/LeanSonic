@@ -1,0 +1,115 @@
+{
+  "model_revision": "b85c3cfa615fc413cc9af3379f491b963f3b586a",
+  "engine": "9c64454bba553e475ce7b7b790015d2f941e2807",
+  "distribution_files": {
+    ".gitattributes": 1570,
+    "README.md": 54870,
+    "chat_template.jinja": 6868,
+    "config.json": 2722,
+    "generation_config.json": 98,
+    "hf_quant_config.json": 67924,
+    "model-00001-of-00001.safetensors": 19526019168,
+    "model.safetensors.index.json": 109300,
+    "mtp.safetensors": 635801416,
+    "processor_config.json": 461,
+    "special_tokens_map.json": 529,
+    "tiktoken/tokenizer.model": 3386494,
+    "tokenizer.json": 26178678,
+    "tokenizer_config.json": 13235
+  },
+  "config": {
+    "tp_size": 1,
+    "ep_size": 1,
+    "attention_backend": "fa4",
+    "dtype": "bfloat16",
+    "page_size": 128,
+    "grammar_backend": "xgrammar",
+    "context_length": 2048,
+    "max_total_tokens": 2048,
+    "max_running_requests": 1,
+    "mem_fraction_static": 0.85,
+    "cuda_graph_max_bs_decode": 1,
+    "disable_radix_cache": true,
+    "enable_metrics": true
+  },
+  "records": [
+    {
+      "case": "ja_name",
+      "usage": 214,
+      "finish": "stop",
+      "wall_seconds": 1.7104205768555403
+    },
+    {
+      "case": "en_count",
+      "usage": 93,
+      "finish": "stop",
+      "wall_seconds": 0.7130556688643992
+    },
+    {
+      "case": "ja_stock",
+      "usage": 75,
+      "finish": "stop",
+      "wall_seconds": 0.5816773981787264
+    },
+    {
+      "case": "en_sort",
+      "usage": 81,
+      "finish": "stop",
+      "wall_seconds": 0.623551910277456
+    },
+    {
+      "case": "ja_reading",
+      "usage": 130,
+      "finish": "stop",
+      "wall_seconds": 0.9925518911331892
+    },
+    {
+      "case": "en_boolean",
+      "usage": 63,
+      "finish": "stop",
+      "wall_seconds": 0.4885138343088329
+    },
+    {
+      "case": "ja_filter",
+      "usage": 114,
+      "finish": "stop",
+      "wall_seconds": 0.8725044229067862
+    },
+    {
+      "case": "en_code",
+      "usage": 161,
+      "finish": "stop",
+      "wall_seconds": 1.2263998701237142
+    },
+    {
+      "case": "ja_time",
+      "usage": 291,
+      "finish": "stop",
+      "wall_seconds": 2.1970193493179977
+    },
+    {
+      "case": "en_extract",
+      "usage": 63,
+      "finish": "stop",
+      "wall_seconds": 0.48986933240666986
+    },
+    {
+      "case": "ja_json",
+      "usage": 168,
+      "finish": "stop",
+      "wall_seconds": 1.2777807218953967
+    },
+    {
+      "case": "en_days",
+      "usage": 113,
+      "finish": "stop",
+      "wall_seconds": 0.8622145433910191
+    },
+    {
+      "case": "ja_name",
+      "usage": 214,
+      "finish": "stop",
+      "wall_seconds": 1.6208465830422938
+    }
+  ]
+}
