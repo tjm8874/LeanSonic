@@ -4,6 +4,16 @@ Both arms run 349c7e8 after integrating main, with two-bit down matrices. The co
 
 Inkling-2-Mini uses its 7,718,950,382-byte direct-coded ternary target and tokenizer, one sequence, context 4,096, FP16 KV, no drafter, global PDL and 24 resident expert layers. Every fresh process ran four passes for each of three prefix lengths, resetting between requests. Each arm contributed 30 measured requests per prefix after omitting the first pass. Five four-leg cycles alternate ABBA/BAAB. The 64 freely emitted IDs, successor and full terminal FP32 logit fingerprint matched for all 240 requests on each reported GPU. Intervals resample whole cycles.
 
+## PRO4500
+
+| Prefix | Prior / candidate prefill ms | Prefill difference 95% interval, ms | Prior / candidate decode tok/s | Decode 64 difference 95% interval, ms |
+|---:|---:|---:|---:|---:|
+| 32 | 34.939 / 27.326 | -7.631 to -7.587 | 180.31 / 199.10 | -33.638 to -33.397 |
+| 1024 | 123.625 / 119.887 | -3.808 to -3.698 | 128.76 / 137.98 | -33.403 to -33.072 |
+| 2048 | 208.097 / 209.545 | +1.335 to +1.531 | 122.95 / 131.33 | -33.421 to -33.024 |
+
+Peak observed process memory was 15,023,996,928 bytes for the control and 12,098,469,888 bytes for the candidate. [GPU UUID, samples, complete per-request measurements and token traces](PRO4500.json).
+
 ## 5070Ti
 
 | Prefix | Prior / candidate prefill ms | Prefill difference 95% interval, ms | Prior / candidate decode tok/s | Decode 64 difference 95% interval, ms |

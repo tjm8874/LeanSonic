@@ -13,6 +13,8 @@ A CUDA-event trial uses real layer-0 weights, scales and amplitudes. The ragged 
 
 The kernel trial compares 1,585,152 FP32 results on the ragged fixture and 18,874,368 on the dense fixture per arm and tile. The small kernel gains need a full-engine timing before adoption. [Timings and paired intervals](5070Ti.json) · [GPU](gpu.csv) · [Binary hashes](digests)
 
+On RTX 5060 Ti the same binary passed both shapes at both widths. For the default 128-row tile, dense routing fell from 2.541372 to 2.530594 ms (0.42%) and ragged routing from 0.217093 to 0.216853 ms (0.11%). For 160 rows the reductions were 1.01% and 1.40%, respectively. All four paired kernel intervals favored the lookup. The original end-to-end 2,048-token prefill regression also reproduced on RTX PRO 4500 (208.097 to 209.545 ms, 95% paired increase of 1.335 to 1.531 ms). [5060 Ti kernel runs](5060Ti.json) · [GPU identity](5060Ti-gpu.csv) · [PRO 4500 inference timing](../merged-timing/PRO4500.json).
+
 ## Reproduce
 
 Use the [layer-0 fixture recipe](../) for nibbles.bin, ternary.bin, scales.bin and amax.bin. Compile the original 349c7e8 kernels and the changed kernels in this branch with the same nvcc -Ikernels -arch=sm_120a -std=c++17 -O3 --cubin command. Run check.py with Python 3. Build tiles.cu using nvcc -O3 -std=c++17 tiles.cu -lcuda -o tiles. From the fixture directory run each module and routing shape in alternating process order as above.
