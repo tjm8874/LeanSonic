@@ -829,14 +829,17 @@ impl DraftPrice {
         (in_pause && !probe, probe)
     }
 
-    fn record_round(&mut self, ns: f64, tokens: usize, probe: bool) {
+    fn record_round(&mut self, ns: f64, tokens: usize, probe: bool) -> bool {
         if probe {
             if ns <= 0.98 * self.scalar_ns * tokens as f64 {
+                let resumed = self.skip_left > 0;
                 self.skip_left = 0;
+                return resumed;
             }
         } else {
             self.observe_neural(ns, tokens);
         }
+        false
     }
 
     fn observe_scalar(&mut self, ns: f64) {
@@ -1011,6 +1014,8 @@ pub struct Inkling2GpuEngine {
     /// Verify rounds whose draft was a context copy (`LEANSONIC_SPEC_COPY`).
     pub spec_copy_rounds: usize,
     pub spec_price_skips: usize,
+    pub spec_probe_rounds: usize,
+    pub spec_probe_resumes: usize,
     pub spec_verify_steps: usize,
     host_pos: usize,
     decode_graph: Option<CapturedGraphExec>,
@@ -2400,6 +2405,8 @@ impl Inkling2GpuEngine {
             spec_accepted_total: 0,
             spec_copy_rounds: 0,
             spec_price_skips: 0,
+            spec_probe_rounds: 0,
+            spec_probe_resumes: 0,
             spec_verify_steps: 0,
             ctx,
             fns,
@@ -3160,6 +3167,8 @@ impl Inkling2GpuEngine {
         self.spec_accepted_total = 0;
         self.spec_copy_rounds = 0;
         self.spec_price_skips = 0;
+        self.spec_probe_rounds = 0;
+        self.spec_probe_resumes = 0;
         self.spec_verify_steps = 0;
         if let Some(ref mut d) = self.drafter {
             d.reset();
@@ -6495,6 +6504,7 @@ impl Inkling2GpuEngine {
             let (price_skip, early_probe) =
                 price.pause_action(max_draft > 0 && !paused && copied.is_empty(), price_probe);
             self.spec_price_skips += usize::from(price_skip);
+            self.spec_probe_rounds += usize::from(early_probe);
             let neural_start =
                 (price_enabled && max_draft > 0 && !paused && !price_skip && copied.is_empty())
                     .then(Instant::now);
@@ -6541,7 +6551,8 @@ impl Inkling2GpuEngine {
                     let ns = start.elapsed().as_nanos() as f64;
                     price.observe_scalar(ns);
                     if let Some(draft_ns) = draft_ns {
-                        price.record_round(draft_ns + ns, 1, early_probe);
+                        self.spec_probe_resumes +=
+                            usize::from(price.record_round(draft_ns + ns, 1, early_probe));
                     }
                 }
                 last_verify_row = None;
@@ -6595,7 +6606,11 @@ impl Inkling2GpuEngine {
             self.enqueue_drafter_context(keep)?;
 
             if let Some(start) = neural_start {
-                price.record_round(start.elapsed().as_nanos() as f64, keep, early_probe);
+                self.spec_probe_resumes += usize::from(price.record_round(
+                    start.elapsed().as_nanos() as f64,
+                    keep,
+                    early_probe,
+                ));
             }
             let emitted = verified - usize::from(hit_stop);
             for &token in &verify_in[..emitted] {
