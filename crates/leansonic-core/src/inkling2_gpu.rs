@@ -652,9 +652,84 @@ pub fn pack_q8_rows(bf16_bytes: &[u8], cols: usize, codes: &mut [u8], scales_byt
     });
 }
 
+#[derive(Clone, Copy)]
+enum ExpertMatrix<'a> {
+    Raw(&'a [u8]),
+    Packed { bytes: &'a [u8], count: usize },
+}
+
+impl<'a> ExpertMatrix<'a> {
+    fn mxfp8(st: &'a MappedSafeTensors, name: &str, shape: &[usize]) -> Result<Self, String> {
+        let count = shape.iter().product();
+        match (st.get(name), st.get(&format!("{name}.rans_v1"))) {
+            (Some(t), None)
+                if t.dtype == "F8_E4M3" && t.shape == shape && t.data.len() == count =>
+            {
+                Ok(Self::Raw(t.data))
+            }
+            (None, Some(t)) if t.dtype == "U8" && t.shape == [t.data.len()] => Ok(Self::Packed {
+                bytes: t.data,
+                count,
+            }),
+            _ => Err(format!("missing, ambiguous or invalid MXFP8 matrix {name}")),
+        }
+    }
+    fn len(&self) -> usize {
+        match self {
+            Self::Raw(bytes) => bytes.len(),
+            Self::Packed { count, .. } => *count,
+        }
+    }
+    fn place(self, ctx: &Arc<CudaContextHandle>, on_device: bool) -> Result<TierBuf, String> {
+        match self {
+            Self::Raw(bytes) => {
+                if on_device {
+                    if let Ok(buf) = DeviceBuf::from_host_bytes(ctx, bytes) {
+                        return Ok(TierBuf::Vram(buf));
+                    }
+                }
+                Ok(TierBuf::HostPinned(PinnedHostBuf::from_bytes(ctx, bytes)?))
+            }
+            Self::Packed { bytes, count } => {
+                let matrix = crate::inkling_mxfp8::Matrix::parse(bytes, count)?;
+                if on_device {
+                    match DeviceBuf::alloc_zeroed(ctx, count) {
+                        Ok(buf) => {
+                            // Bound temporary host memory even for a 648 MiB expert matrix.
+                            let mut staging = vec![0u8; count.min(16 << 20)];
+                            let chunk = staging.len();
+                            for offset in (0..count).step_by(chunk) {
+                                let len = chunk.min(count - offset);
+                                let dst = &mut staging[..len];
+                                // decode_at writes only initialized bytes; upload after successful decode.
+                                let target = unsafe {
+                                    std::slice::from_raw_parts_mut(dst.as_mut_ptr().cast(), len)
+                                };
+                                matrix.decode_at(offset, target)?;
+                                buf.copy_from_host_at(offset, dst)?;
+                            }
+                            return Ok(TierBuf::Vram(buf));
+                        }
+                        Err(e) if e.starts_with("CUDA error 2 in `cuMemAlloc_v2`") => {}
+                        Err(e) => return Err(e),
+                    }
+                }
+                let pinned = PinnedHostBuf::alloc_uninit(ctx, count)?;
+                // The pinned allocation is private until decode_at initializes every byte.
+                let dst = unsafe { std::slice::from_raw_parts_mut(pinned.host_ptr.cast(), count) };
+                matrix.decode_at(0, dst)?;
+                Ok(TierBuf::HostPinned(pinned))
+            }
+        }
+    }
+}
+
 // Keep the thrice-visited layers resident first. Among single-visit layers the
 // grouped MXFP8 kernels incur the largest penalty when reading weights over PCIe.
-fn plan_expert_placement(expert_views: &[[&[u8]; 2]], mut budget: usize) -> [[bool; 2]; N_LAYER] {
+fn plan_expert_placement(
+    expert_views: &[[ExpertMatrix<'_>; 2]],
+    mut budget: usize,
+) -> [[bool; 2]; N_LAYER] {
     let mut resident = [[false; 2]; N_LAYER];
     let mut place = |layer: usize, matrix: usize| {
         let bytes = expert_views[layer][matrix].len();
@@ -1179,7 +1254,7 @@ impl Inkling2GpuEngine {
                         &[N_EXP, D, FF / 2],
                     )
                     .data;
-                expert_views.push([w13_raw, w2_raw]);
+                expert_views.push([ExpertMatrix::Raw(w13_raw), ExpertMatrix::Raw(w2_raw)]);
                 ExpertScales::Nvfp4 {
                     s13: load_scale(
                         &format!("{pfx}mlp.experts.w13_weight_scale"),
@@ -1207,21 +1282,18 @@ impl Inkling2GpuEngine {
                     )?,
                 }
             } else {
-                let w13_raw = st
-                    .require(
+                expert_views.push([
+                    ExpertMatrix::mxfp8(
+                        &st,
                         &format!("{pfx}mlp.experts.w13_weight"),
-                        "F8_E4M3",
                         &[N_EXP, 2 * FF, D],
-                    )
-                    .data;
-                let w2_raw = st
-                    .require(
+                    )?,
+                    ExpertMatrix::mxfp8(
+                        &st,
                         &format!("{pfx}mlp.experts.w2_weight"),
-                        "F8_E4M3",
                         &[N_EXP, D, FF],
-                    )
-                    .data;
-                expert_views.push([w13_raw, w2_raw]);
+                    )?,
+                ]);
                 ExpertScales::Mxfp8 {
                     s13: load_scale(
                         &format!("{pfx}mlp.experts.w13_weight_scale"),
@@ -1391,22 +1463,15 @@ impl Inkling2GpuEngine {
                 eng.resize_prefill(EXPERT_PAGE)?;
             }
         }
-        let place = |on_device: bool, bytes: &[u8]| -> Result<TierBuf, String> {
-            if on_device {
-                if let Ok(buf) = DeviceBuf::from_host_bytes(&eng.ctx, bytes) {
-                    return Ok(TierBuf::Vram(buf));
-                }
-            }
-            Ok(TierBuf::HostPinned(PinnedHostBuf::from_bytes(
-                &eng.ctx, bytes,
-            )?))
-        };
         // The dense tensors now live in their final buffers. Release their source pages
         // before copying the larger expert matrices into VRAM or pinned host memory.
         st.discard_resident_pages();
         let mut mixed_layers = 0;
         for ([up, down], [up_on_device, down_on_device]) in expert_views.into_iter().zip(resident) {
-            let pair = [place(up_on_device, up)?, place(down_on_device, down)?];
+            let pair = [
+                up.place(&eng.ctx, up_on_device)?,
+                down.place(&eng.ctx, down_on_device)?,
+            ];
             match &pair {
                 [TierBuf::Vram(_), TierBuf::Vram(_)] => eng.resident_expert_layers += 1,
                 [TierBuf::HostPinned(_), TierBuf::HostPinned(_)] => eng.spilled_expert_layers += 1,
@@ -4990,6 +5055,49 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "requires a CUDA device"]
+    fn packed_expert_restores_bytes_to_both_memory_tiers() -> Result<(), String> {
+        // Cross both the 16 MiB upload boundary and a partial final codec tile.
+        let raw: Vec<u8> = (0..(16 << 20) + 37)
+            .map(|i| {
+                if i % 5 == 0 {
+                    (i ^ (i >> 11) ^ (i >> 20)) as u8
+                } else {
+                    0x38
+                }
+            })
+            .collect();
+        let mut packed = Vec::new();
+        crate::inkling_mxfp8::pack(&raw, &mut packed).map_err(|e| e.to_string())?;
+        let matrix = ExpertMatrix::Packed {
+            bytes: &packed,
+            count: raw.len(),
+        };
+        let ctx = CudaContextHandle::init(0)?;
+        for on_device in [false, true] {
+            let placed = matrix.place(&ctx, on_device)?;
+            assert_eq!(matches!(placed, TierBuf::Vram(_)), on_device);
+            let mut actual = vec![0u8; raw.len()];
+            // Both tier pointers are visible to CUDA; the allocation outlives this readback.
+            unsafe {
+                check_cu(
+                    (ctx.api.cuMemcpyDtoH_v2)(
+                        actual.as_mut_ptr().cast(),
+                        placed.ptr(),
+                        actual.len(),
+                    ),
+                    "cuMemcpyDtoH_v2",
+                )?;
+            }
+            assert!(
+                actual == raw,
+                "packed expert byte mismatch on_device={on_device}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn planar_q8_packs_unaligned_bf16_rows_in_order() {
         let cols = 128;
         let mut bytes = vec![0; 1 + 3 * cols * 2];
@@ -5017,8 +5125,19 @@ mod tests {
     fn loop_layers_take_priority_and_a_remaining_matrix_can_fit() {
         let up = [0u8; 2];
         let down = [0u8; 1];
-        let tensors = [[up.as_slice(), down.as_slice()]; N_LAYER];
+        let tensors = [[ExpertMatrix::Raw(&up), ExpertMatrix::Raw(&down)]; N_LAYER];
         let placement = plan_expert_placement(&tensors, 12 * 3 + 1);
+        let packed = [[
+            ExpertMatrix::Packed {
+                bytes: &[],
+                count: up.len(),
+            },
+            ExpertMatrix::Packed {
+                bytes: &[],
+                count: down.len(),
+            },
+        ]; N_LAYER];
+        assert_eq!(plan_expert_placement(&packed, 12 * 3 + 1), placement);
         assert!(placement[6..18].iter().all(|pair| *pair == [true, true]));
         assert_eq!(placement[NVFP4_LAYERS], [false, true]);
         assert!(placement[..6]
