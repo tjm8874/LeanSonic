@@ -2,6 +2,9 @@
 //! A little-endian u32 tile length precedes the low bytes, one packed sign bit
 //! per value, and LSB-first prefix codes for the remaining seven high bits.
 //! The tensor ends with zero padding to eight bytes.
+mod rank;
+pub use rank::unpack_rank_embedding;
+
 use std::io::{self, Read, Write};
 use std::mem::MaybeUninit;
 

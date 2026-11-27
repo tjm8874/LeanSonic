@@ -1,0 +1,64 @@
+{
+  "encoding": {
+    "values": 463159296,
+    "shape": [
+      201024,
+      2304
+    ],
+    "distinct": 6001,
+    "low_bits": 5,
+    "candidates": [
+      [
+        606244052.8708422,
+        5
+      ],
+      [
+        606336637.8677562,
+        6
+      ],
+      [
+        606621370.122672,
+        7
+      ],
+      [
+        607278817.529038,
+        8
+      ]
+    ],
+    "frame_bytes": 608134954,
+    "frame_sha256": "ed19250effbf746363334241ce87cec9a7c37b2dccc371160d0be5dc0f66f264",
+    "decoded_sha256": "86afe04b91893883cf823392f1c954bbf0881988e0b6c5f34ed7b2f938fe0a30",
+    "baseline_prefix_bytes": 618590352
+  },
+  "package": {
+    "parent_bytes": 13448974014,
+    "package_bytes": 13438517744,
+    "unchanged_payloads": 998,
+    "frame_sha256": "ed19250effbf746363334241ce87cec9a7c37b2dccc371160d0be5dc0f66f264",
+    "files": {
+      "model-00001-of-00001.safetensors": {
+        "bytes": 13435131250,
+        "sha256": "f9874f8599df0460eba4a2d28c0addbd3c9a0425a6ae3d392b3d60e0c961c0ca"
+      },
+      "tiktoken/tokenizer.model": {
+        "bytes": 3386494,
+        "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+      }
+    }
+  },
+  "decoded_embedding_sha256": "86afe04b91893883cf823392f1c954bbf0881988e0b6c5f34ed7b2f938fe0a30",
+  "before": {
+    "model-00001-of-00001.safetensors": {
+      "bytes": 13445587520,
+      "sha256": "20058b671e1eea2ffb0c54acbb2f9752f4355afb12d14388433733cae3a2f61e"
+    },
+    "tiktoken/tokenizer.model": {
+      "bytes": 3386494,
+      "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+    }
+  },
+  "cpu_ms": {
+    "prefix": 79.537,
+    "rank": 580.092
+  }
+}

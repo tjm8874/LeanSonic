@@ -1743,18 +1743,23 @@ impl Inkling2GpuEngine {
         let st = MappedSafeTensors::open(&st_path)
             .map_err(|e| format!("open {}: {e}", st_path.display()))?;
 
+        let rank = st.get("model.llm.embed.weight.rank_v1");
+        let is_rank = rank.is_some();
         let embed = match (
             st.get("model.llm.embed.weight"),
             st.get("model.llm.embed.weight.prefix_v1"),
+            rank,
         ) {
-            (Some(raw), None)
+            (Some(raw), None, None)
                 if raw.dtype == "BF16"
                     && raw.shape == [PADDED_VOCAB, D]
                     && raw.data.len() == PADDED_VOCAB * D * 2 =>
             {
                 PinnedHostBuf::from_bytes(&ctx, raw.data)?
             }
-            (None, Some(packed)) if packed.dtype == "U8" && packed.shape == [packed.data.len()] => {
+            (None, Some(packed), None) | (None, None, Some(packed))
+                if packed.dtype == "U8" && packed.shape == [packed.data.len()] =>
+            {
                 let buf = PinnedHostBuf::alloc_uninit(&ctx, PADDED_VOCAB * D * 2)?;
                 // This allocation is exclusively owned until all tiles decode.
                 let dst = unsafe {
@@ -1763,7 +1768,11 @@ impl Inkling2GpuEngine {
                         buf.byte_len,
                     )
                 };
-                crate::inkling_embedding::unpack_embedding(packed.data, dst)?;
+                if is_rank {
+                    crate::inkling_embedding::unpack_rank_embedding(packed.data, dst)?;
+                } else {
+                    crate::inkling_embedding::unpack_embedding(packed.data, dst)?;
+                }
                 buf
             }
             _ => return Err("invalid or ambiguous Inkling input embedding".into()),
