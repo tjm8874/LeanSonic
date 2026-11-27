@@ -802,6 +802,11 @@ pub struct Inkling2GpuEngine {
     /// Streams and start event for concurrent per-sequence drafts (`draft_for_seqs`).
     draft_streams: Vec<CUstream>,
     draft_ready: CUevent,
+    /// Batched drafter unembed (#107 stage 3e): per-draft-stream "front done" events, the
+    /// "base logits ready" event and the shared `[7 n, D]` inputs / `[7 n, VOCAB]` base logits.
+    draft_front_done: Vec<CUevent>,
+    draft_base_ready: CUevent,
+    draft_batch_bufs: Option<(usize, DeviceBuf, DeviceBuf, DeviceBuf)>,
     /// Captured decode rounds per row count (captured on a row count's second use).
     ms_graphs: std::collections::HashMap<usize, CapturedGraphExec>,
     ms_round_hits: std::collections::HashMap<usize, u32>,
@@ -2194,6 +2199,9 @@ impl Inkling2GpuEngine {
             ms_verify_runs: Vec::new(),
             draft_streams: Vec::new(),
             draft_ready: core::ptr::null_mut(),
+            draft_front_done: Vec::new(),
+            draft_base_ready: core::ptr::null_mut(),
+            draft_batch_bufs: None,
             ms_graphs: std::collections::HashMap::new(),
             ms_round_hits: std::collections::HashMap::new(),
             ms_graph: std::env::var("LEANSONIC_MS_GRAPH").map_or(true, |v| v != "0"),
@@ -5521,6 +5529,13 @@ impl Inkling2GpuEngine {
                 "cuEventRecord(draft_ready)",
             )?;
         }
+        let n_drafts = reqs.iter().filter(|r| r.2 > 0).count();
+        if n_drafts >= 2
+            && self.fns.q8_dp4a_gemm_b_ms4.is_some()
+            && std::env::var("LEANSONIC_DRAFT_BATCH_UNEMBED").map_or(true, |v| v != "0")
+        {
+            return self.draft_for_seqs_batched(reqs);
+        }
         let mut pending = Vec::with_capacity(reqs.len());
         for (i, &(seq, tok, max_k)) in reqs.iter().enumerate() {
             let pos = if seq == self.cur_seq {
@@ -5554,6 +5569,170 @@ impl Inkling2GpuEngine {
             let d = self.drafter.as_mut().unwrap();
             d.select_seq(seq)?;
             out.push(if k == 0 {
+                Vec::new()
+            } else {
+                d.finish_draft(k, tau)?
+            });
+        }
+        let cur = self.cur_seq;
+        self.drafter.as_mut().unwrap().select_seq(cur)?;
+        Ok(out)
+    }
+
+    /// `draft_for_seqs` with one unembed GEMM for every sequence's 7 hidden rows (#107 stage 3e):
+    /// each sequence's drafter layers run on its own stream, the shared `[VOCAB, D]` unembed is
+    /// read once for all of them on draft stream 0, and then each Markov head reads its slice.
+    /// Drafts only steer speculation: the verified tokens are unchanged.
+    fn draft_for_seqs_batched(
+        &mut self,
+        reqs: &[(usize, u32, usize)],
+    ) -> Result<Vec<Vec<u32>>, String> {
+        let n = reqs.len();
+        let make_ev = |ctx: &CudaContextHandle| -> Result<CUevent, String> {
+            let mut ev: CUevent = core::ptr::null_mut();
+            unsafe {
+                check_cu(
+                    (ctx.api.cuEventCreate)(&mut ev, CU_EVENT_DISABLE_TIMING),
+                    "cuEventCreate(draft batch)",
+                )?;
+            }
+            Ok(ev)
+        };
+        while self.draft_front_done.len() < n {
+            let ev = make_ev(&self.ctx)?;
+            self.draft_front_done.push(ev);
+        }
+        if self.draft_base_ready.is_null() {
+            self.draft_base_ready = make_ev(&self.ctx)?;
+        }
+        if self.draft_batch_bufs.as_ref().is_none_or(|b| b.0 < n) {
+            let rows = 7 * n;
+            self.draft_batch_bufs = Some((
+                n,
+                DeviceBuf::alloc_zeroed(&self.ctx, rows * D)?,
+                DeviceBuf::alloc_zeroed(&self.ctx, rows * (D / 64) * 4)?,
+                DeviceBuf::alloc_zeroed(&self.ctx, rows * VOCAB * 4)?,
+            ));
+        }
+        let (x_q8, x_sc, base) = {
+            let b = self.draft_batch_bufs.as_ref().unwrap();
+            (b.1.ptr, b.2.ptr, b.3.ptr)
+        };
+        // Phase A: drafter layers per sequence; hidden rows 1..7 of draft `slot` -> rows 7 slot ..
+        let mut pending = vec![(0usize, 0.0f32, usize::MAX); n];
+        let mut slot = 0usize;
+        for (i, &(seq, tok, max_k)) in reqs.iter().enumerate() {
+            let pos = if seq == self.cur_seq {
+                self.host_pos
+            } else {
+                self.seq_pos[seq]
+            };
+            let max_k = max_k.min(self.max_ctx.saturating_sub(pos + 1));
+            let stream = self.draft_streams[i];
+            unsafe {
+                check_cu(
+                    (self.ctx.api.cuStreamWaitEvent)(stream, self.draft_ready, 0),
+                    "cuStreamWaitEvent(draft)",
+                )?;
+            }
+            let d = self.drafter.as_mut().unwrap();
+            d.select_seq(seq)?;
+            let dst = (
+                x_q8 + (slot * 7 * D) as u64,
+                x_sc + (slot * 7 * (D / 64) * 4) as u64,
+            );
+            let (k, tau) = d.enqueue_draft_front(
+                stream,
+                self.embed.ptr(),
+                self.embed_norm.ptr,
+                None,
+                tok,
+                max_k,
+                Some(dst),
+            )?;
+            if k > 0 {
+                pending[i] = (k, tau, slot);
+                slot += 1;
+                unsafe {
+                    check_cu(
+                        (self.ctx.api.cuEventRecord)(self.draft_front_done[i], stream),
+                        "cuEventRecord(draft front)",
+                    )?;
+                }
+            }
+        }
+        // Phase B: one unembed GEMM over all `7 slot` rows on draft stream 0.
+        if slot > 0 {
+            let s0 = self.draft_streams[0];
+            for (i, p) in pending.iter().enumerate() {
+                if p.2 != usize::MAX && i != 0 {
+                    unsafe {
+                        check_cu(
+                            (self.ctx.api.cuStreamWaitEvent)(s0, self.draft_front_done[i], 0),
+                            "cuStreamWaitEvent(draft front)",
+                        )?;
+                    }
+                }
+            }
+            let rows = 7 * slot;
+            let mut pw = self.unembed_q8.codes.ptr;
+            let mut pws = self.unembed_q8.scales64.ptr;
+            let mut px = x_q8;
+            let mut pxs = x_sc;
+            let mut py = base;
+            let mut r = VOCAB as i32;
+            let mut c = D as i32;
+            let mut bi = rows as i32;
+            let mut ys = VOCAB as i32;
+            let mut sc = 0.0f32;
+            let mut args: [*mut c_void; 10] = [
+                (&mut pw as *mut _) as *mut c_void,
+                (&mut pws as *mut _) as *mut c_void,
+                (&mut px as *mut _) as *mut c_void,
+                (&mut pxs as *mut _) as *mut c_void,
+                (&mut py as *mut _) as *mut c_void,
+                (&mut r as *mut _) as *mut c_void,
+                (&mut c as *mut _) as *mut c_void,
+                (&mut bi as *mut _) as *mut c_void,
+                (&mut ys as *mut _) as *mut c_void,
+                (&mut sc as *mut _) as *mut c_void,
+            ];
+            let f = self.fns.q8_dp4a_gemm_b_ms4.unwrap();
+            let grid = ((VOCAB as u32).div_ceil(16), (rows as u32).div_ceil(32));
+            self.launch(s0, f, grid, 256, &mut args)?;
+            unsafe {
+                check_cu(
+                    (self.ctx.api.cuEventRecord)(self.draft_base_ready, s0),
+                    "cuEventRecord(draft base)",
+                )?;
+            }
+        }
+        // Phase C: Markov heads on each sequence's stream.
+        for (i, &(seq, _, _)) in reqs.iter().enumerate() {
+            let (k, tau, sl) = pending[i];
+            if sl == usize::MAX {
+                continue;
+            }
+            let stream = self.draft_streams[i];
+            if i != 0 {
+                unsafe {
+                    check_cu(
+                        (self.ctx.api.cuStreamWaitEvent)(stream, self.draft_base_ready, 0),
+                        "cuStreamWaitEvent(draft base)",
+                    )?;
+                }
+            }
+            let d = self.drafter.as_mut().unwrap();
+            d.select_seq(seq)?;
+            d.enqueue_markov(stream, k, tau, base + (sl * 7 * VOCAB * 4) as u64)?;
+        }
+        let mut out = Vec::with_capacity(n);
+        for (i, &(seq, _, _)) in reqs.iter().enumerate() {
+            self.ctx.sync_stream(self.draft_streams[i])?;
+            let (k, tau, sl) = pending[i];
+            let d = self.drafter.as_mut().unwrap();
+            d.select_seq(seq)?;
+            out.push(if sl == usize::MAX {
                 Vec::new()
             } else {
                 d.finish_draft(k, tau)?
