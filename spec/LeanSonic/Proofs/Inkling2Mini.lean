@@ -674,11 +674,12 @@ def kInk2GqaAttnSplit : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
-/-- FP16 decode / verify instantiation with the pipelined row loop (`64` regs -> still `4` CTAs). -/
+/-- FP16 decode / verify instantiation with the pipelined row loop, keys in pairs (`72` regs -> `3` CTAs). -/
 def kInk2GqaAttnSplitDec : KernelResourceSpec :=
   { kInk2GqaAttnSplit with
     name := "ink2_gqa_attn_split_dec"
-    rawRegsPerThread := 64 }        -- 16,384 regs/CTA; 4 CTAs = 65,536 <= 65,536
+    rawRegsPerThread := 72          -- keys in pairs (two shuffle trees in flight, #152): 3 CTAs = 55,296
+    ctasPerSm := 3 }
 
 /-- Split-KV Online-Softmax Combine + Sigmoid Gate (`128` threads, `39` regs -> `12` CTAs = `48` warps/SM!). -/
 def kInk2GqaAttnCombine : KernelResourceSpec :=
@@ -1809,7 +1810,9 @@ def kInk2PrepQkvAndCacheMs : KernelResourceSpec :=
     hasHotLoopLibmCall := false }
 
 def kInk2GqaAttnSplitDecMs : KernelResourceSpec :=
-  { kInk2GqaAttnSplitDec with name := "ink2_gqa_attn_split_dec_ms" }   -- 64 regs, 14,976 B
+  { kInk2GqaAttnSplit with
+    name := "ink2_gqa_attn_split_dec_ms"
+    rawRegsPerThread := 64 }        -- one key at a time: 16,384 regs/CTA; 4 CTAs = 65,536
 
 def kInk2GqaAttnSplitI8Ms : KernelResourceSpec :=
   { kInk2GqaAttnSplitI8 with name := "ink2_gqa_attn_split_i8_ms" }     -- 64 regs, 14,976 B

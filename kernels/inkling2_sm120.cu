@@ -6249,7 +6249,7 @@ __device__ __forceinline__ void gqa_attn_split_body(
                 jj = jn;
                 j = jnx;
             }
-        } else if constexpr (kPipe) {
+        } else if constexpr (kPipe && kMs) {
             // FP16: the same depth-1 pipeline on the raw FP16 words (row jj+8's K/V in flight while
             // row jj is computed). Per-row arithmetic and row order are unchanged (0-ULP).
             int jj = warp_id;
@@ -6298,6 +6298,90 @@ __device__ __forceinline__ void gqa_attn_split_body(
                     o[hh][3] = o[hh][3] * alpha + p * v3;
                 }
                 wk = nwk; wv = nwv;
+                jj = jn;
+                j = jnx;
+            }
+        } else if constexpr (kPipe) {
+            // FP16 single-sequence rows: keys are taken in pairs (jj, jj + 8). Both keys' dot products and their
+            // shuffle trees are computed before the two online-softmax updates, which still run
+            // in key order with the same per-key arithmetic, so the result is unchanged (0-ULP);
+            // the two independent shuffle trees just overlap. The next pair's K/V words are in
+            // flight meanwhile.
+            auto dots3 = [&](uint64_t wk, float (&dots)[3]) {
+                float k0, k1, k2, k3;
+                kv_unpack_f16(wk, k0, k1, k2, k3);
+                #pragma unroll
+                for (int hh = 0; hh < 3; ++hh) {
+                    dots[hh] = qa[hh][0] * k0 + qa[hh][1] * k1 + qa[hh][2] * k2 + qa[hh][3] * k3;
+                }
+            };
+            auto update = [&](const float (&dots)[3], uint64_t wv, int jj_u, int j_u) {
+                float v0, v1, v2, v3;
+                kv_unpack_f16(wv, v0, v1, v2, v3);
+                #pragma unroll
+                for (int hh = 0; hh < 3; ++hh) {
+                    // Deterministic G-way online-softmax update shared identically across B=1 and B>=1.
+                    float dot = __fmul_rn(dots[hh], scale);
+                    if (pos - j_u < kExtent) dot = __fadd_rn(dot, smem_rel[hh][jj_u]);
+                    const float m_new = (dot > m_w[hh]) ? dot : m_w[hh];
+                    const float alpha = ptx_exp(m_w[hh] - m_new);
+                    const float p = ptx_exp(dot - m_new);
+                    l_w[hh] = l_w[hh] * alpha + p;
+                    m_w[hh] = m_new;
+                    o[hh][0] = o[hh][0] * alpha + p * v0;
+                    o[hh][1] = o[hh][1] * alpha + p * v1;
+                    o[hh][2] = o[hh][2] * alpha + p * v2;
+                    o[hh][3] = o[hh][3] * alpha + p * v3;
+                }
+            };
+            constexpr int kGroup = 2;  // 4 / 8 keys per group measured slower (registers)
+            int jj = warp_id;
+            int j = j0 + jj;
+            uint64_t wk[kGroup], wv[kGroup];
+            #pragma unroll
+            for (int u = 0; u < kGroup; ++u) {
+                wk[u] = 0u;
+                wv[u] = 0u;
+                if (jj + 8 * u < kChunk && j + 8 * u < n) {
+                    wk[u] = kv_raw_f16(k_cache_fp16, ring_row(j + 8 * u), kvh, lane);
+                    wv[u] = kv_raw_f16(v_cache_fp16, ring_row(j + 8 * u), kvh, lane);
+                }
+            }
+            while (jj < kChunk && j < n) {
+                const int jn = jj + 8 * kGroup;
+                const int jnx = j0 + jn;
+                uint64_t nwk[kGroup], nwv[kGroup];
+                #pragma unroll
+                for (int u = 0; u < kGroup; ++u) {
+                    nwk[u] = 0u;
+                    nwv[u] = 0u;
+                    if (jn + 8 * u < kChunk && jnx + 8 * u < n) {
+                        nwk[u] = kv_raw_f16(k_cache_fp16, ring_row(jnx + 8 * u), kvh, lane);
+                        nwv[u] = kv_raw_f16(v_cache_fp16, ring_row(jnx + 8 * u), kvh, lane);
+                    }
+                }
+                float dk[kGroup][3];
+                #pragma unroll
+                for (int u = 0; u < kGroup; ++u) dots3(wk[u], dk[u]);
+                #pragma unroll
+                for (int mask = 16; mask > 0; mask >>= 1) {
+                    #pragma unroll
+                    for (int u = 0; u < kGroup; ++u) {
+                        #pragma unroll
+                        for (int hh = 0; hh < 3; ++hh) {
+                            dk[u][hh] += __shfl_xor_sync(0xFFFFFFFFu, dk[u][hh], mask);
+                        }
+                    }
+                }
+                #pragma unroll
+                for (int u = 0; u < kGroup; ++u) {
+                    if (jj + 8 * u < kChunk && j + 8 * u < n) update(dk[u], wv[u], jj + 8 * u, j + 8 * u);
+                }
+                #pragma unroll
+                for (int u = 0; u < kGroup; ++u) {
+                    wk[u] = nwk[u];
+                    wv[u] = nwv[u];
+                }
                 jj = jn;
                 j = jnx;
             }
