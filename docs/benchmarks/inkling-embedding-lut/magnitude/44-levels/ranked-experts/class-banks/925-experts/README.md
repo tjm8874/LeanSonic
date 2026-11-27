@@ -18,3 +18,10 @@ All three packages used the same 100-chunk inputs and reference; 25,500 position
 | valid | llama.cpp IQ3_XXS | 0.0256590 | 3.7240360 | 23,786 | 6.616409 |
 
 The 925-expert package uses 175,638,400 additional bytes over the class-specific 571-expert package. It improves mean KL, top-1 agreement and PPL on both splits, and improves validation worst KL. Test worst KL rises to 2.9098074 at chunk 98, position 465. All four metrics improve against native IQ3_XXS on both splits.
+
+Five mirrored cycles with the fixed 1,024-token prompt and 32 forced decode tokens, one sequence, context 8,192, FP16 KV, and a 1,024-token LeanSonic workspace. [All requests, traces and peak VRAM](5070-timing.json.gz).
+
+| Engine | Prefill tok/s | Decode tok/s | Peak process GPU bytes |
+| --- | ---: | ---: | ---: |
+| 925 experts | 8,415.11 | 171.00 | 15,758,000,128 |
+| llama.cpp IQ3_XXS | 1,933.67 | 80.01 | 15,049,162,752 |

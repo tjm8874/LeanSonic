@@ -30,3 +30,14 @@ LeanSonic scored the 487-expert package on RTX 5070 Ti with 24/24 layers residen
 | valid | llama.cpp IQ1_S | 0.1076170 | 5.5685180 | 22,138 | 7.121110 |
 
 The 49,618-byte size saving comes with poorer values on all four quality measures on both splits. Keep this allocation experimental. To reproduce, use engine 726b6f2 with the original 487-expert weights, device U4 and direct prefill enabled and both ternary device paths disabled, then run `eval-kld --weights MODEL --ref ORACLE --chunks 100`. [Model, executable and oracle digests, and full score fields](5070-quality.json).
+
+## Native speed and VRAM on RTX 5070 Ti
+
+Five mirrored cycles used 1,024 common prompt IDs, 32 forced decode IDs, FP16 KV, 8,192 context, one sequence and 40 warm requests per engine. All 24 LeanSonic expert layers and 25 native offload layers were device resident.
+
+| Engine | Prefill tok/s | Decode tok/s | Peak process GPU bytes |
+| --- | ---: | ---: | ---: |
+| LeanSonic 487 | 8,426.92 | 170.99 | 15,758,000,128 |
+| llama.cpp IQ1_S | 1,911.51 | 85.52 | 11,165,237,248 |
+
+[Per-request timings, predictions, hardware, executable hashes and paired intervals](5070-timing.json.gz).
