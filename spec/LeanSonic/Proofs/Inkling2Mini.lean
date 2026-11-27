@@ -292,6 +292,21 @@ def kInk2MoeNvfp4Dp4aDown : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
+/-- Expert-parallel NVFP4 `__dp4a` MoE Down for the decode row (warp `k` = selected expert `k`,
+`2` rows per CTA, `1,152` CTAs): activations in registers, `64` B SMEM for the `2 x 8` dots folded
+in expert order (bit-identical to `ink2_moe_nvfp4_dp4a_down`). `40` regs -> `6` CTAs = `48` warps/SM. -/
+def kInk2MoeNvfp4Dp4aDownXw : KernelResourceSpec :=
+  { name := "ink2_moe_nvfp4_dp4a_down_xw"
+    threadsPerCta := 256
+    rawRegsPerThread := 40          -- 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536
+    userSmemPerCtaBytes := 64       -- 6 * (64 + 1024) = 6,528 B <= 8 KiB carveout -> 120 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 120
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
 /-- Unit-Stride `512B` Coalesced MXFP8 MoE Down (`40` regs -> `6` CTAs = `48` warps/SM, `128` KiB L1!). -/
 def kInk2MoeMxfp8Down : KernelResourceSpec :=
   { name := "ink2_moe_mxfp8_down"
@@ -336,6 +351,7 @@ def wave1Inkling2KernelSuite : List KernelResourceSpec :=
   , kInk2Q8Dp4aGemvC3072
   , kInk2MoeNvfp4Dp4aUpSitu
   , kInk2MoeNvfp4Dp4aDown
+  , kInk2MoeNvfp4Dp4aDownXw
   , kInk2MoeMxfp8Down
   , kInk2GqaRelSinkAttn
   , kInk2RmsnormQuantQ8 ]
@@ -344,6 +360,7 @@ theorem ink2_q8_dp4a_gemv_valid : ValidSm120Kernel kInk2Q8Dp4aGemv := by decide
 theorem ink2_q8_dp4a_gemv_c3072_valid : ValidSm120Kernel kInk2Q8Dp4aGemvC3072 := by decide
 theorem ink2_moe_nvfp4_dp4a_up_situ_valid : ValidSm120Kernel kInk2MoeNvfp4Dp4aUpSitu := by decide
 theorem ink2_moe_nvfp4_dp4a_down_valid : ValidSm120Kernel kInk2MoeNvfp4Dp4aDown := by decide
+theorem ink2_moe_nvfp4_dp4a_down_xw_valid : ValidSm120Kernel kInk2MoeNvfp4Dp4aDownXw := by decide
 theorem ink2_moe_mxfp8_down_valid : ValidSm120Kernel kInk2MoeMxfp8Down := by decide
 theorem ink2_gqa_rel_sink_attn_valid : ValidSm120Kernel kInk2GqaRelSinkAttn := by decide
 theorem ink2_rmsnorm_quant_q8_valid : ValidSm120Kernel kInk2RmsnormQuantQ8 := by decide

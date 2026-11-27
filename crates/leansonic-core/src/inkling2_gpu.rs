@@ -257,6 +257,8 @@ struct ExpertKernels {
     nvfp4_down: CUfunction,
     nvfp4_dp4a_up_situ: CUfunction,
     nvfp4_dp4a_down: CUfunction,
+    /// Expert-parallel decode MoE down (bit-identical to `nvfp4_dp4a_down`).
+    nvfp4_dp4a_down_xw: Option<CUfunction>,
     mxfp8_up_situ: CUfunction,
     mxfp8_down: CUfunction,
     nvfp4_dp4a_grouped_up_situ: CUfunction,
@@ -636,6 +638,8 @@ pub struct Inkling2GpuEngine {
     pub spilled_expert_layers: usize,
     pub max_ctx: usize,
     use_moe_dp4a: bool,
+    /// `LEANSONIC_MOE_DOWN_XW`: 0 = off, 1 = VRAM-resident layers (default), 2 = all layers.
+    moe_down_xw: u8,
     tc_q8: bool,
     tc_attn: bool,
     tc_nvfp4: bool,
@@ -1705,6 +1709,10 @@ impl Inkling2GpuEngine {
             spilled_expert_layers: 0,
             max_ctx,
             use_moe_dp4a,
+            moe_down_xw: std::env::var("LEANSONIC_MOE_DOWN_XW")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1),
             tc_q8,
             tc_attn,
             tc_nvfp4,
@@ -2059,6 +2067,7 @@ impl Inkling2GpuEngine {
                 nvfp4_down: load("nvfp4_down")?,
                 nvfp4_dp4a_up_situ: load("nvfp4_dp4a_up_situ")?,
                 nvfp4_dp4a_down: load("nvfp4_dp4a_down")?,
+                nvfp4_dp4a_down_xw: load("nvfp4_dp4a_down_xw").ok(),
                 mxfp8_up_situ: load("mxfp8_up_situ")?,
                 mxfp8_down: load("mxfp8_down")?,
                 nvfp4_dp4a_grouped_up_situ: load("nvfp4_dp4a_grouped_up_situ")?,
@@ -3278,13 +3287,23 @@ impl Inkling2GpuEngine {
                         (&mut pwts as *mut _) as *mut c_void,
                         (&mut py as *mut _) as *mut c_void,
                     ];
-                    self.launch(
-                        stream,
-                        s2.kernels.nvfp4_dp4a_down,
-                        (288, 1),
-                        256,
-                        &mut dn_args,
-                    )?;
+                    let xw = match (self.moe_down_xw, s2.kernels.nvfp4_dp4a_down_xw) {
+                        (2, Some(f)) => Some(f),
+                        (1, Some(f)) if matches!(w2, TierBuf::Vram(_)) => Some(f),
+                        _ => None,
+                    };
+                    if let Some(f) = xw {
+                        // 2 output rows per CTA (`kRows` in the kernel).
+                        self.launch(stream, f, ((D / 2) as u32, 1), 256, &mut dn_args)?;
+                    } else {
+                        self.launch(
+                            stream,
+                            s2.kernels.nvfp4_dp4a_down,
+                            (288, 1),
+                            256,
+                            &mut dn_args,
+                        )?;
+                    }
                 } else {
                     let mut pw13 = w13.ptr();
                     let mut ps13 = s13.buffer.ptr;
