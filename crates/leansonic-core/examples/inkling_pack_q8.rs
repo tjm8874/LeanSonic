@@ -23,7 +23,7 @@ fn main() -> io::Result<()> {
         }
         if matches!(
             mode.as_str(),
-            "mxfp8-size" | "mxfp8-pack" | "rans-size" | "rans-pack"
+            "mxfp8-size" | "mxfp8-pack" | "rans-size" | "rans-pack" | "nvctx-size" | "nvctx-pack"
         ) {
             let n: usize = size.parse().map_err(io::Error::other)?;
             if n == 0 || n > 128 * 2304 * 2304 {
@@ -31,13 +31,19 @@ fn main() -> io::Result<()> {
             }
             let mut raw = vec![0; n];
             io::stdin().lock().read_exact(&mut raw)?;
-            if mode.ends_with("-size") {
-                println!("{}", leansonic_core::inkling_mxfp8::pack(&raw, io::sink())?);
+            let mut dst = io::BufWriter::new(io::stdout().lock());
+            let sizing = mode.ends_with("-size");
+            let mut sink = io::sink();
+            let output: &mut dyn Write = if sizing { &mut sink } else { &mut dst };
+            let size = if mode.starts_with("nvctx-") {
+                leansonic_core::inkling_mxfp8::pack_nvfp4_context(&raw, output)?
             } else {
-                let mut dst = io::BufWriter::new(io::stdout().lock());
-                leansonic_core::inkling_mxfp8::pack(&raw, &mut dst)?;
-                dst.flush()?;
+                leansonic_core::inkling_mxfp8::pack(&raw, output)?
+            };
+            if sizing {
+                writeln!(dst, "{size}")?;
             }
+            dst.flush()?;
             return Ok(());
         }
         if matches!(mode.as_str(), "embedding-size" | "embedding-pack") {
