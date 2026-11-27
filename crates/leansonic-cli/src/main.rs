@@ -58,7 +58,7 @@ fn print_help() {
     println!(
         "  leansonic -p \"<prompt>\" [--weights <dir>] [--spec 0..7] [--effort none|low|high] [--max-tokens N] [--show-thinking] [--json]"
     );
-    println!("  leansonic bench --weights <dir> --tokens <id1,id2|@file|synth:N> [--spec 0..7] [--gen N] [--repeat R] [--no-graph]");
+    println!("  leansonic bench --weights <dir> --tokens <id1,id2|@file|synth:N|chat:@file.txt> [--spec 0..7] [--gen N] [--repeat R] [--no-graph]");
     println!("  leansonic bench-matrix --weights <dir> [--gpus all|0,1] [--n 5] [--ctx 20480] [--spec-prompts <dir>] [--quick] [--out <json>]");
     println!("  leansonic bench-matrix --merge <a.json> <b.json> ...   Combine per-host results into one 4-GPU table");
     println!("  leansonic eval-kld --weights <dir> --ref <reference.kld> [--start-chunk INDEX] [--chunks COUNT]");
@@ -696,8 +696,20 @@ fn cmd_bench(args: &[String]) -> Result<(), String> {
     }
 
     let dir = weights_dir.ok_or("missing --weights <model_dir>")?;
-    let tspec = tokens_spec.ok_or("missing --tokens <csv|@file|synth:N>")?;
-    let prompt_ids = parse_bench_tokens(&tspec)?;
+    let tspec = tokens_spec.ok_or("missing --tokens <csv|@file|synth:N|chat:@file.txt>")?;
+    let prompt_ids = if let Some(chat) = tspec.strip_prefix("chat:") {
+        // `chat:@file.txt` / `chat:<text>`: one user turn through the checkpoint's own tokenizer
+        // (Inkling chat template, thinking effort 0), so benchmark prompts can be kept as text.
+        let text = match chat.strip_prefix('@') {
+            Some(path) => std::fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?,
+            None => chat.to_string(),
+        };
+        let tok = TiktokenBpe::from_model_dir(Path::new(&dir))
+            .map_err(|e| format!("chat: needs the Inkling tokenizer in {dir}: {e}"))?;
+        tok.format_inkling2_chat(text.trim_end(), "none")
+    } else {
+        parse_bench_tokens(&tspec)?
+    };
     let max_ctx = env::var("LEANSONIC_CTX")
         .ok()
         .and_then(|s| s.parse().ok())

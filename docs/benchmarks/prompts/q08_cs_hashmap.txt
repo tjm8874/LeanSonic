@@ -1,0 +1,1 @@
+How does a hash map handle collisions? Include a C# example.

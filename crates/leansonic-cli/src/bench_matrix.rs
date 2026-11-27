@@ -628,6 +628,9 @@ struct Opts {
     /// `--kld <ref.kld>`: run `eval-kld` once per GPU for the `kld_mean` cell.
     kld_ref: Option<PathBuf>,
     spec_prompts: Option<PathBuf>,
+    /// `--wide-prompts <dir>`: every `*.txt` (via `bench --tokens chat:@file`) and `*.ids` file
+    /// becomes a DSpark probe for the RECORDED `spec_wide` / `spec_accept_wide` cells.
+    wide_prompts: Option<PathBuf>,
     targets: PathBuf,
     out: Option<PathBuf>,
     bin: PathBuf,
@@ -645,6 +648,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         long: false,
         kld_ref: None,
         spec_prompts: None,
+        wide_prompts: None,
         targets: PathBuf::from("docs/benchmarks/targets.json"),
         out: None,
         bin: env::current_exe().map_err(|e| e.to_string())?,
@@ -669,6 +673,9 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--long" => o.long = true,
             "--kld" => o.kld_ref = Some(PathBuf::from(val(&mut i, "--kld")?)),
             "--require-idle" => o.require_idle = true,
+            "--wide-prompts" => {
+                o.wide_prompts = Some(PathBuf::from(val(&mut i, "--wide-prompts")?))
+            }
             "--spec-prompts" => {
                 o.spec_prompts = Some(PathBuf::from(val(&mut i, "--spec-prompts")?))
             }
@@ -754,10 +761,56 @@ fn probes(o: &Opts) -> Vec<Probe> {
             }
         }
     }
+    if let Some(dir) = &o.wide_prompts {
+        let mut files: Vec<PathBuf> = fs::read_dir(dir)
+            .map(|rd| rd.filter_map(|e| e.ok().map(|e| e.path())).collect())
+            .unwrap_or_default();
+        files.retain(|f| matches!(f.extension().and_then(|e| e.to_str()), Some("txt" | "ids")));
+        files.sort();
+        for f in files {
+            let stem = f.file_stem().and_then(|s| s.to_str()).unwrap_or("p");
+            let tokens = if f.extension().and_then(|e| e.to_str()) == Some("txt") {
+                format!("chat:@{}", f.display())
+            } else {
+                format!("@{}", f.display())
+            };
+            v.push(Probe {
+                // Probe ids are `&'static str`; a CLI run builds this list once.
+                id: Box::leak(format!("{WIDE_PREFIX}{stem}").into_boxed_str()),
+                tokens,
+                spec: 7,
+                gen: 256,
+                ctx: None,
+            });
+        }
+    }
     v
 }
 
+const WIDE_PREFIX: &str = "wide_";
+
+/// Per sample index, the mean over all `--wide-prompts` probes of `f` (samples with any
+/// missing prompt are dropped, so every value averages the same prompt set).
+fn wide_mean(
+    m: &BTreeMap<&'static str, ProbeSamples>,
+    f: fn(&BenchRun) -> Option<f64>,
+) -> Vec<f64> {
+    let cols: Vec<Vec<f64>> = m
+        .iter()
+        .filter(|(k, _)| k.starts_with(WIDE_PREFIX))
+        .map(|(_, s)| s.runs.iter().filter_map(f).collect())
+        .collect();
+    if cols.is_empty() {
+        return Vec::new();
+    }
+    let n = cols.iter().map(Vec::len).min().unwrap_or(0);
+    (0..n)
+        .map(|i| cols.iter().map(|c| c[i]).sum::<f64>() / cols.len() as f64)
+        .collect()
+}
+
 fn input_fingerprint(tokens: &str) -> String {
+    let tokens = tokens.strip_prefix("chat:").unwrap_or(tokens);
     let bytes = match tokens.strip_prefix('@') {
         Some(path) => fs::read(path).unwrap_or_default(),
         None => tokens.as_bytes().to_vec(),
@@ -932,6 +985,18 @@ const CELLS: &[(&str, &str, bool, Extract)] = &[
         "Decode @128K, spec off (tok/s, --long)",
         true,
         |m| col(m, "p128k", |r| r.gen_tok_s),
+    ),
+    (
+        "spec_wide",
+        "Speculative avg, --wide-prompts (tok/s)",
+        true,
+        |m| wide_mean(m, |r| r.gen_tok_s),
+    ),
+    (
+        "spec_accept_wide",
+        "DSpark acceptance, --wide-prompts (%)",
+        true,
+        |m| wide_mean(m, |r| r.spec_acc_pct),
     ),
     ("c64_total", "C=64 aggregate (tok/s)", true, |_| Vec::new()),
     (
@@ -1274,6 +1339,44 @@ mod tests {
         let (lo, hi) = bootstrap_ci(&v).unwrap();
         assert!(lo <= 10.0 && hi >= 10.0 && lo >= 9.9 && hi <= 10.1);
         assert_eq!(bootstrap_ci(&v), bootstrap_ci(&v), "deterministic");
+    }
+
+    #[test]
+    fn wide_mean_averages_prompt_sets() {
+        let run = |t: f64, a: f64| BenchRun {
+            gen_tok_s: Some(t),
+            spec_acc_pct: Some(a),
+            ..Default::default()
+        };
+        let mut m: BTreeMap<&'static str, ProbeSamples> = BTreeMap::new();
+        m.insert(
+            "wide_a",
+            ProbeSamples {
+                runs: vec![run(100.0, 50.0), run(110.0, 52.0)],
+                ..Default::default()
+            },
+        );
+        m.insert(
+            "wide_b",
+            ProbeSamples {
+                runs: vec![run(200.0, 60.0)],
+                ..Default::default()
+            },
+        );
+        m.insert(
+            "spec_conv",
+            ProbeSamples {
+                runs: vec![run(999.0, 99.0)],
+                ..Default::default()
+            },
+        );
+        assert_eq!(wide_mean(&m, |r| r.gen_tok_s), vec![150.0]);
+        assert_eq!(wide_mean(&m, |r| r.spec_acc_pct), vec![55.0]);
+        assert!(wide_mean(&BTreeMap::new(), |r| r.gen_tok_s).is_empty());
+        assert_eq!(
+            input_fingerprint("chat:@/nonexistent"),
+            input_fingerprint("@/nonexistent")
+        );
     }
 
     #[test]
