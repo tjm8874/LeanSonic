@@ -102,7 +102,7 @@ Inkling はモデルの読み込み時に、入力を何トークンずつ処理
 
 `-p` と `bench` では入力の長さに合わせて作業領域を確保します。たとえば65トークンの入力なら上限は128トークンです。HTTPサーバーは起動後にさまざまな長さのリクエストを受けるため、GPUの空き容量に応じて選びます。どのモードでも、`LEANSONIC_PREFILL_CHUNK` を指定すれば、その値が上限になります。
 
-Inkling の KV キャッシュは既定で FP16 です。`LEANSONIC_KV=int8` を指定すると全文脈（global）4層を INT8（行 × KV ヘッドごとに FP32 スケール）で保持し、`LEANSONIC_KV=int8-all` ではスライディングウィンドウのリングも INT8 にします。GPU メモリが 16.5 GiB 以下の環境で、`LEANSONIC_KV` を指定せずに 20,480 トークンを超える文脈長を使うと、自動で `int8` になります。FP16 の global KV が常駐 expert 層を追い出すのを避けるためで、起動ログには `int8 (auto, ...)` と表示されます。FP16 のままにするには `LEANSONIC_KV=fp16` を指定してください。
+Inkling の KV キャッシュは既定で FP16 です。`LEANSONIC_KV=int8` を指定すると全文脈（global）4層を INT8（行 × KV ヘッドごとに FP32 スケール）で保持し、`LEANSONIC_KV=int8-all` ではスライディングウィンドウのリングも INT8 にします。GPU メモリが 16.5 GiB 以下の環境で、`LEANSONIC_KV` を指定せずに 8,192 トークン（CLI の既定値）を超える文脈長を使うと、自動で `int8` になります。FP16 の global KV が常駐 expert 層を追い出すのを避けるためで、起動ログには `int8 (auto, ...)` と表示されます。FP16 のままにするには `LEANSONIC_KV=fp16` を指定してください。
 
 #### Inkling のテキスト推論用モデルを作る
 
