@@ -1137,12 +1137,19 @@ pub fn pack_q8_rows(bf16_bytes: &[u8], cols: usize, codes: &mut [u8], scales_byt
 }
 
 #[derive(Clone, Copy)]
+enum ExpertCoding {
+    Byte,
+    Nvfp4,
+    Nvfp4Trim,
+}
+
+#[derive(Clone, Copy)]
 enum ExpertMatrix<'a> {
     Raw(&'a [u8]),
     Packed {
         bytes: &'a [u8],
         count: usize,
-        contextual: bool,
+        coding: ExpertCoding,
     },
 }
 
@@ -1158,26 +1165,36 @@ impl<'a> ExpertMatrix<'a> {
             st.get(name),
             st.get(&format!("{name}.rans_v1")),
             st.get(&format!("{name}.nvctx_v1")),
+            st.get(&format!("{name}.nvctx_trim_v1")),
         ) {
-            (Some(t), None, None)
+            (Some(t), None, None, None)
                 if t.dtype == dtype && t.shape == shape && t.data.len() == count =>
             {
                 Ok(Self::Raw(t.data))
             }
-            (None, Some(t), None) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+            (None, Some(t), None, None) if t.dtype == "U8" && t.shape == [t.data.len()] => {
                 Ok(Self::Packed {
                     bytes: t.data,
                     count,
-                    contextual: false,
+                    coding: ExpertCoding::Byte,
                 })
             }
-            (None, None, Some(t))
+            (None, None, Some(t), None)
                 if dtype == "U8" && t.dtype == "U8" && t.shape == [t.data.len()] =>
             {
                 Ok(Self::Packed {
                     bytes: t.data,
                     count,
-                    contextual: true,
+                    coding: ExpertCoding::Nvfp4,
+                })
+            }
+            (None, None, None, Some(t))
+                if dtype == "U8" && t.dtype == "U8" && t.shape == [t.data.len()] =>
+            {
+                Ok(Self::Packed {
+                    bytes: t.data,
+                    count,
+                    coding: ExpertCoding::Nvfp4Trim,
                 })
             }
             _ => Err(format!(
@@ -1197,7 +1214,7 @@ impl<'a> ExpertMatrix<'a> {
         let Self::Packed {
             bytes,
             count,
-            contextual: false,
+            coding: ExpertCoding::Byte,
         } = self
         else {
             return Err("device codebooks require rANS MXFP8 frames".into());
@@ -1243,12 +1260,13 @@ impl<'a> ExpertMatrix<'a> {
             Self::Packed {
                 bytes,
                 count,
-                contextual,
+                coding,
             } => {
-                let matrix = if contextual {
-                    crate::inkling_mxfp8::Matrix::parse_nvfp4(bytes, count)?
-                } else {
-                    crate::inkling_mxfp8::Matrix::parse(bytes, count)?
+                use crate::inkling_mxfp8::Matrix;
+                let matrix = match coding {
+                    ExpertCoding::Byte => Matrix::parse(bytes, count)?,
+                    ExpertCoding::Nvfp4 => Matrix::parse_nvfp4(bytes, count)?,
+                    ExpertCoding::Nvfp4Trim => Matrix::parse_nvfp4_trim(bytes, count)?,
                 };
                 if on_device {
                     match DeviceBuf::alloc_zeroed(ctx, count) {
@@ -9516,7 +9534,7 @@ mod tests {
             ExpertMatrix::Packed {
                 bytes: &frame,
                 count: raw.len(),
-                contextual: false,
+                coding: ExpertCoding::Byte,
             }
             .device_codebook()
         };
@@ -9568,7 +9586,7 @@ mod tests {
         let matrix = ExpertMatrix::Packed {
             bytes: &packed,
             count: raw.len(),
-            contextual: false,
+            coding: ExpertCoding::Byte,
         };
         let ctx = CudaContextHandle::init(0)?;
         for on_device in [false, true] {
@@ -9628,12 +9646,12 @@ mod tests {
             ExpertMatrix::Packed {
                 bytes: &[],
                 count: up.len(),
-                contextual: false,
+                coding: ExpertCoding::Byte,
             },
             ExpertMatrix::Packed {
                 bytes: &[],
                 count: down.len(),
-                contextual: false,
+                coding: ExpertCoding::Byte,
             },
         ]; N_LAYER];
         assert_eq!(plan_expert_placement(&packed, 12 * 3 + 1), placement);

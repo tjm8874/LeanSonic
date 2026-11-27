@@ -1,0 +1,217 @@
+{
+  "files": {
+    "model-00001-of-00001.safetensors": {
+      "bytes": 13442562232,
+      "sha256": "9cc8302c5b382b9d0b1a9dcc60a26aeb115ed38833f2d838f6c815c4660e939d"
+    },
+    "tiktoken/tokenizer.model": {
+      "bytes": 3386494,
+      "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+    }
+  },
+  "package_bytes": 13445948726,
+  "planes": {
+    "model.llm.layers.0.mlp.experts.w13_weight": {
+      "old_bytes": 297127672,
+      "trial_bytes": 291167568,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.0.mlp.experts.w2_weight": {
+      "old_bytes": 148646472,
+      "trial_bytes": 145708712,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.1.mlp.experts.w13_weight": {
+      "old_bytes": 296949064,
+      "trial_bytes": 290914168,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.1.mlp.experts.w2_weight": {
+      "old_bytes": 148417432,
+      "trial_bytes": 145482424,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.10.mlp.experts.w13_weight": {
+      "old_bytes": 323443272,
+      "trial_bytes": 317313840,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.10.mlp.experts.w2_weight": {
+      "old_bytes": 161616192,
+      "trial_bytes": 158505176,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.11.mlp.experts.w13_weight": {
+      "old_bytes": 324283040,
+      "trial_bytes": 318615320,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.11.mlp.experts.w2_weight": {
+      "old_bytes": 162232368,
+      "trial_bytes": 159420072,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.12.mlp.experts.w13_weight": {
+      "old_bytes": 324248328,
+      "trial_bytes": 318615504,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.12.mlp.experts.w2_weight": {
+      "old_bytes": 162084688,
+      "trial_bytes": 159222208,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.13.mlp.experts.w13_weight": {
+      "old_bytes": 323715560,
+      "trial_bytes": 317777528,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.13.mlp.experts.w2_weight": {
+      "old_bytes": 161812456,
+      "trial_bytes": 158799048,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.14.mlp.experts.w13_weight": {
+      "old_bytes": 323728232,
+      "trial_bytes": 317788536,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.14.mlp.experts.w2_weight": {
+      "old_bytes": 161781720,
+      "trial_bytes": 158730112,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.15.mlp.experts.w13_weight": {
+      "old_bytes": 323437192,
+      "trial_bytes": 317380952,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.15.mlp.experts.w2_weight": {
+      "old_bytes": 161754032,
+      "trial_bytes": 158663856,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.16.mlp.experts.w13_weight": {
+      "old_bytes": 323703968,
+      "trial_bytes": 317725536,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.16.mlp.experts.w2_weight": {
+      "old_bytes": 161906808,
+      "trial_bytes": 158827848,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.17.mlp.experts.w13_weight": {
+      "old_bytes": 322370480,
+      "trial_bytes": 315754656,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.17.mlp.experts.w2_weight": {
+      "old_bytes": 161082544,
+      "trial_bytes": 157520968,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.18.mlp.experts.w13_weight": {
+      "old_bytes": 296621304,
+      "trial_bytes": 290962712,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.18.mlp.experts.w2_weight": {
+      "old_bytes": 148339824,
+      "trial_bytes": 145472160,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.19.mlp.experts.w13_weight": {
+      "old_bytes": 296718632,
+      "trial_bytes": 291051560,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.19.mlp.experts.w2_weight": {
+      "old_bytes": 148576408,
+      "trial_bytes": 145652496,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.2.mlp.experts.w13_weight": {
+      "old_bytes": 296108744,
+      "trial_bytes": 290241136,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.2.mlp.experts.w2_weight": {
+      "old_bytes": 148023440,
+      "trial_bytes": 145194872,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.3.mlp.experts.w13_weight": {
+      "old_bytes": 296883840,
+      "trial_bytes": 290770880,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.3.mlp.experts.w2_weight": {
+      "old_bytes": 148450352,
+      "trial_bytes": 145486192,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.4.mlp.experts.w13_weight": {
+      "old_bytes": 296933424,
+      "trial_bytes": 290834960,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.4.mlp.experts.w2_weight": {
+      "old_bytes": 148494832,
+      "trial_bytes": 145522864,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.5.mlp.experts.w13_weight": {
+      "old_bytes": 297342840,
+      "trial_bytes": 291182592,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.5.mlp.experts.w2_weight": {
+      "old_bytes": 148821272,
+      "trial_bytes": 145747096,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.6.mlp.experts.w13_weight": {
+      "old_bytes": 323653072,
+      "trial_bytes": 317699744,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.6.mlp.experts.w2_weight": {
+      "old_bytes": 161939672,
+      "trial_bytes": 159020800,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.7.mlp.experts.w13_weight": {
+      "old_bytes": 324393560,
+      "trial_bytes": 318780264,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.7.mlp.experts.w2_weight": {
+      "old_bytes": 162251912,
+      "trial_bytes": 159497992,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.8.mlp.experts.w13_weight": {
+      "old_bytes": 323926248,
+      "trial_bytes": 318054112,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.8.mlp.experts.w2_weight": {
+      "old_bytes": 161992024,
+      "trial_bytes": 159099920,
+      "decoded_bytes": 169869312
+    },
+    "model.llm.layers.9.mlp.experts.w13_weight": {
+      "old_bytes": 323797440,
+      "trial_bytes": 317855496,
+      "decoded_bytes": 339738624
+    },
+    "model.llm.layers.9.mlp.experts.w2_weight": {
+      "old_bytes": 161866968,
+      "trial_bytes": 158902040,
+      "decoded_bytes": 169869312
+    }
+  },
+  "adopted_planes": 40,
+  "verified_payloads": 999
+}
