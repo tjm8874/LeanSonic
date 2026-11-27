@@ -10330,10 +10330,11 @@ struct Nvfp4TcSmem256x128_3Stage {
 
 // Expand eight two-bit codes to their original E2M1 nibbles (0, +6, -6).
 __device__ __forceinline__ unsigned ternary_nibbles(unsigned half) {
-    unsigned x = (half | (half << 8)) & 0x00ff00ffu;
-    x = (x | (x << 4)) & 0x0f0f0f0fu;
-    x = (x | (x << 2)) & 0x33333333u;
-    return ((x & 0x11111111u) * 7u) | ((x & 0x22222222u) << 2);
+    // Each selector nibble contains two adjacent two-bit codes. Look up the
+    // low and high output nibbles of all four bytes in parallel.
+    const unsigned lo = __byte_perm(0x0f080700u, 0u, half & 0x3333u);
+    const unsigned hi = __byte_perm(0xf0807000u, 0u, (half >> 2) & 0x3333u);
+    return lo | hi;
 }
 
 template <bool Ternary>
