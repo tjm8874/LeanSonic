@@ -8986,6 +8986,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn device_codebook_roundtrips_every_nibble_across_rans_tiles() {
+        let values = [
+            0, 128, 1, 129, 10, 138, 17, 145, 30, 158, 63, 191, 100, 228, 126, 254,
+        ];
+        let raw: Vec<u8> = (0..crate::inkling_mxfp8::TILE + 32)
+            .map(|i| values[(i * 7 + i / 16) % values.len()])
+            .collect();
+        let encode = |raw: &[u8]| {
+            let mut frame = Vec::new();
+            crate::inkling_mxfp8::pack(raw, &mut frame).unwrap();
+            ExpertMatrix::Packed {
+                bytes: &frame,
+                count: raw.len(),
+                contextual: false,
+            }
+            .device_codebook()
+        };
+        let packed = encode(&raw).unwrap();
+        assert_eq!(packed.len(), 16 + raw.len() / 2);
+        let decoded: Vec<u8> = packed[16..]
+            .iter()
+            .flat_map(|&v| [packed[(v & 15) as usize], packed[(v >> 4) as usize]])
+            .collect();
+        assert_eq!(decoded, raw);
+        let mut excessive = raw;
+        excessive[0] = 2;
+        assert!(encode(&excessive).is_err());
+    }
+
+    #[test]
     fn known_prompt_rounds_up_to_a_supported_workspace() {
         for (tokens, width) in [
             (0, 64),
