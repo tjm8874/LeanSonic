@@ -25,6 +25,40 @@
       "top1_matches": 4080,
       "top1_agreement": 1
     },
+    "reference-test": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.072406467900248,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 3.512739931419843e-08,
+      "median_kld": 5.974177612571956e-10,
+      "p99_kld": 3.717110910496482e-05,
+      "max_kld": 6.628765643128663e-05,
+      "start_chunk": 0,
+      "max_kld_chunk": 34,
+      "max_kld_position": 445,
+      "ref_floor_targets": 14,
+      "top1_matches": 25500,
+      "top1_agreement": 1
+    },
+    "reference-valid": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 6.505027709122813,
+      "ref_ppl": 6.498588819010602,
+      "mean_kld": 2.8209830981728452e-08,
+      "median_kld": 2.2677295978545953e-10,
+      "p99_kld": 3.722911213046052e-05,
+      "max_kld": 6.261396827304649e-05,
+      "start_chunk": 0,
+      "max_kld_chunk": 65,
+      "max_kld_position": 505,
+      "ref_floor_targets": 10,
+      "top1_matches": 25500,
+      "top1_agreement": 1
+    },
     "ub64-test": {
       "chunks": 100,
       "context": 512,
@@ -58,6 +92,40 @@
       "ref_floor_targets": 10,
       "top1_matches": 25100,
       "top1_agreement": 0.984313725490196
+    },
+    "single-test": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.07180569051757,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.0019134411740074145,
+      "median_kld": 0.0006737415111422312,
+      "p99_kld": 0.019440043532819137,
+      "max_kld": 0.418683691005346,
+      "start_chunk": 0,
+      "max_kld_chunk": 66,
+      "max_kld_position": 294,
+      "ref_floor_targets": 14,
+      "top1_matches": 25065,
+      "top1_agreement": 0.9829411764705882
+    },
+    "single-valid": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 6.5072890350902535,
+      "ref_ppl": 6.498588819010602,
+      "mean_kld": 0.0017027021066983936,
+      "median_kld": 0.0005372204421992786,
+      "p99_kld": 0.017591344511286057,
+      "max_kld": 0.4918294301598891,
+      "start_chunk": 0,
+      "max_kld_chunk": 76,
+      "max_kld_position": 501,
+      "ref_floor_targets": 10,
+      "top1_matches": 25108,
+      "top1_agreement": 0.9846274509803922
     }
   }
 }

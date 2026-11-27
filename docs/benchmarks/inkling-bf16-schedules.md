@@ -4,11 +4,14 @@ The official BF16 model selected a different top token at 463 of 25,500 position
 
 | Split / BF16 batch and microbatch | Positions | Mean KL | Worst KL | Top-1 matches | Raw-logit PPL |
 |---|---:|---:|---:|---:|---:|
-| Test, 8192/8192, first 16 chunks | 4,080 | 0.000000141 | 0.000056 | 4,080 | 8.185805 |
+| Test, 8192/8192 | 25,500 | 0.000000035 | 0.000066 | 25,500 | 7.072406 |
 | Test, 8192/64 | 25,500 | 0.001919431 | 0.281640 | 25,037 | 7.073006 |
+| Test, 512/512 | 25,500 | 0.001913441 | 0.418684 | 25,065 | 7.071806 |
+| Validation, 8192/8192 | 25,500 | 0.000000028 | 0.000063 | 25,500 | 6.505028 |
 | Validation, 8192/64 | 25,500 | 0.001692298 | 0.357129 | 25,100 | 6.501775 |
+| Validation, 512/512 | 25,500 | 0.001702702 | 0.491829 | 25,108 | 6.507289 |
 
-The 16-chunk control used the same schedule as the original BF16 reference. Its stored probabilities are clipped and quantized, so raw logits from the canonical run can still yield a small nonzero KL. The full test and validation comparisons each used their own 100-chunk oracle. These results establish schedule sensitivity for the BF16 implementation. Attribution of a particular LeanSonic discrepancy to schedule or weights requires a matched replay at the corresponding row. [Raw results and worst positions](inkling-bf16-schedules.json).
+The canonical 100-chunk runs matched every top token on both splits. A separate 16-chunk test control gave 4,080/4,080 top-1 matches and worst KL 0.000056. The oracle’s stored probabilities are clipped and quantized, so raw logits from the canonical run can still yield a small nonzero KL. The full test and validation comparisons each used their own 100-chunk oracle. The single-sequence configuration (512/512) reached worst KL 0.418684 on test and 0.491829 on validation. Raw BF16 PPL was 7.072406 on test and 6.505028 on validation at the canonical settings. The corresponding PPL reconstructed from the stored oracles was 7.064408 and 6.498589. These results establish schedule sensitivity for the BF16 implementation. Attribution of a particular LeanSonic discrepancy to schedule or weights requires a matched replay at the corresponding row. [Raw results and worst positions](inkling-bf16-schedules.json).
 
 ## Reproduction on Linux
 
