@@ -15,3 +15,11 @@ The two additional pairs cost 1,774,200 bytes against the refitted 927. The inde
 Use the same paired training ranking and mixer as the 927 package. Copy the rank JSON and add 1,721,464 to its provisional `cap` field, retaining the expert order, group boundaries, parent bytes and all gains. Run the parent's paired assembler and independent verifier. Attach the same 44-magnitude embedding. Finally apply the [scale-bin fit and complete package assembler](https://github.com/tjm8874/LeanSonic/tree/077bf7e/docs/benchmarks/inkling-class-frames/scale-bins) to the resulting materialized directory. Compare both file digests and verify the 11,663,309,504-byte limit on the finished files.
 
 [Selected expert IDs and trials](expert.json) · [Direct source precision checks](experts-verified.json) · [Embedding attachment](embedding.json) · [Each fitted scale plane](receipt.json) · [Final bytes and model hashes](package.json).
+
+## Charge each entropy table to the package
+
+The first refit kept all 144 entropy tables per projection. Each table takes 512 serialized bytes. We tested dropping neighboring context bins where their estimated reduction in coding efficiency costs fewer bytes than keeping the extra tables. Both axes then receive two more boundary-fitting sweeps. We encode complete frames for the pruned and fixed-grid candidates, decode and compare every scale, and retain the smallest physical frame including its header. All 40 expert scale planes improve; selected shapes range from 6 to 12 bins per axis.
+
+This second lossless pass reduces the same 931-slice package from 11,662,708,470 to **11,661,987,870 bytes**, saving 720,600 bytes. The resulting model is 1,321,634 bytes below native IQ3_XXS. There are 1,274,019,840 decoded scale codes and 999 final tensor payloads in the checks. The model loader uses the existing mean-scale format. [Package hashes](grid-package.json) · [All candidate bins and real sizes](grid-planes.json).
+
+From a fresh directory, run `python3 grid.py PARENT_931_MODEL ORIGINAL_REFIT_WORKDIR PROBE`, using the 931 model above, its original per-plane feature files and fit receipt, and the compiled scale_refit probe. Then run the unchanged scale-bin `assemble.py PARENT_931_MODEL . materialized` and compare both final file hashes.
