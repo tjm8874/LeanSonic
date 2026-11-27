@@ -304,8 +304,12 @@ struct ExpertKernels {
     mxfp8_grouped_down: CUfunction,
     nvfp4_tc_up_situ: Option<CUfunction>,
     nvfp4_tc_down: Option<CUfunction>,
+    nvfp4_tc_up_situ_t160: Option<CUfunction>,
+    nvfp4_tc_down_t160: Option<CUfunction>,
     mxfp8_tc_up_situ: Option<CUfunction>,
     mxfp8_tc_down: Option<CUfunction>,
+    mxfp8_tc_up_situ_t160: Option<CUfunction>,
+    mxfp8_tc_down_t160: Option<CUfunction>,
 }
 
 struct ExpertScalePlane {
@@ -486,6 +490,12 @@ struct KernelFns {
     moe_combine_top8_vec4_b: Option<CUfunction>,
     moe_combine_top8_f16_b: Option<CUfunction>,
     depth_mix_multi_b: Option<CUfunction>,
+    // v0.8.0 V13 Prefill Suite (`Issue #79`)
+    quant_nvfp4_2term_1p_b: Option<CUfunction>,
+    flash_attn_tc_split_b: Option<CUfunction>,
+    flash_attn_tc_split_b_i8: Option<CUfunction>,
+    flash_attn_split_combine_q8_b: Option<CUfunction>,
+    depth_mix_multi_ctrl_norm_bf16_b: Option<CUfunction>,
 }
 
 unsafe impl Send for KernelFns {}
@@ -2123,10 +2133,14 @@ impl Inkling2GpuEngine {
                 nvfp4_dp4a_grouped_down: load("nvfp4_dp4a_grouped_down")?,
                 mxfp8_grouped_up_situ: load("mxfp8_grouped_up_situ")?,
                 mxfp8_grouped_down: load("mxfp8_grouped_down")?,
-                nvfp4_tc_up_situ: set_dyn_smem(load("nvfp4_tc_up_situ").ok(), 57_856)?,
-                nvfp4_tc_down: set_dyn_smem(load("nvfp4_tc_down").ok(), 57_856)?,
+                nvfp4_tc_up_situ: set_dyn_smem(load("nvfp4_tc_up_situ").ok(), 62_976)?,
+                nvfp4_tc_down: set_dyn_smem(load("nvfp4_tc_down").ok(), 62_976)?,
+                nvfp4_tc_up_situ_t160: set_dyn_smem(load("nvfp4_tc_up_situ_t160").ok(), 58_112)?,
+                nvfp4_tc_down_t160: set_dyn_smem(load("nvfp4_tc_down_t160").ok(), 58_112)?,
                 mxfp8_tc_up_situ: set_dyn_smem(load("mxfp8_tc_up_situ").ok(), 78_336)?,
                 mxfp8_tc_down: set_dyn_smem(load("mxfp8_tc_down").ok(), 78_336)?,
+                mxfp8_tc_up_situ_t160: set_dyn_smem(load("mxfp8_tc_up_situ_t160").ok(), 88_064)?,
+                mxfp8_tc_down_t160: set_dyn_smem(load("mxfp8_tc_down_t160").ok(), 88_064)?,
             })
         };
         let packed_experts = if pack_gpu_scales {
@@ -2139,6 +2153,10 @@ impl Inkling2GpuEngine {
         let flash_attn_tc_q8_b = set_dyn_smem(get_fn("ink2_flash_attn_tc_q8_b").ok(), 64_512)?;
         let flash_attn_tc_q8_b_i8 =
             set_dyn_smem(get_fn("ink2_flash_attn_tc_q8_b_i8").ok(), 64_512)?;
+        let flash_attn_tc_split_b =
+            set_dyn_smem(get_fn("ink2_flash_attn_tc_split_b").ok(), 64_512)?;
+        let flash_attn_tc_split_b_i8 =
+            set_dyn_smem(get_fn("ink2_flash_attn_tc_split_b_i8").ok(), 64_512)?;
         Ok(KernelFns {
             _module: module,
             experts: expert_kernels("")?,
@@ -2249,6 +2267,11 @@ impl Inkling2GpuEngine {
             moe_combine_top8_vec4_b: get_fn("ink2_moe_combine_top8_vec4_b").ok(),
             moe_combine_top8_f16_b: get_fn("ink2_moe_combine_top8_f16_b").ok(),
             depth_mix_multi_b: get_fn("ink2_depth_mix_multi_b").ok(),
+            quant_nvfp4_2term_1p_b: get_fn("ink2_quant_nvfp4_2term_1p_b").ok(),
+            flash_attn_tc_split_b,
+            flash_attn_tc_split_b_i8,
+            flash_attn_split_combine_q8_b: get_fn("ink2_flash_attn_split_combine_q8_b").ok(),
+            depth_mix_multi_ctrl_norm_bf16_b: get_fn("ink2_depth_mix_multi_ctrl_norm_bf16_b").ok(),
         })
     }
 
@@ -2289,13 +2312,32 @@ impl Inkling2GpuEngine {
         shared_mem_bytes: u32,
         params: &mut [*mut c_void],
     ) -> Result<(), String> {
+        self.launch_smem_3d(
+            stream,
+            func,
+            (grid.0, grid.1, 1),
+            block,
+            shared_mem_bytes,
+            params,
+        )
+    }
+
+    fn launch_smem_3d(
+        &self,
+        stream: CUstream,
+        func: CUfunction,
+        grid: (u32, u32, u32),
+        block: u32,
+        shared_mem_bytes: u32,
+        params: &mut [*mut c_void],
+    ) -> Result<(), String> {
         unsafe {
             check_cu(
                 (self.ctx.api.cuLaunchKernel)(
                     func,
                     grid.0,
                     grid.1,
-                    1,
+                    grid.2,
                     block,
                     1,
                     1,
@@ -4163,7 +4205,8 @@ impl Inkling2GpuEngine {
         self.launch(stream, self.fns.copy_d, (grid_x, 1), 256, &mut args)
     }
 
-    fn enqueue_ctrl_n_b(
+    #[allow(clippy::too_many_arguments)]
+    fn enqueue_ctrl_n_b_inner(
         &self,
         stream: CUstream,
         cur_ptr: CUdeviceptr,
@@ -4171,6 +4214,7 @@ impl Inkling2GpuEngine {
         ctrl: &CtrlGpu,
         n_ctrls: u32,
         b_len: usize,
+        norm_bf16_ready: bool,
     ) -> Result<(), String> {
         let b_u32 = b_len as u32;
         let mut b_i32 = b_len as i32;
@@ -4187,12 +4231,14 @@ impl Inkling2GpuEngine {
             // so `ctrl_norm_bf16_b` is 100% disjoint even when `cur_ptr == layer_workspace.mlp_hidden`!
             let mut p_bf16 = self.prefill.layer_workspace.pair_output.ptr
                 + (self.prefill.capacity * (D + N_EXP) * 4) as u64;
-            let mut norm_args: [*mut c_void; 3] = [
-                (&mut p_cur as *mut _) as *mut c_void,
-                (&mut p_msg as *mut _) as *mut c_void,
-                (&mut p_bf16 as *mut _) as *mut c_void,
-            ];
-            self.launch(stream, f_norm, (n_ctrls * b_u32, 1), 256, &mut norm_args)?;
+            if !norm_bf16_ready {
+                let mut norm_args: [*mut c_void; 3] = [
+                    (&mut p_cur as *mut _) as *mut c_void,
+                    (&mut p_msg as *mut _) as *mut c_void,
+                    (&mut p_bf16 as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, f_norm, (n_ctrls * b_u32, 1), 256, &mut norm_args)?;
+            }
             let mut rows = 64i32;
             let mut cols = (2 * D) as i32;
             let t_blocks = b_u32.div_ceil(64);
@@ -4648,7 +4694,33 @@ impl Inkling2GpuEngine {
                 (&mut pout as *mut _) as *mut c_void,
                 (&mut b3 as *mut _) as *mut c_void,
             ];
-            if n_q > 1 || !record_seq {
+            let mut norm_bf16_ready = false;
+            if let (true, Some(f_fused)) = (
+                !record_seq && self.tc_bf16 && b_len >= 32 && self.fns.bf16_tc_gemm_b.is_some(),
+                self.fns.depth_mix_multi_ctrl_norm_bf16_b,
+            ) {
+                let mut nqi = n_q as i32;
+                let mut pmsg = msg_base_ptr;
+                let mut pbf16 = self.prefill.layer_workspace.pair_output.ptr
+                    + (self.prefill.capacity * (D + N_EXP) * 4) as u64;
+                let mut f_args: [*mut c_void; 13] = [
+                    (&mut pb as *mut _) as *mut c_void,
+                    (&mut nb as *mut _) as *mut c_void,
+                    (&mut sb as *mut _) as *mut c_void,
+                    (&mut bo as *mut _) as *mut c_void,
+                    (&mut bout as *mut _) as *mut c_void,
+                    (&mut pc as *mut _) as *mut c_void,
+                    (&mut ac as *mut _) as *mut c_void,
+                    (&mut pq as *mut _) as *mut c_void,
+                    (&mut pout as *mut _) as *mut c_void,
+                    (&mut b3 as *mut _) as *mut c_void,
+                    (&mut nqi as *mut _) as *mut c_void,
+                    (&mut pmsg as *mut _) as *mut c_void,
+                    (&mut pbf16 as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, f_fused, (1, b_u32), 256, &mut f_args)?;
+                norm_bf16_ready = true;
+            } else if n_q > 1 || !record_seq {
                 if let Some(f_dm_m) = self.fns.depth_mix_multi_b {
                     let mut nqi = n_q as i32;
                     let mut m_args: [*mut c_void; 11] = [
@@ -4671,13 +4743,14 @@ impl Inkling2GpuEngine {
             } else {
                 self.launch(stream, self.fns.depth_mix_b, (n_q, b_u32), 256, &mut args)?;
             }
-            self.enqueue_ctrl_n_b(
+            self.enqueue_ctrl_n_b_inner(
                 stream,
                 self.prefill.d_b_activations.ptr,
                 msg_base_ptr,
                 l.ctrl3.as_ref().unwrap(),
                 3,
                 b_len,
+                norm_bf16_ready,
             )?;
             self.enqueue_rmsnorm_quant_q8_64_b(
                 stream,
@@ -4932,7 +5005,102 @@ impl Inkling2GpuEngine {
         // 6. Batched GQA Relative-Bias + Sink Attention + In-Register `Q8_64` Epilogue!
         let mut attn_done = false;
         if !record_seq && self.tc_attn && b_len >= 32 {
-            if st.k_scale.is_some() {
+            let total_kv = self.host_pos + b_len;
+            let use_long_split = l.global
+                && total_kv >= 8192
+                && self.fns.flash_attn_split_combine_q8_b.is_some()
+                && if st.k_scale.is_some() {
+                    self.fns.flash_attn_tc_split_b_i8.is_some()
+                } else {
+                    self.fns.flash_attn_tc_split_b.is_some()
+                };
+            if use_long_split {
+                // `n_splits = 6` (`1,536` CTAs = `99.7%` wave eff on 110-SM PRO 5000) or `5` (`1,280` CTAs = `100%` on 80-SM PRO 4500),
+                // reusing dead `k_raw .. pair_output_end` (`<= 9,504 * b_len <= 9,832 * capacity` dwords, `0` extra VRAM)!
+                let long_splits: u32 = if self.ctx.device_name.contains("4500") {
+                    5
+                } else {
+                    6
+                };
+                let mut part_o_ptr = self.prefill.layer_workspace.k_raw;
+                let mut part_ml_ptr =
+                    part_o_ptr + (long_splits as usize * b_len * N_HEAD * 64 * 4) as u64;
+                let mut pqrgs = self.prefill.layer_workspace.qrgs;
+                let mut qstride = SWA_ALL_ROWS as i32;
+                let mut prp = l.rel_proj.ptr;
+                let mut pkc = st.k_cache.ptr;
+                let mut pvc = st.v_cache.ptr;
+                let mut ppos = self.d_pos.ptr;
+                let mut cap = st.kv_cap as i32;
+                let mut ig = i32::from(l.global);
+                let mut bi = b_i32;
+                if st.k_scale.is_some() {
+                    let f_sp_i8 = self.fns.flash_attn_tc_split_b_i8.unwrap();
+                    let (mut pks, mut pvs) = st.kv_scale_ptrs();
+                    let mut s_args: [*mut c_void; 13] = [
+                        (&mut pqrgs as *mut _) as *mut c_void,
+                        (&mut qstride as *mut _) as *mut c_void,
+                        (&mut prp as *mut _) as *mut c_void,
+                        (&mut pkc as *mut _) as *mut c_void,
+                        (&mut pvc as *mut _) as *mut c_void,
+                        (&mut pks as *mut _) as *mut c_void,
+                        (&mut pvs as *mut _) as *mut c_void,
+                        (&mut ppos as *mut _) as *mut c_void,
+                        (&mut cap as *mut _) as *mut c_void,
+                        (&mut ig as *mut _) as *mut c_void,
+                        (&mut bi as *mut _) as *mut c_void,
+                        (&mut part_o_ptr as *mut _) as *mut c_void,
+                        (&mut part_ml_ptr as *mut _) as *mut c_void,
+                    ];
+                    self.launch_smem_3d(
+                        stream,
+                        f_sp_i8,
+                        (8, b_u32.div_ceil(64), long_splits),
+                        384,
+                        63_872,
+                        &mut s_args,
+                    )?;
+                } else {
+                    let f_sp = self.fns.flash_attn_tc_split_b.unwrap();
+                    let mut s_args: [*mut c_void; 11] = [
+                        (&mut pqrgs as *mut _) as *mut c_void,
+                        (&mut qstride as *mut _) as *mut c_void,
+                        (&mut prp as *mut _) as *mut c_void,
+                        (&mut pkc as *mut _) as *mut c_void,
+                        (&mut pvc as *mut _) as *mut c_void,
+                        (&mut ppos as *mut _) as *mut c_void,
+                        (&mut cap as *mut _) as *mut c_void,
+                        (&mut ig as *mut _) as *mut c_void,
+                        (&mut bi as *mut _) as *mut c_void,
+                        (&mut part_o_ptr as *mut _) as *mut c_void,
+                        (&mut part_ml_ptr as *mut _) as *mut c_void,
+                    ];
+                    self.launch_smem_3d(
+                        stream,
+                        f_sp,
+                        (8, b_u32.div_ceil(64), long_splits),
+                        384,
+                        64_384,
+                        &mut s_args,
+                    )?;
+                }
+                let f_comb = self.fns.flash_attn_split_combine_q8_b.unwrap();
+                let mut n_sp = long_splits as i32;
+                let mut pq8 = self.prefill.d_b_act_codes.ptr;
+                let mut psc = self.prefill.d_b_act_scales.ptr;
+                let mut c_args: [*mut c_void; 8] = [
+                    (&mut part_o_ptr as *mut _) as *mut c_void,
+                    (&mut part_ml_ptr as *mut _) as *mut c_void,
+                    (&mut pqrgs as *mut _) as *mut c_void,
+                    (&mut qstride as *mut _) as *mut c_void,
+                    (&mut bi as *mut _) as *mut c_void,
+                    (&mut n_sp as *mut _) as *mut c_void,
+                    (&mut pq8 as *mut _) as *mut c_void,
+                    (&mut psc as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, f_comb, (N_HEAD as u32, b_u32), 64, &mut c_args)?;
+                attn_done = true;
+            } else if st.k_scale.is_some() {
                 if let Some(f_flash_i8) = self.fns.flash_attn_tc_q8_b_i8 {
                     let mut pqrgs = self.prefill.layer_workspace.qrgs;
                     let mut qstride = SWA_ALL_ROWS as i32;
@@ -5371,7 +5539,37 @@ impl Inkling2GpuEngine {
             let mut pq = l.mlp_query.ptr;
             let mut pout = self.prefill.layer_workspace.mlp_hidden;
             let mut b3 = 0i32;
-            if let (false, Some(f_dm_m)) = (record_seq, self.fns.depth_mix_multi_b) {
+            let mut mlp_norm_bf16_ready = false;
+            if let (true, Some(f_fused)) = (
+                has_msgs
+                    && !record_seq
+                    && self.tc_bf16
+                    && b_len >= 32
+                    && self.fns.bf16_tc_gemm_b.is_some(),
+                self.fns.depth_mix_multi_ctrl_norm_bf16_b,
+            ) {
+                let mut nqi = 1i32;
+                let mut pmsg = msg_base_ptr + 3 * bd_bytes;
+                let mut pbf16 = self.prefill.layer_workspace.pair_output.ptr
+                    + (self.prefill.capacity * (D + N_EXP) * 4) as u64;
+                let mut f_args: [*mut c_void; 13] = [
+                    (&mut pb as *mut _) as *mut c_void,
+                    (&mut nb as *mut _) as *mut c_void,
+                    (&mut sb as *mut _) as *mut c_void,
+                    (&mut bo as *mut _) as *mut c_void,
+                    (&mut bout as *mut _) as *mut c_void,
+                    (&mut pc as *mut _) as *mut c_void,
+                    (&mut ac as *mut _) as *mut c_void,
+                    (&mut pq as *mut _) as *mut c_void,
+                    (&mut pout as *mut _) as *mut c_void,
+                    (&mut b3 as *mut _) as *mut c_void,
+                    (&mut nqi as *mut _) as *mut c_void,
+                    (&mut pmsg as *mut _) as *mut c_void,
+                    (&mut pbf16 as *mut _) as *mut c_void,
+                ];
+                self.launch(stream, f_fused, (1, b_u32), 256, &mut f_args)?;
+                mlp_norm_bf16_ready = true;
+            } else if let (false, Some(f_dm_m)) = (record_seq, self.fns.depth_mix_multi_b) {
                 let mut nqi = 1i32;
                 let mut m_args: [*mut c_void; 11] = [
                     (&mut pb as *mut _) as *mut c_void,
@@ -5403,13 +5601,14 @@ impl Inkling2GpuEngine {
                 self.launch(stream, self.fns.depth_mix_b, (1, b_u32), 256, &mut args)?;
             }
             if has_msgs {
-                self.enqueue_ctrl_n_b(
+                self.enqueue_ctrl_n_b_inner(
                     stream,
                     self.prefill.layer_workspace.mlp_hidden,
                     msg_base_ptr + 3 * bd_bytes,
                     l.ctrl_mlp.as_ref().unwrap(),
                     1,
                     b_len,
+                    mlp_norm_bf16_ready,
                 )?;
             }
             if wants_mlp_q8_16 {
@@ -5553,12 +5752,35 @@ impl Inkling2GpuEngine {
         let mut moe_wrote_f16 = false;
         match &l.expert_scales {
             ExpertScales::Nvfp4 { s13, a13, s2, a2 } => {
+                let (opt_up, opt_dn, nvfp4_grid_x, nvfp4_block, nvfp4_tile_toks, nvfp4_smem) =
+                    if b_len > 2048
+                        && s13.kernels.nvfp4_tc_up_situ_t160.is_some()
+                        && s2.kernels.nvfp4_tc_down_t160.is_some()
+                    {
+                        (
+                            s13.kernels.nvfp4_tc_up_situ_t160,
+                            s2.kernels.nvfp4_tc_down_t160,
+                            12u32,
+                            384u32,
+                            160usize,
+                            57_616u32,
+                        )
+                    } else {
+                        (
+                            s13.kernels.nvfp4_tc_up_situ,
+                            s2.kernels.nvfp4_tc_down,
+                            9u32,
+                            512u32,
+                            128usize,
+                            62_480u32,
+                        )
+                    };
                 if let (true, Some(f_q2), Some(f_gather), Some(f_up), Some(f_dn)) = (
                     has_nvfp4_tc,
                     self.fns.quant_nvfp4_2term_b,
                     self.fns.gather_nvfp4_sorted_b,
-                    s13.kernels.nvfp4_tc_up_situ,
-                    s2.kernels.nvfp4_tc_down,
+                    opt_up,
+                    opt_dn,
                 ) {
                     // Quantize `mlp_hidden` (`[b_len, D]`) into 2-term `(codes, ue4m3_scales, gs)` inside `(d_b_act_codes, d_b_act_scales)`
                     let gs_up_ptr = self.prefill.d_b_act_scales.ptr + (b_len * (D / 8)) as u64;
@@ -5577,11 +5799,16 @@ impl Inkling2GpuEngine {
                             (&mut nr as *mut _) as *mut c_void,
                             (&mut cols as *mut _) as *mut c_void,
                         ];
-                        self.launch(stream, f_q2, (b_u32.div_ceil(4), 1), 128, &mut q_args)?;
+                        if let Some(f_q2_1p) = self.fns.quant_nvfp4_2term_1p_b {
+                            self.launch(stream, f_q2_1p, (b_u32, 1), 160, &mut q_args)?;
+                        } else {
+                            self.launch(stream, f_q2, (b_u32.div_ceil(4), 1), 128, &mut q_args)?;
+                        }
                     }
 
                     // Pre-gather `[b_len, D]` 2-term NVFP4 activations ONCE into contiguous `sorted_base` order inside `pair_output`!
-                    let nvfp4_tiles = (pair_rows.div_ceil(128) + N_EXP) as u32;
+                    let gather_tiles = (pair_rows.div_ceil(128) + N_EXP) as u32;
+                    let nvfp4_tiles = (pair_rows.div_ceil(nvfp4_tile_toks) + N_EXP) as u32;
                     let sorted_codes_ptr = self.prefill.layer_workspace.pair_output.ptr;
                     let sorted_sc_ptr = sorted_codes_ptr + (pair_rows * D) as u64;
                     let sorted_gs_ptr = sorted_sc_ptr + (pair_rows * (D / 8)) as u64;
@@ -5604,7 +5831,7 @@ impl Inkling2GpuEngine {
                             (&mut pdst_s as *mut _) as *mut c_void,
                             (&mut pdst_g as *mut _) as *mut c_void,
                         ];
-                        self.launch(stream, f_gather, (1, nvfp4_tiles), 256, &mut g_args)?;
+                        self.launch(stream, f_gather, (1, gather_tiles), 256, &mut g_args)?;
                     }
 
                     let mut psorted_c = sorted_codes_ptr;
@@ -5645,9 +5872,9 @@ impl Inkling2GpuEngine {
                             self.launch_smem(
                                 stream,
                                 f_up,
-                                (9, nvfp4_tiles),
-                                512,
-                                57_360,
+                                (nvfp4_grid_x, nvfp4_tiles),
+                                nvfp4_block,
+                                nvfp4_smem,
                                 &mut up_args,
                             )?;
                             unsafe {
@@ -5694,9 +5921,9 @@ impl Inkling2GpuEngine {
                             self.launch_smem(
                                 stream,
                                 f_up,
-                                (9, nvfp4_tiles),
-                                512,
-                                57_360,
+                                (nvfp4_grid_x, nvfp4_tiles),
+                                nvfp4_block,
+                                nvfp4_smem,
                                 &mut up_args,
                             )?;
                             let next2_begin = exp_begin + 2 * pingpong_exps;
@@ -5804,9 +6031,9 @@ impl Inkling2GpuEngine {
                             self.launch_smem(
                                 stream,
                                 f_up,
-                                (9, nvfp4_tiles),
-                                512,
-                                57_360,
+                                (nvfp4_grid_x, nvfp4_tiles),
+                                nvfp4_block,
+                                nvfp4_smem,
                                 &mut up_args,
                             )?;
                             exp_begin = exp_end;
@@ -5832,9 +6059,9 @@ impl Inkling2GpuEngine {
                         self.launch_smem(
                             stream,
                             f_up,
-                            (9, nvfp4_tiles),
-                            512,
-                            57_360,
+                            (nvfp4_grid_x, nvfp4_tiles),
+                            nvfp4_block,
+                            nvfp4_smem,
                             &mut up_args,
                         )?;
                     }
@@ -5858,13 +6085,17 @@ impl Inkling2GpuEngine {
                             (&mut nr as *mut _) as *mut c_void,
                             (&mut cols as *mut _) as *mut c_void,
                         ];
-                        self.launch(
-                            stream,
-                            f_q2,
-                            ((pair_rows as u32).div_ceil(4), 1),
-                            128,
-                            &mut q_args,
-                        )?;
+                        if let Some(f_q2_1p) = self.fns.quant_nvfp4_2term_1p_b {
+                            self.launch(stream, f_q2_1p, (pair_rows as u32, 1), 160, &mut q_args)?;
+                        } else {
+                            self.launch(
+                                stream,
+                                f_q2,
+                                ((pair_rows as u32).div_ceil(4), 1),
+                                128,
+                                &mut q_args,
+                            )?;
+                        }
                     }
                     let mut pxgs_dn = gs_dn_ptr;
                     let mut ppy = self.prefill.layer_workspace.pair_output.ptr;
@@ -5907,9 +6138,9 @@ impl Inkling2GpuEngine {
                             self.launch_smem(
                                 stream,
                                 f_dn,
-                                (9, nvfp4_tiles),
-                                512,
-                                57_360,
+                                (nvfp4_grid_x, nvfp4_tiles),
+                                nvfp4_block,
+                                nvfp4_smem,
                                 &mut dn_args,
                             )?;
                             exp_begin = exp_end;
@@ -5934,9 +6165,9 @@ impl Inkling2GpuEngine {
                         self.launch_smem(
                             stream,
                             f_dn,
-                            (9, nvfp4_tiles),
-                            512,
-                            57_360,
+                            (nvfp4_grid_x, nvfp4_tiles),
+                            nvfp4_block,
+                            nvfp4_smem,
                             &mut dn_args,
                         )?;
                     }
@@ -6008,11 +6239,31 @@ impl Inkling2GpuEngine {
                 }
             }
             ExpertScales::Mxfp8 { s13, s2 } => {
+                let (opt_mup, opt_mdn, mxfp8_block, mxfp8_tile_toks, mxfp8_smem) = if b_len >= 1792
+                    && s13.kernels.mxfp8_tc_up_situ_t160.is_some()
+                    && s2.kernels.mxfp8_tc_down_t160.is_some()
+                {
+                    (
+                        s13.kernels.mxfp8_tc_up_situ_t160,
+                        s2.kernels.mxfp8_tc_down_t160,
+                        256u32,
+                        160usize,
+                        87_568u32,
+                    )
+                } else {
+                    (
+                        s13.kernels.mxfp8_tc_up_situ,
+                        s2.kernels.mxfp8_tc_down,
+                        512u32,
+                        128usize,
+                        77_840u32,
+                    )
+                };
                 if let (true, Some(f_qm), Some(f_up), Some(f_dn)) = (
                     self.tc_mxfp8 && b_len >= 32,
                     self.fns.quant_mxfp8_b,
-                    s13.kernels.mxfp8_tc_up_situ,
-                    s2.kernels.mxfp8_tc_down,
+                    opt_mup,
+                    opt_mdn,
                 ) {
                     // Quantize `mlp_hidden` (`[b_len, D]`) -> `(d_b_act_codes, d_b_act_scales)` as block-32 MXFP8
                     {
@@ -6046,8 +6297,15 @@ impl Inkling2GpuEngine {
                         (&mut ppair as *mut _) as *mut c_void,
                         (&mut pact as *mut _) as *mut c_void,
                     ];
-                    let mxfp8_tiles = ((b_len * TOP_K).div_ceil(128) + N_EXP) as u32;
-                    self.launch_smem(stream, f_up, (18, mxfp8_tiles), 512, 77_840, &mut up_args)?;
+                    let mxfp8_tiles = ((b_len * TOP_K).div_ceil(mxfp8_tile_toks) + N_EXP) as u32;
+                    self.launch_smem(
+                        stream,
+                        f_up,
+                        (18, mxfp8_tiles),
+                        mxfp8_block,
+                        mxfp8_smem,
+                        &mut up_args,
+                    )?;
 
                     // Quantize `d_b_activations` (`[b_len * TOP_K, FF]`) -> `(d_b_act_codes, d_b_act_scales)` as block-32 MXFP8
                     {
@@ -6081,7 +6339,14 @@ impl Inkling2GpuEngine {
                         (&mut ppair as *mut _) as *mut c_void,
                         (&mut ppy as *mut _) as *mut c_void,
                     ];
-                    self.launch_smem(stream, f_dn, (18, mxfp8_tiles), 512, 77_840, &mut dn_args)?;
+                    self.launch_smem(
+                        stream,
+                        f_dn,
+                        (18, mxfp8_tiles),
+                        mxfp8_block,
+                        mxfp8_smem,
+                        &mut dn_args,
+                    )?;
                     moe_wrote_f16 = true;
                 } else {
                     let mut pw13 = w13.ptr();
