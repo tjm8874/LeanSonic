@@ -1,0 +1,27 @@
+--- direct/fit.rs
++++ four/fit.rs
+@@ -1,6 +1,7 @@
+ //! Restore complete ranked experts from the higher-precision frame under an exact disk budget.
+ use leansonic_core::inkling_mxfp8::{
+-    pack_mean_scales, pack_scale_direct, unpack_mean8_scale_codes, unpack_scale_direct,
++    pack_four_scale_banks, pack_mean_scales, unpack_four_scale_banks, unpack_mean8_scale_codes,
++    unpack_scale_direct,
+ };
+ use std::{env, error::Error, fs, path::Path};
+ 
+@@ -56,13 +57,13 @@
+             cuts[e] = base_cuts[e];
+         }
+         let (mut frame, mut sf) = (Vec::new(), Vec::new());
+-        pack_scale_direct(&weights, scales.clone(), &cuts, &mut frame)?;
++        pack_four_scale_banks(&weights, scales.clone(), &cuts, &mut frame)?;
+         pack_mean_scales(&scales, width, &mut sf)?;
+         println!("trial {mid} {} {}", frame.len(), sf.len());
+         if frame.len() + sf.len() <= cap {
+             let decoded = unpack_mean8_scale_codes(&sf, 128 * stride, width)?;
+             assert_eq!(decoded, scales);
+-            assert_eq!(unpack_scale_direct(&frame, decoded)?, weights);
++            assert_eq!(unpack_four_scale_banks(&frame, decoded)?, weights);
+             fs::write(dir.join("fit.weights"), frame)?;
+             fs::write(dir.join("fit.scales"), sf)?;
+             selected = mid;
