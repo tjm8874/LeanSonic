@@ -2308,7 +2308,7 @@ impl Inkling2GpuEngine {
             if mode != "1" && !auto {
                 return Ok(None);
             }
-            let mut any = false;
+            let mut packed_planes = 0usize;
             for pair in &mut expert_views[..NVFP4_LAYERS] {
                 match &mut pair[slot] {
                     ExpertMatrix::ScaleSplit {
@@ -2322,7 +2322,7 @@ impl Inkling2GpuEngine {
                                 frame,
                                 matches!(format, ScaleFormat::FourBanks),
                             )?;
-                        any |= *ternary;
+                        packed_planes += usize::from(*ternary);
                     }
                     _ if auto => {}
                     _ => {
@@ -2332,7 +2332,10 @@ impl Inkling2GpuEngine {
                     }
                 }
             }
-            if !any {
+            if auto {
+                eprintln!("[LeanSonic GPU] Selected {packed_planes}/{NVFP4_LAYERS} NVFP4 down planes for two-bit weights");
+            }
+            if packed_planes == 0 {
                 return Ok(None);
             }
             if fns.expand_ternary_nibbles.is_none() {
