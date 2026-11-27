@@ -594,6 +594,8 @@ struct Probe {
     tokens: String,
     spec: u32,
     gen: usize,
+    /// `LEANSONIC_CTX` override (long-context probes need `N + headroom`).
+    ctx: Option<usize>,
 }
 
 #[derive(Default, Clone)]
@@ -622,6 +624,7 @@ struct Opts {
     n: usize,
     ctx: usize,
     quick: bool,
+    long: bool,
     spec_prompts: Option<PathBuf>,
     targets: PathBuf,
     out: Option<PathBuf>,
@@ -637,6 +640,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         n: 5,
         ctx: 20480,
         quick: false,
+        long: false,
         spec_prompts: None,
         targets: PathBuf::from("docs/benchmarks/targets.json"),
         out: None,
@@ -659,6 +663,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--n" => o.n = val(&mut i, "--n")?.parse().map_err(|_| "bad --n")?,
             "--ctx" => o.ctx = val(&mut i, "--ctx")?.parse().map_err(|_| "bad --ctx")?,
             "--quick" => o.quick = true,
+            "--long" => o.long = true,
             "--require-idle" => o.require_idle = true,
             "--spec-prompts" => {
                 o.spec_prompts = Some(PathBuf::from(val(&mut i, "--spec-prompts")?))
@@ -699,12 +704,14 @@ fn probes(o: &Opts) -> Vec<Probe> {
             tokens: "synth:32".into(),
             spec: 0,
             gen: 128,
+            ctx: None,
         },
         Probe {
             id: "p2k",
             tokens: "synth:2048".into(),
             spec: 0,
             gen: 32,
+            ctx: None,
         },
     ];
     if !o.quick {
@@ -713,6 +720,16 @@ fn probes(o: &Opts) -> Vec<Probe> {
             tokens: "synth:16384".into(),
             spec: 0,
             gen: 128,
+            ctx: None,
+        });
+    }
+    if o.long && !o.quick {
+        v.push(Probe {
+            id: "p128k",
+            tokens: "synth:131072".into(),
+            spec: 0,
+            gen: 128,
+            ctx: Some(131_072 + 512),
         });
     }
     if let Some(dir) = &o.spec_prompts {
@@ -728,6 +745,7 @@ fn probes(o: &Opts) -> Vec<Probe> {
                     tokens: format!("@{}", f.display()),
                     spec: 7,
                     gen: 256,
+                    ctx: None,
                 });
             }
         }
@@ -765,7 +783,7 @@ fn run_probe(o: &Opts, gpu: usize, p: &Probe) -> ProbeSamples {
             ])
             .env("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
             .env("CUDA_VISIBLE_DEVICES", gpu.to_string())
-            .env("LEANSONIC_CTX", o.ctx.to_string())
+            .env("LEANSONIC_CTX", p.ctx.unwrap_or(o.ctx).to_string())
             .output();
         match out {
             Ok(out) => {
@@ -842,9 +860,15 @@ const CELLS: &[(&str, &str, bool, Extract)] = &[
         false,
         |m| col(m, "short", |r| r.vram_gib),
     ),
-    ("long_128k_decode", "Decode @128K (tok/s)", true, |_| {
-        Vec::new()
+    ("prefill_128k", "Prefill 128K (tok/s, --long)", true, |m| {
+        col(m, "p128k", |r| r.prefill_tok_s)
     }),
+    (
+        "long_128k_decode",
+        "Decode @128K, spec off (tok/s, --long)",
+        true,
+        |m| col(m, "p128k", |r| r.gen_tok_s),
+    ),
     ("c64_total", "C=64 aggregate (tok/s)", true, |_| Vec::new()),
     (
         "kld_mean",
@@ -1061,9 +1085,25 @@ pub fn run(args: &[String]) -> Result<(), String> {
         ("weights", Json::Str(o.weights.clone())),
         ("ctx", Json::Num(o.ctx as f64)),
         ("n_per_cell", Json::Num(o.n as f64)),
+        ("engine_env", Json::Obj(engine_env())),
         ("method", Json::Str("fresh process per sample; warm 2nd request per process; median + 95% percentile bootstrap (2000, fixed seed) of the median; PASS iff CI bound clears target".into())),
         ("gpus", Json::Arr(gpu_results.clone())),
     ]);
+    let env_line: Vec<String> = engine_env()
+        .into_iter()
+        .map(|(k, v)| match v {
+            Json::Str(v) => format!("{k}={v}"),
+            _ => k,
+        })
+        .collect();
+    println!(
+        "engine env: {}",
+        if env_line.is_empty() {
+            "(defaults)".to_string()
+        } else {
+            env_line.join(" ")
+        }
+    );
     print_table(&gpu_results);
     if let Some(out) = &o.out {
         let mut s = String::new();
@@ -1079,6 +1119,16 @@ pub fn run(args: &[String]) -> Result<(), String> {
         );
     }
     Ok(())
+}
+
+/// `LEANSONIC_*` variables inherited by every sample process (KV format, split counts, ...),
+/// (sorted by the map), so a report records the engine configuration it measured.
+/// `LEANSONIC_CTX` is set per probe and reported as `ctx`.
+fn engine_env() -> BTreeMap<String, Json> {
+    env::vars()
+        .filter(|(k, _)| k.starts_with("LEANSONIC_") && k != "LEANSONIC_CTX")
+        .map(|(k, val)| (k, Json::Str(val)))
+        .collect()
 }
 
 #[cfg(test)]

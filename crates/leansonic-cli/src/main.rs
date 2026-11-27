@@ -827,6 +827,16 @@ fn cmd_bench(args: &[String]) -> Result<(), String> {
             return Ok(());
         }
 
+        // Benchmark-only (`LEANSONIC_BENCH_DECODE_AT=<pos>`): time decode at a long context
+        // without prefilling it. The generated tokens are not meaningful; only the timing is.
+        if let Some(at) = env::var("LEANSONIC_BENCH_DECODE_AT")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+        {
+            gpu.bench_jump_position(at)?;
+            println!("[bench] decode position moved to {at} (KV rows not prefilled; timing only)");
+        }
+
         if n_gen > 0 {
             let t_dec = Instant::now();
             let (out_ids, _) =

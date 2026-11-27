@@ -28,6 +28,7 @@ leansonic bench-matrix --merge results_cuda01.json results_cudaserver.json
 | `--n` | 5 | 1 セルあたりのサンプル数（＝新しいプロセスの数） |
 | `--ctx` | 20480 | `LEANSONIC_CTX` |
 | `--quick` | — | N=1 にし、16K を省く（動作確認用） |
+| `--long` | — | 128K のセル（`prefill_128k` / `long_128k_decode`）も計測する |
 | `--require-idle` | — | 他のプロセスが GPU を使っていたら中止する |
 | `--bin` | 自分自身 | 計測する別のバイナリ |
 | `--targets` | `docs/benchmarks/targets.json` | 目標値ファイル |
@@ -54,4 +55,5 @@ leansonic bench-matrix --merge results_cuda01.json results_cudaserver.json
 | `decode_16k` | `synth:16384`、`--spec 0 --gen 128` |
 | `spec_avg` | conv / struct / prose、`--spec 7 --gen 256` の平均 |
 | `vram_gib` | `decode_short` 実行時の `VRAM used` |
-| `long_128k_decode` / `c64_total` / `kld_mean` | 未実装（現状は UNMEASURED。T011 / T010 / T005 で追加する） |
+| `prefill_128k` / `long_128k_decode` | `--long` 指定時のみ。`synth:131072`、`--spec 0 --gen 128`、`LEANSONIC_CTX=131584` |
+| `c64_total` / `kld_mean` | 未実装（現状は UNMEASURED。T010 / T005 で追加する） |
