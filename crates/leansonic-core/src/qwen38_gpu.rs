@@ -20,6 +20,7 @@ mod expert_parameter;
 use expert_parameter::ExpertParameter;
 
 use core::ffi::c_void;
+use std::borrow::Cow;
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -346,6 +347,35 @@ fn advise_willneed_slice(bytes: &[u8]) {
 #[cfg(not(target_os = "linux"))]
 fn advise_willneed_slice(_bytes: &[u8]) {}
 
+// Q6 uses four signed fields in three little-endian bytes. Expand on load so
+// the target, shared experts and drafter all consume the same signed-code ABI.
+fn signed_dense_codes<'a>(
+    tensor: &crate::safetensors::TensorView<'a>,
+    rows: usize,
+    cols: usize,
+) -> Result<Cow<'a, [u8]>, String> {
+    let count = rows.checked_mul(cols).ok_or("dense shape overflow")?;
+    if tensor.dtype == "I8" && tensor.shape == [rows, cols] && tensor.data.len() == count {
+        return Ok(Cow::Borrowed(tensor.data));
+    }
+    if tensor.dtype != "U8"
+        || !cols.is_multiple_of(32)
+        || tensor.shape != [rows, cols / 4 * 3]
+        || tensor.data.len() != count / 4 * 3
+    {
+        return Err("invalid group-32 Q6/Q8 code plane".into());
+    }
+    let mut out = Vec::with_capacity(count);
+    for bytes in tensor.data.chunks_exact(3) {
+        let word = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], 0]);
+        for shift in [0, 6, 12, 18] {
+            let field = ((word >> shift) & 63) as u8;
+            out.push((field ^ 32).wrapping_sub(32));
+        }
+    }
+    Ok(Cow::Owned(out))
+}
+
 struct MappedEmbedding {
     w: PinnedHostBuf,
     sc: PinnedHostBuf,
@@ -366,13 +396,8 @@ impl MappedEmbedding {
     ) -> Result<Self, String> {
         let key = format!("{prefix}.weight");
         let tensor = st.get(&key).ok_or_else(|| format!("missing {key}"))?;
-        let q8 = tensor.dtype == "I8";
-        let expected = if q8 { [rows, cols] } else { [rows, cols / 8] };
-        let expected_bytes = if q8 { rows * cols } else { rows * cols / 2 };
-        if !matches!(tensor.dtype, "I8" | "U32")
-            || tensor.shape != expected
-            || tensor.data.len() != expected_bytes
-        {
+        let affine = tensor.dtype == "U32";
+        if affine && (tensor.shape != [rows, cols / 8] || tensor.data.len() != rows * cols / 2) {
             return Err(format!("invalid embedding tensor {key}"));
         }
         let pin = |data: &[u8]| -> Result<PinnedHostBuf, String> {
@@ -380,11 +405,15 @@ impl MappedEmbedding {
             parallel_copy_into_pinned(buffer.host_ptr, &[(0, data)]);
             Ok(buffer)
         };
-        let w = pin(tensor.data)?;
+        let w = if affine {
+            pin(tensor.data)?
+        } else {
+            pin(&signed_dense_codes(&tensor, rows, cols)?)?
+        };
         let sc = pin(st
             .require(&format!("{prefix}.scales"), "BF16", &[rows, cols / 32])
             .data)?;
-        let bi = if q8 {
+        let bi = if !affine {
             None
         } else {
             Some(pin(st
@@ -496,17 +525,14 @@ impl DenseProjection {
             }
             let skey = format!("{prefix}.scales");
             let sc = st.get(&skey).ok_or_else(|| format!("missing {skey}"))?;
-            if w.dtype != "I8"
-                || w.shape != [rows, cols]
-                || w.data.len() != rows * cols
-                || sc.dtype != "BF16"
+            if sc.dtype != "BF16"
                 || sc.shape != [rows, cols / 32]
                 || sc.data.len() != rows * cols / 16
                 || !cols.is_multiple_of(32)
             {
                 return Err(format!("invalid Q8 projection {prefix}"));
             }
-            weights.push(w.data);
+            weights.push(signed_dense_codes(&w, rows, cols)?);
             scales.push(sc.data);
         }
         if weights.is_empty() {
@@ -520,9 +546,14 @@ impl DenseProjection {
         if weights.len() != items.len() {
             return Err("mixed Q4/Q8 in one fused projection".into());
         }
+        let codes = if weights.len() == 1 {
+            weights.pop().expect("one code plane")
+        } else {
+            Cow::Owned(weights.concat())
+        };
         Ok(Self::Q8 {
             kernel: module_function(ctx, module, "q38_dense_q8_gemv")?,
-            weights: DeviceBuf::from_host_bytes(ctx, &concat_bytes(&weights))?,
+            weights: DeviceBuf::from_host_bytes(ctx, &codes)?,
             scales: DeviceBuf::from_host_bytes(ctx, &concat_bytes(&scales))?,
             rows: items.iter().map(|(_, rows)| *rows).sum::<usize>() as i32,
             cols: cols as i32,
@@ -1169,7 +1200,7 @@ fn load_hyper_conn(
     let inject_name = format!("{prefix}.block_inject_weight");
     if st
         .get(&format!("{down_name}.weight"))
-        .is_some_and(|t| t.dtype == "I8")
+        .is_some_and(|t| matches!(t.dtype, "I8" | "U8"))
     {
         let mut lower = vec![(down_name.as_str(), Q38_HC_LOW)];
         if has_inject {
