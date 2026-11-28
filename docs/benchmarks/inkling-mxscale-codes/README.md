@@ -106,3 +106,14 @@ nvcc -Ikernels -arch=sm_120a -O3 -std=c++17 --cubin kernels/inkling2_dflash2_sm1
 ```
 
 The generated patch SHA-256 values are 86add5468ae4551c0d96fefac1d4bd1d67470fa436977dd6e767d80886526255 and bfa272012c3509942dc4ec204667e5c7985b3d036caf19d8dc4c846bf3d9630b. The target and drafter cubins from the reference build hash to 96f7b35bdbceee2b8359c6e87adcd9babd0ab3368c23785c3a0ad0afabf7167b and 9c6633abffb9cb1c045ed31c6a3cdb77f26b2f45c2aca16917bbc4d14824cf1e. Point LEANSONIC_CUBIN_PATH and LEANSONIC_DF2_CUBIN_PATH at the respective cubins, set LEANSONIC_DF2_MLP=q4, and enable LEANSONIC_MXFP8_DEVICE_U4 and LEANSONIC_MXFP8_DIRECT_ALL. Select the same DFlash 2 checkpoint as the official-weight comparison using LEANSONIC_DFLASH2. The uncalibrated 13,407,173,808-byte compact package is the reference for these runs. [Handoff and device measurement protocol](https://github.com/tjm8874/LeanSonic/issues/235#issuecomment-7231158196).
+
+## Native comparison on PRO 5000
+
+On the 13,407,173,808-byte combined package, 1 of five mirrored cycles have completed with 14 warm requests per engine. Both engines use the same 1,024-token prompt and the same 32 native decode input IDs, one sequence, FP16 KV, context 2048 and speculation disabled. LeanSonic used the original #236 loader; the CPU fusion is outside these warm phase measurements. Native vLLM uses the official 19,555,785,477-byte non-MTP distribution.
+
+| Engine | Prefill tok/s | Decode tok/s | Peak GPU bytes |
+| --- | ---: | ---: | ---: |
+| LeanSonic compact | 11,429.64 | 141.81 | 15,674,114,048 |
+| Native vLLM | 12,312.01 | 138.33 | 22,861,053,952 |
+
+The comparison is preliminary until the remaining cycles finish. [GPU, package digests, exact histories, all process peaks and warm samples](pro5000-native.json.gz). [Native comparator and forced-history protocol](https://github.com/tjm8874/LeanSonic/tree/0f64df4/docs/benchmarks/inkling-lossless-rank/measured-widths/pro5000).
