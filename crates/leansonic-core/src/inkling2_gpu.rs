@@ -2808,6 +2808,19 @@ impl Inkling2GpuEngine {
         let mut budget = free.saturating_sub(placement_reserve);
         let mut resident = plan_expert_placement(&expert_views, budget);
         let mut all_experts_resident = resident.iter().all(|pair| *pair == [true, true]);
+        // First give back the DFlash 2 Q4 head copy (0.24 GiB): drafting then reads the
+        // target's Q8 head, which costs far less than a spilled MoE layer (5070 Ti, 32K ctx:
+        // 23/24 -> 24/24, conv / struct 160 / 199 -> 204 / 262 tok/s). An explicit
+        // `LEANSONIC_DF2_HEAD=q4` keeps the copy.
+        if !all_experts_resident && eng.dflash2.as_mut().is_some_and(|d| d.release_q4_head()) {
+            let (now_free, _) = eng.ctx.mem_info()?;
+            budget = now_free.saturating_sub(placement_reserve);
+            resident = plan_expert_placement(&expert_views, budget);
+            all_experts_resident = resident.iter().all(|pair| *pair == [true, true]);
+            eprintln!(
+                "[LeanSonic GPU] DFlash 2 drafts with the target Q8 head to keep MoE layers resident (LEANSONIC_DF2_HEAD=q4 keeps the Q4 copy)"
+            );
+        }
         if drafter_choice == "auto"
             && !all_experts_resident
             && (eng.dflash2.is_some() || eng.drafter.is_some())
