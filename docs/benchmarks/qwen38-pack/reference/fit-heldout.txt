@@ -1,0 +1,4 @@
+A traveler takes a train north and then a bus west. Describe the route in one sentence.
+月曜日の朝に雨が降ったので、駅まで歩く予定を変えました。この続きを一文で書いてください。
+def is_even(n): return
+There are six rows of seven seats and nine seats are empty. How many people are seated?
