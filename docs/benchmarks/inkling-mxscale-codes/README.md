@@ -87,3 +87,20 @@ cmp parent.rows converted.rows && cmp parent.json converted.json
 ```
 
 Use the respective full test or validation reference and `--chunks 100` for full-split scoring. For phase timing, use the pinned [Rust harness, 1,024-token prompt and 32-token history](https://github.com/tjm8874/LeanSonic/tree/4d40691/docs/benchmarks/inkling-class-frames/three-engines) with the combined reader, context 2,048 and prefill chunk 1,024.
+
+## Rebuild the compact reader with the Q4 drafter
+
+For the 16 GB drafter experiment in #235, build the seven-bit and conditioned-code readers on main 2f372be, which includes #237 and #239. Fetch the two PR heads into local refs to make their commits available, then use a fresh checkout of 2f372be.
+
+```sh
+git fetch origin pull/231/head:refs/remotes/origin/pr-231 pull/236/head:refs/remotes/origin/pr-236
+git diff aa4d429 fcbd52a -- crates > mx.patch
+git diff 4a139df 9bc4d48 -- crates/leansonic-core/src > rank.patch
+git apply mx.patch
+git apply rank.patch
+cargo build --release -p leansonic-cli
+nvcc -Ikernels -arch=sm_120a -O3 -std=c++17 --cubin kernels/inkling2_sm120.cu -o target.cubin
+nvcc -Ikernels -arch=sm_120a -O3 -std=c++17 --cubin kernels/inkling2_dflash2_sm120.cu -o drafter.cubin
+```
+
+The generated patch SHA-256 values are 86add5468ae4551c0d96fefac1d4bd1d67470fa436977dd6e767d80886526255 and bfa272012c3509942dc4ec204667e5c7985b3d036caf19d8dc4c846bf3d9630b. The target and drafter cubins from the reference build hash to 96f7b35bdbceee2b8359c6e87adcd9babd0ab3368c23785c3a0ad0afabf7167b and 9c6633abffb9cb1c045ed31c6a3cdb77f26b2f45c2aca16917bbc4d14824cf1e. Point LEANSONIC_CUBIN_PATH and LEANSONIC_DF2_CUBIN_PATH at the respective cubins, set LEANSONIC_DF2_MLP=q4, and enable LEANSONIC_MXFP8_DEVICE_U4 and LEANSONIC_MXFP8_DIRECT_ALL. Select the same DFlash 2 checkpoint as the official-weight comparison using LEANSONIC_DFLASH2. The uncalibrated 13,407,173,808-byte compact package is the reference for these runs. [Handoff and device measurement protocol](https://github.com/tjm8874/LeanSonic/issues/235#issuecomment-7231158196).
