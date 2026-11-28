@@ -106,6 +106,19 @@ impl<'a> Frame<'a> {
         self.entry(code as usize)
     }
 
+    /// Decode a contiguous BF16 word range, retaining its original wire byte order.
+    pub fn decode_range(&self, start: usize, words: usize) -> Result<Vec<u8>, &'static str> {
+        if start > self.words || words > self.words - start {
+            return Err("word range out of bounds");
+        }
+        let bytes = words.checked_mul(2).ok_or("oversized word range")?;
+        let mut result = vec![0; bytes];
+        for (i, pair) in result.as_chunks_mut::<2>().0.iter_mut().enumerate() {
+            *pair = self.word(start + i)?.to_le_bytes();
+        }
+        Ok(result)
+    }
+
     /// Decode the five group parameters of one Engram embedding row.
     pub fn row5(&self, row: usize) -> Result<[u16; 5], &'static str> {
         let i = row.checked_mul(5).ok_or("row out of bounds")?;
@@ -166,6 +179,10 @@ mod tests {
             assert!(view.row5(raw.len() / 10).is_err());
             assert!(view.row5(usize::MAX).is_err());
             assert!(view.word(raw.len() / 2).is_err());
+            assert_eq!(view.decode_range(1, raw.len() / 2 - 1).unwrap(), raw[2..]);
+            assert_eq!(view.decode_range(raw.len() / 2, 0).unwrap(), []);
+            assert!(view.decode_range(raw.len() / 2 + 1, 0).is_err());
+            assert!(view.decode_range(1, usize::MAX).is_err());
             assert!(Frame::open(&frame[..frame.len() - 1], raw.len() / 2).is_err());
         }
         let mut f = encode(&[1, 0, 2, 0, 3, 0]).unwrap();

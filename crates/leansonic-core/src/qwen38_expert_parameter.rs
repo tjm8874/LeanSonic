@@ -44,13 +44,7 @@ impl<'a> ExpertParameter<'a> {
                 .get(offset..end)
                 .map(Cow::Borrowed)
                 .ok_or_else(|| "expert range out of bounds".into()),
-            Self::Packed(frame) => {
-                let mut out = vec![0; len];
-                for (i, pair) in out.as_chunks_mut::<2>().0.iter_mut().enumerate() {
-                    *pair = frame.word(offset / 2 + i)?.to_le_bytes();
-                }
-                Ok(Cow::Owned(out))
-            }
+            Self::Packed(frame) => Ok(Cow::Owned(frame.decode_range(offset / 2, len / 2)?)),
         }
     }
 }
