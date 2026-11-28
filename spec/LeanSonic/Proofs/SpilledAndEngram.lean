@@ -347,7 +347,7 @@ def kQ38EmbedInitHc4Batch : KernelResourceSpec :=
     clusterCtas := 1, minRequiredL1KiB := 120, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38Q4GemmB8 : KernelResourceSpec :=
-  { name := "q38_q4_gemm_b8", threadsPerCta := 512, rawRegsPerThread := 54,
+  { name := "q38_q4_gemm_b8", threadsPerCta := 512, rawRegsPerThread := 80,
     userSmemPerCtaBytes := 38016, smemAlignPadBytes := 0, ctasPerSm := 1,
     clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
 
@@ -362,7 +362,7 @@ def kQ38HcNorm4Batch : KernelResourceSpec :=
     clusterCtas := 1, minRequiredL1KiB := 120, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38HcDownInj10kB4 : KernelResourceSpec :=
-  { name := "q38_hc_down_inj_10k_b4", threadsPerCta := 256, rawRegsPerThread := 47,
+  { name := "q38_hc_down_inj_10k_b4", threadsPerCta := 256, rawRegsPerThread := 62,
     userSmemPerCtaBytes := 19008, smemAlignPadBytes := 0, ctasPerSm := 3,
     clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
 
@@ -454,6 +454,47 @@ def v100Qwen38BatchedKernelSuite : List KernelResourceSpec :=
   , kQ38MoeBuildPlanB64, kQ38MoeUpGroupedZ24, kQ38MoeDownGroupedZ24, kQ38MoeCombine11Batch
   , kQ38ArgmaxFastBatch ]
 
+/-- v1.0.0 Wave 4 Low-Latency Speculative Verify (`1 <= B <= 8`) & `O(1)` Per-Row Checkpoint Kernels
+    (`ptxas -arch=sm_120a` measured; all 7 kernels preserve `>= 64 KiB` L1 with `0` spills). -/
+def kQ38Q4Gemv2560B2 : KernelResourceSpec :=
+  { name := "q38_q4_gemv_2560_b2", threadsPerCta := 512, rawRegsPerThread := 48,
+    userSmemPerCtaBytes := 23040, smemAlignPadBytes := 0, ctasPerSm := 2,
+    clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
+
+def kQ38Q4Gemv2560B4 : KernelResourceSpec :=
+  { name := "q38_q4_gemv_2560_b4", threadsPerCta := 512, rawRegsPerThread := 56,
+    userSmemPerCtaBytes := 46080, smemAlignPadBytes := 0, ctasPerSm := 1,
+    clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
+
+def kQ38MoeUpSwiglu11Z24Bn : KernelResourceSpec :=
+  { name := "q38_moe_up_swiglu11_z24_bn", threadsPerCta := 256, rawRegsPerThread := 47,
+    userSmemPerCtaBytes := 11552, smemAlignPadBytes := 0, ctasPerSm := 5,
+    clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
+
+def kQ38MoeDownCombine11Z24Bn : KernelResourceSpec :=
+  { name := "q38_moe_down_combine11_z24_bn", threadsPerCta := 256, rawRegsPerThread := 54,
+    userSmemPerCtaBytes := 31680, smemAlignPadBytes := 0, ctasPerSm := 2,
+    clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
+
+def kQ38PleInjectCkptB8 : KernelResourceSpec :=
+  { name := "q38_ple_inject_ckpt_b8", threadsPerCta := 256, rawRegsPerThread := 40,
+    userSmemPerCtaBytes := 112, smemAlignPadBytes := 0, ctasPerSm := 6,
+    clusterCtas := 1, minRequiredL1KiB := 120, hasStackSpill := false, hasHotLoopLibmCall := false }
+
+def kQ38GdnConvSiluCkptB8 : KernelResourceSpec :=
+  { name := "q38_gdn_conv_silu_ckpt_b8", threadsPerCta := 256, rawRegsPerThread := 32,
+    userSmemPerCtaBytes := 0, smemAlignPadBytes := 0, ctasPerSm := 6,
+    clusterCtas := 1, minRequiredL1KiB := 120, hasStackSpill := false, hasHotLoopLibmCall := false }
+
+def kQ38GdnRecurrentStepCkptB8 : KernelResourceSpec :=
+  { name := "q38_gdn_recurrent_step_ckpt_b8", threadsPerCta := 128, rawRegsPerThread := 36,
+    userSmemPerCtaBytes := 1052, smemAlignPadBytes := 0, ctasPerSm := 12,
+    clusterCtas := 1, minRequiredL1KiB := 96, hasStackSpill := false, hasHotLoopLibmCall := false }
+
+def v100Qwen38VerifyKernelSuite : List KernelResourceSpec :=
+  [ kQ38Q4Gemv2560B2, kQ38Q4Gemv2560B4, kQ38MoeUpSwiglu11Z24Bn, kQ38MoeDownCombine11Z24Bn
+  , kQ38PleInjectCkptB8, kQ38GdnConvSiluCkptB8, kQ38GdnRecurrentStepCkptB8 ]
+
 /-- `RTX PRO 5000 Blackwell 72GB` (`73,415` MiB) running `106 GB` `Qwen3.8-Flash-Next`:
     `48/48` `Z24` `switch_mlp` layers (`68,400` MiB) + `3,206` MiB non-expert weights (`embed` in Pinned Host)
     + `512` MiB GDN/QSA state + `320` MiB scratch = `72,438 <= 73,415` MiB -> `0` spilled experts! -/
@@ -488,6 +529,9 @@ theorem v100_qwen38_fast_7_kernels_valid :
   decide
 theorem v100_qwen38_batched_21_kernels_valid :
     (v100Qwen38BatchedKernelSuite.all checkSm120Kernel) = true := by
+  decide
+theorem v100_qwen38_verify_7_kernels_valid :
+    (v100Qwen38VerifyKernelSuite.all checkSm120Kernel) = true := by
   decide
 
 end LeanSonic.Proofs
