@@ -11,7 +11,7 @@ private def launch (name : String) (threads regs shared ctas l1 : Nat) : KernelR
 
 def kernels : List KernelResourceSpec := [
   launch "q38_dense_q8_gemm_b4" 256 40 0 6 120,
-  launch "q38_dense_q8_gemv" 256 40 0 6 120,
+  launch "q38_dense_q8_gemv" 256 38 0 6 120,
   launch "q38_hc_q8_down_inject" 256 39 0 6 120,
   launch "q38_hc_q8_up_mix" 256 42 0 5 120,
   launch "q38_embed_q8_hc4" 256 14 0 6 120,
