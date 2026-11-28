@@ -14,3 +14,15 @@ python3 "$d/packed_teacher.py" "$Q8" "$FIXTURES" "$NEW_OUTPUT"
 ```
 
 The teacher requires the same Transformers Qwen4Exp implementation, CUDA-enabled PyTorch and reference dependencies as the repository BF16 teacher, plus zstandard. It reads its configuration and all stored parameters from the new directory, unpacks selected expert frames and Engram rows, and expands dense Q8 to BF16. An [independent precision study](https://github.com/tjm8874/LeanSonic/tree/experiment/q38-embedding-quality/docs/benchmarks/qwen38-pack/input-embedding) uses the original MLX and official checkpoints for comparison.
+
+## Measured quality of the stored model
+
+The upstream eager teacher on an RTX PRO 5000 72 GB loaded the completed directory with the reader above. Each comparison uses identical teacher-forced inputs and the original BF16 reference. The new and extended fixtures contain eight and sixteen prompts respectively.
+
+| All-vocabulary fixture | Mean KL | Worst KL | Top-1 match | Candidate PPL | BF16 PPL |
+|---|---:|---:|---:|---:|---:|
+| Original, 49 positions | 0.13954 | 2.71342 | 43/49 | 26.7287 | 28.0382 |
+| New, 233 positions | 0.02806 | 0.30415 | 215/233 | 18.5824 | 18.5885 |
+| Extended, 494 positions | 0.02393 | 0.33591 | 460/494 | 11.4001 | 11.3821 |
+
+On the common 104-position Basalt protocol, the stored Q8 model reached mean/worst truncated KL 0.03379/0.30399, top-1 92/104 and PPL 9.2392. The published Basalt fixed-placement measurement was 0.03287/0.65464, 98/104 and 9.1700. The original 49-position fixture had a much higher worst KL than the dense-Q8 simulation using the official residual norms. The experimental package retains the MLX residual norms. Attribution is being tested with a separate official-norm overlay. These measurements use the Python teacher for the packed candidate. [Full fixture and common-protocol results, comparison against the mixed-source simulation and hashes](packed-quality.json)
