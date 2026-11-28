@@ -1,0 +1,27 @@
+[
+  {
+    "case": "special",
+    "values": 8192,
+    "widths": {
+      "1": 3582,
+      "2": 3614,
+      "3": 3638,
+      "4": 4662,
+      "5": 5686,
+      "6": 6710,
+      "7": 7734,
+      "8": 8758
+    },
+    "selected": 1,
+    "decoded_sha256": "3d8f2a095ba54052b53cf44e723099ca2ee7830d4e9f2f242fa60f7c397ddb0a"
+  },
+  {
+    "case": "all",
+    "values": 65536,
+    "widths": {
+      "8": 262696
+    },
+    "selected": 8,
+    "decoded_sha256": "7eb65af76f1b6637bbae22e1a30dabc7a029869e3e3f83b9c269b5a4826f9d4d"
+  }
+]

@@ -1,0 +1,29 @@
+{
+  "source": "514897176fd9d8d3ab203359cd3cdece4960d1c1",
+  "gpu": "NVIDIA RTX PRO 4500 Blackwell, 595.99.02",
+  "source_cubin_audit": "[PASS] Gate 2: CUDA/PTX kernel templates & SASS static audit passed.",
+  "digests": {
+    "cli": "53bc4e1ddf6693733a0aeb5eec04a3ed1cabf8ceb109f51e1e9336b0518cbdfb",
+    "main.cubin": "96f7b35bdbceee2b8359c6e87adcd9babd0ab3368c23785c3a0ad0afabf7167b",
+    "subset.kld": "49516f7f433a8fab26b158c152ae263184c5a00f928c13148feac6cd1e2f4faf"
+  },
+  "score": {
+    "chunks": 6,
+    "context": 512,
+    "rows": 1530,
+    "ppl": 6.564087027816951,
+    "ref_ppl": 6.532327441454407,
+    "mean_kld": 0.008597032476653206,
+    "median_kld": 0.0031051328603721624,
+    "p99_kld": 0.09089610978843714,
+    "max_kld": 0.639765969751533,
+    "start_chunk": 0,
+    "max_kld_chunk": 5,
+    "max_kld_position": 268,
+    "ref_floor_targets": 1,
+    "top1_matches": 1469,
+    "top1_agreement": 0.9601307189542484
+  },
+  "rows_sha256": "2f0536ed33e23063e251d05b2b9670644f5a9eb2dfd763bb9560921b84a10111",
+  "fixture_recipe": "Six complete test chunks in the order documented in fixture.py"
+}

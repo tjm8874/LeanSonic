@@ -1,0 +1,140 @@
+{
+  "shape": [
+    201024,
+    2304
+  ],
+  "row_groups": 1,
+  "column_groups": 16,
+  "estimates": [
+    {
+      "row_groups": 1,
+      "column_groups": 1,
+      "estimated_bytes": 316758010.8708421
+    },
+    {
+      "row_groups": 1,
+      "column_groups": 2,
+      "estimated_bytes": 316652475.5318946
+    },
+    {
+      "row_groups": 1,
+      "column_groups": 4,
+      "estimated_bytes": 316617720.4849754
+    },
+    {
+      "row_groups": 1,
+      "column_groups": 8,
+      "estimated_bytes": 316607863.1239791
+    },
+    {
+      "row_groups": 1,
+      "column_groups": 16,
+      "estimated_bytes": 316606237.9220363
+    },
+    {
+      "row_groups": 2,
+      "column_groups": 1,
+      "estimated_bytes": 316947790.5402086
+    },
+    {
+      "row_groups": 2,
+      "column_groups": 2,
+      "estimated_bytes": 316842568.9326631
+    },
+    {
+      "row_groups": 2,
+      "column_groups": 4,
+      "estimated_bytes": 316808761.64102006
+    },
+    {
+      "row_groups": 2,
+      "column_groups": 8,
+      "estimated_bytes": 316800900.26189184
+    },
+    {
+      "row_groups": 2,
+      "column_groups": 16,
+      "estimated_bytes": 316803280.72814786
+    },
+    {
+      "row_groups": 4,
+      "column_groups": 1,
+      "estimated_bytes": 316944636.3335681
+    },
+    {
+      "row_groups": 4,
+      "column_groups": 2,
+      "estimated_bytes": 316840352.44698226
+    },
+    {
+      "row_groups": 4,
+      "column_groups": 4,
+      "estimated_bytes": 316808527.81907046
+    },
+    {
+      "row_groups": 4,
+      "column_groups": 8,
+      "estimated_bytes": 316804681.14812
+    },
+    {
+      "row_groups": 4,
+      "column_groups": 16,
+      "estimated_bytes": 316815118.8636725
+    },
+    {
+      "row_groups": 8,
+      "column_groups": 1,
+      "estimated_bytes": 316945040.4429943
+    },
+    {
+      "row_groups": 8,
+      "column_groups": 2,
+      "estimated_bytes": 316842744.30810666
+    },
+    {
+      "row_groups": 8,
+      "column_groups": 4,
+      "estimated_bytes": 316814935.9129888
+    },
+    {
+      "row_groups": 8,
+      "column_groups": 8,
+      "estimated_bytes": 316819137.48704827
+    },
+    {
+      "row_groups": 8,
+      "column_groups": 16,
+      "estimated_bytes": 316845719.81600434
+    },
+    {
+      "row_groups": 16,
+      "column_groups": 1,
+      "estimated_bytes": 316948420.889601
+    },
+    {
+      "row_groups": 16,
+      "column_groups": 2,
+      "estimated_bytes": 316850143.3216537
+    },
+    {
+      "row_groups": 16,
+      "column_groups": 4,
+      "estimated_bytes": 316830388.61336714
+    },
+    {
+      "row_groups": 16,
+      "column_groups": 8,
+      "estimated_bytes": 316850711.0050771
+    },
+    {
+      "row_groups": 16,
+      "column_groups": 16,
+      "estimated_bytes": 316909608.6724477
+    }
+  ],
+  "frame_bytes": 607934332,
+  "parent_bytes": 608134954,
+  "frame_sha256": "46f8be37c6d120b28519e5fffe78bfe4d4013daa828af795946781b0280dbd01",
+  "source_sha256": "86afe04b91893883cf823392f1c954bbf0881988e0b6c5f34ed7b2f938fe0a30",
+  "upper_stream_bytes": 318445312
+}
