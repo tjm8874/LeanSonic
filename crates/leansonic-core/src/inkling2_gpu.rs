@@ -1905,7 +1905,7 @@ fn mxfp8_mxscale_fits_u4_codebook(data: &[u8]) -> bool {
         return false;
     }
     let mut used = [false; 256];
-    for bank in frames[..tables_bytes].chunks_exact(512) {
+    for bank in frames[..tables_bytes].as_chunks::<512>().0 {
         for (sym, &freq) in bank.as_chunks::<2>().0.iter().enumerate() {
             if freq != [0, 0] {
                 used[sym] = true;
