@@ -1,0 +1,84 @@
+{
+  "rows": 49,
+  "vocab": 248320,
+  "against_official_bf16": {
+    "bf_hidden_official_fp32": {
+      "mean_kl": 0.00015310792459404348,
+      "max_kl": 0.0010570769070762237,
+      "worst_case_position": [
+        3,
+        7
+      ],
+      "top1_matches": 47,
+      "candidate_ppl": 27.95189651807829,
+      "japanese_position8_kl": 0.00014253708178063942
+    },
+    "bf_hidden_mlx_fp32": {
+      "mean_kl": 0.021919487652984432,
+      "max_kl": 0.07030448140442443,
+      "worst_case_position": [
+        3,
+        0
+      ],
+      "top1_matches": 45,
+      "candidate_ppl": 29.510444835752466,
+      "japanese_position8_kl": 0.050286687685763214
+    },
+    "native_hidden_official_fp32": {
+      "mean_kl": 0.24781440472104532,
+      "max_kl": 1.0877323863156696,
+      "worst_case_position": [
+        1,
+        8
+      ],
+      "top1_matches": 40,
+      "candidate_ppl": 48.615113003923,
+      "japanese_position8_kl": 1.0877323863156696
+    },
+    "native_hidden_mlx_fp32": {
+      "mean_kl": 0.28113510580777573,
+      "max_kl": 1.4694346785207466,
+      "worst_case_position": [
+        1,
+        8
+      ],
+      "top1_matches": 39,
+      "candidate_ppl": 52.99101148548618,
+      "japanese_position8_kl": 1.4694346785207466
+    },
+    "bf_hidden_official_upstream": {
+      "mean_kl": 0.0,
+      "max_kl": 0.0,
+      "worst_case_position": [
+        0,
+        0
+      ],
+      "top1_matches": 49,
+      "candidate_ppl": 28.038166623626164,
+      "japanese_position8_kl": 0.0
+    },
+    "native_production": {
+      "mean_kl": 0.28113518125362963,
+      "max_kl": 1.46943687065988,
+      "worst_case_position": [
+        1,
+        8
+      ],
+      "top1_matches": 39,
+      "candidate_ppl": 52.991022603491864,
+      "japanese_position8_kl": 1.46943687065988
+    }
+  },
+  "native_vs_mlx_fp32_same_hidden": {
+    "mean_kl": 1.1301567515684597e-12,
+    "max_kl": 4.361248029925192e-12,
+    "worst_case_position": [
+      0,
+      5
+    ],
+    "top1_matches": 49,
+    "candidate_ppl": 52.99101148548618,
+    "japanese_position8_kl": 2.5077935870626293e-12
+  },
+  "official_repeat_byte_equal": true
+}

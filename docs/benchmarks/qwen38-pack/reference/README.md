@@ -29,3 +29,18 @@ The compact reference is 7,946,548 bytes with SHA-256 `1138516f0ffa3779c6b66633b
 | Basalt v0.5.7, UD-Q4_K_XL, fixed placement, PRO 4500 | 0.03160 / 0.14095 | 15/16 | 9.5383 | 8.4605 |
 
 Basalt's fixed-placement Q4 output was closer to BF16 on these targets. The engines used different quantization formats. Basalt's adaptive placement has separate performance measurements and can produce different tokens. [LeanSonic native output](native-bf16-cli.json) · [Basalt native output and individual rows](basalt-bf16-ppl.json)
+
+## Where does the quality gap arise?
+
+The native 32 GB run exported the 2,560-element vector entering its final projection at all 49 positions. On the 72 GB GPU we crossed those vectors and the official BF16 hidden states with both the original BF16 projection and the unpacked MLX Q4 projection. The diagnostic projections used FP32 GEMM with TF32 disabled. Repeating the upstream BF16 forward pass reproduced the reference logits byte for byte. With the same native hidden states, independently applying the unpacked MLX head reproduced all 49 native argmax values (maximum KL 4.4e−12). [Head experiment](head-cross.json)
+
+| Input to final projection | Projection weights | Mean / worst KL vs BF16 | Top-1 | PPL |
+| --- | --- | ---: | ---: | ---: |
+| Official BF16 | Official BF16, FP32 multiplication | 0.00015 / 0.00106 | 47/49 | 27.95 |
+| Official BF16 | MLX Q4, FP32 multiplication | 0.02192 / 0.07030 | 45/49 | 29.51 |
+| Native Q4 | Official BF16, FP32 multiplication | 0.24781 / 1.08773 | 40/49 | 48.62 |
+| Native Q4 | MLX Q4, FP32 multiplication | 0.28114 / 1.46943 | 39/49 | 52.99 |
+
+On the worst Japanese prefix, the KL from BF16 to native Q4 remained 1.51912 with one-token-at-a-time BF16 execution, versus 1.46944 with full-sequence BF16 prefill. For diagnosis we captured all 48 residual boundaries on each of the nine incremental tokens, then supplied the official residual at the input of every native layer on every token. At the ninth token the largest output differences by relative L2 were layer 31 (0.2057), 39 (0.1700), 35 (0.0976) and 15 (0.0939), using zero-based layer IDs. All four use full attention. These local measurements cover the entire layer, including its MoE, and come from one prefix. The isolated trace preserved the unmodified native final logits in its ordinary execution mode. The measurements favor examining these layers before increasing the size of the output head.
+
+[Prefix execution comparison](bf16-prefix.json) · [Free-running hidden-state comparison](layer-cross.json) · [Layer scores with BF16 inputs](local-layer-scores.json) · [Reproduction code and instructions](https://github.com/tjm8874/LeanSonic/blob/16347a7/docs/benchmarks/qwen38-pack/reference/diagnostics.md)
