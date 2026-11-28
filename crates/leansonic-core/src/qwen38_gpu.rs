@@ -12,6 +12,10 @@
 //!   dequantized (`16` heads = `10 KiB`) into a 256-slot pinned host ring, and streamed via `cuMemcpyHtoDAsync_v2`.
 //! - Programmatic Dependent Launch (`PDL`) + 48-Layer `CUDA Graph` capture (`decode_graph` + `prefill_graph`).
 
+#[path = "qwen38_embedding_probe.rs"]
+mod embedding_probe;
+use embedding_probe::InputEmbeddingProbe;
+
 use core::ffi::c_void;
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
@@ -710,6 +714,7 @@ pub struct Qwen38GpuEngine {
     all_layers_z24: bool,
     sharded_mmap: ShardedSafeTensors,
     embed: Q4LinearHostMapped,
+    input_probe: Option<InputEmbeddingProbe>,
     final_hc: HyperConnGpu,
     lm_head: Q4LinearGpu,
     inv_freq32: DeviceBuf,
@@ -790,7 +795,10 @@ fn discover_qwen38_cubin() -> Option<PathBuf> {
     None
 }
 
-fn load_kernel_fns(ctx: &Arc<CudaContextHandle>) -> Result<Qwen38KernelFns, String> {
+fn load_kernel_fns(
+    ctx: &Arc<CudaContextHandle>,
+    embedding_kernel: Option<&str>,
+) -> Result<Qwen38KernelFns, String> {
     let module_image: Vec<u8> = if let Some(cubin_path) = discover_qwen38_cubin() {
         let mut raw = std::fs::read(&cubin_path)
             .map_err(|e| format!("read {}: {e}", cubin_path.display()))?;
@@ -825,7 +833,7 @@ fn load_kernel_fns(ctx: &Arc<CudaContextHandle>) -> Result<Qwen38KernelFns, Stri
 
     Ok(Qwen38KernelFns {
         _module: module,
-        embed_init_hc4: get_fn("q38_embed_init_hc4")?,
+        embed_init_hc4: get_fn(embedding_kernel.unwrap_or("q38_embed_init_hc4"))?,
         q4_gemv: get_fn("q38_q4_gemv")?,
         q4_gemv_2560: get_fn("q38_q4_gemv_2560")?,
         q4_gemv_10k: get_fn("q38_q4_gemv_10k")?,
@@ -848,7 +856,7 @@ fn load_kernel_fns(ctx: &Arc<CudaContextHandle>) -> Result<Qwen38KernelFns, Stri
         moe_down_combine11_z24: get_fn("q38_moe_down_combine11_z24")?,
         argmax_fast: get_fn("q38_argmax_fast")?,
         inc_pos: get_fn("q38_inc_pos")?,
-        embed_init_hc4_batch: get_fn("q38_embed_init_hc4_batch")?,
+        embed_init_hc4_batch: get_fn(embedding_kernel.unwrap_or("q38_embed_init_hc4_batch"))?,
         q4_gemm_b8: get_fn("q38_q4_gemm_b8")?,
         ple_inject_seq_b: get_fn("q38_ple_inject_seq_b")?,
         hc_norm4_batch: get_fn("q38_hc_norm4_batch")?,
@@ -947,7 +955,7 @@ impl Qwen38GpuEngine {
         let t0 = Instant::now();
         let ctx = CudaContextHandle::init(0)?;
         ctx.bind_current()?;
-        let fns = load_kernel_fns(&ctx)?;
+
         let pdl = ctx.api.cuLaunchKernelEx.is_some()
             && std::env::var("LEANSONIC_NO_PDL")
                 .map(|v| v != "1")
@@ -955,6 +963,8 @@ impl Qwen38GpuEngine {
         let st = ShardedSafeTensors::open_dir(dir)
             .map_err(|e| format!("open sharded safetensors in {}: {e}", dir.display()))?;
 
+        let input_probe = InputEmbeddingProbe::load(&ctx, &st)?;
+        let fns = load_kernel_fns(&ctx, input_probe.as_ref().map(InputEmbeddingProbe::kernel))?;
         let cfg_text = std::fs::read_to_string(dir.join("config.json")).unwrap_or_default();
         let use_gdn_sigmoid_gate = if cfg_text.contains("\"output_gate_type\": \"silu\"") {
             0
@@ -1521,6 +1531,7 @@ impl Qwen38GpuEngine {
             all_layers_z24: z24_layers == Q38_LAYERS,
             sharded_mmap: st,
             embed,
+            input_probe,
             final_hc,
             lm_head,
             inv_freq32,
@@ -2568,13 +2579,11 @@ impl Qwen38GpuEngine {
         wait_ple_event_at_layer1: bool,
     ) -> Result<(), String> {
         {
-            let (mut ew, mut esc, mut ebi, mut tin, mut dhc) = (
-                self.embed.w.dev_ptr,
-                self.embed.sc.dev_ptr,
-                self.embed.bi.dev_ptr,
-                self.d_token_in.ptr,
-                self.d_hc.ptr,
-            );
+            let (mut ew, mut esc, mut ebi) = self
+                .input_probe
+                .as_ref()
+                .map_or_else(|| self.embed_ptrs(), InputEmbeddingProbe::pointers);
+            let (mut tin, mut dhc) = (self.d_token_in.ptr, self.d_hc.ptr);
             let mut p = kargs![ew, esc, ebi, tin, dhc];
             self.launch_kern(
                 stream,
@@ -3096,13 +3105,11 @@ impl Qwen38GpuEngine {
         let b_u32 = b_count as u32;
         let mut bc = b_count as i32;
         {
-            let (mut ew, mut esc, mut ebi, mut tin, mut dhc) = (
-                self.embed.w.dev_ptr,
-                self.embed.sc.dev_ptr,
-                self.embed.bi.dev_ptr,
-                bb.d_b_tokens.ptr,
-                bb.d_b_hc.ptr,
-            );
+            let (mut ew, mut esc, mut ebi) = self
+                .input_probe
+                .as_ref()
+                .map_or_else(|| self.embed_ptrs(), InputEmbeddingProbe::pointers);
+            let (mut tin, mut dhc) = (bb.d_b_tokens.ptr, bb.d_b_hc.ptr);
             let mut p = kargs![ew, esc, ebi, tin, dhc];
             self.launch_kern(
                 stream,

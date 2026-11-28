@@ -267,6 +267,39 @@ using namespace leansonic::qwen38;
 // 1. 4-Bit Group-32 Token Embedding Lookup + 4-Stream Hyper-Connection Tile
 //    Grid: `(10, 1)`, Block: `256` (`2,560` dims -> tiled into `[4, 2560]`)
 // ----------------------------------------------------------------------------
+// Experimental BF16 and signed Q8 input embedding probes. Both use the same
+// five-argument ABI as the Q4 gather and populate all four residual streams.
+__device__ __forceinline__ void write_probe_embedding(float* dst, int d, float value) {
+    for (int stream = 0; stream < 4; ++stream) {
+        dst[stream * kD + d] = value;
+    }
+}
+
+extern "C" __global__ void q38_embed_probe_bf16(
+    const uint16_t* weights, const void*, const void*, const int32_t* tokens, float* output) {
+    pdl_wait();
+    const int d = blockIdx.x * blockDim.x + threadIdx.x;
+    const int b = blockIdx.y;
+    if (d < kD) {
+        const size_t index = static_cast<size_t>(tokens[b]) * kD + d;
+        write_probe_embedding(output + static_cast<size_t>(b) * kHcD, d, bf16_to_f32(weights[index]));
+    }
+    pdl_trigger();
+}
+
+extern "C" __global__ void q38_embed_probe_q8(
+    const signed char* weights, const uint16_t* scales, const void*, const int32_t* tokens, float* output) {
+    pdl_wait();
+    const int d = blockIdx.x * blockDim.x + threadIdx.x;
+    const int b = blockIdx.y;
+    if (d < kD) {
+        const size_t index = static_cast<size_t>(tokens[b]) * kD + d;
+        const float value = static_cast<float>(weights[index]) * bf16_to_f32(scales[index / 32]);
+        write_probe_embedding(output + static_cast<size_t>(b) * kHcD, d, value);
+    }
+    pdl_trigger();
+}
+
 extern "C" __global__ void q38_embed_init_hc4(
     const uint4* __restrict__ w_u128,      // [vocab, 80]
     const uint32_t* __restrict__ sc_u32,   // [vocab, 40] (`80` BF16)
