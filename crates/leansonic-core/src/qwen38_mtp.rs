@@ -630,6 +630,30 @@ impl Qwen38MtpDrafter {
         embed: Q4Ref,
         lm_head: Q4Ref,
     ) -> Result<u32, String> {
+        self.step_impl(hc_hidden, next_tok, embed, lm_head, false)
+    }
+
+    /// Like [`Self::step`], but only writes this position's KV / indexer rows and returns no
+    /// draft. Draft extend uses it for accepted positions whose draft is already known.
+    pub fn step_kv_only(
+        &mut self,
+        hc_hidden: CUdeviceptr,
+        next_tok: u32,
+        embed: Q4Ref,
+        lm_head: Q4Ref,
+    ) -> Result<(), String> {
+        self.step_impl(hc_hidden, next_tok, embed, lm_head, true)
+            .map(|_| ())
+    }
+
+    fn step_impl(
+        &mut self,
+        hc_hidden: CUdeviceptr,
+        next_tok: u32,
+        embed: Q4Ref,
+        lm_head: Q4Ref,
+        kv_only: bool,
+    ) -> Result<u32, String> {
         if self.pos >= self.max_ctx {
             return Err(format!("MTP drafter reached max_ctx {}", self.max_ctx));
         }
@@ -754,6 +778,10 @@ impl Qwen38MtpDrafter {
             &mut kargs![qp, qn, kn, iqn, ikn, invf, pp, qr, qg, kc, vc, iq, irk, ibk],
             "q38_qsa_prep_and_cache",
         )?;
+        if kv_only {
+            self.pos += 1;
+            return Ok(u32::MAX);
+        }
         let n_blocks = ((self.pos + 1) / 4) as i32;
         let mut use_mask: i32 = i32::from(n_blocks > 512);
         if use_mask == 1 {
@@ -901,8 +929,8 @@ pub struct SpecStats {
 /// positions with the target's own HC rows (draft extend). The emitted ids equal plain greedy
 /// decode because the verify path is batch-invariant (`0-ULP`, #256).
 ///
-/// The target must hold `48/48` Z24 layers (the batched verify path). A partial accept restores
-/// the recurrent snapshot and re-runs the accepted prefix.
+/// The target must hold `48/48` Z24 layers (the batched verify path). A partial accept rolls the
+/// target back to the accepted row with `commit_or_rollback_verify_row` (per-row checkpoints, #264).
 pub fn spec_generate(
     eng: &mut crate::qwen38_gpu::Qwen38GpuEngine,
     mtp: &mut Qwen38MtpDrafter,
@@ -932,13 +960,14 @@ pub fn spec_generate(
         let out = eng.forward_verify_tokens(chunk)?;
         for (r, &o) in out.iter().enumerate() {
             let i = c * Q38_MAX_VERIFY_BATCH + r;
-            let next = prompt.get(i + 1).copied().unwrap_or(o);
-            draft = mtp.step(row(eng, r)?, next, embed, lm_head)?;
+            match prompt.get(i + 1) {
+                Some(&next) => mtp.step_kv_only(row(eng, r)?, next, embed, lm_head)?,
+                None => draft = mtp.step(row(eng, r)?, o, embed, lm_head)?,
+            }
         }
         cur = *out.last().unwrap();
     }
     stats.prompt_s = t0.elapsed().as_secs_f64();
-    let mut snap = eng.alloc_recurrent_snapshot()?;
     let mut out = Vec::with_capacity(n + k + 1);
     let mut seq = Vec::with_capacity(k + 1);
     while out.len() < n {
@@ -954,7 +983,6 @@ pub fn spec_generate(
             seq.push(d);
         }
         stats.drafted += seq.len() - 1;
-        eng.snapshot_recurrent_state(&mut snap)?;
         let ver = eng.forward_verify_tokens(&seq)?;
         let mut a = 0usize;
         while a + 1 < seq.len() && ver[a] == seq[a + 1] {
@@ -968,17 +996,16 @@ pub fn spec_generate(
         out.extend_from_slice(&seq[..=a]);
         let next = ver[a];
         if a + 1 < seq.len() {
-            // Partial accept: roll the target back to `seq[..=a]`.
             stats.rollbacks += 1;
-            eng.restore_recurrent_state(&snap)?;
-            eng.forward_verify_tokens(&seq[..=a])?;
         }
+        // O(1): restores the per-row checkpoint of row `a` (#264); no re-run.
+        eng.commit_or_rollback_verify_row(a)?;
         // Draft extend: rewrite the drafter's positions with the target's HC rows.
         mtp.rewind(q0);
-        for r in 0..=a {
-            let tok = if r < a { seq[r + 1] } else { next };
-            draft = mtp.step(row(eng, r)?, tok, embed, lm_head)?;
+        for r in 0..a {
+            mtp.step_kv_only(row(eng, r)?, seq[r + 1], embed, lm_head)?;
         }
+        draft = mtp.step(row(eng, a)?, next, embed, lm_head)?;
         cur = next;
     }
     out.truncate(n);
