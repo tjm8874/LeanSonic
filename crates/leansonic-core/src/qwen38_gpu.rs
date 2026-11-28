@@ -548,10 +548,55 @@ impl PleParameter {
     }
 }
 
-struct PleShard {
-    weights: MappedTensorRange,
-    scales: PleParameter,
-    biases: PleParameter,
+#[path = "qwen38_engram_tile.rs"]
+mod engram_tile;
+
+enum PleShard {
+    Planes {
+        weights: MappedTensorRange,
+        scales: PleParameter,
+        biases: PleParameter,
+    },
+    Tiled(engram_tile::TiledShard),
+}
+
+impl PleShard {
+    fn bytes(&self, st: &ShardedSafeTensors) -> usize {
+        match self {
+            Self::Planes {
+                weights,
+                scales,
+                biases,
+            } => [weights, &scales.bytes, &biases.bytes]
+                .iter()
+                .map(|r| st.bytes_at(r).len())
+                .sum(),
+            Self::Tiled(shard) => shard.bytes(st).len(),
+        }
+    }
+
+    fn row<'a>(
+        &self,
+        st: &'a ShardedSafeTensors,
+        row: usize,
+    ) -> Result<engram_tile::EngramRow<'a>, String> {
+        match self {
+            Self::Tiled(shard) => shard.row(st, row),
+            Self::Planes {
+                weights,
+                scales,
+                biases,
+            } => {
+                let w = st
+                    .bytes_at(weights)
+                    .as_chunks::<80>()
+                    .0
+                    .get(row)
+                    .ok_or_else(|| format!("invalid Engram weight row {row}"))?;
+                Ok((w, scales.row(st, row)?, biases.row(st, row)?))
+            }
+        }
+    }
 }
 
 struct PleGpu {
@@ -1236,12 +1281,36 @@ impl Qwen38GpuEngine {
                 let mut shards = Vec::with_capacity(Q38_PLE_SHARDS);
                 for s in 0..Q38_PLE_SHARDS {
                     let sp = format!("{pp}.ple_embedding.ngram_embedding.shard_{s}");
+                    let tiled = format!("{sp}.q38tile4");
+                    if st.get(&tiled).is_some() {
+                        for suffix in [
+                            "weight",
+                            "scales",
+                            "biases",
+                            "scales.q38dict1",
+                            "biases.q38dict1",
+                        ] {
+                            if st.get(&format!("{sp}.{suffix}")).is_some() {
+                                return Err(format!("ambiguous Engram layout: {sp}"));
+                            }
+                        }
+                        let shard = engram_tile::TiledShard::open(
+                            &st,
+                            &tiled,
+                            Q38_PLE_SHARD_ROWS as usize,
+                        )?;
+                        if warm_engram {
+                            advise_willneed_slice(shard.bytes(&st));
+                        }
+                        shards.push(PleShard::Tiled(shard));
+                        continue;
+                    }
                     let key = format!("{sp}.weight");
                     let w_tv = st.require(&key, "U32", &[2_500_012, 20]);
                     if warm_engram {
                         advise_willneed_slice(w_tv.data);
                     }
-                    shards.push(PleShard {
+                    shards.push(PleShard::Planes {
                         weights: st
                             .tensor_range(&key)
                             .ok_or_else(|| format!("missing Engram weights {key}"))?,
@@ -1747,8 +1816,7 @@ impl Qwen38GpuEngine {
             .iter()
             .filter_map(|layer| layer.ple.as_ref())
             .flat_map(|ple| &ple.shards)
-            .flat_map(|s| [&s.weights, &s.scales.bytes, &s.biases.bytes])
-            .map(|range| engine.sharded_mmap.bytes_at(range).len())
+            .map(|s| s.bytes(&engine.sharded_mmap))
             .sum();
         let engram_gib = engram_bytes as f64 / (1u64 << 30) as f64;
         let load_s = t0.elapsed().as_secs_f64();
@@ -2635,15 +2703,7 @@ impl Qwen38GpuEngine {
             let shard_idx = (gid / Q38_PLE_SHARD_ROWS) as usize;
             let row_idx = (gid % Q38_PLE_SHARD_ROWS) as usize;
             let sp = &ple.shards[shard_idx];
-            let w_row = self
-                .sharded_mmap
-                .bytes_at(&sp.weights)
-                .as_chunks::<80>()
-                .0
-                .get(row_idx)
-                .ok_or_else(|| format!("invalid Engram weight row {row_idx}"))?;
-            let scales = sp.scales.row(&self.sharded_mmap, row_idx)?;
-            let biases = sp.biases.row(&self.sharded_mmap, row_idx)?;
+            let (w_row, scales, biases) = sp.row(&self.sharded_mmap, row_idx)?;
             let out_h = &mut dst_f32[h * 160..(h + 1) * 160];
 
             for g in 0..5usize {
