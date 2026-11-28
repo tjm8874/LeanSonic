@@ -16,6 +16,10 @@ use std::time::Instant;
 
 use leansonic_core::inkling2_gpu::Inkling2GpuEngine;
 use leansonic_core::qwen38_gpu::Qwen38GpuEngine;
+use leansonic_core::qwen38_mtp::{
+    spec_generate_streaming as q38_spec_generate_streaming, Qwen38MtpDrafter,
+    SpecStats as Q38SpecStats,
+};
 use leansonic_core::qwen_bpe::{
     QwenBpeTokenizer, QWEN_TOK_ENDOFTEXT, QWEN_TOK_IM_END, QWEN_TOK_THINK_CLOSE,
 };
@@ -113,6 +117,7 @@ fn run_qwen_canaries(
     short_only: bool,
     long: bool,
     long_only: bool,
+    check_spec: bool,
     results: &mut Vec<CanaryCaseResult>,
 ) -> Result<(), String> {
     let tok = QwenBpeTokenizer::load_from_file(weights_dir.join("tokenizer.json"))
@@ -124,7 +129,16 @@ fn run_qwen_canaries(
     } else {
         16_384 + NEEDLE_MAX_NEW
     };
-    let mut engine = Qwen38GpuEngine::load_from_dir(weights_dir, max_ctx)?;
+    let mut engine =
+        Qwen38GpuEngine::load_from_dir_for_spec(weights_dir, max_ctx, true, check_spec)?;
+    let mut mtp_opt = if check_spec
+        && engine.supports_batched_verify()
+        && Qwen38MtpDrafter::has_mtp_weights(&engine)
+    {
+        Some(Qwen38MtpDrafter::load_for_engine(&engine)?)
+    } else {
+        None
+    };
     let stop_ids = [QWEN_TOK_IM_END, QWEN_TOK_ENDOFTEXT];
 
     if !long_only {
@@ -139,20 +153,43 @@ fn run_qwen_canaries(
             let logits = engine.read_last_logits()?;
             let nonfinite = count_nonfinite(&logits);
             let gen = engine.generate_greedy_tokens(first, SHORT_MAX_NEW, &stop_ids, |_| {})?;
+            let spec_0ulp = if let Some(mtp) = mtp_opt.as_mut() {
+                engine.reset()?;
+                mtp.reset();
+                let refs = Qwen38MtpDrafter::target_q4_refs(&engine);
+                let mut stats = Q38SpecStats::default();
+                let spec_gen = q38_spec_generate_streaming(
+                    &mut engine,
+                    mtp,
+                    refs,
+                    &ids,
+                    SHORT_MAX_NEW,
+                    1,
+                    &stop_ids,
+                    &mut stats,
+                    |_| {},
+                )?;
+                Some(spec_gen == gen)
+            } else {
+                None
+            };
             let mut full = gen;
             if full.len() < SHORT_MAX_NEW {
                 full.push(QWEN_TOK_IM_END);
             }
             let (decoded, completed) = decode_qwen_visible(&tok, &full);
-            let exact =
-                matches_expected_canary(&decoded, "Tokyo", true) && completed && nonfinite == 0;
+            let spec_ok = spec_0ulp.unwrap_or(true);
+            let exact = matches_expected_canary(&decoded, "Tokyo", true)
+                && completed
+                && nonfinite == 0
+                && spec_ok;
             results.push(CanaryCaseResult {
                 id: "short_tokyo",
                 input_tokens: ids.len(),
                 expected: "Tokyo",
                 answer: decoded.trim().to_string(),
                 nonfinite_logits: nonfinite,
-                spec7_0ulp: None,
+                spec7_0ulp: spec_0ulp,
                 elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
                 pass: exact,
             });
@@ -529,7 +566,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut results = Vec::new();
 
     if is_qwen38_dir(weights_dir) {
-        run_qwen_canaries(weights_dir, short_only, long, long_only, &mut results)?;
+        run_qwen_canaries(
+            weights_dir,
+            short_only,
+            long,
+            long_only,
+            check_spec,
+            &mut results,
+        )?;
     } else {
         let tok = TiktokenBpe::from_model_dir(weights_dir).map_err(|e| e.to_string())?;
         if !long_only {

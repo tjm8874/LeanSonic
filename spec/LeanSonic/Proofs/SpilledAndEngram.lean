@@ -314,12 +314,12 @@ def kQ38HcInject4Vec : KernelResourceSpec :=
     clusterCtas := 1, minRequiredL1KiB := 120, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38MoeUpSwiglu11Z24 : KernelResourceSpec :=
-  { name := "q38_moe_up_swiglu11_z24", threadsPerCta := 256, rawRegsPerThread := 44,
+  { name := "q38_moe_up_swiglu11_z24", threadsPerCta := 256, rawRegsPerThread := 47,
     userSmemPerCtaBytes := 11552, smemAlignPadBytes := 0, ctasPerSm := 5,
     clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38MoeDownCombine11Z24 : KernelResourceSpec :=
-  { name := "q38_moe_down_combine11_z24", threadsPerCta := 256, rawRegsPerThread := 56,
+  { name := "q38_moe_down_combine11_z24", threadsPerCta := 256, rawRegsPerThread := 71,
     userSmemPerCtaBytes := 31680, smemAlignPadBytes := 0, ctasPerSm := 2,
     clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
 
@@ -427,7 +427,7 @@ def kQ38MoeBuildPlanB64 : KernelResourceSpec :=
     clusterCtas := 1, minRequiredL1KiB := 112, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38MoeUpGroupedZ24 : KernelResourceSpec :=
-  { name := "q38_moe_up_grouped_z24", threadsPerCta := 512, rawRegsPerThread := 62,
+  { name := "q38_moe_up_grouped_z24", threadsPerCta := 512, rawRegsPerThread := 61,
     userSmemPerCtaBytes := 46336, smemAlignPadBytes := 0, ctasPerSm := 1,
     clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
 
@@ -472,7 +472,7 @@ def kQ38MoeUpSwiglu11Z24Bn : KernelResourceSpec :=
     clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38MoeDownCombine11Z24Bn : KernelResourceSpec :=
-  { name := "q38_moe_down_combine11_z24_bn", threadsPerCta := 256, rawRegsPerThread := 54,
+  { name := "q38_moe_down_combine11_z24_bn", threadsPerCta := 256, rawRegsPerThread := 66,
     userSmemPerCtaBytes := 31680, smemAlignPadBytes := 0, ctasPerSm := 2,
     clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
 

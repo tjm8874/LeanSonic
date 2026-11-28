@@ -1431,6 +1431,30 @@ extern "C" __global__ void q38_moe_up_swiglu11(
     pdl_trigger();
 }
 
+struct Z24ExpertProj {
+    const uint4* w;
+    const uint32_t* sb_lo;
+    const uint32_t* sb_hi;
+    size_t row_offset;
+};
+
+// Uniform runtime support for both contiguous Z24 slabs (`sb_lo != nullptr`) and per-expert
+// `Mixed` pointer tables (`sb_lo == nullptr`, `w_or_table` = `[512]` `CUdeviceptr` table of `972,800 B` records).
+__device__ __forceinline__ Z24ExpertProj resolve_z24_expert_proj(
+    const uint4* w_or_table,
+    const uint32_t* sb_lo,
+    const uint32_t* sb_hi,
+    int ex,
+    size_t rows_per_ex,
+    int row_in_ex) {
+    if (sb_lo == nullptr) {
+        const uint4* rec_w = reinterpret_cast<const uint4* const*>(w_or_table)[ex];
+        const uint32_t* rec_lo = reinterpret_cast<const uint32_t*>(rec_w + 51200u);
+        return {rec_w, rec_lo, rec_lo + 25600u, static_cast<size_t>(row_in_ex)};
+    }
+    return {w_or_table, sb_lo, sb_hi, static_cast<size_t>(ex) * rows_per_ex + static_cast<size_t>(row_in_ex)};
+}
+
 // `0-ULP` 24-bit `(scale, bias)` (`Z24`) `moe_up_swiglu11` (`Grid (160, 11)`, `Block 256`, `5` CTAs/SM!)
 extern "C" __global__ void q38_moe_up_swiglu11_z24(
     const uint4* __restrict__ sw_gate_w,         // [512, 640, 80]
@@ -1463,17 +1487,18 @@ extern "C" __global__ void q38_moe_up_swiglu11_z24(
 
     if (k < kTopK) {
         const int ex = sel_ids10[k];
-        const size_t row = static_cast<size_t>(ex) * kMoeFf + m;
-        const uint4* w_ptr = (is_up ? sw_up_w : sw_gate_w) + row * 80u;
-        const uint32_t* sb_lo = is_up ? sw_up_sb_lo : sw_gate_sb_lo;
-        const uint32_t* sb_hi = is_up ? sw_up_sb_hi : sw_gate_sb_hi;
+        const Z24ExpertProj p = resolve_z24_expert_proj(
+            is_up ? sw_up_w : sw_gate_w,
+            is_up ? sw_up_sb_lo : sw_gate_sb_lo,
+            is_up ? sw_up_sb_hi : sw_gate_sb_hi,
+            ex, kMoeFf, m);
         const uint32_t base_sc_m1 = is_up ? ((packed_bases_m1 >> 16) & 0xFFu) : (packed_bases_m1 & 0xFFu);
         const uint32_t base_bi_m1 = is_up ? ((packed_bases_m1 >> 24) & 0xFFu) : ((packed_bases_m1 >> 8) & 0xFFu);
         float dot = warp_dot_q4_row_z24_smem9(
-            w_ptr,
-            sb_lo,
-            sb_hi,
-            row * 80u,
+            p.w + p.row_offset * 80u,
+            p.sb_lo,
+            p.sb_hi,
+            p.row_offset * 80u,
             base_sc_m1,
             base_bi_m1,
             smem_x9,
@@ -1606,9 +1631,10 @@ extern "C" __global__ void q38_moe_down_combine11_z24(
         for (int k = k_start; k < k_end; ++k) {
             const int ex = sel_ids10[k];
             const float wt = sel_wts11[k];
-            const size_t r_idx = static_cast<size_t>(ex) * kD + static_cast<size_t>(row);
-            const uint4* rw = sw_down_w + r_idx * 20u;
-            const size_t g_base = r_idx * 20u;
+            const Z24ExpertProj p = resolve_z24_expert_proj(
+                sw_down_w, sw_down_sb_lo, sw_down_sb_hi, ex, kD, row);
+            const uint4* rw = p.w + p.row_offset * 20u;
+            const size_t g_base = p.row_offset * 20u;
             const float4* a_k = smem_a9 + k * 20 * 9;
 
             float dot = 0.0f;
@@ -1618,8 +1644,8 @@ extern "C" __global__ void q38_moe_down_combine11_z24(
                 uint4 pk = rw[g];
                 float sc, bi;
                 load_z24_sb_pair(
-                    sw_down_sb_lo,
-                    sw_down_sb_hi,
+                    p.sb_lo,
+                    p.sb_hi,
                     g_base + static_cast<size_t>(g),
                     base_sc_m1,
                     base_bi_m1,
@@ -3157,17 +3183,19 @@ extern "C" __global__ void q38_moe_up_grouped_z24(
 
         float acc[4] = {0.0f, 0.0f, 0.0f, 0.0f};
         if (ex < kExp) {
-            const size_t row = static_cast<size_t>(ex) * kMoeFf + m;
-            const uint4* w_ptr = (is_up ? sw_up_w : sw_gate_w) + row * 80u;
-            const uint32_t* sb_lo = is_up ? sw_up_sb_lo : sw_gate_sb_lo;
-            const uint32_t* sb_hi = is_up ? sw_up_sb_hi : sw_gate_sb_hi;
+            const Z24ExpertProj p = resolve_z24_expert_proj(
+                is_up ? sw_up_w : sw_gate_w,
+                is_up ? sw_up_sb_lo : sw_gate_sb_lo,
+                is_up ? sw_up_sb_hi : sw_gate_sb_hi,
+                ex, kMoeFf, m);
+            const uint4* w_ptr = p.w + p.row_offset * 80u;
             const uint32_t base_sc_m1 = is_up ? ((packed_bases_m1 >> 16) & 0xFFu) : (packed_bases_m1 & 0xFFu);
             const uint32_t base_bi_m1 = is_up ? ((packed_bases_m1 >> 24) & 0xFFu) : ((packed_bases_m1 >> 8) & 0xFFu);
 
             for (int g = lane; g < 80; g += 32) {
                 uint4 pk = w_ptr[g];
                 float sc, bi;
-                load_z24_sb_pair(sb_lo, sb_hi, row * 80u + static_cast<size_t>(g), base_sc_m1, base_bi_m1, &sc, &bi);
+                load_z24_sb_pair(p.sb_lo, p.sb_hi, p.row_offset * 80u + static_cast<size_t>(g), base_sc_m1, base_bi_m1, &sc, &bi);
                 #pragma unroll
                 for (int t = 0; t < 4; ++t) {
                     if (t < n_sub) {
@@ -3302,15 +3330,16 @@ extern "C" __global__ void q38_moe_down_grouped_z24(
         if (row < kD) {
             float dot[8] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
             if (ex < kExp) {
-                const size_t r_idx = static_cast<size_t>(ex) * kD + static_cast<size_t>(row);
-                const uint4* rw = sw_down_w + r_idx * 20u;
-                const size_t g_base = r_idx * 20u;
+                const Z24ExpertProj p = resolve_z24_expert_proj(
+                    sw_down_w, sw_down_sb_lo, sw_down_sb_hi, ex, kD, row);
+                const uint4* rw = p.w + p.row_offset * 20u;
+                const size_t g_base = p.row_offset * 20u;
                 #pragma unroll
                 for (int it = 0; it < 5; ++it) {
                     const int g = it * 4 + sub_lane;
                     uint4 pk = rw[g];
                     float sc, bi;
-                    load_z24_sb_pair(sw_down_sb_lo, sw_down_sb_hi, g_base + static_cast<size_t>(g), base_sc_m1, base_bi_m1, &sc, &bi);
+                    load_z24_sb_pair(p.sb_lo, p.sb_hi, g_base + static_cast<size_t>(g), base_sc_m1, base_bi_m1, &sc, &bi);
                     #pragma unroll
                     for (int t = 0; t < 8; ++t) {
                         if (t < n_sub) {
@@ -3675,14 +3704,15 @@ extern "C" __global__ void q38_moe_up_swiglu11_z24_bn(
 
     if (k < kTopK) {
         const int ex = sel_ids10_batch[static_cast<size_t>(b) * kTopK + k];
-        const size_t row = static_cast<size_t>(ex) * kMoeFf + m;
-        const uint4* w_ptr = (is_up ? sw_up_w : sw_gate_w) + row * 80u;
-        const uint32_t* sb_lo = is_up ? sw_up_sb_lo : sw_gate_sb_lo;
-        const uint32_t* sb_hi = is_up ? sw_up_sb_hi : sw_gate_sb_hi;
+        const Z24ExpertProj p = resolve_z24_expert_proj(
+            is_up ? sw_up_w : sw_gate_w,
+            is_up ? sw_up_sb_lo : sw_gate_sb_lo,
+            is_up ? sw_up_sb_hi : sw_gate_sb_hi,
+            ex, kMoeFf, m);
         const uint32_t base_sc_m1 = is_up ? ((packed_bases_m1 >> 16) & 0xFFu) : (packed_bases_m1 & 0xFFu);
         const uint32_t base_bi_m1 = is_up ? ((packed_bases_m1 >> 24) & 0xFFu) : ((packed_bases_m1 >> 8) & 0xFFu);
         float dot = warp_dot_q4_row_z24_smem9(
-            w_ptr, sb_lo, sb_hi, row * 80u, base_sc_m1, base_bi_m1, smem_x9, 80, lane);
+            p.w + p.row_offset * 80u, p.sb_lo, p.sb_hi, p.row_offset * 80u, base_sc_m1, base_bi_m1, smem_x9, 80, lane);
         if (lane == 0) smem_gu[warp_id] = dot;
     } else {
         const size_t row = static_cast<size_t>(is_up * kMoeFf + m);
@@ -3755,9 +3785,10 @@ extern "C" __global__ void q38_moe_down_combine11_z24_bn(
         for (int k = k_start; k < k_end; ++k) {
             const int ex = sel_ids10[k];
             const float wt = sel_wts11[k];
-            const size_t r_idx = static_cast<size_t>(ex) * kD + static_cast<size_t>(row);
-            const uint4* rw = sw_down_w + r_idx * 20u;
-            const size_t g_base = r_idx * 20u;
+            const Z24ExpertProj p = resolve_z24_expert_proj(
+                sw_down_w, sw_down_sb_lo, sw_down_sb_hi, ex, kD, row);
+            const uint4* rw = p.w + p.row_offset * 20u;
+            const size_t g_base = p.row_offset * 20u;
             const float4* a_k = smem_a9 + k * 20 * 9;
 
             float dot = 0.0f;
@@ -3766,7 +3797,7 @@ extern "C" __global__ void q38_moe_down_combine11_z24_bn(
                 const int g = it * 4 + sub_lane;
                 uint4 pk = rw[g];
                 float sc, bi;
-                load_z24_sb_pair(sw_down_sb_lo, sw_down_sb_hi, g_base + static_cast<size_t>(g), base_sc_m1, base_bi_m1, &sc, &bi);
+                load_z24_sb_pair(p.sb_lo, p.sb_hi, g_base + static_cast<size_t>(g), base_sc_m1, base_bi_m1, &sc, &bi);
                 dot += dot_q4_group32_smem9(pk, sc, bi, a_k + g * 9);
             }
             dot += __shfl_xor_sync(lane4_mask, dot, 2);

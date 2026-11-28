@@ -164,11 +164,16 @@ fn load_hc(
     })
 }
 
-/// Byte layout of one `switch_mlp` slab, as in the target engine.
+/// Byte layout of one `switch_mlp` slab, supporting `0-ULP` Z24 (`1,425 MiB`) or BF16 (`1,500 MiB`).
 const SW_W: usize = Q38_EXP * Q38_MOE_FF * Q38_D / 2; // 400 MiB
 const SW_SB: usize = SW_W / 8; // 50 MiB
 const SW_PROJ: usize = SW_W + 2 * SW_SB;
 const SW_LAYER: usize = 3 * SW_PROJ;
+const SW_GROUPS: usize = 26_214_400;
+const SW_Z24_LO: usize = SW_GROUPS * 2; // 50 MiB
+const SW_Z24_HI: usize = SW_GROUPS; // 25 MiB
+const SW_Z24_PROJ: usize = SW_W + SW_Z24_LO + SW_Z24_HI; // 475 MiB
+const SW_Z24_LAYER: usize = 3 * SW_Z24_PROJ; // 1,425 MiB
 
 enum Slab {
     Vram(DeviceBuf),
@@ -192,8 +197,9 @@ struct Fns {
     q4_2560: CUfunction,
     q4_10k: CUfunction,
     hc_norm4: CUfunction,
-    hc_mix4: CUfunction,
-    hc_inject4: CUfunction,
+    hc_down_inj_10k: CUfunction,
+    hc_up_mix4: CUfunction,
+    hc_inject4_vec: CUfunction,
     qsa_prep: CUfunction,
     qsa_score: CUfunction,
     qsa_select: CUfunction,
@@ -201,23 +207,59 @@ struct Fns {
     router: CUfunction,
     topk: CUfunction,
     moe_up: CUfunction,
+    moe_up_z24: CUfunction,
     moe_down: CUfunction,
+    moe_down_z24: CUfunction,
     argmax: CUfunction,
     rmsnorm: CUfunction,
     add_bcast4: CUfunction,
 }
 
-fn load_module(ctx: &Arc<CudaContextHandle>, env: &str, src: &str) -> Result<CUmodule, String> {
-    let image = match std::env::var(env) {
-        Ok(p) => {
-            let mut raw = std::fs::read(&p).map_err(|e| format!("read {p}: {e}"))?;
+fn discover_cubin(env: &str, filename: &str) -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var(env) {
+        let pb = std::path::PathBuf::from(p);
+        if pb.is_file() {
+            return Some(pb);
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            for rel in [
+                std::path::PathBuf::from(filename),
+                std::path::PathBuf::from(format!("../../build/{filename}")),
+                std::path::PathBuf::from(format!("../build/{filename}")),
+            ] {
+                let cand = dir.join(rel);
+                if cand.is_file() {
+                    return Some(cand);
+                }
+            }
+        }
+    }
+    let cwd = std::path::PathBuf::from(format!("build/{filename}"));
+    if cwd.is_file() {
+        return Some(cwd);
+    }
+    None
+}
+
+fn load_module(
+    ctx: &Arc<CudaContextHandle>,
+    env: &str,
+    filename: &str,
+    src: &str,
+) -> Result<CUmodule, String> {
+    let image = match discover_cubin(env, filename) {
+        Some(p) => {
+            let mut raw = std::fs::read(&p).map_err(|e| format!("read {}: {e}", p.display()))?;
             raw.push(0);
             raw
         }
-        Err(_) => crate::cuda_ffi::compile_cuda_to_ptx_nvrtc(
+        None => crate::cuda_ffi::compile_cuda_to_ptx_nvrtc(
             &src.replace(
                 "#include \"include/leansonic_verified.cuh\"",
-                include_str!("../../../kernels/include/leansonic_verified.cuh"),
+                &include_str!("../../../kernels/include/leansonic_verified.cuh")
+                    .replace("#include <stdint.h>", ""),
             ),
             "compute_120a",
         )?,
@@ -267,6 +309,7 @@ pub struct Qwen38MtpDrafter {
     sh_gu: Q4,
     sh_down: Q4,
     switch: Slab,
+    z24_bases: Option<(u32, u32)>,
     mixer: Hc,
     inv_freq32: DeviceBuf,
     // Scratch.
@@ -280,7 +323,6 @@ pub struct Qwen38MtpDrafter {
     d_hc: DeviceBuf,
     d_hc_normed: DeviceBuf,
     d_hc_low: DeviceBuf,
-    d_hc_up: DeviceBuf,
     d_hc_inj4: DeviceBuf,
     d_mixed: DeviceBuf,
     d_branch: DeviceBuf,
@@ -296,11 +338,59 @@ pub struct Qwen38MtpDrafter {
     d_sel_wts: DeviceBuf,
     d_act11: DeviceBuf,
     d_logits: DeviceBuf,
-    /// Whether the 1.5 GB MoE slab is in VRAM (`false`: pinned host memory).
+    /// Whether the 1.43 GiB MoE slab is in VRAM (`false`: pinned host memory).
     pub moe_in_vram: bool,
 }
 
+unsafe impl Send for Qwen38MtpDrafter {}
+
 impl Qwen38MtpDrafter {
+    /// Returns `true` when the checkpoint contains the built-in `language_model.mtp.*` head.
+    pub fn has_mtp_weights(eng: &crate::qwen38_gpu::Qwen38GpuEngine) -> bool {
+        eng.sharded_safetensors()
+            .get(&format!("{MTP}.pre_fc_norm_embedding.weight"))
+            .is_some()
+    }
+
+    /// Borrows `(embed, lm_head)` `Q4Ref` handles from a loaded [`crate::qwen38_gpu::Qwen38GpuEngine`].
+    pub fn target_q4_refs(eng: &crate::qwen38_gpu::Qwen38GpuEngine) -> (Q4Ref, Q4Ref) {
+        let (ew, esc, ebi) = eng.embed_ptrs();
+        let (lw, lsc, lbi, lrows, lcols) = eng.lm_head_ptrs();
+        (
+            Q4Ref {
+                w: ew,
+                sc: esc,
+                bi: ebi,
+                rows: Q38_VOCAB as i32,
+                cols: Q38_D as i32,
+            },
+            Q4Ref {
+                w: lw,
+                sc: lsc,
+                bi: lbi,
+                rows: lrows,
+                cols: lcols,
+            },
+        )
+    }
+
+    /// Convenience constructor loading `language_model.mtp.*` directly from a loaded [`crate::qwen38_gpu::Qwen38GpuEngine`].
+    pub fn load_for_engine(eng: &crate::qwen38_gpu::Qwen38GpuEngine) -> Result<Self, String> {
+        let mtp = Self::load(
+            eng.cuda_ctx(),
+            eng.sharded_safetensors(),
+            eng.max_ctx,
+            eng.zero_centered_norms(),
+            128 << 20,
+        )?;
+        eprintln!(
+            "[Qwen38MtpDrafter] Loaded 1-layer QSA+MoE MTP drafter (z24={}, moe_in_vram={})",
+            mtp.z24_bases.is_some(),
+            mtp.moe_in_vram
+        );
+        Ok(mtp)
+    }
+
     /// Loads `language_model.mtp.*` from the target's shards into `ctx` (the target engine's
     /// context). `zero_centered` must match the target (`1 + w` RMSNorm weights). The MoE slab
     /// goes to VRAM when `vram_reserve` bytes stay free after it, else to pinned host memory.
@@ -315,11 +405,13 @@ impl Qwen38MtpDrafter {
         let q38 = load_module(
             ctx,
             "LEANSONIC_QWEN38_CUBIN_PATH",
+            "qwen38_sm120a.cubin",
             include_str!("../../../kernels/qwen38_sm120.cu"),
         )?;
         let mtp = load_module(
             ctx,
             "LEANSONIC_QWEN38_MTP_CUBIN_PATH",
+            "qwen38_mtp_sm120a.cubin",
             include_str!("../../../kernels/qwen38_mtp_sm120.cu"),
         )?;
         let fns = Fns {
@@ -328,8 +420,9 @@ impl Qwen38MtpDrafter {
             q4_2560: get(ctx, q38, "q38_q4_gemv_2560")?,
             q4_10k: get(ctx, q38, "q38_q4_gemv_10k")?,
             hc_norm4: get(ctx, q38, "q38_hc_norm4")?,
-            hc_mix4: get(ctx, q38, "q38_hc_mix4")?,
-            hc_inject4: get(ctx, q38, "q38_hc_inject4")?,
+            hc_down_inj_10k: get(ctx, q38, "q38_hc_down_inj_10k")?,
+            hc_up_mix4: get(ctx, q38, "q38_hc_up_mix4")?,
+            hc_inject4_vec: get(ctx, q38, "q38_hc_inject4_vec")?,
             qsa_prep: get(ctx, q38, "q38_qsa_prep_and_cache")?,
             qsa_score: get(ctx, q38, "q38_qsa_score_blocks")?,
             qsa_select: get(ctx, q38, "q38_qsa_select_top512")?,
@@ -337,7 +430,9 @@ impl Qwen38MtpDrafter {
             router: get(ctx, q38, "q38_bf16_router_512")?,
             topk: get(ctx, q38, "q38_softmax_topk10")?,
             moe_up: get(ctx, q38, "q38_moe_up_swiglu11")?,
+            moe_up_z24: get(ctx, q38, "q38_moe_up_swiglu11_z24")?,
             moe_down: get(ctx, q38, "q38_moe_down_combine11")?,
+            moe_down_z24: get(ctx, q38, "q38_moe_down_combine11_z24")?,
             argmax: get(ctx, q38, "q38_argmax_fast")?,
             rmsnorm: get(ctx, mtp, "q38_mtp_rmsnorm")?,
             add_bcast4: get(ctx, mtp, "q38_mtp_add_bcast4")?,
@@ -350,44 +445,120 @@ impl Qwen38MtpDrafter {
         let max_blocks = max_ctx / 4 + 16;
         let zeros = |n: usize| DeviceBuf::alloc_zeroed(ctx, n);
 
-        // `switch_mlp`: same slab layout as the target (`gate`, `up`, `down` x `w, sc, bi`).
+        // `switch_mlp`: attempt `0-ULP` lossless Z24 (`1,425 MiB`) first, falling back to BF16 (`1,500 MiB`).
         let swp = format!("{lp}.mlp.switch_mlp");
-        let parts = [
-            ("gate_proj", [512usize, 640, 320], [512usize, 640, 80]),
-            ("up_proj", [512, 640, 320], [512, 640, 80]),
-            ("down_proj", [512, 2560, 80], [512, 2560, 20]),
-        ];
+        let gw = st
+            .require(&format!("{swp}.gate_proj.weight"), "U32", &[512, 640, 320])
+            .data;
+        let gsc = st
+            .require(&format!("{swp}.gate_proj.scales"), "BF16", &[512, 640, 80])
+            .data;
+        let gbi = st
+            .require(&format!("{swp}.gate_proj.biases"), "BF16", &[512, 640, 80])
+            .data;
+        let uw = st
+            .require(&format!("{swp}.up_proj.weight"), "U32", &[512, 640, 320])
+            .data;
+        let usc = st
+            .require(&format!("{swp}.up_proj.scales"), "BF16", &[512, 640, 80])
+            .data;
+        let ubi = st
+            .require(&format!("{swp}.up_proj.biases"), "BF16", &[512, 640, 80])
+            .data;
+        let dw = st
+            .require(&format!("{swp}.down_proj.weight"), "U32", &[512, 2560, 80])
+            .data;
+        let dsc = st
+            .require(&format!("{swp}.down_proj.scales"), "BF16", &[512, 2560, 20])
+            .data;
+        let dbi = st
+            .require(&format!("{swp}.down_proj.biases"), "BF16", &[512, 2560, 20])
+            .data;
+
+        let mut lo_g = vec![0u32; SW_GROUPS / 2];
+        let mut hi_g = vec![0u32; SW_GROUPS / 4];
+        let mut lo_u = vec![0u32; SW_GROUPS / 2];
+        let mut hi_u = vec![0u32; SW_GROUPS / 4];
+        let mut lo_d = vec![0u32; SW_GROUPS / 2];
+        let mut hi_d = vec![0u32; SW_GROUPS / 4];
+
+        let z24_fit = crate::qwen38_gpu::pack_z24_sb_slice(gsc, gbi, &mut lo_g, &mut hi_g)
+            .zip(crate::qwen38_gpu::pack_z24_sb_slice(
+                usc, ubi, &mut lo_u, &mut hi_u,
+            ))
+            .zip(crate::qwen38_gpu::pack_z24_sb_slice(
+                dsc, dbi, &mut lo_d, &mut hi_d,
+            ));
+
         let (free, _) = ctx.mem_info()?;
-        let moe_in_vram = free > SW_LAYER + vram_reserve;
-        let switch = if moe_in_vram {
-            Slab::Vram(zeros(SW_LAYER)?)
-        } else {
-            Slab::Pinned(PinnedHostBuf::alloc_uninit(ctx, SW_LAYER)?)
-        };
-        for (i, (name, wshape, sshape)) in parts.iter().enumerate() {
-            let base = i * SW_PROJ;
-            let w = st
-                .require(&format!("{swp}.{name}.weight"), "U32", wshape)
-                .data;
-            let sc = st
-                .require(&format!("{swp}.{name}.scales"), "BF16", sshape)
-                .data;
-            let bi = st
-                .require(&format!("{swp}.{name}.biases"), "BF16", sshape)
-                .data;
-            for (off, bytes) in [(base, w), (base + SW_W, sc), (base + SW_W + SW_SB, bi)] {
-                match &switch {
-                    Slab::Vram(b) => b.copy_from_host_at(off, bytes)?,
-                    Slab::Pinned(b) => unsafe {
-                        core::ptr::copy_nonoverlapping(
-                            bytes.as_ptr(),
-                            b.host_ptr.add(off),
-                            bytes.len(),
-                        )
-                    },
+        let (switch, z24_bases, moe_in_vram) =
+            if let Some((((g_sc, g_bi), (u_sc, u_bi)), (d_sc, d_bi))) = z24_fit {
+                let in_vram = free > SW_Z24_LAYER + vram_reserve;
+                let slab = if in_vram {
+                    Slab::Vram(DeviceBuf::alloc_uninit(ctx, SW_Z24_LAYER)?)
+                } else {
+                    Slab::Pinned(PinnedHostBuf::alloc_uninit(ctx, SW_Z24_LAYER)?)
+                };
+                let u32_bytes = |s: &[u32]| unsafe {
+                    core::slice::from_raw_parts(s.as_ptr().cast::<u8>(), s.len() * 4)
+                };
+                for (proj_i, (w, lo, hi)) in [
+                    (gw, u32_bytes(&lo_g), u32_bytes(&hi_g)),
+                    (uw, u32_bytes(&lo_u), u32_bytes(&hi_u)),
+                    (dw, u32_bytes(&lo_d), u32_bytes(&hi_d)),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let base = proj_i * SW_Z24_PROJ;
+                    for (off, bytes) in
+                        [(base, w), (base + SW_W, lo), (base + SW_W + SW_Z24_LO, hi)]
+                    {
+                        match &slab {
+                            Slab::Vram(b) => b.copy_from_host_at(off, bytes)?,
+                            Slab::Pinned(b) => unsafe {
+                                core::ptr::copy_nonoverlapping(
+                                    bytes.as_ptr(),
+                                    b.host_ptr.add(off),
+                                    bytes.len(),
+                                )
+                            },
+                        }
+                    }
                 }
-            }
-        }
+                let up_m1 = (g_sc as u32)
+                    | ((g_bi as u32) << 8)
+                    | ((u_sc as u32) << 16)
+                    | ((u_bi as u32) << 24);
+                let dn_m1 = (d_sc as u32) | ((d_bi as u32) << 8);
+                (slab, Some((up_m1, dn_m1)), in_vram)
+            } else {
+                let in_vram = free > SW_LAYER + vram_reserve;
+                let slab = if in_vram {
+                    Slab::Vram(zeros(SW_LAYER)?)
+                } else {
+                    Slab::Pinned(PinnedHostBuf::alloc_uninit(ctx, SW_LAYER)?)
+                };
+                for (i, (w, sc, bi)) in [(gw, gsc, gbi), (uw, usc, ubi), (dw, dsc, dbi)]
+                    .into_iter()
+                    .enumerate()
+                {
+                    let base = i * SW_PROJ;
+                    for (off, bytes) in [(base, w), (base + SW_W, sc), (base + SW_W + SW_SB, bi)] {
+                        match &slab {
+                            Slab::Vram(b) => b.copy_from_host_at(off, bytes)?,
+                            Slab::Pinned(b) => unsafe {
+                                core::ptr::copy_nonoverlapping(
+                                    bytes.as_ptr(),
+                                    b.host_ptr.add(off),
+                                    bytes.len(),
+                                )
+                            },
+                        }
+                    }
+                }
+                (slab, None, in_vram)
+            };
 
         let inv_f: Vec<u8> = (0..32)
             .flat_map(|i| (10_000_000.0_f64.powf(-(2.0 * (i as f64)) / 64.0) as f32).to_le_bytes())
@@ -453,6 +624,7 @@ impl Qwen38MtpDrafter {
                 Q38_MOE_FF,
             )?,
             switch,
+            z24_bases,
             mixer: load_hc(ctx, st, &format!("{MTP}.hyper_connection_mixer"), z, false)?,
             inv_freq32: DeviceBuf::from_host_bytes(ctx, &inv_f)?,
             d_tok: zeros(16)?,
@@ -465,7 +637,6 @@ impl Qwen38MtpDrafter {
             d_hc: zeros(Q38_HC_D * 4)?,
             d_hc_normed: zeros(Q38_HC_D * 4)?,
             d_hc_low: zeros(Q38_HC_LOW * 4)?,
-            d_hc_up: zeros(Q38_HC_D * 4)?,
             d_hc_inj4: zeros(16)?,
             d_mixed: zeros(Q38_D * 4)?,
             d_branch: zeros(Q38_D * 4)?,
@@ -591,32 +762,43 @@ impl Qwen38MtpDrafter {
             &mut kargs![hin, gam, nrm],
             "q38_hc_norm4",
         )?;
-        self.q4(s, hc.down.r(), self.d_hc_normed.ptr, self.d_hc_low.ptr, 1)?;
-        self.q4(s, hc.up.r(), self.d_hc_low.ptr, self.d_hc_up.ptr, 2)?;
-        let (mut up, mut mixed) = (self.d_hc_up.ptr, self.d_mixed.ptr);
+        let (mut dw, mut dsc, mut dbi) = (hc.down.w.ptr, hc.down.sc.ptr, hc.down.bi.ptr);
+        let (mut iw, mut isc, mut ibi, mut has_inj) = if let Some(inj) = &hc.inject {
+            (inj.w.ptr, inj.sc.ptr, inj.bi.ptr, 1i32)
+        } else {
+            (0u64, 0u64, 0u64, 0i32)
+        };
+        let (mut low, mut inj4) = (self.d_hc_low.ptr, self.d_hc_inj4.ptr);
+        let grid_di = if has_inj == 1 { 81u32 } else { 80u32 };
         self.launch(
             s,
-            self.fns.hc_mix4,
-            (10, 1),
+            self.fns.hc_down_inj_10k,
+            (grid_di, 1),
             256,
-            &mut kargs![nrm, up, mixed],
-            "q38_hc_mix4",
+            &mut kargs![dw, dsc, dbi, iw, isc, ibi, nrm, low, inj4, has_inj],
+            "q38_hc_down_inj_10k",
         )?;
-        if let Some(inj) = &hc.inject {
-            self.q4(s, inj.r(), self.d_hc_normed.ptr, self.d_hc_inj4.ptr, 0)?;
-        }
-        Ok(())
+        let (mut uw, mut usc, mut ubi, mut mixed) =
+            (hc.up.w.ptr, hc.up.sc.ptr, hc.up.bi.ptr, self.d_mixed.ptr);
+        self.launch(
+            s,
+            self.fns.hc_up_mix4,
+            (320, 1),
+            256,
+            &mut kargs![uw, usc, ubi, low, nrm, mixed],
+            "q38_hc_up_mix4",
+        )
     }
 
     fn hc_post(&self, s: CUstream) -> Result<(), String> {
         let (mut hc, mut br, mut inj) = (self.d_hc.ptr, self.d_branch.ptr, self.d_hc_inj4.ptr);
         self.launch(
             s,
-            self.fns.hc_inject4,
-            (40, 1),
+            self.fns.hc_inject4_vec,
+            (3, 1),
             256,
             &mut kargs![hc, br, inj],
-            "q38_hc_inject4",
+            "q38_hc_inject4_vec",
         )
     }
 
@@ -847,31 +1029,56 @@ impl Qwen38MtpDrafter {
             "q38_softmax_topk10",
         )?;
         let b = self.switch.ptr();
-        let (mut gw, mut gsc, mut gbi) = (b, b + SW_W as u64, b + (SW_W + SW_SB) as u64);
-        let u = b + SW_PROJ as u64;
-        let (mut uw, mut usc, mut ubi) = (u, u + SW_W as u64, u + (SW_W + SW_SB) as u64);
-        let d = b + 2 * SW_PROJ as u64;
-        let (mut dw, mut dsc, mut dbi) = (d, d + SW_W as u64, d + (SW_W + SW_SB) as u64);
         let (mut shw, mut shs, mut shb) = (self.sh_gu.w.ptr, self.sh_gu.sc.ptr, self.sh_gu.bi.ptr);
         let (mut sdw, mut sds, mut sdb) =
             (self.sh_down.w.ptr, self.sh_down.sc.ptr, self.sh_down.bi.ptr);
-        let (mut act, mut out, mut cmp) = (self.d_act11.ptr, self.d_branch.ptr, 0i32);
-        self.launch(
-            s,
-            self.fns.moe_up,
-            (160, 11),
-            256,
-            &mut kargs![gw, gsc, gbi, uw, usc, ubi, shw, shs, shb, mx, ids, cmp, wts, act],
-            "q38_moe_up_swiglu11",
-        )?;
-        self.launch(
-            s,
-            self.fns.moe_down,
-            (320, 1),
-            256,
-            &mut kargs![dw, dsc, dbi, sdw, sds, sdb, act, ids, cmp, wts, out],
-            "q38_moe_down_combine11",
-        )?;
+        let (mut act, mut out) = (self.d_act11.ptr, self.d_branch.ptr);
+        if let Some((mut up_m1, mut dn_m1)) = self.z24_bases {
+            let (mut gw, mut glo, mut ghi) = (b, b + SW_W as u64, b + (SW_W + SW_Z24_LO) as u64);
+            let u = b + SW_Z24_PROJ as u64;
+            let (mut uw, mut ulo, mut uhi) = (u, u + SW_W as u64, u + (SW_W + SW_Z24_LO) as u64);
+            let d = b + 2 * SW_Z24_PROJ as u64;
+            let (mut dw, mut dlo, mut dhi) = (d, d + SW_W as u64, d + (SW_W + SW_Z24_LO) as u64);
+            self.launch(
+                s,
+                self.fns.moe_up_z24,
+                (160, 11),
+                256,
+                &mut kargs![gw, glo, ghi, uw, ulo, uhi, up_m1, shw, shs, shb, mx, ids, wts, act],
+                "q38_moe_up_swiglu11_z24",
+            )?;
+            self.launch(
+                s,
+                self.fns.moe_down_z24,
+                (80, 1),
+                256,
+                &mut kargs![dw, dlo, dhi, dn_m1, sdw, sds, sdb, act, ids, wts, out],
+                "q38_moe_down_combine11_z24",
+            )?;
+        } else {
+            let mut cmp = 0i32;
+            let (mut gw, mut gsc, mut gbi) = (b, b + SW_W as u64, b + (SW_W + SW_SB) as u64);
+            let u = b + SW_PROJ as u64;
+            let (mut uw, mut usc, mut ubi) = (u, u + SW_W as u64, u + (SW_W + SW_SB) as u64);
+            let d = b + 2 * SW_PROJ as u64;
+            let (mut dw, mut dsc, mut dbi) = (d, d + SW_W as u64, d + (SW_W + SW_SB) as u64);
+            self.launch(
+                s,
+                self.fns.moe_up,
+                (160, 11),
+                256,
+                &mut kargs![gw, gsc, gbi, uw, usc, ubi, shw, shs, shb, mx, ids, cmp, wts, act],
+                "q38_moe_up_swiglu11",
+            )?;
+            self.launch(
+                s,
+                self.fns.moe_down,
+                (320, 1),
+                256,
+                &mut kargs![dw, dsc, dbi, sdw, sds, sdb, act, ids, cmp, wts, out],
+                "q38_moe_down_combine11",
+            )?;
+        }
         self.hc_post(s)?;
 
         // Output: own mixer, shared LM head, greedy.
@@ -934,50 +1141,114 @@ pub struct SpecStats {
 pub fn spec_generate(
     eng: &mut crate::qwen38_gpu::Qwen38GpuEngine,
     mtp: &mut Qwen38MtpDrafter,
-    (embed, lm_head): (Q4Ref, Q4Ref),
+    refs: (Q4Ref, Q4Ref),
     prompt: &[u32],
     n: usize,
     k: usize,
     stats: &mut SpecStats,
 ) -> Result<Vec<u32>, String> {
-    use crate::qwen38_gpu::Q38_MAX_VERIFY_BATCH;
-    if prompt.is_empty() || n == 0 {
-        return Ok(Vec::new());
+    spec_generate_streaming(eng, mtp, refs, prompt, n, k, &[], stats, |_| {})
+}
+
+/// Runs `B = 64` batched prompt chunks + MTP KV warm-up, returning `(first_tok, first_draft, prefill_ms)`.
+/// Also populates `eng.read_last_logits()` from the final prompt token.
+pub fn spec_prefill_prompt(
+    eng: &mut crate::qwen38_gpu::Qwen38GpuEngine,
+    mtp: &mut Qwen38MtpDrafter,
+    (embed, lm_head): (Q4Ref, Q4Ref),
+    prompt: &[u32],
+    need_initial_draft: bool,
+) -> Result<(u32, u32, f64), String> {
+    use crate::qwen38_gpu::Q38_MAX_BATCH;
+    if prompt.is_empty() {
+        return Err("spec_prefill_prompt requires at least 1 token".into());
     }
+    if !eng.supports_batched_verify() {
+        return Err("speculative decode requires Z24 batched verify engine".into());
+    }
+    let row = |eng: &crate::qwen38_gpu::Qwen38GpuEngine, r: usize| {
+        eng.hc_batch_row_ptr(r)
+            .ok_or_else(|| "speculative decode needs the batched verify path (Z24)".to_string())
+    };
+    let t0 = std::time::Instant::now();
+    let num_chunks = prompt.len().div_ceil(Q38_MAX_BATCH);
+    let mut cur = 0u32;
+    let mut draft = 0u32;
+    for (c, chunk) in prompt.chunks(Q38_MAX_BATCH).enumerate() {
+        let is_last = c + 1 == num_chunks;
+        let last_out = eng.prefill_chunk_for_mtp(chunk, is_last)?;
+        for r in 0..chunk.len() {
+            let i = c * Q38_MAX_BATCH + r;
+            match prompt.get(i + 1) {
+                Some(&next) => mtp.step_kv_only(row(eng, r)?, next, embed, lm_head)?,
+                None => {
+                    cur = last_out.expect("last chunk returns first greedy token");
+                    if need_initial_draft {
+                        draft = mtp.step(row(eng, r)?, cur, embed, lm_head)?;
+                    }
+                }
+            }
+        }
+    }
+    Ok((cur, draft, t0.elapsed().as_secs_f64() * 1000.0))
+}
+
+/// Streaming greedy speculative decode loop starting from `(first_tok, first_draft)` returned by [`spec_prefill_prompt`].
+#[allow(clippy::too_many_arguments)]
+pub fn spec_decode_tokens(
+    eng: &mut crate::qwen38_gpu::Qwen38GpuEngine,
+    mtp: &mut Qwen38MtpDrafter,
+    (embed, lm_head): (Q4Ref, Q4Ref),
+    first_tok: u32,
+    first_draft: u32,
+    max_new_tokens: usize,
+    k: usize,
+    stop_tokens: &[u32],
+    stats: &mut SpecStats,
+    mut on_token: impl FnMut(u32),
+) -> Result<Vec<u32>, String> {
+    use crate::qwen38_gpu::Q38_MAX_VERIFY_BATCH;
     if !(1..Q38_MAX_VERIFY_BATCH).contains(&k) {
         return Err(format!("spec k must be 1..={}", Q38_MAX_VERIFY_BATCH - 1));
     }
-    let row = |eng: &crate::qwen38_gpu::Qwen38GpuEngine, r: usize| {
-        eng.hc_batch_row_ptr(r).ok_or_else(|| {
-            "speculative decode needs the batched verify path (48/48 Z24)".to_string()
-        })
-    };
-    // Prompt: verify-sized chunks so the drafter sees the target HC at every position.
-    let t0 = std::time::Instant::now();
-    let mut cur = 0u32;
-    let mut draft = 0u32;
-    for (c, chunk) in prompt.chunks(Q38_MAX_VERIFY_BATCH).enumerate() {
-        let out = eng.forward_verify_tokens(chunk)?;
-        for (r, &o) in out.iter().enumerate() {
-            let i = c * Q38_MAX_VERIFY_BATCH + r;
-            match prompt.get(i + 1) {
-                Some(&next) => mtp.step_kv_only(row(eng, r)?, next, embed, lm_head)?,
-                None => draft = mtp.step(row(eng, r)?, o, embed, lm_head)?,
-            }
-        }
-        cur = *out.last().unwrap();
+    if !eng.supports_batched_verify() {
+        return Err("speculative decode requires Z24 batched verify engine".into());
     }
-    stats.prompt_s = t0.elapsed().as_secs_f64();
-    let mut out = Vec::with_capacity(n + k + 1);
+    if max_new_tokens == 0 || stop_tokens.contains(&first_tok) {
+        return Ok(Vec::new());
+    }
+    let row = |eng: &crate::qwen38_gpu::Qwen38GpuEngine, r: usize| {
+        eng.hc_batch_row_ptr(r)
+            .ok_or_else(|| "speculative decode needs the batched verify path (Z24)".to_string())
+    };
+
+    let mut cur = first_tok;
+    let mut draft = first_draft;
+    let mut out = Vec::with_capacity(max_new_tokens + k + 1);
     let mut seq = Vec::with_capacity(k + 1);
-    while out.len() < n {
+    let push_emit = |out: &mut Vec<u32>, tok: u32, on_token: &mut dyn FnMut(u32)| -> bool {
+        if out.len() >= max_new_tokens || stop_tokens.contains(&tok) {
+            return true;
+        }
+        out.push(tok);
+        on_token(tok);
+        out.len() >= max_new_tokens
+    };
+
+    while out.len() < max_new_tokens {
+        if stop_tokens.contains(&cur) {
+            break;
+        }
+        if out.len() + 1 == max_new_tokens {
+            let _ = push_emit(&mut out, cur, &mut on_token);
+            break;
+        }
         stats.cycles += 1;
-        // Chain the drafter from its own HC output.
         let q0 = mtp.position();
         seq.clear();
         seq.push(cur);
         seq.push(draft);
-        let kk = k.min(n - out.len());
+        let kk = k.min(max_new_tokens - out.len() - 1).max(1);
         for _ in 1..kk {
             let d = mtp.step(mtp.hc_out(), *seq.last().unwrap(), embed, lm_head)?;
             seq.push(d);
@@ -993,14 +1264,22 @@ pub fn spec_generate(
             stats.accept_hist.resize(a + 1, 0);
         }
         stats.accept_hist[a] += 1;
-        out.extend_from_slice(&seq[..=a]);
+
+        let mut stopped = false;
+        for &tok in &seq[..=a] {
+            if push_emit(&mut out, tok, &mut on_token) {
+                stopped = true;
+                break;
+            }
+        }
         let next = ver[a];
         if a + 1 < seq.len() {
             stats.rollbacks += 1;
         }
-        // O(1): restores the per-row checkpoint of row `a` (#264); no re-run.
         eng.commit_or_rollback_verify_row(a)?;
-        // Draft extend: rewrite the drafter's positions with the target's HC rows.
+        if stopped || stop_tokens.contains(&next) {
+            break;
+        }
         mtp.rewind(q0);
         for r in 0..a {
             mtp.step_kv_only(row(eng, r)?, seq[r + 1], embed, lm_head)?;
@@ -1008,8 +1287,38 @@ pub fn spec_generate(
         draft = mtp.step(row(eng, a)?, next, embed, lm_head)?;
         cur = next;
     }
-    out.truncate(n);
     Ok(out)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn spec_generate_streaming(
+    eng: &mut crate::qwen38_gpu::Qwen38GpuEngine,
+    mtp: &mut Qwen38MtpDrafter,
+    refs: (Q4Ref, Q4Ref),
+    prompt: &[u32],
+    max_new_tokens: usize,
+    k: usize,
+    stop_tokens: &[u32],
+    stats: &mut SpecStats,
+    on_token: impl FnMut(u32),
+) -> Result<Vec<u32>, String> {
+    if prompt.is_empty() || max_new_tokens == 0 {
+        return Ok(Vec::new());
+    }
+    let (cur, draft, prefill_ms) = spec_prefill_prompt(eng, mtp, refs, prompt, true)?;
+    stats.prompt_s = prefill_ms / 1000.0;
+    spec_decode_tokens(
+        eng,
+        mtp,
+        refs,
+        cur,
+        draft,
+        max_new_tokens,
+        k,
+        stop_tokens,
+        stats,
+        on_token,
+    )
 }
 
 #[cfg(test)]
@@ -1024,6 +1333,7 @@ mod tests {
         let m = load_module(
             &ctx,
             "LEANSONIC_QWEN38_MTP_CUBIN_PATH",
+            "qwen38_mtp_sm120a.cubin",
             include_str!("../../../kernels/qwen38_mtp_sm120.cu"),
         )?;
         let fl = |n: usize| {
