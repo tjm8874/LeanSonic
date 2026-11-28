@@ -39,3 +39,7 @@ for tool in memcheck synccheck racecheck initcheck; do
     compute-sanitizer --tool "$tool" --error-exitcode 17 ./check base.cubin trial.cubin quick || exit
 done
 ```
+
+## RTX 5060 Ti phase timing
+
+RTX 5060 Ti used the 13,407,173,808-byte distribution from #236 with all 24 layers resident. Five mirrored cycles, 70 warm 1,024+32-token requests per arm, gave **3,964.82 → 3,971.55 prefill tok/s** (+0.170%, paired 95% interval +0.124% to +0.219%). Decode was **82.328 → 82.319 tok/s** (95% ratio interval 0.999674–1.000101). All 33 forced and greedy IDs matched their respective baselines on every request. [Individual process and request samples](timing-5060.json).
