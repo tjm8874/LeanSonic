@@ -25,6 +25,7 @@ pub mod qwen38_pack;
 pub mod qwen_bpe;
 pub mod safetensors;
 pub mod serving;
+pub mod sha256;
 pub mod state_pool;
 pub mod tiktoken;
 pub mod weights;
