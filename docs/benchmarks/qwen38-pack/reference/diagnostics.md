@@ -28,3 +28,5 @@ Q38_TRACE_TEACHER_STATES=layers-bf16.f32 Q38_TRACE_ATTENTION=1 "$bin/layer_hidde
 Q38_TRACE_TEACHER_STATES=layers-bf16.f32 Q38_TRACE_MLP_INPUT=attention-bf16.f32 "$bin/layer_hidden" direct-engram fixtures.ids local-mlp.f32 local-mlp-logits.f32
 python3 "$d/branch_scores.py" > branch-scores.json
 ```
+
+Run `python3 "$d/attention_q4_replay.py" >attention-replay.json` after producing both attention traces. This checks the upstream implementation in BF16 against the native attention output with identical layer inputs. It first requires the untouched upstream control to reproduce the official residuals, then cumulatively installs the checkpoint's unpacked Q/K weights and norms, V/output weights, and attention hyper-connection weights. Compare each arm with both the original BF16 result and the native result for the same layer and token.
