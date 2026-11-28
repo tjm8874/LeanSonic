@@ -1,0 +1,10 @@
+q38_gdn_recurrent_step	kernels	0
+q38_gdn_recurrent_step	red_control	77
+q38_gdn_recurrent_step_seq_b	kernels	0
+q38_gdn_recurrent_step_seq_b	red_control	77
+q38_gdn_recurrent_step_ckpt_b8	kernels	0
+q38_gdn_recurrent_step_ckpt_b8	red_control	77
+q38_hc_down_inj_10k_b4	kernels	0
+q38_hc_down_inj_10k_b4	red_control	77
+4664c37da84bab9c832b6d672e07dee60000a79d99d6b001a5f8a5da3b227c89
+[PASS] Gate 2: CUDA/PTX kernel templates & SASS static audit passed.
