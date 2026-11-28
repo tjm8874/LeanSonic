@@ -10922,7 +10922,7 @@ __device__ __forceinline__ void stage_nvfp4_weight(
     }
 }
 
-template <bool GateUp, bool PackedScales, bool Ternary = false>
+template <bool GateUp, bool PackedScales, bool Ternary = false, bool AlternateTokenGroups = false>
 __device__ __forceinline__ void grouped_nvfp4_tc_impl(
     const uint4* __restrict__ weight_data,
     const uint32_t* __restrict__ weight_scales_u32,
@@ -10961,6 +10961,10 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
     const int lane = tid & 31;
     const int wr = warp_id >> 1; // 0..7 (`8` row-warps x `32` rows = `256` weight rows!)
     const int wt = warp_id & 1;  // 0..1 (`2` token-warps x `64` tokens = `128` tokens!)
+    // Interleave eight-token MMA groups between the two token warps. A
+    // partially filled expert can then use both warps within the same CTA.
+    const int first_token = wt * (AlternateTokenGroups ? 8 : 64);
+    constexpr int token_step = AlternateTokenGroups ? 16 : 8;
     const int g = lane >> 2;     // 0..7
     const int t = lane & 3;      // 0..3
     const int sfa_row = ((lane & 1) << 3) | (lane >> 2);
@@ -11074,7 +11078,7 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
         }
 
         const int wsc_st = PackedScales ? (ks64 & 7) : st;
-        if (wt * 64 < live) {
+        if (first_token < live) {
             unsigned wa[2][4];
             unsigned wsfa[2];
             const uint32_t* w0_lo_sw[2];
@@ -11107,9 +11111,9 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
 
             #pragma unroll
             for (int nt = 0; nt < 8; ++nt) {
-                if (wt * 64 + nt * 8 < live) {
-                    const int tok_row = wt * 64 + nt * 8 + g;
-                    const int tc0 = wt * 64 + nt * 8 + 2 * t;
+                if (first_token + nt * token_step < live) {
+                    const int tok_row = first_token + nt * token_step + g;
+                    const int tc0 = first_token + nt * token_step + 2 * t;
                     const int tc1 = tc0 + 1;
                     const uint2 xsc2 = s->sm_xsc[st][tok_row];
                     const uint2 xsc_c0 = s->sm_xsc[st][tc0];
@@ -11154,14 +11158,14 @@ __device__ __forceinline__ void grouped_nvfp4_tc_impl(
         st = st_next;
     }
 
-    if (wt * 64 < live) {
+    if (first_token < live) {
         #pragma unroll
         for (int rm = 0; rm < 2; ++rm) {
             #pragma unroll
             for (int nt = 0; nt < 8; ++nt) {
                 #pragma unroll
                 for (int c = 0; c < 2; ++c) {
-                    const int tok_local = wt * 64 + nt * 8 + 2 * t + c;
+                    const int tok_local = first_token + nt * token_step + 2 * t + c;
                     const float tot_scale = (tok_local < live) ? (expert_scale * s->sm_xgs[tok_local]) : 0.0f;
                     if constexpr (GateUp) {
                         if (tok_local < live) {
@@ -11228,7 +11232,7 @@ extern "C" __global__ __launch_bounds__(512, 1) void ink2_moe_nvfp4_tc_up_situ_p
     float* __restrict__ act_out) {
     pdl_wait();
     (void)exp_toks;
-    grouped_nvfp4_tc_impl<true, true>(
+    grouped_nvfp4_tc_impl<true, true, false, true>(
         w13_u128, s13_u32, a13, sorted_x_codes_u128, sorted_x_sc_u64, sorted_x_gs,
         exp_counts, exp_pairs, exp_begin, exp_end, act_out);
 }

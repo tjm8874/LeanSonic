@@ -1,0 +1,30 @@
+{
+  "gpu": "NVIDIA RTX PRO 4500 Blackwell, 595.99.02, 200.00 W",
+  "runs": {
+    "plain": {
+      "result": "18 counts, 1456128 finite FP32 outputs and 41472 guard words matched",
+      "log": ""
+    },
+    "memcheck": {
+      "result": "2 counts, 158976 finite FP32 outputs and 4608 guard words matched",
+      "log": "========= COMPUTE-SANITIZER\n========= ERROR SUMMARY: 0 errors"
+    },
+    "synccheck": {
+      "result": "2 counts, 158976 finite FP32 outputs and 4608 guard words matched",
+      "log": "========= COMPUTE-SANITIZER\n========= ERROR SUMMARY: 0 errors"
+    },
+    "racecheck": {
+      "result": "2 counts, 158976 finite FP32 outputs and 4608 guard words matched",
+      "log": "========= COMPUTE-SANITIZER\n========= RACECHECK SUMMARY: 0 hazards displayed (0 errors, 0 warnings)"
+    },
+    "initcheck": {
+      "result": "2 counts, 158976 finite FP32 outputs and 4608 guard words matched",
+      "log": "========= COMPUTE-SANITIZER\n========= ERROR SUMMARY: 0 errors"
+    }
+  },
+  "digests": {
+    "check": "6a4c33cef670b3ff05f578d5386bc3755cd2fb82735f15550253d0ea1d87b27c",
+    "main.cubin": "96f7b35bdbceee2b8359c6e87adcd9babd0ab3368c23785c3a0ad0afabf7167b",
+    "trial.cubin": "e0887e61a5ce762165e3a45c79f6411fdcf058ecc9f2efd6070378fb7c359f69"
+  }
+}

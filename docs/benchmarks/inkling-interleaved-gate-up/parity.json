@@ -1,0 +1,21 @@
+{
+  "NVIDIA RTX PRO 4500 Blackwell, 595.99.02, 200.00 W": {
+    "main.cubin": "96f7b35bdbceee2b8359c6e87adcd9babd0ab3368c23785c3a0ad0afabf7167b",
+    "trial.cubin": "e0887e61a5ce762165e3a45c79f6411fdcf058ecc9f2efd6070378fb7c359f69",
+    "trial.patch": "b3cb27ba43637f48529a1d8624fe82020087f9b4d4c144413966f661c0552db2",
+    "check": "94ff1681474d78c355691c5792a0fa161d40877ad36a810842c6e39faffc929d",
+    "bench": "63e16f20fb6a19c78900d541fa70b036a51aa1ecabf8a59bd1014a51c284f434",
+    "prompt.ids": "e93129d009d923541cd0b1ee39a6f121c11e000638ceb868258665ec974ed843",
+    "anchor.ids": "424005ba620148c43483b62cced3f11cbc90f3c01cef01cb3abbb03264020e27",
+    "fixtures.ids": "6469a66835ff5b252fc9d3c1d2f91263a2234346bce642902aabf9b83e994150",
+    "base.f32": "21fe3c0c7f49883193c7717e6c363800dc6becf871a205dbdb5ecea7feddb55e",
+    "trial.f32": "21fe3c0c7f49883193c7717e6c363800dc6becf871a205dbdb5ecea7feddb55e"
+  },
+  "NVIDIA GeForce RTX 5060 Ti, 595.99.02, 180.00 W": {
+    "trial.cubin": "e0887e61a5ce762165e3a45c79f6411fdcf058ecc9f2efd6070378fb7c359f69",
+    "fixtures.ids": "6469a66835ff5b252fc9d3c1d2f91263a2234346bce642902aabf9b83e994150",
+    "check": "38eeea64e3e56013a7aa7fcd2317c7df718943eee8f61b49d92de942a4ebc459",
+    "base.f32": "21fe3c0c7f49883193c7717e6c363800dc6becf871a205dbdb5ecea7feddb55e",
+    "trial.f32": "21fe3c0c7f49883193c7717e6c363800dc6becf871a205dbdb5ecea7feddb55e"
+  }
+}
