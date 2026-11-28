@@ -11,6 +11,15 @@ import numpy as np
 VOCAB = 248320
 
 
+def read_canaries(path, expected_cases):
+    sequences = [tuple(map(int, line.split())) for line in path.read_text().splitlines()]
+    if len(sequences) != expected_cases or any(len(seq) != 8 for seq in sequences):
+        raise ValueError("incomplete canary sequences")
+    if any(token < 0 or token >= VOCAB for seq in sequences for token in seq):
+        raise ValueError("canary token out of vocabulary")
+    return sequences
+
+
 def run(ref, trial):
     rows = [np.loadtxt(p / "rows.tsv", dtype=np.int64, ndmin=2) for p in (ref, trial)]
     if (
@@ -51,12 +60,8 @@ def run(ref, trial):
     for p in (ref, trial):
         with (p / "logits.f32").open("rb") as f:
             hashes.append(hashlib.file_digest(f, "sha256").hexdigest())
-    canaries = [(p / "canaries.txt").read_text().splitlines() for p in (ref, trial)]
-    if any(
-        len(c) != len(set(rows[0][:, 0])) or any(len(s.split()) != 8 for s in c)
-        for c in canaries
-    ):
-        raise ValueError("incomplete canary sequences")
+    cases = len(set(rows[0][:, 0]))
+    canaries = [read_canaries(p / "canaries.txt", cases) for p in (ref, trial)]
     worst = int(np.argmax(kl))
     return {
         "rows": count,
