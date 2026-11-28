@@ -1207,3 +1207,126 @@ extern "C" __global__ void q38_inc_pos(int32_t* __restrict__ pos_ptr) {
         *pos_ptr += 1;
     }
 }
+
+extern "C" __global__ void q38_moe_up_swiglu11_mixed(
+    const uint4* __restrict__ sw_gate_w,     // [512, 640, 80]
+    const uint32_t* __restrict__ sw_gate_sc, // [512, 640, 40]
+    const uint32_t* __restrict__ sw_gate_bi, // [512, 640, 40]
+    const uint4* __restrict__ sw_up_w,       // [512, 640, 80]
+    const uint32_t* __restrict__ sw_up_sc,   // [512, 640, 40]
+    const uint32_t* __restrict__ sw_up_bi,   // [512, 640, 40]
+    const uint4* __restrict__ sh_gu_gate_w,  // [1281, 80]: `[gate(640); up(640); sh_gate(1)]`
+    const uint32_t* __restrict__ sh_gu_sc,   // [1281, 40]
+    const uint32_t* __restrict__ sh_gu_bi,   // [1281, 40]
+    const float4* __restrict__ x4,           // [640] (`2,560` floats)
+    const int32_t* __restrict__ sel_ids10,   // [10]
+    int32_t is_compact,                      // `0` = index `sel_ids10[k]`, `1` = staged `[0..9]`
+    float* __restrict__ sel_wts11,           // [11] (`sel_wts11[10]` written here!)
+    float* __restrict__ act11_out) {         // [11, 640]
+    __shared__ float4 smem_x4[640];          // `10,240` B SMEM!
+    __shared__ float smem_gu[8];
+
+    const int tid = threadIdx.x;
+    for (int i = tid; i < 640; i += 256) {
+        smem_x4[i] = x4[i];
+    }
+    __syncthreads();
+
+    const int warp_id = tid >> 5; // 0..7
+    const int lane = tid & 31;
+    const int k = blockIdx.y;     // 0..10
+    const int m = blockIdx.x * 4 + (warp_id >> 1); // 0..639
+    const int is_up = warp_id & 1;
+
+    if (k < kTopK) {
+        const auto* table = reinterpret_cast<const unsigned char* const*>(sw_gate_w);
+        const unsigned char* projection = table[sel_ids10[k]] + is_up * (819200 + 2 * 102400);
+        const uint4* w_ptr = reinterpret_cast<const uint4*>(projection) + m * 80u;
+        const uint32_t* sc_ptr = reinterpret_cast<const uint32_t*>(projection + 819200) + m * 40u;
+        const uint32_t* bi_ptr = reinterpret_cast<const uint32_t*>(projection + 819200 + 102400) + m * 40u;
+        float dot = warp_dot_q4_row(w_ptr, sc_ptr, bi_ptr, smem_x4, 80, lane);
+        if (lane == 0) smem_gu[warp_id] = dot;
+    } else {
+        const size_t row = static_cast<size_t>(is_up * kMoeFf + m);
+        float dot = warp_dot_q4_row(
+            sh_gu_gate_w + row * 80u,
+            sh_gu_sc + row * 40u,
+            sh_gu_bi + row * 40u,
+            smem_x4,
+            80,
+            lane);
+        if (lane == 0) smem_gu[warp_id] = dot;
+
+        // Warp 0 of `blockIdx.x == 0, k == 10` also evaluates row `1280` (`shared_expert_gate`)!
+        if (blockIdx.x == 0 && warp_id == 0) {
+            float sg = warp_dot_q4_row(
+                sh_gu_gate_w + 1280u * 80u,
+                sh_gu_sc + 1280u * 40u,
+                sh_gu_bi + 1280u * 40u,
+                smem_x4,
+                80,
+                lane);
+            if (lane == 0) sel_wts11[10] = ptx_sigmoid(sg);
+        }
+    }
+    __syncthreads();
+
+    if (lane == 0 && is_up == 0) {
+        float g = smem_gu[warp_id];
+        float u = smem_gu[warp_id + 1];
+        act11_out[k * kMoeFf + m] = ptx_silu(g) * u;
+    }
+}
+
+extern "C" __global__ void q38_moe_down_combine11_mixed(
+    const uint4* __restrict__ sw_down_w,     // [512, 2560, 20]
+    const uint32_t* __restrict__ sw_down_sc, // [512, 2560, 10]
+    const uint32_t* __restrict__ sw_down_bi, // [512, 2560, 10]
+    const uint4* __restrict__ sh_down_w,     // [2560, 20]
+    const uint32_t* __restrict__ sh_down_sc, // [2560, 10]
+    const uint32_t* __restrict__ sh_down_bi, // [2560, 10]
+    const float4* __restrict__ act11_x4,     // [11, 160] (`28,160` B SMEM!)
+    const int32_t* __restrict__ sel_ids10,   // [10]
+    int32_t is_compact,                      // `0` = index `sel_ids10[k]`, `1` = staged `[0..9]`
+    const float* __restrict__ sel_wts11,     // [11]
+    float* __restrict__ moe_out) {           // [2560]
+    __shared__ float4 smem_a4[11 * 160];     // `28,160` B SMEM
+
+    const int tid = threadIdx.x;
+    for (int i = tid; i < 11 * 160; i += 256) {
+        smem_a4[i] = act11_x4[i];
+    }
+    __syncthreads();
+
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int row = blockIdx.x * 8 + warp_id;
+    if (row >= kD) return;
+
+    float sum_y = 0.0f;
+    for (int k = 0; k < kTopK; ++k) {
+        const auto* table = reinterpret_cast<const unsigned char* const*>(sw_down_w);
+        const unsigned char* projection = table[sel_ids10[k]] + 2 * (819200 + 2 * 102400);
+        float dot = warp_dot_q4_row(
+            reinterpret_cast<const uint4*>(projection) + row * 20u,
+            reinterpret_cast<const uint32_t*>(projection + 819200) + row * 10u,
+            reinterpret_cast<const uint32_t*>(projection + 819200 + 102400) + row * 10u,
+            smem_a4 + k * 160,
+            20,
+            lane);
+        sum_y += dot * sel_wts11[k];
+    }
+    {
+        float sh_dot = warp_dot_q4_row(
+            sh_down_w + static_cast<size_t>(row) * 20u,
+            sh_down_sc + static_cast<size_t>(row) * 10u,
+            sh_down_bi + static_cast<size_t>(row) * 10u,
+            smem_a4 + 10 * 160,
+            20,
+            lane);
+        sum_y += sh_dot * sel_wts11[10];
+    }
+    if (lane == 0) {
+        moe_out[row] = sum_y;
+    }
+}

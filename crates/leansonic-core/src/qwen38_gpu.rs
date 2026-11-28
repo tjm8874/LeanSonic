@@ -229,7 +229,69 @@ enum AttentionBranchGpu {
     },
 }
 
+struct MixedExperts {
+    _device: DeviceBuf,
+    _host: PinnedHostBuf,
+    bases: DeviceBuf,
+}
+
+impl MixedExperts {
+    // One record contains the three projections, each in weights/scales/biases order.
+    fn load(
+        ctx: &Arc<CudaContextHandle>,
+        chosen: &[usize],
+        planes: &[(usize, &[u8]); 9],
+    ) -> Result<Self, String> {
+        let record_bytes = SW_LAYER_BYTES / Q38_EXP;
+        if chosen.is_empty() || chosen.len() >= Q38_EXP {
+            return Err("expected a nonempty proper subset of experts per layer".into());
+        }
+        let mut hot = [false; Q38_EXP];
+        for &id in chosen {
+            if id >= Q38_EXP || std::mem::replace(&mut hot[id], true) {
+                return Err(format!("invalid or duplicate resident expert {id}"));
+            }
+        }
+        let device = DeviceBuf::alloc_zeroed(ctx, record_bytes * chosen.len())?;
+        let host = PinnedHostBuf::alloc_uninit(ctx, record_bytes * (Q38_EXP - chosen.len()))?;
+        let mut packed = vec![0; device.byte_len];
+        let mut bases = Vec::with_capacity(Q38_EXP * 8);
+        let (mut gpu_slot, mut host_slot) = (0, 0);
+        for (expert, &resident) in hot.iter().enumerate() {
+            let (base, record) = if resident {
+                let off = gpu_slot * record_bytes;
+                gpu_slot += 1;
+                (
+                    device.ptr + off as u64,
+                    &mut packed[off..off + record_bytes],
+                )
+            } else {
+                let off = host_slot * record_bytes;
+                host_slot += 1;
+                // host_slot enumerates disjoint records inside the allocated pinned buffer.
+                let slice =
+                    unsafe { std::slice::from_raw_parts_mut(host.host_ptr.add(off), record_bytes) };
+                (host.dev_ptr + off as u64, slice)
+            };
+            bases.extend_from_slice(&base.to_le_bytes());
+            for &(layer_off, data) in planes {
+                let width = data.len() / Q38_EXP;
+                let off = layer_off / Q38_EXP;
+                record[off..off + width]
+                    .copy_from_slice(&data[expert * width..(expert + 1) * width]);
+            }
+        }
+        device.copy_from_host_bytes(&packed)?;
+        Ok(Self {
+            _device: device,
+            _host: host,
+            bases: DeviceBuf::from_host_bytes(ctx, &bases)?,
+        })
+    }
+}
+
 enum SwitchMlpTier {
+    Mixed(MixedExperts),
     Vram(DeviceBuf),
     HostPinned(PinnedHostBuf),
     MmapCompact { layer_idx: usize },
@@ -392,8 +454,16 @@ fn load_kernel_fns(ctx: &Arc<CudaContextHandle>) -> Result<Qwen38KernelFns, Stri
         qsa_attn: get_fn("q38_qsa_attn")?,
         bf16_router_512: get_fn("q38_bf16_router_512")?,
         softmax_topk10: get_fn("q38_softmax_topk10")?,
-        moe_up_swiglu11: get_fn("q38_moe_up_swiglu11")?,
-        moe_down_combine11: get_fn("q38_moe_down_combine11")?,
+        moe_up_swiglu11: get_fn(if std::env::var_os("Q38_EXPERT_PROFILE").is_some() {
+            "q38_moe_up_swiglu11_mixed"
+        } else {
+            "q38_moe_up_swiglu11"
+        })?,
+        moe_down_combine11: get_fn(if std::env::var_os("Q38_EXPERT_PROFILE").is_some() {
+            "q38_moe_down_combine11_mixed"
+        } else {
+            "q38_moe_down_combine11"
+        })?,
         argmax_and_inc_pos: get_fn("q38_argmax_and_inc_pos")?,
         inc_pos: get_fn("q38_inc_pos")?,
     })
@@ -820,6 +890,28 @@ impl Qwen38GpuEngine {
             .and_then(|s| s.parse().ok())
             .unwrap_or(Q38_LAYERS);
 
+        let profile = if let Some(path) = std::env::var_os("Q38_EXPERT_PROFILE") {
+            let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+            let parsed = content
+                .lines()
+                .map(|line| {
+                    line.split_whitespace()
+                        .map(str::parse::<usize>)
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?;
+            if parsed.len() != Q38_LAYERS {
+                return Err("profile must have 48 lines".into());
+            }
+            eprintln!(
+                "[mixed placement] {} device expert slots",
+                parsed.iter().map(Vec::len).sum::<usize>()
+            );
+            Some(parsed)
+        } else {
+            None
+        };
         let mut resident_expert_layers = 0usize;
         let mut pinned_expert_layers = 0usize;
         let mut compact_expert_layers = 0usize;
@@ -850,7 +942,9 @@ impl Qwen38GpuEngine {
             ];
 
             let (free_vram, _) = ctx.mem_info()?;
-            let switch_mlp = if resident_expert_layers < max_vram_layers
+            let switch_mlp = if let Some(profile) = &profile {
+                SwitchMlpTier::Mixed(MixedExperts::load(&ctx, &profile[l], &slices)?)
+            } else if resident_expert_layers < max_vram_layers
                 && free_vram > vram_reserve_bytes.saturating_add(SW_LAYER_BYTES)
             {
                 let slab = DeviceBuf::alloc_zeroed(&ctx, SW_LAYER_BYTES)?;
@@ -1769,6 +1863,7 @@ impl Qwen38GpuEngine {
                 mut dbi_p,
                 mut is_compact,
             ) = match &layer.switch_mlp {
+                SwitchMlpTier::Mixed(m) => (m.bases.ptr, 0, 0, 0, 0, 0, m.bases.ptr, 0, 0, 2i32),
                 SwitchMlpTier::Vram(b) => (
                     b.ptr + OFF_GATE_W as u64,
                     b.ptr + OFF_GATE_SC as u64,
