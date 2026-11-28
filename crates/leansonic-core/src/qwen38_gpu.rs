@@ -1624,13 +1624,17 @@ impl Qwen38GpuEngine {
             .flat_map(|s| [&s.weights, &s.scales.bytes, &s.biases.bytes])
             .map(|range| engine.sharded_mmap.bytes_at(range).len())
             .sum();
-        if let Some(p) = &profile {
-            eprintln!("[Qwen38GpuEngine] Profile placement: {} VRAM and {} pinned expert records over {} mixed layers",p.hot_count(),Q38_EXP*Q38_LAYERS-p.hot_count(),Q38_LAYERS);
-        }
+        let placement = match &profile {
+            Some(profile) => format!(
+                "{} mixed layers ({} VRAM and {} pinned expert records)",
+                Q38_LAYERS, profile.hot_count(), Q38_EXP * Q38_LAYERS - profile.hot_count()
+            ),
+            None => format!("{resident_expert_layers}/48 VRAM + {pinned_expert_layers}/48 HostPinned + {compact_expert_layers}/48 MmapCompact"),
+        };
         let engram_gib = engram_bytes as f64 / (1u64 << 30) as f64;
         let load_s = t0.elapsed().as_secs_f64();
         eprintln!(
-            "[Qwen38GpuEngine] Loaded {} ({} shards, zero_norm={}, pdl={}, z24={}/48, graph={}) on {} in {:.2}s | Experts: {}/48 VRAM + {}/48 HostPinned + {}/48 MmapCompact + {engram_gib:.1}GiB Async Engram",
+            "[Qwen38GpuEngine] Loaded {} ({} shards, zero_norm={}, pdl={}, z24={}/48, graph={}) on {} in {:.2}s | Experts: {placement} + {engram_gib:.1}GiB Async Engram",
             dir.display(),
             engine.sharded_mmap.num_shards(),
             zero_centered,
@@ -1639,9 +1643,6 @@ impl Qwen38GpuEngine {
             engine.decode_graph.is_some(),
             engine.ctx.device_name,
             load_s,
-            resident_expert_layers,
-            pinned_expert_layers,
-            compact_expert_layers,
         );
 
         Ok(engine)
