@@ -1,23 +1,27 @@
 //! Real `Qwen3.8-Flash-Next` / `Qwen4Exp` (`106 GB` 22-Shard `safetensors`) Full-GPU Blackwell Engine.
 //!
 //! Architecture (`48` layers, `D = 2560`, `hc_count = 4`, `512` experts `Top-10` + Shared Expert):
-//! - Group-32 4-bit affine (`uint4` `LDG.E.128` = 32 nibbles + BF16 scale/bias) across embeddings,
-//!   projections, Hyper-Connection mixers, `lm_head` (`248,320 × 2,560`), and `512`-expert MoE.
+//! - Group-32 4-bit affine (`uint4` `LDG.E.128` = 32 nibbles + BF16 / lossless `24-bit` Z24 scale/bias)
+//!   across projections, Hyper-Connection mixers, `lm_head` (`248,320 × 2,560`), and `512`-expert MoE.
+//! - Zero-loss (`0.000000-ULP`) `24-bit` (`lo_u16 + hi_u8`) `(scale, bias)` GPU packing (`1,425 MiB`/layer
+//!   vs `1,500 MiB`/layer = `-3.52 GiB` VRAM) + `PinnedHostBuf` `embed_tokens` (`-0.49 GiB` VRAM) +
+//!   dynamic QSA KV cache growth (with elastic `Vram -> HostPinned` demotion at ultra-long contexts),
+//!   unlocking **`48/48` full GDDR7 VRAM residency (`0` PCIe spill)** on `RTX PRO 5000 72GB`.
 //! - Layer 1 (`ple_layer_ids = [2]`) `29.80 GiB` (`320M` rows × `160` dims) 3-Gram Host `Engram`/`PLE`
-//!   table mapped zero-copy via POSIX `mmap`, dequantized (`16` heads = `10 KiB`) into a 256-slot
-//!   pinned host ring, and streamed via `cuMemcpyHtoDAsync_v2`.
-//! - 3-Tier `512`-Expert `switch_mlp` placement (`1,500 MiB`/layer = `70.3 GiB` total) + 48-Layer
-//!   `CUDA Graph` capture (`decode_graph` + `prefill_graph`, eliminating `912` kernel launches/tok).
+//!   table mapped zero-copy via POSIX `mmap` with pre-resolved shard slices (`0` HashMap lookups/step),
+//!   dequantized (`16` heads = `10 KiB`) into a 256-slot pinned host ring, and streamed via `cuMemcpyHtoDAsync_v2`.
+//! - Programmatic Dependent Launch (`PDL`) + 48-Layer `CUDA Graph` capture (`decode_graph` + `prefill_graph`).
 
 use core::ffi::c_void;
 use std::ffi::CString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
 use crate::cuda_ffi::{
-    check_cu, compile_cuda_to_ptx_nvrtc, CUdeviceptr, CUevent, CUfunction, CUmodule, CUstream,
-    CapturedGraphExec, CudaContextHandle, DeviceBuf, PinnedHostBuf, CU_EVENT_DISABLE_TIMING,
+    check_cu, compile_cuda_to_ptx_nvrtc, CUdeviceptr, CUevent, CUfunction, CUlaunchAttribute,
+    CUlaunchConfig, CUmodule, CUstream, CapturedGraphExec, CudaContextHandle, DeviceBuf,
+    PinnedHostBuf, CU_EVENT_DISABLE_TIMING,
 };
 use crate::safetensors::ShardedSafeTensors;
 
@@ -38,7 +42,7 @@ pub const Q38_PLE_SHARD_ROWS: i64 = 2_500_012;
 pub const Q38_PLE_EOS_ID: i64 = 248_044;
 const PLE_RING_SLOTS: usize = 256;
 
-// Byte offsets inside a single `1,572,864,000`-byte (`1,500 MiB`) `switch_mlp` layer slab
+// Uncompressed `1,500 MiB` `switch_mlp` layer slab fallback offsets
 const SW_W_BYTES: usize = 419_430_400; // 400 MiB
 const SW_SB_BYTES: usize = 52_428_800; //  50 MiB
 const SW_PROJ_BYTES: usize = SW_W_BYTES + 2 * SW_SB_BYTES; // 500 MiB
@@ -54,7 +58,24 @@ const OFF_DOWN_W: usize = 2 * SW_PROJ_BYTES;
 const OFF_DOWN_SC: usize = 2 * SW_PROJ_BYTES + SW_W_BYTES;
 const OFF_DOWN_BI: usize = 2 * SW_PROJ_BYTES + SW_W_BYTES + SW_SB_BYTES;
 
-// Byte offsets inside the `30,720,000`-byte (`29.30 MiB`) compact `Top-10` staging slab
+// `0-ULP` lossless `24-bit` (`Z24`: `50 MiB` `lo_u32` + `25 MiB` `hi_u32`) `1,425 MiB` `switch_mlp` slab
+const SW_GROUPS_PER_PROJ: usize = 26_214_400; // `512 * 640 * 80 == 512 * 2560 * 20`
+const SW_Z24_LO_BYTES: usize = SW_GROUPS_PER_PROJ * 2; // 50 MiB
+const SW_Z24_HI_BYTES: usize = SW_GROUPS_PER_PROJ; // 25 MiB
+const SW_Z24_PROJ_BYTES: usize = SW_W_BYTES + SW_Z24_LO_BYTES + SW_Z24_HI_BYTES; // 475 MiB
+const SW_Z24_LAYER_BYTES: usize = 3 * SW_Z24_PROJ_BYTES; // 1,425 MiB
+
+const ZOFF_GATE_W: usize = 0;
+const ZOFF_GATE_LO: usize = SW_W_BYTES;
+const ZOFF_GATE_HI: usize = SW_W_BYTES + SW_Z24_LO_BYTES;
+const ZOFF_UP_W: usize = SW_Z24_PROJ_BYTES;
+const ZOFF_UP_LO: usize = SW_Z24_PROJ_BYTES + SW_W_BYTES;
+const ZOFF_UP_HI: usize = SW_Z24_PROJ_BYTES + SW_W_BYTES + SW_Z24_LO_BYTES;
+const ZOFF_DOWN_W: usize = 2 * SW_Z24_PROJ_BYTES;
+const ZOFF_DOWN_LO: usize = 2 * SW_Z24_PROJ_BYTES + SW_W_BYTES;
+const ZOFF_DOWN_HI: usize = 2 * SW_Z24_PROJ_BYTES + SW_W_BYTES + SW_Z24_LO_BYTES;
+
+// Byte offsets inside the `30,720,000`-byte (`29.30 MiB`) compact `Top-10` staging slab (`MmapCompact`)
 const EX_W_BYTES: usize = SW_W_BYTES / Q38_EXP; // 819,200 B
 const EX_SB_BYTES: usize = SW_SB_BYTES / Q38_EXP; // 102,400 B
 const COMPACT_W_BYTES: usize = Q38_TOP_K * EX_W_BYTES;
@@ -83,6 +104,166 @@ fn bf16_to_f32(b: u16) -> f32 {
     f32::from_bits((b as u32) << 16)
 }
 
+/// Losslessly (`0-ULP`) packs `n_groups` (`n_groups % 4 == 0`) BF16 `(scale, bias)` pairs into
+/// `lo_u32_out` (`n_groups / 2` `u32`s) and `hi_u32_out` (`n_groups / 4` `u32`s) whenever all
+/// non-zero normal exponents fit in `<= 15` consecutive exponents (`[min_exp .. min_exp + 14]`)
+/// with zero subnormals / NaN / Inf. Returns `Some((base_sc_m1, base_bi_m1))` on exact fit.
+pub fn pack_z24_sb_slice(
+    sc_bytes: &[u8],
+    bi_bytes: &[u8],
+    lo_u32_out: &mut [u32],
+    hi_u32_out: &mut [u32],
+) -> Option<(u8, u8)> {
+    assert_eq!(sc_bytes.len(), bi_bytes.len());
+    assert_eq!(sc_bytes.len() % 8, 0);
+    let n_groups = sc_bytes.len() / 2;
+    assert_eq!(lo_u32_out.len(), n_groups / 2);
+    assert_eq!(hi_u32_out.len(), n_groups / 4);
+
+    let scan_range = |bytes: &[u8]| -> Option<(u8, u8)> {
+        let n_threads = if bytes.len() >= (1 << 20) { 8 } else { 1 };
+        let chunk_len = ((bytes.len() / 2).div_ceil(n_threads) * 2).max(2);
+        let parts: Vec<Option<(u8, u8)>> = std::thread::scope(|s| {
+            let mut handles = Vec::with_capacity(n_threads);
+            for chunk in bytes.chunks(chunk_len) {
+                handles.push(s.spawn(move || {
+                    let mut mn = 255u8;
+                    let mut mx = 0u8;
+                    for pair in chunk.as_chunks::<2>().0 {
+                        let u = u16::from_le_bytes(*pair);
+                        let exp = ((u >> 7) & 0xFF) as u8;
+                        let mant = (u & 0x7F) as u8;
+                        if exp == 255 {
+                            return None;
+                        }
+                        if exp == 0 {
+                            if mant != 0 {
+                                return None;
+                            }
+                        } else {
+                            if exp < mn {
+                                mn = exp;
+                            }
+                            if exp > mx {
+                                mx = exp;
+                            }
+                        }
+                    }
+                    Some((mn, mx))
+                }));
+            }
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+
+        let mut gmin = 255u8;
+        let mut gmax = 0u8;
+        for p in parts {
+            let (mn, mx) = p?;
+            if mn < gmin {
+                gmin = mn;
+            }
+            if mx > gmax {
+                gmax = mx;
+            }
+        }
+        if gmin > gmax {
+            // All elements are `±0.0`; any `base_m1` works since `code4 == 0` decodes to `exp = 0`.
+            return Some((1, 1));
+        }
+        if gmax - gmin > 14 {
+            return None;
+        }
+        Some((gmin, gmax))
+    };
+
+    let (min_sc, _) = scan_range(sc_bytes)?;
+    let (min_bi, _) = scan_range(bi_bytes)?;
+    let base_sc_m1 = min_sc - 1;
+    let base_bi_m1 = min_bi - 1;
+
+    let n_quads = n_groups / 4;
+    let n_threads = if n_quads >= (1 << 18) { 8 } else { 1 };
+    let quads_per_thread = n_quads.div_ceil(n_threads).max(1);
+
+    let lo_addr = lo_u32_out.as_mut_ptr() as usize;
+    let hi_addr = hi_u32_out.as_mut_ptr() as usize;
+
+    std::thread::scope(|s| {
+        for t in 0..n_threads {
+            let q_start = t * quads_per_thread;
+            if q_start >= n_quads {
+                break;
+            }
+            let q_end = (q_start + quads_per_thread).min(n_quads);
+            let sc_sub = &sc_bytes[q_start * 8..q_end * 8];
+            let bi_sub = &bi_bytes[q_start * 8..q_end * 8];
+            s.spawn(move || unsafe {
+                let lo_ptr = (lo_addr as *mut u32).add(q_start * 2);
+                let hi_ptr = (hi_addr as *mut u32).add(q_start);
+                for q in 0..(q_end - q_start) {
+                    let mut lo_vals = [0u16; 4];
+                    let mut hi_vals = [0u8; 4];
+                    for sub in 0..4usize {
+                        let b_off = q * 8 + sub * 2;
+                        let sc_u = u16::from_le_bytes([sc_sub[b_off], sc_sub[b_off + 1]]);
+                        let bi_u = u16::from_le_bytes([bi_sub[b_off], bi_sub[b_off + 1]]);
+
+                        let sc_sm = (((sc_u >> 8) & 0x80) | (sc_u & 0x7F)) as u8;
+                        let sc_exp = ((sc_u >> 7) & 0xFF) as u8;
+                        let sc_c = if sc_exp == 0 { 0 } else { sc_exp - base_sc_m1 };
+
+                        let bi_sm = (((bi_u >> 8) & 0x80) | (bi_u & 0x7F)) as u8;
+                        let bi_exp = ((bi_u >> 7) & 0xFF) as u8;
+                        let bi_c = if bi_exp == 0 { 0 } else { bi_exp - base_bi_m1 };
+
+                        lo_vals[sub] = ((bi_sm as u16) << 8) | (sc_sm as u16);
+                        hi_vals[sub] = (bi_c << 4) | sc_c;
+                    }
+                    *lo_ptr.add(q * 2) = (lo_vals[0] as u32) | ((lo_vals[1] as u32) << 16);
+                    *lo_ptr.add(q * 2 + 1) = (lo_vals[2] as u32) | ((lo_vals[3] as u32) << 16);
+                    *hi_ptr.add(q) = u32::from_le_bytes(hi_vals);
+                }
+            });
+        }
+    });
+
+    Some((base_sc_m1, base_bi_m1))
+}
+
+/// CPU reference mirror of CUDA `load_z24_sb_pair` (`0-ULP` bit-identity verification).
+#[inline]
+pub fn decode_z24_sb_pair_ref(
+    lo_u32: &[u32],
+    hi_u32: &[u32],
+    idx: usize,
+    base_sc_m1: u8,
+    base_bi_m1: u8,
+) -> (f32, f32) {
+    let lo_pair = lo_u32[idx >> 1];
+    let lo16 = (lo_pair >> ((idx & 1) * 16)) & 0xFFFF;
+    let hi_quad = hi_u32[idx >> 2];
+    let hi8 = (hi_quad >> ((idx & 3) * 8)) & 0xFF;
+
+    let sc_sm = lo16 & 0xFF;
+    let sc_c = hi8 & 0xF;
+    let sc_exp = if sc_c == 0 {
+        0
+    } else {
+        (base_sc_m1 as u32) + sc_c
+    };
+    let sc = f32::from_bits(((sc_sm & 0x80) << 24) | (sc_exp << 23) | ((sc_sm & 0x7F) << 16));
+
+    let bi_sm = lo16 >> 8;
+    let bi_c = hi8 >> 4;
+    let bi_exp = if bi_c == 0 {
+        0
+    } else {
+        (base_bi_m1 as u32) + bi_c
+    };
+    let bi = f32::from_bits(((bi_sm & 0x80) << 24) | (bi_exp << 23) | ((bi_sm & 0x7F) << 16));
+    (sc, bi)
+}
+
 fn concat_bytes(slices: &[&[u8]]) -> Vec<u8> {
     let total: usize = slices.iter().map(|s| s.len()).sum();
     let mut out = Vec::with_capacity(total);
@@ -96,11 +277,14 @@ fn f32_slice_bytes(v: &[f32]) -> &[u8] {
     unsafe { core::slice::from_raw_parts(v.as_ptr().cast::<u8>(), core::mem::size_of_val(v)) }
 }
 
+fn u32_slice_bytes(v: &[u32]) -> &[u8] {
+    unsafe { core::slice::from_raw_parts(v.as_ptr().cast::<u8>(), core::mem::size_of_val(v)) }
+}
+
 fn parallel_copy_into_pinned(dst_base: *mut u8, slices: &[(usize, &[u8])]) {
     let base_addr = dst_base as usize;
     std::thread::scope(|s| {
         for &(off, bytes) in slices {
-            // Split 400 MiB `.weight` slabs across 4 parallel memcpy tasks, 50 MiB `.scales/.biases` as 1 task
             let n_chunks = if bytes.len() >= 200_000_000 { 4 } else { 1 };
             let chunk_sz = bytes.len().div_ceil(n_chunks);
             for c in 0..n_chunks {
@@ -132,6 +316,52 @@ fn available_host_ram_bytes() -> usize {
         }
     }
     0
+}
+
+#[cfg(target_os = "linux")]
+fn advise_willneed_slice(bytes: &[u8]) {
+    unsafe extern "C" {
+        fn madvise(addr: *mut c_void, length: usize, advice: i32) -> i32;
+    }
+    const MADV_WILLNEED: i32 = 3;
+    let page = 4096usize;
+    let start = (bytes.as_ptr() as usize) & !(page - 1);
+    let end = ((bytes.as_ptr() as usize) + bytes.len() + page - 1) & !(page - 1);
+    if end > start {
+        unsafe {
+            let _ = madvise(start as *mut c_void, end - start, MADV_WILLNEED);
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn advise_willneed_slice(_bytes: &[u8]) {}
+
+struct Q4LinearHostMapped {
+    w: PinnedHostBuf,
+    sc: PinnedHostBuf,
+    bi: PinnedHostBuf,
+}
+
+impl Q4LinearHostMapped {
+    fn from_sharded(
+        ctx: &Arc<CudaContextHandle>,
+        st: &ShardedSafeTensors,
+        prefix: &str,
+        rows: usize,
+        cols: usize,
+    ) -> Result<Self, String> {
+        let w_tv = st.require(&format!("{prefix}.weight"), "U32", &[rows, cols / 8]);
+        let sc_tv = st.require(&format!("{prefix}.scales"), "BF16", &[rows, cols / 32]);
+        let bi_tv = st.require(&format!("{prefix}.biases"), "BF16", &[rows, cols / 32]);
+        let w = PinnedHostBuf::alloc_uninit(ctx, w_tv.data.len())?;
+        let sc = PinnedHostBuf::alloc_uninit(ctx, sc_tv.data.len())?;
+        let bi = PinnedHostBuf::alloc_uninit(ctx, bi_tv.data.len())?;
+        parallel_copy_into_pinned(w.host_ptr, &[(0, w_tv.data)]);
+        parallel_copy_into_pinned(sc.host_ptr, &[(0, sc_tv.data)]);
+        parallel_copy_into_pinned(bi.host_ptr, &[(0, bi_tv.data)]);
+        Ok(Self { w, sc, bi })
+    }
 }
 
 struct Q4LinearGpu {
@@ -229,11 +459,34 @@ enum AttentionBranchGpu {
     },
 }
 
-enum SwitchMlpTier {
-    Vram(DeviceBuf),
-    HostPinned(PinnedHostBuf),
-    MmapCompact { layer_idx: usize },
+#[derive(Clone, Copy)]
+struct Z24LayerBases {
+    up_packed_m1: u32,   // `[gate_sc | (gate_bi<<8) | (up_sc<<16) | (up_bi<<24)]`
+    down_packed_m1: u32, // `[down_sc | (down_bi<<8)]`
 }
+
+enum SwitchMlpTier {
+    Vram {
+        buf: DeviceBuf,
+        z24: Option<Z24LayerBases>,
+    },
+    HostPinned {
+        buf: PinnedHostBuf,
+        z24: Option<Z24LayerBases>,
+    },
+    MmapCompact {
+        layer_idx: usize,
+    },
+}
+
+struct PleShardPtrs {
+    w_ptr: *const u8,
+    sc_ptr: *const u8,
+    bi_ptr: *const u8,
+}
+
+unsafe impl Send for PleShardPtrs {}
+unsafe impl Sync for PleShardPtrs {}
 
 struct PleGpu {
     kv_proj: Q4LinearGpu,
@@ -245,7 +498,7 @@ struct PleGpu {
     multipliers: [i64; 3],
     head_sizes: [i64; 16],
     head_offsets: [i64; 16],
-    shard_keys: Vec<(String, String, String)>,
+    shard_ptrs: Vec<PleShardPtrs>,
 }
 
 struct Qwen38LayerGpu {
@@ -263,11 +516,13 @@ struct Qwen38KernelFns {
     _module: CUmodule,
     embed_init_hc4: CUfunction,
     q4_gemv: CUfunction,
+    q4_gemv_2560: CUfunction,
     q4_gemv_10k: CUfunction,
     ple_inject: CUfunction,
     hc_norm4: CUfunction,
-    hc_mix4: CUfunction,
-    hc_inject4: CUfunction,
+    hc_down_inj_10k: CUfunction,
+    hc_up_mix4: CUfunction,
+    hc_inject4_vec: CUfunction,
     gdn_conv_silu: CUfunction,
     gdn_recurrent_step: CUfunction,
     qsa_prep_and_cache: CUfunction,
@@ -277,8 +532,10 @@ struct Qwen38KernelFns {
     bf16_router_512: CUfunction,
     softmax_topk10: CUfunction,
     moe_up_swiglu11: CUfunction,
+    moe_up_swiglu11_z24: CUfunction,
     moe_down_combine11: CUfunction,
-    argmax_and_inc_pos: CUfunction,
+    moe_down_combine11_z24: CUfunction,
+    argmax_fast: CUfunction,
     inc_pos: CUfunction,
 }
 
@@ -288,8 +545,9 @@ unsafe impl Sync for Qwen38KernelFns {}
 pub struct Qwen38GpuEngine {
     pub ctx: Arc<CudaContextHandle>,
     fns: Qwen38KernelFns,
+    pdl: bool,
     sharded_mmap: ShardedSafeTensors,
-    embed: Q4LinearGpu,
+    embed: Q4LinearHostMapped,
     final_hc: HyperConnGpu,
     lm_head: Q4LinearGpu,
     inv_freq32: DeviceBuf,
@@ -298,10 +556,11 @@ pub struct Qwen38GpuEngine {
     pub pinned_expert_layers: usize,
     pub compact_expert_layers: usize,
     pub max_ctx: usize,
+    kv_cap: usize,
     pub enable_cuda_graph: bool,
     use_gdn_sigmoid_gate: i32,
-    ple_stage_ring: PinnedHostBuf, // `[PLE_RING_SLOTS, 2560]` f32 (`2.5 MiB`)
-    tok_stage_ring: PinnedHostBuf, // `[PLE_RING_SLOTS]` i32
+    ple_stage_ring: PinnedHostBuf,
+    tok_stage_ring: PinnedHostBuf,
     d_ple_emb: DeviceBuf,
     d_ple_kv: DeviceBuf,
     ple_ready_event: CUevent,
@@ -315,7 +574,6 @@ pub struct Qwen38GpuEngine {
     d_hc: DeviceBuf,
     d_hc_normed: DeviceBuf,
     d_hc_low: DeviceBuf,
-    d_hc_up: DeviceBuf,
     d_hc_inj4: DeviceBuf,
     d_mixed: DeviceBuf,
     d_branch_out: DeviceBuf,
@@ -341,17 +599,44 @@ pub struct Qwen38GpuEngine {
 
 unsafe impl Send for Qwen38GpuEngine {}
 
+fn discover_qwen38_cubin() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("LEANSONIC_QWEN38_CUBIN_PATH") {
+        let pb = PathBuf::from(p);
+        if pb.is_file() {
+            return Some(pb);
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            for rel in [
+                PathBuf::from("qwen38_sm120a.cubin"),
+                PathBuf::from("../../build/qwen38_sm120a.cubin"),
+                PathBuf::from("../build/qwen38_sm120a.cubin"),
+            ] {
+                let cand = dir.join(rel);
+                if cand.is_file() {
+                    return Some(cand);
+                }
+            }
+        }
+    }
+    let cwd_cand = PathBuf::from("build/qwen38_sm120a.cubin");
+    if cwd_cand.is_file() {
+        return Some(cwd_cand);
+    }
+    None
+}
+
 fn load_kernel_fns(ctx: &Arc<CudaContextHandle>) -> Result<Qwen38KernelFns, String> {
-    let module_image: Vec<u8> = if let Ok(cubin_path) = std::env::var("LEANSONIC_QWEN38_CUBIN_PATH")
-    {
-        let mut raw = std::fs::read(&cubin_path).map_err(|e| format!("read {cubin_path}: {e}"))?;
+    let module_image: Vec<u8> = if let Some(cubin_path) = discover_qwen38_cubin() {
+        let mut raw = std::fs::read(&cubin_path)
+            .map_err(|e| format!("read {}: {e}", cubin_path.display()))?;
         raw.push(0);
         raw
     } else {
-        let inlined = CUDA_QWEN38_SRC.replace(
-            "#include \"include/leansonic_verified.cuh\"",
-            CUDA_HEADER_SRC,
-        );
+        let header_nvrtc = CUDA_HEADER_SRC.replace("#include <stdint.h>", "");
+        let inlined =
+            CUDA_QWEN38_SRC.replace("#include \"include/leansonic_verified.cuh\"", &header_nvrtc);
         compile_cuda_to_ptx_nvrtc(&inlined, "compute_120a")?
     };
 
@@ -379,11 +664,13 @@ fn load_kernel_fns(ctx: &Arc<CudaContextHandle>) -> Result<Qwen38KernelFns, Stri
         _module: module,
         embed_init_hc4: get_fn("q38_embed_init_hc4")?,
         q4_gemv: get_fn("q38_q4_gemv")?,
+        q4_gemv_2560: get_fn("q38_q4_gemv_2560")?,
         q4_gemv_10k: get_fn("q38_q4_gemv_10k")?,
         ple_inject: get_fn("q38_ple_inject")?,
         hc_norm4: get_fn("q38_hc_norm4")?,
-        hc_mix4: get_fn("q38_hc_mix4")?,
-        hc_inject4: get_fn("q38_hc_inject4")?,
+        hc_down_inj_10k: get_fn("q38_hc_down_inj_10k")?,
+        hc_up_mix4: get_fn("q38_hc_up_mix4")?,
+        hc_inject4_vec: get_fn("q38_hc_inject4_vec")?,
         gdn_conv_silu: get_fn("q38_gdn_conv_silu")?,
         gdn_recurrent_step: get_fn("q38_gdn_recurrent_step")?,
         qsa_prep_and_cache: get_fn("q38_qsa_prep_and_cache")?,
@@ -393,8 +680,10 @@ fn load_kernel_fns(ctx: &Arc<CudaContextHandle>) -> Result<Qwen38KernelFns, Stri
         bf16_router_512: get_fn("q38_bf16_router_512")?,
         softmax_topk10: get_fn("q38_softmax_topk10")?,
         moe_up_swiglu11: get_fn("q38_moe_up_swiglu11")?,
+        moe_up_swiglu11_z24: get_fn("q38_moe_up_swiglu11_z24")?,
         moe_down_combine11: get_fn("q38_moe_down_combine11")?,
-        argmax_and_inc_pos: get_fn("q38_argmax_and_inc_pos")?,
+        moe_down_combine11_z24: get_fn("q38_moe_down_combine11_z24")?,
+        argmax_fast: get_fn("q38_argmax_fast")?,
         inc_pos: get_fn("q38_inc_pos")?,
     })
 }
@@ -474,6 +763,10 @@ impl Qwen38GpuEngine {
         let ctx = CudaContextHandle::init(0)?;
         ctx.bind_current()?;
         let fns = load_kernel_fns(&ctx)?;
+        let pdl = ctx.api.cuLaunchKernelEx.is_some()
+            && std::env::var("LEANSONIC_NO_PDL")
+                .map(|v| v != "1")
+                .unwrap_or(true);
         let st = ShardedSafeTensors::open_dir(dir)
             .map_err(|e| format!("open sharded safetensors in {}: {e}", dir.display()))?;
 
@@ -495,7 +788,9 @@ impl Qwen38GpuEngine {
             probe_norm.iter().map(|&u| bf16_to_f32(u)).sum::<f32>() / (Q38_HC_D as f32);
         let zero_centered = mean_probe < 0.5;
 
-        let embed = Q4LinearGpu::from_sharded(
+        // Place `496.6 MiB` `embed_tokens` in GPU-mapped `PinnedHostBuf` (only `1,600 B` read/token!),
+        // saving `0.49 GiB` of GDDR7 VRAM so all `48/48` `switch_mlp` slabs fit on `RTX PRO 5000 72GB`!
+        let embed = Q4LinearHostMapped::from_sharded(
             &ctx,
             &st,
             "language_model.model.embed_tokens",
@@ -529,14 +824,16 @@ impl Qwen38GpuEngine {
             )?;
         }
 
-        let max_blocks = (max_ctx / 4) + 16;
+        // Start QSA KV cache at `max_ctx.min(4096)` (`129 MiB` total across 12 QSA layers) and grow
+        // elastically via `ensure_kv_capacity` if a prompt/generation exceeds `4,096` tokens.
+        let kv_cap = max_ctx.clamp(256, 4096);
+        let init_blocks = (kv_cap / 4) + 16;
         let d_token_in = DeviceBuf::alloc_zeroed(&ctx, 16)?;
         let d_token_out = DeviceBuf::alloc_zeroed(&ctx, 16)?;
         let d_pos = DeviceBuf::alloc_zeroed(&ctx, 16)?;
         let d_hc = DeviceBuf::alloc_zeroed(&ctx, Q38_HC_D * 4)?;
         let d_hc_normed = DeviceBuf::alloc_zeroed(&ctx, Q38_HC_D * 4)?;
         let d_hc_low = DeviceBuf::alloc_zeroed(&ctx, Q38_HC_LOW * 4)?;
-        let d_hc_up = DeviceBuf::alloc_zeroed(&ctx, Q38_HC_D * 4)?;
         let d_hc_inj4 = DeviceBuf::alloc_zeroed(&ctx, 16)?;
         let d_mixed = DeviceBuf::alloc_zeroed(&ctx, Q38_D * 4)?;
         let d_branch_out = DeviceBuf::alloc_zeroed(&ctx, Q38_D * 4)?;
@@ -547,8 +844,8 @@ impl Qwen38GpuEngine {
         let d_q_rot = DeviceBuf::alloc_zeroed(&ctx, 6_144 * 4)?;
         let d_q_gate = DeviceBuf::alloc_zeroed(&ctx, 6_144 * 4)?;
         let d_idx_q = DeviceBuf::alloc_zeroed(&ctx, 512 * 4)?;
-        let d_qsa_scores = DeviceBuf::alloc_zeroed(&ctx, max_blocks * 4)?;
-        let d_qsa_mask = DeviceBuf::alloc_zeroed(&ctx, max_blocks * 4)?;
+        let d_qsa_scores = DeviceBuf::alloc_zeroed(&ctx, init_blocks * 4)?;
+        let d_qsa_mask = DeviceBuf::alloc_zeroed(&ctx, init_blocks * 4)?;
         let d_attn_out = DeviceBuf::alloc_zeroed(&ctx, 6_144 * 4)?;
         let d_router_logits = DeviceBuf::alloc_zeroed(&ctx, Q38_EXP * 4)?;
         let d_sel_ids10 = DeviceBuf::alloc_zeroed(&ctx, Q38_TOP_K * 4)?;
@@ -566,6 +863,7 @@ impl Qwen38GpuEngine {
             sh_down: Q4LinearGpu,
         }
         let mut partials = Vec::with_capacity(Q38_LAYERS);
+        let warm_engram = available_host_ram_bytes() > 40 * 1024 * 1024 * 1024;
 
         for l in 0..Q38_LAYERS {
             let lp = format!("language_model.model.layers.{l}");
@@ -637,15 +935,22 @@ impl Qwen38GpuEngine {
                 head_sizes.copy_from_slice(&sizes_v);
                 head_offsets.copy_from_slice(&offs_v);
 
-                let mut shard_keys = Vec::with_capacity(Q38_PLE_SHARDS);
+                let mut shard_ptrs = Vec::with_capacity(Q38_PLE_SHARDS);
                 for s in 0..Q38_PLE_SHARDS {
                     let sp = format!("{pp}.ple_embedding.ngram_embedding.shard_{s}");
-                    let _ = st.require(&format!("{sp}.weight"), "U32", &[2_500_012, 20]);
-                    shard_keys.push((
-                        format!("{sp}.weight"),
-                        format!("{sp}.scales"),
-                        format!("{sp}.biases"),
-                    ));
+                    let w_tv = st.require(&format!("{sp}.weight"), "U32", &[2_500_012, 20]);
+                    let sc_tv = st.require(&format!("{sp}.scales"), "BF16", &[2_500_012, 5]);
+                    let bi_tv = st.require(&format!("{sp}.biases"), "BF16", &[2_500_012, 5]);
+                    if warm_engram {
+                        advise_willneed_slice(w_tv.data);
+                        advise_willneed_slice(sc_tv.data);
+                        advise_willneed_slice(bi_tv.data);
+                    }
+                    shard_ptrs.push(PleShardPtrs {
+                        w_ptr: w_tv.data.as_ptr(),
+                        sc_ptr: sc_tv.data.as_ptr(),
+                        bi_ptr: bi_tv.data.as_ptr(),
+                    });
                 }
                 Some(PleGpu {
                     kv_proj,
@@ -657,7 +962,7 @@ impl Qwen38GpuEngine {
                     multipliers,
                     head_sizes,
                     head_offsets,
-                    shard_keys,
+                    shard_ptrs,
                 })
             } else {
                 None
@@ -760,10 +1065,10 @@ impl Qwen38GpuEngine {
                     &[128],
                     zero_centered,
                 )?;
-                let k_cache_fp16 = DeviceBuf::alloc_zeroed(&ctx, max_ctx * 512 * 2)?;
-                let v_cache_fp16 = DeviceBuf::alloc_zeroed(&ctx, max_ctx * 512 * 2)?;
-                let idx_raw_k_cache = DeviceBuf::alloc_zeroed(&ctx, max_ctx * 128 * 4)?;
-                let idx_block_k_cache = DeviceBuf::alloc_zeroed(&ctx, max_blocks * 128 * 4)?;
+                let k_cache_fp16 = DeviceBuf::alloc_zeroed(&ctx, kv_cap * 512 * 2)?;
+                let v_cache_fp16 = DeviceBuf::alloc_zeroed(&ctx, kv_cap * 512 * 2)?;
+                let idx_raw_k_cache = DeviceBuf::alloc_zeroed(&ctx, kv_cap * 128 * 4)?;
+                let idx_block_k_cache = DeviceBuf::alloc_zeroed(&ctx, init_blocks * 128 * 4)?;
                 AttentionBranchGpu::Qsa {
                     qkv_idx,
                     o_proj,
@@ -809,20 +1114,29 @@ impl Qwen38GpuEngine {
             });
         }
 
-        // Pass 2: Place `48` `switch_mlp` slabs (`1,500 MiB`/layer): VRAM -> HostPinned -> MmapCompact
-        let vram_reserve_bytes: usize = 450 * 1024 * 1024; // 450 MiB headroom -> 19/48 in 32GB, 45/48 in 72GB!
+        // Pass 2: Place `48` `switch_mlp` slabs (`1,425 MiB`/layer lossless Z24):
+        //   `48/48` in GDDR7 VRAM on `RTX PRO 5000 72GB` (`0` PCIe spill!),
+        //   `19/48` VRAM + `29/48` `HostPinned` on `RTX PRO 4500 32GB`.
+        let vram_reserve_bytes: usize = 320 * 1024 * 1024;
         let host_ram_reserve_bytes: usize = 16 * 1024 * 1024 * 1024;
         let force_compact = std::env::var("LEANSONIC_SPILLED_MODE")
             .map(|v| v == "compact")
+            .unwrap_or(false);
+        let disable_z24 = std::env::var("LEANSONIC_NO_Z24")
+            .map(|v| v == "1")
             .unwrap_or(false);
         let max_vram_layers: usize = std::env::var("LEANSONIC_MAX_RESIDENT_LAYERS")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(Q38_LAYERS);
 
+        let mut z24_lo_scratch = vec![0u32; SW_GROUPS_PER_PROJ / 2];
+        let mut z24_hi_scratch = vec![0u32; SW_GROUPS_PER_PROJ / 4];
+
         let mut resident_expert_layers = 0usize;
         let mut pinned_expert_layers = 0usize;
         let mut compact_expert_layers = 0usize;
+        let mut z24_layers = 0usize;
         let mut layers = Vec::with_capacity(Q38_LAYERS);
 
         for (l, part) in partials.into_iter().enumerate() {
@@ -837,36 +1151,157 @@ impl Qwen38GpuEngine {
             let dsc = st.require(&format!("{swp}.down_proj.scales"), "BF16", &[512, 2560, 20]);
             let dbi = st.require(&format!("{swp}.down_proj.biases"), "BF16", &[512, 2560, 20]);
 
-            let slices: [(usize, &[u8]); 9] = [
-                (OFF_GATE_W, gw.data),
-                (OFF_GATE_SC, gsc.data),
-                (OFF_GATE_BI, gbi.data),
-                (OFF_UP_W, uw.data),
-                (OFF_UP_SC, usc.data),
-                (OFF_UP_BI, ubi.data),
-                (OFF_DOWN_W, dw.data),
-                (OFF_DOWN_SC, dsc.data),
-                (OFF_DOWN_BI, dbi.data),
-            ];
-
             let (free_vram, _) = ctx.mem_info()?;
-            let switch_mlp = if resident_expert_layers < max_vram_layers
-                && free_vram > vram_reserve_bytes.saturating_add(SW_LAYER_BYTES)
-            {
-                let slab = DeviceBuf::alloc_zeroed(&ctx, SW_LAYER_BYTES)?;
-                for &(off, bytes) in &slices {
-                    slab.copy_from_host_at(off, bytes)?;
-                }
-                resident_expert_layers += 1;
-                SwitchMlpTier::Vram(slab)
-            } else if !force_compact
+            let want_vram = resident_expert_layers < max_vram_layers
+                && free_vram > vram_reserve_bytes.saturating_add(SW_Z24_LAYER_BYTES);
+            let want_pinned = !want_vram
+                && !force_compact
                 && available_host_ram_bytes()
-                    > host_ram_reserve_bytes.saturating_add(SW_LAYER_BYTES)
-            {
-                let slab = PinnedHostBuf::alloc_uninit(&ctx, SW_LAYER_BYTES)?;
-                parallel_copy_into_pinned(slab.host_ptr, &slices);
-                pinned_expert_layers += 1;
-                SwitchMlpTier::HostPinned(slab)
+                    > host_ram_reserve_bytes.saturating_add(SW_Z24_LAYER_BYTES);
+
+            let switch_mlp = if want_vram || want_pinned {
+                // Attempt `0-ULP` lossless `24-bit` (`Z24`) packing first (`1,425 MiB` vs `1,500 MiB`).
+                let z24_gate = if !disable_z24 {
+                    pack_z24_sb_slice(gsc.data, gbi.data, &mut z24_lo_scratch, &mut z24_hi_scratch)
+                } else {
+                    None
+                };
+
+                if let Some((g_sc_m1, g_bi_m1)) = z24_gate {
+                    if want_vram {
+                        let slab = DeviceBuf::alloc_uninit(&ctx, SW_Z24_LAYER_BYTES)?;
+                        slab.copy_from_host_at(ZOFF_GATE_W, gw.data)?;
+                        slab.copy_from_host_at(ZOFF_GATE_LO, u32_slice_bytes(&z24_lo_scratch))?;
+                        slab.copy_from_host_at(ZOFF_GATE_HI, u32_slice_bytes(&z24_hi_scratch))?;
+
+                        let (u_sc_m1, u_bi_m1) = pack_z24_sb_slice(
+                            usc.data,
+                            ubi.data,
+                            &mut z24_lo_scratch,
+                            &mut z24_hi_scratch,
+                        )
+                        .ok_or_else(|| format!("layer {l} up_proj exceeded Z24 exponent span"))?;
+                        slab.copy_from_host_at(ZOFF_UP_W, uw.data)?;
+                        slab.copy_from_host_at(ZOFF_UP_LO, u32_slice_bytes(&z24_lo_scratch))?;
+                        slab.copy_from_host_at(ZOFF_UP_HI, u32_slice_bytes(&z24_hi_scratch))?;
+
+                        let (d_sc_m1, d_bi_m1) = pack_z24_sb_slice(
+                            dsc.data,
+                            dbi.data,
+                            &mut z24_lo_scratch,
+                            &mut z24_hi_scratch,
+                        )
+                        .ok_or_else(|| format!("layer {l} down_proj exceeded Z24 exponent span"))?;
+                        slab.copy_from_host_at(ZOFF_DOWN_W, dw.data)?;
+                        slab.copy_from_host_at(ZOFF_DOWN_LO, u32_slice_bytes(&z24_lo_scratch))?;
+                        slab.copy_from_host_at(ZOFF_DOWN_HI, u32_slice_bytes(&z24_hi_scratch))?;
+
+                        resident_expert_layers += 1;
+                        z24_layers += 1;
+                        SwitchMlpTier::Vram {
+                            buf: slab,
+                            z24: Some(Z24LayerBases {
+                                up_packed_m1: (g_sc_m1 as u32)
+                                    | ((g_bi_m1 as u32) << 8)
+                                    | ((u_sc_m1 as u32) << 16)
+                                    | ((u_bi_m1 as u32) << 24),
+                                down_packed_m1: (d_sc_m1 as u32) | ((d_bi_m1 as u32) << 8),
+                            }),
+                        }
+                    } else {
+                        let slab = PinnedHostBuf::alloc_uninit(&ctx, SW_Z24_LAYER_BYTES)?;
+                        parallel_copy_into_pinned(
+                            slab.host_ptr,
+                            &[
+                                (ZOFF_GATE_W, gw.data),
+                                (ZOFF_GATE_LO, u32_slice_bytes(&z24_lo_scratch)),
+                                (ZOFF_GATE_HI, u32_slice_bytes(&z24_hi_scratch)),
+                            ],
+                        );
+                        let (u_sc_m1, u_bi_m1) = pack_z24_sb_slice(
+                            usc.data,
+                            ubi.data,
+                            &mut z24_lo_scratch,
+                            &mut z24_hi_scratch,
+                        )
+                        .ok_or_else(|| format!("layer {l} up_proj exceeded Z24 exponent span"))?;
+                        parallel_copy_into_pinned(
+                            slab.host_ptr,
+                            &[
+                                (ZOFF_UP_W, uw.data),
+                                (ZOFF_UP_LO, u32_slice_bytes(&z24_lo_scratch)),
+                                (ZOFF_UP_HI, u32_slice_bytes(&z24_hi_scratch)),
+                            ],
+                        );
+                        let (d_sc_m1, d_bi_m1) = pack_z24_sb_slice(
+                            dsc.data,
+                            dbi.data,
+                            &mut z24_lo_scratch,
+                            &mut z24_hi_scratch,
+                        )
+                        .ok_or_else(|| format!("layer {l} down_proj exceeded Z24 exponent span"))?;
+                        parallel_copy_into_pinned(
+                            slab.host_ptr,
+                            &[
+                                (ZOFF_DOWN_W, dw.data),
+                                (ZOFF_DOWN_LO, u32_slice_bytes(&z24_lo_scratch)),
+                                (ZOFF_DOWN_HI, u32_slice_bytes(&z24_hi_scratch)),
+                            ],
+                        );
+
+                        pinned_expert_layers += 1;
+                        z24_layers += 1;
+                        SwitchMlpTier::HostPinned {
+                            buf: slab,
+                            z24: Some(Z24LayerBases {
+                                up_packed_m1: (g_sc_m1 as u32)
+                                    | ((g_bi_m1 as u32) << 8)
+                                    | ((u_sc_m1 as u32) << 16)
+                                    | ((u_bi_m1 as u32) << 24),
+                                down_packed_m1: (d_sc_m1 as u32) | ((d_bi_m1 as u32) << 8),
+                            }),
+                        }
+                    }
+                } else {
+                    let slices: [(usize, &[u8]); 9] = [
+                        (OFF_GATE_W, gw.data),
+                        (OFF_GATE_SC, gsc.data),
+                        (OFF_GATE_BI, gbi.data),
+                        (OFF_UP_W, uw.data),
+                        (OFF_UP_SC, usc.data),
+                        (OFF_UP_BI, ubi.data),
+                        (OFF_DOWN_W, dw.data),
+                        (OFF_DOWN_SC, dsc.data),
+                        (OFF_DOWN_BI, dbi.data),
+                    ];
+                    if resident_expert_layers < max_vram_layers
+                        && free_vram > vram_reserve_bytes.saturating_add(SW_LAYER_BYTES)
+                    {
+                        let slab = DeviceBuf::alloc_uninit(&ctx, SW_LAYER_BYTES)?;
+                        for &(off, bytes) in &slices {
+                            slab.copy_from_host_at(off, bytes)?;
+                        }
+                        resident_expert_layers += 1;
+                        SwitchMlpTier::Vram {
+                            buf: slab,
+                            z24: None,
+                        }
+                    } else if !force_compact
+                        && available_host_ram_bytes()
+                            > host_ram_reserve_bytes.saturating_add(SW_LAYER_BYTES)
+                    {
+                        let slab = PinnedHostBuf::alloc_uninit(&ctx, SW_LAYER_BYTES)?;
+                        parallel_copy_into_pinned(slab.host_ptr, &slices);
+                        pinned_expert_layers += 1;
+                        SwitchMlpTier::HostPinned {
+                            buf: slab,
+                            z24: None,
+                        }
+                    } else {
+                        compact_expert_layers += 1;
+                        SwitchMlpTier::MmapCompact { layer_idx: l }
+                    }
+                }
             } else {
                 compact_expert_layers += 1;
                 SwitchMlpTier::MmapCompact { layer_idx: l }
@@ -883,6 +1318,8 @@ impl Qwen38GpuEngine {
                 switch_mlp,
             });
         }
+        drop(z24_lo_scratch);
+        drop(z24_hi_scratch);
 
         let (compact_host_stage, compact_dev_stage) = if compact_expert_layers > 0 {
             (
@@ -896,6 +1333,7 @@ impl Qwen38GpuEngine {
         let mut engine = Self {
             ctx,
             fns,
+            pdl,
             sharded_mmap: st,
             embed,
             final_hc,
@@ -906,6 +1344,7 @@ impl Qwen38GpuEngine {
             pinned_expert_layers,
             compact_expert_layers,
             max_ctx,
+            kv_cap,
             enable_cuda_graph,
             use_gdn_sigmoid_gate,
             ple_stage_ring,
@@ -923,7 +1362,6 @@ impl Qwen38GpuEngine {
             d_hc,
             d_hc_normed,
             d_hc_low,
-            d_hc_up,
             d_hc_inj4,
             d_mixed,
             d_branch_out,
@@ -947,22 +1385,16 @@ impl Qwen38GpuEngine {
             prefill_graph: None,
         };
 
-        if enable_cuda_graph && compact_expert_layers == 0 {
-            engine.decode_graph = Some(CapturedGraphExec::capture(&engine.ctx, |stream| {
-                engine.enqueue_all_48_layers(stream, true, false)
-            })?);
-            engine.prefill_graph = Some(CapturedGraphExec::capture(&engine.ctx, |stream| {
-                engine.enqueue_all_48_layers(stream, false, false)
-            })?);
-            engine.reset()?;
-        }
+        engine.rebuild_graphs_if_enabled()?;
 
         let load_s = t0.elapsed().as_secs_f64();
         eprintln!(
-            "[Qwen38GpuEngine] Loaded {} ({} shards, zero_norm={}, graph={}) on {} in {:.2}s | Experts: {}/48 VRAM + {}/48 HostPinned + {}/48 MmapCompact + 29.8GiB Async Engram",
+            "[Qwen38GpuEngine] Loaded {} ({} shards, zero_norm={}, pdl={}, z24={}/48, graph={}) on {} in {:.2}s | Experts: {}/48 VRAM + {}/48 HostPinned + {}/48 MmapCompact + 29.8GiB Async Engram",
             dir.display(),
             engine.sharded_mmap.num_shards(),
             zero_centered,
+            engine.pdl,
+            z24_layers,
             engine.decode_graph.is_some(),
             engine.ctx.device_name,
             load_s,
@@ -972,6 +1404,156 @@ impl Qwen38GpuEngine {
         );
 
         Ok(engine)
+    }
+
+    fn rebuild_graphs_if_enabled(&mut self) -> Result<(), String> {
+        self.decode_graph = None;
+        self.prefill_graph = None;
+        if self.enable_cuda_graph && self.compact_expert_layers == 0 {
+            self.decode_graph = Some(CapturedGraphExec::capture(&self.ctx, |stream| {
+                self.enqueue_all_48_layers(stream, true, false)
+            })?);
+            self.prefill_graph = Some(CapturedGraphExec::capture(&self.ctx, |stream| {
+                self.enqueue_all_48_layers(stream, false, false)
+            })?);
+            self.reset()?;
+        }
+        Ok(())
+    }
+
+    /// Elastically expands QSA KV caches when sequence length crosses `self.kv_cap`.
+    /// If VRAM is tight at `32K–128K` context, automatically demotes trailing `Vram` expert slabs
+    /// to `HostPinned` so ultra-long contexts never OOM.
+    fn ensure_kv_capacity(&mut self, needed_tokens: usize) -> Result<(), String> {
+        if needed_tokens <= self.kv_cap {
+            return Ok(());
+        }
+        if needed_tokens > self.max_ctx {
+            return Err(format!(
+                "sequence length {needed_tokens} exceeds max_ctx {}",
+                self.max_ctx
+            ));
+        }
+
+        self.ctx.bind_current()?;
+        self.ctx.sync_compute()?;
+        self.ctx.sync_h2d()?;
+        self.decode_graph = None;
+        self.prefill_graph = None;
+
+        let mut new_cap = self.kv_cap.max(4096);
+        while new_cap < needed_tokens {
+            new_cap = (new_cap * 2).min(self.max_ctx);
+        }
+        let delta_tokens = new_cap.saturating_sub(self.kv_cap);
+        // 12 QSA layers × (`1024 B` K + `1024 B` V + `512 B` idx_raw_k + `128 B` idx_block_k) = `32,256 B/tok`
+        let extra_vram_needed = delta_tokens * 32_256 + 192 * 1024 * 1024;
+        let (mut free_vram, _) = self.ctx.mem_info()?;
+
+        while free_vram < extra_vram_needed && self.resident_expert_layers > 0 {
+            let Some(demote_idx) = self
+                .layers
+                .iter()
+                .rposition(|ly| matches!(ly.switch_mlp, SwitchMlpTier::Vram { .. }))
+            else {
+                break;
+            };
+            let old_tier = core::mem::replace(
+                &mut self.layers[demote_idx].switch_mlp,
+                SwitchMlpTier::MmapCompact {
+                    layer_idx: demote_idx,
+                },
+            );
+            if let SwitchMlpTier::Vram { buf, z24 } = old_tier {
+                let pinned = PinnedHostBuf::alloc_uninit(&self.ctx, buf.byte_len)?;
+                unsafe {
+                    check_cu(
+                        (self.ctx.api.cuMemcpyDtoH_v2)(
+                            pinned.host_ptr.cast(),
+                            buf.ptr,
+                            buf.byte_len,
+                        ),
+                        "DtoH(demote switch_mlp)",
+                    )?;
+                }
+                drop(buf);
+                self.layers[demote_idx].switch_mlp = SwitchMlpTier::HostPinned { buf: pinned, z24 };
+                self.resident_expert_layers -= 1;
+                self.pinned_expert_layers += 1;
+                (free_vram, _) = self.ctx.mem_info()?;
+            }
+        }
+
+        let new_blocks = (new_cap / 4) + 16;
+        let valid_toks = self.host_pos.min(self.kv_cap);
+        let valid_blocks = valid_toks / 4;
+
+        for layer in &mut self.layers {
+            if let AttentionBranchGpu::Qsa {
+                k_cache_fp16,
+                v_cache_fp16,
+                idx_raw_k_cache,
+                idx_block_k_cache,
+                ..
+            } = &mut layer.attn
+            {
+                let grow_buf = |old: &DeviceBuf,
+                                new_bytes: usize,
+                                copy_bytes: usize|
+                 -> Result<DeviceBuf, String> {
+                    let nb = DeviceBuf::alloc_zeroed(&self.ctx, new_bytes)?;
+                    if copy_bytes > 0 {
+                        unsafe {
+                            check_cu(
+                                (self.ctx.api.cuMemcpyDtoDAsync_v2)(
+                                    nb.ptr,
+                                    old.ptr,
+                                    copy_bytes,
+                                    self.ctx.compute_stream,
+                                ),
+                                "DtoD(grow QSA KV)",
+                            )?;
+                        }
+                        self.ctx.sync_compute()?;
+                    }
+                    Ok(nb)
+                };
+
+                let nk = grow_buf(k_cache_fp16, new_cap * 512 * 2, valid_toks * 512 * 2)?;
+                *k_cache_fp16 = nk;
+                let nv = grow_buf(v_cache_fp16, new_cap * 512 * 2, valid_toks * 512 * 2)?;
+                *v_cache_fp16 = nv;
+                let nraw = grow_buf(idx_raw_k_cache, new_cap * 128 * 4, valid_toks * 128 * 4)?;
+                *idx_raw_k_cache = nraw;
+                let nblk = grow_buf(
+                    idx_block_k_cache,
+                    new_blocks * 128 * 4,
+                    valid_blocks * 128 * 4,
+                )?;
+                *idx_block_k_cache = nblk;
+            }
+        }
+
+        self.d_qsa_scores = DeviceBuf::alloc_zeroed(&self.ctx, new_blocks * 4)?;
+        self.d_qsa_mask = DeviceBuf::alloc_zeroed(&self.ctx, new_blocks * 4)?;
+        self.kv_cap = new_cap;
+
+        if self.enable_cuda_graph && self.compact_expert_layers == 0 {
+            // Re-capture graphs against the new KV cache pointers WITHOUT resetting live `host_pos`/states!
+            let saved_pos = self.host_pos;
+            let saved_p1 = self.ple_prev1;
+            let saved_p2 = self.ple_prev2;
+            self.decode_graph = Some(CapturedGraphExec::capture(&self.ctx, |stream| {
+                self.enqueue_all_48_layers(stream, true, false)
+            })?);
+            self.prefill_graph = Some(CapturedGraphExec::capture(&self.ctx, |stream| {
+                self.enqueue_all_48_layers(stream, false, false)
+            })?);
+            self.host_pos = saved_pos;
+            self.ple_prev1 = saved_p1;
+            self.ple_prev2 = saved_p2;
+        }
+        Ok(())
     }
 
     pub fn reset(&mut self) -> Result<(), String> {
@@ -1013,18 +1595,23 @@ impl Qwen38GpuEngine {
         Ok(())
     }
 
+    /// Benchmark-only helper (`LEANSONIC_BENCH_DECODE_AT=<pos>`): moves decode position to `pos`
+    /// after ensuring QSA KV buffers cover `pos + 256`.
+    pub fn bench_jump_position(&mut self, pos: usize) -> Result<(), String> {
+        let target_cap = (pos + 256).min(self.max_ctx);
+        self.ensure_kv_capacity(target_cap)?;
+        self.host_pos = pos;
+        let pos_i32 = pos as i32;
+        self.d_pos.copy_from_host_bytes(&pos_i32.to_le_bytes())
+    }
+
     #[allow(clippy::manual_is_multiple_of)]
     pub fn prefill_tokens(&mut self, prompt_ids: &[u32]) -> Result<(u32, f64), String> {
         if prompt_ids.is_empty() {
             return Err("prefill_tokens requires at least 1 token".into());
         }
-        if self.host_pos + prompt_ids.len() > self.max_ctx {
-            return Err(format!(
-                "sequence length {} exceeds max_ctx {}",
-                self.host_pos + prompt_ids.len(),
-                self.max_ctx
-            ));
-        }
+        let needed = self.host_pos + prompt_ids.len();
+        self.ensure_kv_capacity(needed)?;
         self.ctx.bind_current()?;
         let t0 = Instant::now();
         for (idx, &tok) in prompt_ids[..prompt_ids.len() - 1].iter().enumerate() {
@@ -1042,9 +1629,7 @@ impl Qwen38GpuEngine {
     }
 
     pub fn forward_greedy_token(&mut self, tok: u32) -> Result<u32, String> {
-        if self.host_pos + 1 > self.max_ctx {
-            return Err(format!("max_ctx {} reached", self.max_ctx));
-        }
+        self.ensure_kv_capacity(self.host_pos + 1)?;
         self.ctx.bind_current()?;
         self.forward_token_internal(tok, true)
     }
@@ -1085,6 +1670,60 @@ impl Qwen38GpuEngine {
         Ok(out)
     }
 
+    fn launch_kern(
+        &self,
+        stream: CUstream,
+        func: CUfunction,
+        grid: (u32, u32),
+        block: u32,
+        params: &mut [*mut c_void],
+        op_name: &str,
+    ) -> Result<(), String> {
+        if self.pdl {
+            if let Some(launch_ex) = self.ctx.api.cuLaunchKernelEx {
+                let mut attr = CUlaunchAttribute::programmatic_stream_serialization();
+                let cfg = CUlaunchConfig {
+                    gridDimX: grid.0,
+                    gridDimY: grid.1,
+                    gridDimZ: 1,
+                    blockDimX: block,
+                    blockDimY: 1,
+                    blockDimZ: 1,
+                    sharedMemBytes: 0,
+                    _pad0: 0,
+                    hStream: stream,
+                    attrs: &mut attr,
+                    numAttrs: 1,
+                    _pad1: 0,
+                };
+                return unsafe {
+                    check_cu(
+                        launch_ex(&cfg, func, params.as_mut_ptr(), core::ptr::null_mut()),
+                        op_name,
+                    )
+                };
+            }
+        }
+        unsafe {
+            check_cu(
+                (self.ctx.api.cuLaunchKernel)(
+                    func,
+                    grid.0,
+                    grid.1,
+                    1,
+                    block,
+                    1,
+                    1,
+                    0,
+                    stream,
+                    params.as_mut_ptr(),
+                    core::ptr::null_mut(),
+                ),
+                op_name,
+            )
+        }
+    }
+
     fn decode_ple_into_ring_slot(
         &mut self,
         tok: u32,
@@ -1118,24 +1757,11 @@ impl Qwen38GpuEngine {
             let gid = mixed.rem_euclid(ple.head_sizes[h]) + ple.head_offsets[h];
             let shard_idx = (gid / Q38_PLE_SHARD_ROWS) as usize;
             let row_idx = (gid % Q38_PLE_SHARD_ROWS) as usize;
-            let (wk, sck, bik) = &ple.shard_keys[shard_idx];
+            let sp = &ple.shard_ptrs[shard_idx];
 
-            let w_tv = self
-                .sharded_mmap
-                .get(wk)
-                .ok_or_else(|| format!("missing PLE shard {wk}"))?;
-            let sc_tv = self
-                .sharded_mmap
-                .get(sck)
-                .ok_or_else(|| format!("missing PLE shard {sck}"))?;
-            let bi_tv = self
-                .sharded_mmap
-                .get(bik)
-                .ok_or_else(|| format!("missing PLE shard {bik}"))?;
-
-            let w_row = &w_tv.data[row_idx * 80..(row_idx + 1) * 80];
-            let sc_row = &sc_tv.data[row_idx * 10..(row_idx + 1) * 10];
-            let bi_row = &bi_tv.data[row_idx * 10..(row_idx + 1) * 10];
+            let w_row = unsafe { core::slice::from_raw_parts(sp.w_ptr.add(row_idx * 80), 80) };
+            let sc_row = unsafe { core::slice::from_raw_parts(sp.sc_ptr.add(row_idx * 10), 10) };
+            let bi_row = unsafe { core::slice::from_raw_parts(sp.bi_ptr.add(row_idx * 10), 10) };
             let out_h = &mut dst_f32[h * 160..(h + 1) * 160];
 
             for g in 0..5usize {
@@ -1170,44 +1796,34 @@ impl Qwen38GpuEngine {
 
         if cols == (Q38_HC_D as i32) {
             let mut p = kargs![w_p, sc_p, bi_p, x_p, y_p, rows, mode];
-            unsafe {
-                check_cu(
-                    (self.ctx.api.cuLaunchKernel)(
-                        self.fns.q4_gemv_10k,
-                        grid_x,
-                        1,
-                        1,
-                        256,
-                        1,
-                        1,
-                        0,
-                        stream,
-                        p.as_mut_ptr(),
-                        core::ptr::null_mut(),
-                    ),
-                    "q38_q4_gemv_10k",
-                )
-            }
+            self.launch_kern(
+                stream,
+                self.fns.q4_gemv_10k,
+                (grid_x, 1),
+                256,
+                &mut p,
+                "q38_q4_gemv_10k",
+            )
+        } else if cols == (Q38_D as i32) {
+            let mut p = kargs![w_p, sc_p, bi_p, x_p, y_p, rows, mode];
+            self.launch_kern(
+                stream,
+                self.fns.q4_gemv_2560,
+                (grid_x, 1),
+                256,
+                &mut p,
+                "q38_q4_gemv_2560",
+            )
         } else {
             let mut p = kargs![w_p, sc_p, bi_p, x_p, y_p, rows, cols, mode];
-            unsafe {
-                check_cu(
-                    (self.ctx.api.cuLaunchKernel)(
-                        self.fns.q4_gemv,
-                        grid_x,
-                        1,
-                        1,
-                        256,
-                        1,
-                        1,
-                        0,
-                        stream,
-                        p.as_mut_ptr(),
-                        core::ptr::null_mut(),
-                    ),
-                    "q38_q4_gemv",
-                )
-            }
+            self.launch_kern(
+                stream,
+                self.fns.q4_gemv,
+                (grid_x, 1),
+                256,
+                &mut p,
+                "q38_q4_gemv",
+            )
         }
     }
 
@@ -1215,74 +1831,59 @@ impl Qwen38GpuEngine {
         let (mut hc_in, mut gam, mut normed) =
             (self.d_hc.ptr, hc.hc_norm.ptr, self.d_hc_normed.ptr);
         let mut p_norm = kargs![hc_in, gam, normed];
-        unsafe {
-            check_cu(
-                (self.ctx.api.cuLaunchKernel)(
-                    self.fns.hc_norm4,
-                    4,
-                    1,
-                    1,
-                    256,
-                    1,
-                    1,
-                    0,
-                    stream,
-                    p_norm.as_mut_ptr(),
-                    core::ptr::null_mut(),
-                ),
-                "q38_hc_norm4",
-            )?;
-        }
-        self.launch_q4_gemv(stream, &hc.down, self.d_hc_normed.ptr, self.d_hc_low.ptr, 1)?;
-        self.launch_q4_gemv(stream, &hc.up, self.d_hc_low.ptr, self.d_hc_up.ptr, 2)?;
-        let (mut up_sig, mut mixed) = (self.d_hc_up.ptr, self.d_mixed.ptr);
-        let mut p_mix = kargs![normed, up_sig, mixed];
-        unsafe {
-            check_cu(
-                (self.ctx.api.cuLaunchKernel)(
-                    self.fns.hc_mix4,
-                    10,
-                    1,
-                    1,
-                    256,
-                    1,
-                    1,
-                    0,
-                    stream,
-                    p_mix.as_mut_ptr(),
-                    core::ptr::null_mut(),
-                ),
-                "q38_hc_mix4",
-            )?;
-        }
-        if let Some(inj) = &hc.inject {
-            self.launch_q4_gemv(stream, inj, self.d_hc_normed.ptr, self.d_hc_inj4.ptr, 0)?;
-        }
-        Ok(())
+        self.launch_kern(
+            stream,
+            self.fns.hc_norm4,
+            (4, 1),
+            256,
+            &mut p_norm,
+            "q38_hc_norm4",
+        )?;
+
+        let (mut dw_p, mut dsc_p, mut dbi_p) = (hc.down.w.ptr, hc.down.sc.ptr, hc.down.bi.ptr);
+        let (mut iw_p, mut isc_p, mut ibi_p, mut has_inj) = if let Some(inj) = &hc.inject {
+            (inj.w.ptr, inj.sc.ptr, inj.bi.ptr, 1i32)
+        } else {
+            (0u64, 0u64, 0u64, 0i32)
+        };
+        let (mut low_p, mut inj4_p) = (self.d_hc_low.ptr, self.d_hc_inj4.ptr);
+        let grid_di = if has_inj == 1 { 81u32 } else { 80u32 };
+        let mut p_di =
+            kargs![dw_p, dsc_p, dbi_p, iw_p, isc_p, ibi_p, normed, low_p, inj4_p, has_inj];
+        self.launch_kern(
+            stream,
+            self.fns.hc_down_inj_10k,
+            (grid_di, 1),
+            256,
+            &mut p_di,
+            "q38_hc_down_inj_10k",
+        )?;
+
+        let (mut uw_p, mut usc_p, mut ubi_p, mut mixed) =
+            (hc.up.w.ptr, hc.up.sc.ptr, hc.up.bi.ptr, self.d_mixed.ptr);
+        let mut p_um = kargs![uw_p, usc_p, ubi_p, low_p, normed, mixed];
+        self.launch_kern(
+            stream,
+            self.fns.hc_up_mix4,
+            (320, 1),
+            256,
+            &mut p_um,
+            "q38_hc_up_mix4",
+        )
     }
 
     fn launch_hc_post(&self, stream: CUstream) -> Result<(), String> {
         let (mut hc_io, mut br, mut inj4) =
             (self.d_hc.ptr, self.d_branch_out.ptr, self.d_hc_inj4.ptr);
         let mut p = kargs![hc_io, br, inj4];
-        unsafe {
-            check_cu(
-                (self.ctx.api.cuLaunchKernel)(
-                    self.fns.hc_inject4,
-                    40,
-                    1,
-                    1,
-                    256,
-                    1,
-                    1,
-                    0,
-                    stream,
-                    p.as_mut_ptr(),
-                    core::ptr::null_mut(),
-                ),
-                "q38_hc_inject4",
-            )
-        }
+        self.launch_kern(
+            stream,
+            self.fns.hc_inject4_vec,
+            (3, 1),
+            256,
+            &mut p,
+            "q38_hc_inject4_vec",
+        )
     }
 
     fn stage_compact_top10(&self, layer_idx: usize) -> Result<CUdeviceptr, String> {
@@ -1426,31 +2027,21 @@ impl Qwen38GpuEngine {
     ) -> Result<(), String> {
         {
             let (mut ew, mut esc, mut ebi, mut tin, mut dhc) = (
-                self.embed.w.ptr,
-                self.embed.sc.ptr,
-                self.embed.bi.ptr,
+                self.embed.w.dev_ptr,
+                self.embed.sc.dev_ptr,
+                self.embed.bi.dev_ptr,
                 self.d_token_in.ptr,
                 self.d_hc.ptr,
             );
             let mut p = kargs![ew, esc, ebi, tin, dhc];
-            unsafe {
-                check_cu(
-                    (self.ctx.api.cuLaunchKernel)(
-                        self.fns.embed_init_hc4,
-                        10,
-                        1,
-                        1,
-                        256,
-                        1,
-                        1,
-                        0,
-                        stream,
-                        p.as_mut_ptr(),
-                        core::ptr::null_mut(),
-                    ),
-                    "q38_embed_init_hc4",
-                )?;
-            }
+            self.launch_kern(
+                stream,
+                self.fns.embed_init_hc4,
+                (10, 1),
+                256,
+                &mut p,
+                "q38_embed_init_hc4",
+            )?;
         }
 
         for l_idx in 0..Q38_LAYERS {
@@ -1485,24 +2076,14 @@ impl Qwen38GpuEngine {
                     self.d_pos.ptr,
                 );
                 let mut p_ple = kargs![hc_io, k_raw, v_raw, nk, nq, nc, cw, h9, pos_p];
-                unsafe {
-                    check_cu(
-                        (self.ctx.api.cuLaunchKernel)(
-                            self.fns.ple_inject,
-                            4,
-                            1,
-                            1,
-                            256,
-                            1,
-                            1,
-                            0,
-                            stream,
-                            p_ple.as_mut_ptr(),
-                            core::ptr::null_mut(),
-                        ),
-                        "q38_ple_inject",
-                    )?;
-                }
+                self.launch_kern(
+                    stream,
+                    self.fns.ple_inject,
+                    (4, 1),
+                    256,
+                    &mut p_ple,
+                    "q38_ple_inject",
+                )?;
             }
 
             self.launch_hc_pre(stream, &layer.attn_hc)?;
@@ -1526,24 +2107,14 @@ impl Qwen38GpuEngine {
                         self.d_qkv_conv.ptr,
                     );
                     let mut p_conv = kargs![qkv_r, cw, ch3, qkv_c];
-                    unsafe {
-                        check_cu(
-                            (self.ctx.api.cuLaunchKernel)(
-                                self.fns.gdn_conv_silu,
-                                40,
-                                1,
-                                1,
-                                256,
-                                1,
-                                1,
-                                0,
-                                stream,
-                                p_conv.as_mut_ptr(),
-                                core::ptr::null_mut(),
-                            ),
-                            "q38_gdn_conv_silu",
-                        )?;
-                    }
+                    self.launch_kern(
+                        stream,
+                        self.fns.gdn_conv_silu,
+                        (40, 1),
+                        256,
+                        &mut p_conv,
+                        "q38_gdn_conv_silu",
+                    )?;
                     let (mut zba, mut al, mut dtb, mut nw, mut sig_gate, mut st_p, mut gout) = (
                         self.d_gdn_in.ptr + 10_240 * 4,
                         a_log.ptr,
@@ -1554,24 +2125,14 @@ impl Qwen38GpuEngine {
                         self.d_gdn_out.ptr,
                     );
                     let mut p_rec = kargs![qkv_c, zba, al, dtb, nw, sig_gate, st_p, gout];
-                    unsafe {
-                        check_cu(
-                            (self.ctx.api.cuLaunchKernel)(
-                                self.fns.gdn_recurrent_step,
-                                48,
-                                1,
-                                1,
-                                128,
-                                1,
-                                1,
-                                0,
-                                stream,
-                                p_rec.as_mut_ptr(),
-                                core::ptr::null_mut(),
-                            ),
-                            "q38_gdn_recurrent_step",
-                        )?;
-                    }
+                    self.launch_kern(
+                        stream,
+                        self.fns.gdn_recurrent_step,
+                        (48, 1),
+                        128,
+                        &mut p_rec,
+                        "q38_gdn_recurrent_step",
+                    )?;
                     self.launch_q4_gemv(
                         stream,
                         out_proj,
@@ -1614,24 +2175,14 @@ impl Qwen38GpuEngine {
                     let mut p_prep = kargs![
                         qp, qnw, knw, iqnw, iknw, invf, pos_p, qrot, qgate, kc, vc, iq, irk, ibk
                     ];
-                    unsafe {
-                        check_cu(
-                            (self.ctx.api.cuLaunchKernel)(
-                                self.fns.qsa_prep_and_cache,
-                                31,
-                                1,
-                                1,
-                                256,
-                                1,
-                                1,
-                                0,
-                                stream,
-                                p_prep.as_mut_ptr(),
-                                core::ptr::null_mut(),
-                            ),
-                            "q38_qsa_prep_and_cache",
-                        )?;
-                    }
+                    self.launch_kern(
+                        stream,
+                        self.fns.qsa_prep_and_cache,
+                        (31, 1),
+                        256,
+                        &mut p_prep,
+                        "q38_qsa_prep_and_cache",
+                    )?;
 
                     let seq_len = self.host_pos + 1;
                     let n_blocks = (seq_len / 4) as i32;
@@ -1642,62 +2193,34 @@ impl Qwen38GpuEngine {
                         let grid_sb = (n_blocks as u32).div_ceil(8);
                         let mut p_sc = kargs![iq, ibk, nb, sc_buf];
                         let mut p_sel = kargs![sc_buf, nb, mask_buf];
-                        unsafe {
-                            check_cu(
-                                (self.ctx.api.cuLaunchKernel)(
-                                    self.fns.qsa_score_blocks,
-                                    grid_sb,
-                                    1,
-                                    1,
-                                    256,
-                                    1,
-                                    1,
-                                    0,
-                                    stream,
-                                    p_sc.as_mut_ptr(),
-                                    core::ptr::null_mut(),
-                                ),
-                                "q38_qsa_score_blocks",
-                            )?;
-                            check_cu(
-                                (self.ctx.api.cuLaunchKernel)(
-                                    self.fns.qsa_select_top512,
-                                    1,
-                                    1,
-                                    1,
-                                    256,
-                                    1,
-                                    1,
-                                    0,
-                                    stream,
-                                    p_sel.as_mut_ptr(),
-                                    core::ptr::null_mut(),
-                                ),
-                                "q38_qsa_select_top512",
-                            )?;
-                        }
+                        self.launch_kern(
+                            stream,
+                            self.fns.qsa_score_blocks,
+                            (grid_sb, 1),
+                            256,
+                            &mut p_sc,
+                            "q38_qsa_score_blocks",
+                        )?;
+                        self.launch_kern(
+                            stream,
+                            self.fns.qsa_select_top512,
+                            (1, 1),
+                            256,
+                            &mut p_sel,
+                            "q38_qsa_select_top512",
+                        )?;
                     }
 
                     let (mut mask_p, mut aout) = (self.d_qsa_mask.ptr, self.d_attn_out.ptr);
                     let mut p_attn = kargs![qrot, qgate, kc, vc, mask_p, pos_p, use_mask, aout];
-                    unsafe {
-                        check_cu(
-                            (self.ctx.api.cuLaunchKernel)(
-                                self.fns.qsa_attn,
-                                24,
-                                1,
-                                1,
-                                256,
-                                1,
-                                1,
-                                0,
-                                stream,
-                                p_attn.as_mut_ptr(),
-                                core::ptr::null_mut(),
-                            ),
-                            "q38_qsa_attn",
-                        )?;
-                    }
+                    self.launch_kern(
+                        stream,
+                        self.fns.qsa_attn,
+                        (24, 1),
+                        256,
+                        &mut p_attn,
+                        "q38_qsa_attn",
+                    )?;
                     self.launch_q4_gemv(
                         stream,
                         o_proj,
@@ -1721,94 +2244,23 @@ impl Qwen38GpuEngine {
                 );
                 let mut p_rt = kargs![rw, mx, rlog];
                 let mut p_tk = kargs![rlog, sids, swts];
-                unsafe {
-                    check_cu(
-                        (self.ctx.api.cuLaunchKernel)(
-                            self.fns.bf16_router_512,
-                            64,
-                            1,
-                            1,
-                            256,
-                            1,
-                            1,
-                            0,
-                            stream,
-                            p_rt.as_mut_ptr(),
-                            core::ptr::null_mut(),
-                        ),
-                        "q38_bf16_router_512",
-                    )?;
-                    check_cu(
-                        (self.ctx.api.cuLaunchKernel)(
-                            self.fns.softmax_topk10,
-                            1,
-                            1,
-                            1,
-                            256,
-                            1,
-                            1,
-                            0,
-                            stream,
-                            p_tk.as_mut_ptr(),
-                            core::ptr::null_mut(),
-                        ),
-                        "q38_softmax_topk10",
-                    )?;
-                }
+                self.launch_kern(
+                    stream,
+                    self.fns.bf16_router_512,
+                    (64, 1),
+                    256,
+                    &mut p_rt,
+                    "q38_bf16_router_512",
+                )?;
+                self.launch_kern(
+                    stream,
+                    self.fns.softmax_topk10,
+                    (1, 1),
+                    256,
+                    &mut p_tk,
+                    "q38_softmax_topk10",
+                )?;
             }
-
-            let (
-                mut gw_p,
-                mut gsc_p,
-                mut gbi_p,
-                mut uw_p,
-                mut usc_p,
-                mut ubi_p,
-                mut dw_p,
-                mut dsc_p,
-                mut dbi_p,
-                mut is_compact,
-            ) = match &layer.switch_mlp {
-                SwitchMlpTier::Vram(b) => (
-                    b.ptr + OFF_GATE_W as u64,
-                    b.ptr + OFF_GATE_SC as u64,
-                    b.ptr + OFF_GATE_BI as u64,
-                    b.ptr + OFF_UP_W as u64,
-                    b.ptr + OFF_UP_SC as u64,
-                    b.ptr + OFF_UP_BI as u64,
-                    b.ptr + OFF_DOWN_W as u64,
-                    b.ptr + OFF_DOWN_SC as u64,
-                    b.ptr + OFF_DOWN_BI as u64,
-                    0i32,
-                ),
-                SwitchMlpTier::HostPinned(b) => (
-                    b.dev_ptr + OFF_GATE_W as u64,
-                    b.dev_ptr + OFF_GATE_SC as u64,
-                    b.dev_ptr + OFF_GATE_BI as u64,
-                    b.dev_ptr + OFF_UP_W as u64,
-                    b.dev_ptr + OFF_UP_SC as u64,
-                    b.dev_ptr + OFF_UP_BI as u64,
-                    b.dev_ptr + OFF_DOWN_W as u64,
-                    b.dev_ptr + OFF_DOWN_SC as u64,
-                    b.dev_ptr + OFF_DOWN_BI as u64,
-                    0i32,
-                ),
-                SwitchMlpTier::MmapCompact { layer_idx } => {
-                    let base = self.stage_compact_top10(*layer_idx)?;
-                    (
-                        base + COFF_GATE_W as u64,
-                        base + COFF_GATE_SC as u64,
-                        base + COFF_GATE_BI as u64,
-                        base + COFF_UP_W as u64,
-                        base + COFF_UP_SC as u64,
-                        base + COFF_UP_BI as u64,
-                        base + COFF_DOWN_W as u64,
-                        base + COFF_DOWN_SC as u64,
-                        base + COFF_DOWN_BI as u64,
-                        1i32,
-                    )
-                }
-            };
 
             let (mut sh_gu_w, mut sh_gu_sc, mut sh_gu_bi) = (
                 layer.sh_gu_gate.w.ptr,
@@ -1828,44 +2280,129 @@ impl Qwen38GpuEngine {
                 self.d_branch_out.ptr,
             );
 
-            let mut p_up = kargs![
-                gw_p, gsc_p, gbi_p, uw_p, usc_p, ubi_p, sh_gu_w, sh_gu_sc, sh_gu_bi, mx, sids,
-                is_compact, swts, act11
-            ];
-            let mut p_dn = kargs![
-                dw_p, dsc_p, dbi_p, sh_dw, sh_dsc, sh_dbi, act11, sids, is_compact, swts, mout
-            ];
-            unsafe {
-                check_cu(
-                    (self.ctx.api.cuLaunchKernel)(
-                        self.fns.moe_up_swiglu11,
-                        160,
-                        11,
-                        1,
-                        256,
-                        1,
-                        1,
-                        0,
-                        stream,
-                        p_up.as_mut_ptr(),
-                        core::ptr::null_mut(),
+            let z24_opt = match &layer.switch_mlp {
+                SwitchMlpTier::Vram { buf, z24 } => z24.map(|b| (buf.ptr, b)),
+                SwitchMlpTier::HostPinned { buf, z24 } => z24.map(|b| (buf.dev_ptr, b)),
+                SwitchMlpTier::MmapCompact { .. } => None,
+            };
+
+            if let Some((base_ptr, z24_bases)) = z24_opt {
+                let (mut gw_p, mut glo_p, mut ghi_p) = (
+                    base_ptr + ZOFF_GATE_W as u64,
+                    base_ptr + ZOFF_GATE_LO as u64,
+                    base_ptr + ZOFF_GATE_HI as u64,
+                );
+                let (mut uw_p, mut ulo_p, mut uhi_p) = (
+                    base_ptr + ZOFF_UP_W as u64,
+                    base_ptr + ZOFF_UP_LO as u64,
+                    base_ptr + ZOFF_UP_HI as u64,
+                );
+                let (mut dw_p, mut dlo_p, mut dhi_p) = (
+                    base_ptr + ZOFF_DOWN_W as u64,
+                    base_ptr + ZOFF_DOWN_LO as u64,
+                    base_ptr + ZOFF_DOWN_HI as u64,
+                );
+                let mut up_bases = z24_bases.up_packed_m1;
+                let mut dn_bases = z24_bases.down_packed_m1;
+
+                let mut p_up = kargs![
+                    gw_p, glo_p, ghi_p, uw_p, ulo_p, uhi_p, up_bases, sh_gu_w, sh_gu_sc, sh_gu_bi,
+                    mx, sids, swts, act11
+                ];
+                let mut p_dn = kargs![
+                    dw_p, dlo_p, dhi_p, dn_bases, sh_dw, sh_dsc, sh_dbi, act11, sids, swts, mout
+                ];
+                self.launch_kern(
+                    stream,
+                    self.fns.moe_up_swiglu11_z24,
+                    (160, 11),
+                    256,
+                    &mut p_up,
+                    "q38_moe_up_swiglu11_z24",
+                )?;
+                self.launch_kern(
+                    stream,
+                    self.fns.moe_down_combine11_z24,
+                    (80, 1),
+                    256,
+                    &mut p_dn,
+                    "q38_moe_down_combine11_z24",
+                )?;
+            } else {
+                let (
+                    mut gw_p,
+                    mut gsc_p,
+                    mut gbi_p,
+                    mut uw_p,
+                    mut usc_p,
+                    mut ubi_p,
+                    mut dw_p,
+                    mut dsc_p,
+                    mut dbi_p,
+                    mut is_compact,
+                ) = match &layer.switch_mlp {
+                    SwitchMlpTier::Vram { buf: b, .. } => (
+                        b.ptr + OFF_GATE_W as u64,
+                        b.ptr + OFF_GATE_SC as u64,
+                        b.ptr + OFF_GATE_BI as u64,
+                        b.ptr + OFF_UP_W as u64,
+                        b.ptr + OFF_UP_SC as u64,
+                        b.ptr + OFF_UP_BI as u64,
+                        b.ptr + OFF_DOWN_W as u64,
+                        b.ptr + OFF_DOWN_SC as u64,
+                        b.ptr + OFF_DOWN_BI as u64,
+                        0i32,
                     ),
+                    SwitchMlpTier::HostPinned { buf: b, .. } => (
+                        b.dev_ptr + OFF_GATE_W as u64,
+                        b.dev_ptr + OFF_GATE_SC as u64,
+                        b.dev_ptr + OFF_GATE_BI as u64,
+                        b.dev_ptr + OFF_UP_W as u64,
+                        b.dev_ptr + OFF_UP_SC as u64,
+                        b.dev_ptr + OFF_UP_BI as u64,
+                        b.dev_ptr + OFF_DOWN_W as u64,
+                        b.dev_ptr + OFF_DOWN_SC as u64,
+                        b.dev_ptr + OFF_DOWN_BI as u64,
+                        0i32,
+                    ),
+                    SwitchMlpTier::MmapCompact { layer_idx } => {
+                        let base = self.stage_compact_top10(*layer_idx)?;
+                        (
+                            base + COFF_GATE_W as u64,
+                            base + COFF_GATE_SC as u64,
+                            base + COFF_GATE_BI as u64,
+                            base + COFF_UP_W as u64,
+                            base + COFF_UP_SC as u64,
+                            base + COFF_UP_BI as u64,
+                            base + COFF_DOWN_W as u64,
+                            base + COFF_DOWN_SC as u64,
+                            base + COFF_DOWN_BI as u64,
+                            1i32,
+                        )
+                    }
+                };
+
+                let mut p_up = kargs![
+                    gw_p, gsc_p, gbi_p, uw_p, usc_p, ubi_p, sh_gu_w, sh_gu_sc, sh_gu_bi, mx, sids,
+                    is_compact, swts, act11
+                ];
+                let mut p_dn = kargs![
+                    dw_p, dsc_p, dbi_p, sh_dw, sh_dsc, sh_dbi, act11, sids, is_compact, swts, mout
+                ];
+                self.launch_kern(
+                    stream,
+                    self.fns.moe_up_swiglu11,
+                    (160, 11),
+                    256,
+                    &mut p_up,
                     "q38_moe_up_swiglu11",
                 )?;
-                check_cu(
-                    (self.ctx.api.cuLaunchKernel)(
-                        self.fns.moe_down_combine11,
-                        320,
-                        1,
-                        1,
-                        256,
-                        1,
-                        1,
-                        0,
-                        stream,
-                        p_dn.as_mut_ptr(),
-                        core::ptr::null_mut(),
-                    ),
+                self.launch_kern(
+                    stream,
+                    self.fns.moe_down_combine11,
+                    (320, 1),
+                    256,
+                    &mut p_dn,
                     "q38_moe_down_combine11",
                 )?;
             }
@@ -1885,45 +2422,25 @@ impl Qwen38GpuEngine {
             let (mut log_p, mut out_p, mut pos_p) =
                 (self.d_logits.ptr, self.d_token_out.ptr, self.d_pos.ptr);
             let mut p_arg = kargs![log_p, out_p, pos_p];
-            unsafe {
-                check_cu(
-                    (self.ctx.api.cuLaunchKernel)(
-                        self.fns.argmax_and_inc_pos,
-                        1,
-                        1,
-                        1,
-                        256,
-                        1,
-                        1,
-                        0,
-                        stream,
-                        p_arg.as_mut_ptr(),
-                        core::ptr::null_mut(),
-                    ),
-                    "q38_argmax_and_inc_pos",
-                )?;
-            }
+            self.launch_kern(
+                stream,
+                self.fns.argmax_fast,
+                (1, 1),
+                1024,
+                &mut p_arg,
+                "q38_argmax_fast",
+            )?;
         } else {
             let mut pos_p = self.d_pos.ptr;
             let mut p_inc = kargs![pos_p];
-            unsafe {
-                check_cu(
-                    (self.ctx.api.cuLaunchKernel)(
-                        self.fns.inc_pos,
-                        1,
-                        1,
-                        1,
-                        1,
-                        1,
-                        1,
-                        0,
-                        stream,
-                        p_inc.as_mut_ptr(),
-                        core::ptr::null_mut(),
-                    ),
-                    "q38_inc_pos",
-                )?;
-            }
+            self.launch_kern(
+                stream,
+                self.fns.inc_pos,
+                (1, 1),
+                1,
+                &mut p_inc,
+                "q38_inc_pos",
+            )?;
         }
         Ok(())
     }
@@ -1944,7 +2461,6 @@ impl Qwen38GpuEngine {
 
         if can_use_graph {
             if compute_logits {
-                // Single-token decode: issue `10 KiB` `Engram` HtoD on `h2d_stream` + wait on `compute_stream`
                 unsafe {
                     check_cu(
                         (self.ctx.api.cuMemcpyHtoDAsync_v2)(
@@ -1975,7 +2491,6 @@ impl Qwen38GpuEngine {
                 }
                 self.decode_graph.as_ref().unwrap().replay()?;
             } else {
-                // Async pipelined prefill: queue `ple_emb` + `token_in` + 48-layer `prefill_graph` in FIFO order!
                 unsafe {
                     check_cu(
                         (self.ctx.api.cuMemcpyHtoDAsync_v2)(
@@ -1999,7 +2514,6 @@ impl Qwen38GpuEngine {
                 self.prefill_graph.as_ref().unwrap().replay()?;
             }
         } else if compute_logits {
-            // Decode / final prefill token (`compute_stream` is idle here): overlap `10 KiB` `Engram` HtoD on `h2d_stream` across Layer 0!
             unsafe {
                 check_cu(
                     (self.ctx.api.cuMemcpyHtoDAsync_v2)(
@@ -2026,7 +2540,6 @@ impl Qwen38GpuEngine {
             }
             self.enqueue_all_48_layers(stream, true, true)?;
         } else {
-            // Intermediate prefill token without graph: strictly FIFO on `compute_stream` (zero WAR hazard on `d_ple_emb`)
             unsafe {
                 check_cu(
                     (self.ctx.api.cuMemcpyHtoDAsync_v2)(
@@ -2075,12 +2588,10 @@ impl Qwen38GpuEngine {
 #[cfg(test)]
 mod tests {
     /// Exact-size `compute-sanitizer --tool memcheck --padding 65536` harness for every
-    /// `kernels/qwen38_sm120.cu` kernel (#179, #248): each launch gets buffers of exactly the
-    /// documented shape, with indices at the last row / expert / position, so any over-read or
-    /// over-write lands in the sanitizer's padding. Only the sanitizer verdict matters (random
-    /// data); the launches must also succeed. `short = true` drops the last row of each case's
-    /// key buffer (the planted fault); `LEANSONIC_EXACT_ONLY=<kernel>` runs one kernel, since the
-    /// first fault stops later launches.
+    /// `kernels/qwen38_sm120.cu` kernel (#179, #248, #249): each launch gets buffers of exactly
+    /// the documented shape, with indices at the last row / expert / position, so any over-read or
+    /// over-write lands in the sanitizer's padding. `short = true` drops the last row of each
+    /// case's key buffer (the planted fault); `LEANSONIC_EXACT_ONLY=<kernel>` runs one kernel.
     mod exact_size {
         use super::super::*;
 
@@ -2100,15 +2611,18 @@ mod tests {
         }
 
         fn module(ctx: &Arc<CudaContextHandle>) -> Result<CUmodule, String> {
-            let image: Vec<u8> = match std::env::var("LEANSONIC_QWEN38_CUBIN_PATH") {
-                Ok(p) => std::fs::read(&p).map_err(|e| format!("read {p}: {e}"))?,
-                Err(_) => compile_cuda_to_ptx_nvrtc(
-                    &CUDA_QWEN38_SRC.replace(
-                        "#include \"include/leansonic_verified.cuh\"",
-                        CUDA_HEADER_SRC,
-                    ),
+            let image: Vec<u8> = if let Some(cubin_path) = discover_qwen38_cubin() {
+                let mut raw = std::fs::read(&cubin_path)
+                    .map_err(|e| format!("read {}: {e}", cubin_path.display()))?;
+                raw.push(0);
+                raw
+            } else {
+                let header_nvrtc = CUDA_HEADER_SRC.replace("#include <stdint.h>", "");
+                compile_cuda_to_ptx_nvrtc(
+                    &CUDA_QWEN38_SRC
+                        .replace("#include \"include/leansonic_verified.cuh\"", &header_nvrtc),
                     "compute_120a",
-                )?,
+                )?
             };
             let mut m: CUmodule = core::ptr::null_mut();
             unsafe {
@@ -2155,7 +2669,6 @@ mod tests {
             ctx.sync_compute().map_err(|e| format!("{name}: {e}"))
         }
 
-        /// `n` random bytes (quantized codes, BF16 scale / bias pairs).
         fn noise(
             ctx: &Arc<CudaContextHandle>,
             rng: &mut Lcg,
@@ -2165,7 +2678,6 @@ mod tests {
             DeviceBuf::from_host_bytes(ctx, &bytes)
         }
 
-        /// `n` small finite floats in `[-0.5, 0.5)`.
         fn floats(
             ctx: &Arc<CudaContextHandle>,
             rng: &mut Lcg,
@@ -2188,8 +2700,6 @@ mod tests {
             DeviceBuf::alloc_zeroed(ctx, n)
         }
 
-        /// One `q38_q4_gemv` / `q38_q4_gemv_10k` case: `w [rows, cols / 32]` u128,
-        /// `sc / bi [rows, cols / 64]` u32, `x [cols]`, `y [rows]`.
         #[allow(clippy::too_many_arguments)]
         fn q4_case(
             ctx: &Arc<CudaContextHandle>,
@@ -2216,7 +2726,7 @@ mod tests {
                     grid,
                     256,
                     &mut kargs![pw, ps, pb, px, py, r, md],
-                )
+                )?;
             } else {
                 run(
                     ctx,
@@ -2225,9 +2735,19 @@ mod tests {
                     grid,
                     256,
                     &mut kargs![pw, ps, pb, px, py, r, c, md],
-                )
+                )?;
+                if cols == Q38_D {
+                    run(
+                        ctx,
+                        m,
+                        "q38_q4_gemv_2560",
+                        grid,
+                        256,
+                        &mut kargs![pw, ps, pb, px, py, r, md],
+                    )?;
+                }
             }
-            .map_err(|e| format!("q4 [{rows}, {cols}] mode {mode}: {e}"))
+            Ok(())
         }
 
         fn cases(short: bool) -> Result<(), String> {
@@ -2258,8 +2778,7 @@ mod tests {
                 )?;
             }
 
-            // Q4 GEMVs at every engine shape (HC down / up / inject, GDN in / out, QSA in /
-            // out, PLE kv, LM head) plus a 17-row tail; all three post modes.
+            // Q4 GEMVs (`q38_q4_gemv`, `q38_q4_gemv_2560`, `q38_q4_gemv_10k`) across all shapes + 17-row tail.
             for (rows, cols, mode) in [
                 (320, hcd, 1),
                 (4, hcd, 0),
@@ -2269,23 +2788,76 @@ mod tests {
                 (13_952, d, 0),
                 (5 * d, d, 0),
                 (17, 6144, 1),
+                (19, d, 2),
                 (Q38_VOCAB, d, 0),
             ] {
                 q4_case(ctx, m, rng, rows, cols, mode, s)?;
             }
 
-            // HC pre / post and PLE inject: `[4, 2560]` streams.
+            // HC pre / post (both original + fused/vectorized) and PLE inject.
             {
-                let hc = floats(ctx, rng, 4 * d - s)?;
+                let hc = floats(ctx, rng, 4 * d - s * 4)?;
                 let gamma = floats(ctx, rng, 4 * d)?;
                 let normed = zeros(ctx, 4 * d * 4)?;
                 let (mut ph, mut pg, mut pn) = (hc.ptr, gamma.ptr, normed.ptr);
                 run(ctx, m, "q38_hc_norm4", (4, 1), 256, &mut kargs![ph, pg, pn])?;
+
+                // Fused `q38_hc_down_inj_10k` (both `has_inject = 1` and `0`)
+                {
+                    let dw = noise(ctx, rng, (320 - s) * 320 * 16)?;
+                    let dsc = noise(ctx, rng, 320 * 160 * 4)?;
+                    let dbi = noise(ctx, rng, 320 * 160 * 4)?;
+                    let iw = noise(ctx, rng, (4 - s) * 320 * 16)?;
+                    let isc = noise(ctx, rng, 4 * 160 * 4)?;
+                    let ibi = noise(ctx, rng, 4 * 160 * 4)?;
+                    let hc_norm_in = floats(ctx, rng, hcd)?;
+                    let low_out = zeros(ctx, 320 * 4)?;
+                    let inj4_out = zeros(ctx, 4 * 4)?;
+                    let (mut pdw, mut pds, mut pdb) = (dw.ptr, dsc.ptr, dbi.ptr);
+                    let (mut piw, mut pis, mut pib) = (iw.ptr, isc.ptr, ibi.ptr);
+                    let (mut pni, mut plo, mut pio4) = (hc_norm_in.ptr, low_out.ptr, inj4_out.ptr);
+                    let mut hi1 = 1i32;
+                    run(
+                        ctx,
+                        m,
+                        "q38_hc_down_inj_10k",
+                        (81, 1),
+                        256,
+                        &mut kargs![pdw, pds, pdb, piw, pis, pib, pni, plo, pio4, hi1],
+                    )?;
+                    let mut hi0 = 0i32;
+                    let mut null_p = 0u64;
+                    run(
+                        ctx,
+                        m,
+                        "q38_hc_down_inj_10k",
+                        (80, 1),
+                        256,
+                        &mut kargs![pdw, pds, pdb, null_p, null_p, null_p, pni, plo, pio4, hi0],
+                    )?;
+
+                    // Fused `q38_hc_up_mix4`
+                    let uw = noise(ctx, rng, (hcd - s) * 10 * 16)?;
+                    let usc = noise(ctx, rng, hcd * 5 * 4)?;
+                    let ubi = noise(ctx, rng, hcd * 5 * 4)?;
+                    let mixed_f = zeros(ctx, d * 4)?;
+                    let (mut puw, mut pus, mut pub_, mut pmf) =
+                        (uw.ptr, usc.ptr, ubi.ptr, mixed_f.ptr);
+                    run(
+                        ctx,
+                        m,
+                        "q38_hc_up_mix4",
+                        (320, 1),
+                        256,
+                        &mut kargs![puw, pus, pub_, plo, pni, pmf],
+                    )?;
+                }
+
                 let up = floats(ctx, rng, 4 * d - s)?;
                 let mixed = zeros(ctx, d * 4)?;
                 let (mut pu, mut pm) = (up.ptr, mixed.ptr);
                 run(ctx, m, "q38_hc_mix4", (10, 1), 256, &mut kargs![pn, pu, pm])?;
-                let branch = floats(ctx, rng, d - s)?;
+                let branch = floats(ctx, rng, d - s * 4)?;
                 let inj = floats(ctx, rng, 4)?;
                 let (mut pbr, mut pi) = (branch.ptr, inj.ptr);
                 run(
@@ -2296,8 +2868,16 @@ mod tests {
                     256,
                     &mut kargs![ph, pbr, pi],
                 )?;
+                run(
+                    ctx,
+                    m,
+                    "q38_hc_inject4_vec",
+                    (3, 1),
+                    256,
+                    &mut kargs![ph, pbr, pi],
+                )?;
 
-                let kv = floats(ctx, rng, 5 * d)?; // key [4, 2560] then value [2560]
+                let kv = floats(ctx, rng, 5 * d)?;
                 let (nk, nq, nc) = (
                     floats(ctx, rng, 4 * d)?,
                     floats(ctx, rng, 4 * d)?,
@@ -2356,9 +2936,7 @@ mod tests {
                 }
             }
 
-            // QSA at the last cache row: `max_ctx = 4100` (1025 key blocks, > 512 so the
-            // indexer mask runs), caches `[max_ctx, 512]` FP16, `[max_ctx, 128]` and
-            // `[max_ctx / 4, 128]` indexer keys.
+            // QSA at the last cache row: `max_ctx = 4100` (1025 key blocks > 512).
             {
                 let max_ctx = 4100usize;
                 let n_blocks = max_ctx / 4;
@@ -2422,8 +3000,7 @@ mod tests {
                 }
             }
 
-            // Router + Top-10 + MoE: all 512 experts in VRAM with expert 511 selected, then the
-            // compact `[10, ...]` staged slab.
+            // Router + Top-10 + MoE (both raw BF16 and Z24 24-bit lossless): expert 511 selected.
             {
                 let rw = noise(ctx, rng, (Q38_EXP - s) * 320 * 16)?;
                 let x = floats(ctx, rng, d)?;
@@ -2461,7 +3038,6 @@ mod tests {
                 let act = zeros(ctx, 11 * Q38_MOE_FF * 4)?;
                 let out = zeros(ctx, d * 4)?;
                 for (experts, compact) in [(Q38_EXP, 0i32), (Q38_TOP_K, 1)] {
-                    // Gate / up `[E, 640, 80]` + `[E, 640, 40]`, down `[E, 2560, 20]` + `[E, 2560, 10]`.
                     let gw = noise(ctx, rng, (experts * 640 - s) * 80 * 16)?;
                     let uw = noise(ctx, rng, experts * 640 * 80 * 16)?;
                     let gsc = noise(ctx, rng, experts * 640 * 40 * 4)?;
@@ -2484,6 +3060,26 @@ mod tests {
                             pgw, pgs, pgb, puw, pus, pub_, psw, pss, psb, px2, psel, cmp, pw2, pa
                         ],
                     )?;
+                    if compact == 0 {
+                        let glo = noise(ctx, rng, experts * 640 * 40 * 4)?;
+                        let ghi = noise(ctx, rng, experts * 640 * 20 * 4)?;
+                        let ulo = noise(ctx, rng, experts * 640 * 40 * 4)?;
+                        let uhi = noise(ctx, rng, experts * 640 * 20 * 4)?;
+                        let (mut pglo, mut pghi, mut pulo, mut puhi) =
+                            (glo.ptr, ghi.ptr, ulo.ptr, uhi.ptr);
+                        let mut up_bases = 0x76727672u32;
+                        run(
+                            ctx,
+                            m,
+                            "q38_moe_up_swiglu11_z24",
+                            (160, 11),
+                            256,
+                            &mut kargs![
+                                pgw, pglo, pghi, puw, pulo, puhi, up_bases, psw, pss, psb, px2,
+                                psel, pw2, pa
+                            ],
+                        )?;
+                    }
                     drop((gw, uw, gsc, gbi, usc, ubi));
                     let dw = noise(ctx, rng, (experts * d - s) * 20 * 16)?;
                     let dsc = noise(ctx, rng, experts * d * 10 * 4)?;
@@ -2499,12 +3095,28 @@ mod tests {
                         256,
                         &mut kargs![pdw, pds, pdb, phw, phs, phb, pa, psel, cmp, pw2, po],
                     )?;
+                    if compact == 0 {
+                        let dlo = noise(ctx, rng, experts * d * 10 * 4)?;
+                        let dhi = noise(ctx, rng, experts * d * 5 * 4)?;
+                        let (mut pdlo, mut pdhi) = (dlo.ptr, dhi.ptr);
+                        let mut dn_bases = 0x7672u32;
+                        run(
+                            ctx,
+                            m,
+                            "q38_moe_down_combine11_z24",
+                            (80, 1),
+                            256,
+                            &mut kargs![
+                                pdw, pdlo, pdhi, dn_bases, phw, phs, phb, pa, psel, pw2, po
+                            ],
+                        )?;
+                    }
                 }
             }
 
-            // Greedy head: `[vocab]` logits.
+            // Greedy head: `[vocab]` logits (`q38_argmax_and_inc_pos` and `q38_argmax_fast`).
             {
-                let logits = floats(ctx, rng, Q38_VOCAB - s)?;
+                let logits = floats(ctx, rng, Q38_VOCAB - s * 4)?;
                 let tok = zeros(ctx, 4)?;
                 let pos = ints(ctx, &[7])?;
                 let (mut pl, mut pt, mut pp) = (logits.ptr, tok.ptr, pos.ptr);
@@ -2514,6 +3126,14 @@ mod tests {
                     "q38_argmax_and_inc_pos",
                     (1, 1),
                     256,
+                    &mut kargs![pl, pt, pp],
+                )?;
+                run(
+                    ctx,
+                    m,
+                    "q38_argmax_fast",
+                    (1, 1),
+                    1024,
                     &mut kargs![pl, pt, pp],
                 )?;
                 run(ctx, m, "q38_inc_pos", (1, 1), 1, &mut kargs![pp])?;

@@ -703,17 +703,25 @@ fn cmd_bench(args: &[String]) -> Result<(), String> {
     }
 
     let dir = weights_dir.ok_or("missing --weights <model_dir>")?;
+    let dir_path = Path::new(&dir);
+    let is_qwen = is_qwen38_weights_dir(dir_path, "");
     let tspec = tokens_spec.ok_or("missing --tokens <csv|@file|synth:N|chat:@file.txt>")?;
     let prompt_ids = if let Some(chat) = tspec.strip_prefix("chat:") {
         // `chat:@file.txt` / `chat:<text>`: one user turn through the checkpoint's own tokenizer
-        // (Inkling chat template, thinking effort 0), so benchmark prompts can be kept as text.
+        // (thinking effort `none`), so benchmark prompts can be kept as human-readable text.
         let text = match chat.strip_prefix('@') {
             Some(path) => std::fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?,
             None => chat.to_string(),
         };
-        let tok = TiktokenBpe::from_model_dir(Path::new(&dir))
-            .map_err(|e| format!("chat: needs the Inkling tokenizer in {dir}: {e}"))?;
-        tok.format_inkling2_chat(text.trim_end(), "none")
+        if is_qwen {
+            let tok = QwenBpeTokenizer::load_from_file(dir_path.join("tokenizer.json"))
+                .map_err(|e| format!("chat: needs tokenizer.json in {dir}: {e}"))?;
+            tok.encode_chat_prompt(text.trim_end(), "none")
+        } else {
+            let tok = TiktokenBpe::from_model_dir(dir_path)
+                .map_err(|e| format!("chat: needs the Inkling tokenizer in {dir}: {e}"))?;
+            tok.format_inkling2_chat(text.trim_end(), "none")
+        }
     } else {
         parse_bench_tokens(&tspec)?
     };
@@ -723,8 +731,7 @@ fn cmd_bench(args: &[String]) -> Result<(), String> {
         .unwrap_or(8192)
         .max(prompt_ids.len() + n_gen + 64);
 
-    let dir_path = Path::new(&dir);
-    if is_qwen38_weights_dir(dir_path, "") {
+    if is_qwen {
         let max_ctx = env::var("LEANSONIC_CTX")
             .ok()
             .and_then(|s| s.parse().ok())
@@ -759,6 +766,39 @@ fn cmd_bench(args: &[String]) -> Result<(), String> {
                 logits[2],
                 sum_logits
             );
+
+            if let Ok(dump_path) = env::var("LEANSONIC_EVAL_DUMP") {
+                let forced: Vec<u32> = env::var("LEANSONIC_EVAL_FORCE")
+                    .unwrap_or_default()
+                    .split(',')
+                    .filter_map(|t| t.trim().parse().ok())
+                    .collect();
+                let mut f = std::fs::File::create(&dump_path).map_err(|e| e.to_string())?;
+                let write_logits = |f: &mut std::fs::File, l: &[f32]| -> Result<(), String> {
+                    let bytes: Vec<u8> = l.iter().flat_map(|v| v.to_le_bytes()).collect();
+                    f.write_all(&bytes).map_err(|e| e.to_string())
+                };
+                write_logits(&mut f, &logits)?;
+                for &t in &forced {
+                    let _ = gpu.forward_greedy_token(t)?;
+                    write_logits(&mut f, &gpu.read_last_logits()?)?;
+                }
+                println!(
+                    "[eval] dumped {} logit rows to {dump_path}",
+                    1 + forced.len()
+                );
+                return Ok(());
+            }
+
+            if let Some(at) = env::var("LEANSONIC_BENCH_DECODE_AT")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+            {
+                gpu.bench_jump_position(at)?;
+                println!(
+                    "[bench] decode position moved to {at} (KV rows not prefilled; timing only)"
+                );
+            }
 
             if n_gen > 0 {
                 let t_dec = Instant::now();
