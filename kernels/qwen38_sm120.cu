@@ -232,6 +232,27 @@ __device__ __forceinline__ float warp_dot_q4_row_smem9(
     return warp_sum(acc);
 }
 
+// A BF16 in [128,255] carries its integer offset directly in its fraction.
+// Subtract 128 for nonnegative codes and 256 for negative two's-complement codes.
+template<unsigned Select>
+__device__ __forceinline__ uint32_t q38_scaled_q8_pair(uint32_t word, uint32_t scales) {
+    const uint32_t lanes = __byte_perm(word, 0x43434343u, Select);
+    const uint32_t biased = lanes & 0xff7fff7fu;
+    const uint32_t zero = (lanes & 0x00800080u) | 0x43004300u;
+    uint32_t codes, values;
+    asm("sub.rn.bf16x2 %0, %1, %2;" : "=r"(codes) : "r"(biased), "r"(zero));
+    asm("mul.rn.bf16x2 %0, %1, %2;" : "=r"(values) : "r"(codes), "r"(scales));
+    return values;
+}
+
+__device__ __forceinline__ float4 q38_scaled_q8_word(uint32_t word, uint16_t scale) {
+    const uint32_t scales = static_cast<uint32_t>(scale) * 0x10001u;
+    const uint32_t lo = q38_scaled_q8_pair<0x4140>(word, scales);
+    const uint32_t hi = q38_scaled_q8_pair<0x4342>(word, scales);
+    return make_float4(__uint_as_float(lo << 16), __uint_as_float(lo & 0xffff0000u),
+                       __uint_as_float(hi << 16), __uint_as_float(hi & 0xffff0000u));
+}
+
 // Q4 has a bias plane. Symmetric Q8 stores two signed-code vectors per group
 // and rounds each scaled code to BF16 before the FP32 dot.
 __device__ __forceinline__ float shared_group_dot(
@@ -240,20 +261,16 @@ __device__ __forceinline__ float shared_group_dot(
     if (biases) return dot_q4_group32_smem9(weights[group], load_bf16_from_u32_array(scales, group),
                                            load_bf16_from_u32_array(biases, group), x);
     const uint32_t* codes = reinterpret_cast<const uint32_t*>(weights) + 8 * group;
-    const float scale = bf16_to_f32(reinterpret_cast<const uint16_t*>(scales)[group]);
+    const uint16_t scale = reinterpret_cast<const uint16_t*>(scales)[group];
     float accum[4] = {};
     #pragma unroll
     for (int i = 0; i < 8; ++i) {
-        const uint32_t word = codes[i];
+        const float4 w = q38_scaled_q8_word(codes[i], scale);
         const float4 v = x[i];
-        const float elements[] = {v.x, v.y, v.z, v.w};
-        #pragma unroll
-        for (int j = 0; j < 4; ++j) {
-            const int code = static_cast<int8_t>(word >> (8 * j));
-            uint16_t rounded;
-            asm("cvt.rn.bf16.f32 %0, %1;" : "=h"(rounded) : "f"(code * scale));
-            accum[j] = __fmaf_rn(bf16_to_f32(rounded), elements[j], accum[j]);
-        }
+        accum[0] = __fmaf_rn(w.x, v.x, accum[0]);
+        accum[1] = __fmaf_rn(w.y, v.y, accum[1]);
+        accum[2] = __fmaf_rn(w.z, v.z, accum[2]);
+        accum[3] = __fmaf_rn(w.w, v.w, accum[3]);
     }
     return (accum[0] + accum[1]) + (accum[2] + accum[3]);
 }
@@ -4384,17 +4401,12 @@ __device__ __forceinline__ float q38_q8_row_dot(
     const uint16_t* sc = scales + static_cast<size_t>(row) * (cols / 32);
     float acc = 0.0f;
     for (int i = lane; i < words; i += 32) {
-        const uint32_t codes = w[i];
-        const float scale = bf16_to_f32(sc[i / 8]);
+        const float4 weights4 = q38_scaled_q8_word(w[i], sc[i / 8]);
         const float4 v = input[i];
-        const float elements[] = {v.x, v.y, v.z, v.w};
-        #pragma unroll
-        for (int j = 0; j < 4; ++j) {
-            const int code = static_cast<int8_t>(codes >> (8 * j));
-            uint16_t rounded;
-            asm("cvt.rn.bf16.f32 %0, %1;" : "=h"(rounded) : "f"(code * scale));
-            acc = fmaf(bf16_to_f32(rounded), elements[j], acc);
-        }
+        acc = fmaf(weights4.x, v.x, acc);
+        acc = fmaf(weights4.y, v.y, acc);
+        acc = fmaf(weights4.z, v.z, acc);
+        acc = fmaf(weights4.w, v.w, acc);
     }
     return warp_sum(acc);
 }
