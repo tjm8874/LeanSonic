@@ -34,6 +34,23 @@ Median time from request to DONE in ms, **fixed → sixteen slots** (six timed s
 
 Eight-token requests became slower on every input. With 32 and 128 outputs, decode savings outweighed the first-token penalty on all four. Keep adaptation optional. The data do not establish a single break-even length across workloads. [Peak VRAM, TTFT, prefill/decode throughput, transfers and sample-level results](lengths.json)
 
+## Matched public-engine requests
+
+Basalt v0.5.7 used the same PRO 4500, 256-token context, prompt IDs and requested output limits. Its UD-Q4_K_XL quantization differs from LeanSonic MLX Q4. One resident launch per Basalt arm warmed all cases once and timed three cycles. Native results below use fixed slots for the 8-token request and sixteen adaptive slots for the 32- and 128-token requests. These are separate measured settings. The engine did not automatically choose based on the requested length.
+
+Median request-to-DONE time in ms, **LeanSonic / Basalt adaptive / Basalt fixed**:
+
+| Input | 8 output tokens | 32 output tokens | 128 output tokens |
+| --- | ---: | ---: | ---: |
+| English | 232 / 426 / 462 | 570 / 591 / 820 | 3,474 / — / — |
+| Japanese | 391 / 644 / 750 | 802 / 649 / 1,201 | 2,268 / 1,823 / 2,662 |
+| Code | 350 / 244 / 370 | 1,095 / 522 / 1,035 | 4,289 / 2,122 / 3,673 |
+| Arithmetic | 284 / 273 / 522 | 867 / 567 / 1,006 | 3,352 / 2,065 / 3,216 |
+
+For the English 128-token request, Basalt adaptive returned 69, 70 and 66 tokens across the three measured cycles. Fixed returned 69 each time. Report these as early completions; their DONE times cannot rank equal-length generation. Both Basalt arms reached every other requested limit. Native peak VRAM was 32,084,328,448 bytes. Basalt peaked at 32,847,691,776 bytes adaptive and 32,845,594,624 bytes fixed. The fixed-output timings use resident processes without prompt reuse. The [common BF16 subset](../wave3/README.md#matched-bf16-quality-gates-on-the-held-out-prompts) still favors Basalt on KL. [Public engine samples and output IDs](public-lengths.json)
+
+Two additional native four-slot launches followed the sixteen-slot study using the stable slot assignment. Across English, Japanese, code and arithmetic, medians were respectively 248/407/360/298 ms at eight output tokens, 570/805/1,074/869 ms at 32 and 3,489/2,431/4,351/3,435 ms at 128. All 96 additional greedy runs matched the tested prefixes. [Native results and transfer samples](lengths.json)
+
 ## Reproduce
 
 Use the mixed cubin build and GPU selection from the [fixed-placement experiment](../wave3/README.md#reproduction). Commit `5e36e63` produced the first online result; `65968d2` adds overlap-preserving slot assignment. The extended stream harness supports multiple requested output lengths in one resident process. Use the benchmark scripts in this directory's revision.
