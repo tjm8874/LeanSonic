@@ -467,7 +467,12 @@ struct Z24LayerBases {
     down_packed_m1: u32, // `[down_sc | (down_bi<<8)]`
 }
 
+#[path = "qwen38_mixed.rs"]
+mod mixed;
+use mixed::{MixedExperts, MixedProfile};
+
 enum SwitchMlpTier {
+    Mixed(MixedExperts),
     Vram {
         buf: DeviceBuf,
         z24: Option<Z24LayerBases>,
@@ -790,7 +795,7 @@ fn discover_qwen38_cubin() -> Option<PathBuf> {
     None
 }
 
-fn load_kernel_fns(ctx: &Arc<CudaContextHandle>) -> Result<Qwen38KernelFns, String> {
+fn load_kernel_fns(ctx: &Arc<CudaContextHandle>, mixed: bool) -> Result<Qwen38KernelFns, String> {
     let module_image: Vec<u8> = if let Some(cubin_path) = discover_qwen38_cubin() {
         let mut raw = std::fs::read(&cubin_path)
             .map_err(|e| format!("read {}: {e}", cubin_path.display()))?;
@@ -800,7 +805,12 @@ fn load_kernel_fns(ctx: &Arc<CudaContextHandle>) -> Result<Qwen38KernelFns, Stri
         let header_nvrtc = CUDA_HEADER_SRC.replace("#include <stdint.h>", "");
         let inlined =
             CUDA_QWEN38_SRC.replace("#include \"include/leansonic_verified.cuh\"", &header_nvrtc);
-        compile_cuda_to_ptx_nvrtc(&inlined, "compute_120a")?
+        let source = if mixed {
+            format!("#define LEANSONIC_Q38_MIXED 1\n{inlined}")
+        } else {
+            inlined
+        };
+        compile_cuda_to_ptx_nvrtc(&source, "compute_120a")?
     };
 
     let mut module: CUmodule = core::ptr::null_mut();
@@ -823,6 +833,13 @@ fn load_kernel_fns(ctx: &Arc<CudaContextHandle>) -> Result<Qwen38KernelFns, Stri
         Ok(f)
     };
 
+    let z24_fn = |name: &str| {
+        if mixed {
+            get_fn(&format!("{name}_mixed"))
+        } else {
+            get_fn(name)
+        }
+    };
     Ok(Qwen38KernelFns {
         _module: module,
         embed_init_hc4: get_fn("q38_embed_init_hc4")?,
@@ -843,9 +860,9 @@ fn load_kernel_fns(ctx: &Arc<CudaContextHandle>) -> Result<Qwen38KernelFns, Stri
         bf16_router_512: get_fn("q38_bf16_router_512")?,
         softmax_topk10: get_fn("q38_softmax_topk10")?,
         moe_up_swiglu11: get_fn("q38_moe_up_swiglu11")?,
-        moe_up_swiglu11_z24: get_fn("q38_moe_up_swiglu11_z24")?,
+        moe_up_swiglu11_z24: z24_fn("q38_moe_up_swiglu11_z24")?,
         moe_down_combine11: get_fn("q38_moe_down_combine11")?,
-        moe_down_combine11_z24: get_fn("q38_moe_down_combine11_z24")?,
+        moe_down_combine11_z24: z24_fn("q38_moe_down_combine11_z24")?,
         argmax_fast: get_fn("q38_argmax_fast")?,
         inc_pos: get_fn("q38_inc_pos")?,
         embed_init_hc4_batch: get_fn("q38_embed_init_hc4_batch")?,
@@ -865,8 +882,8 @@ fn load_kernel_fns(ctx: &Arc<CudaContextHandle>) -> Result<Qwen38KernelFns, Stri
         bf16_router_512_b4: get_fn("q38_bf16_router_512_b4")?,
         softmax_topk10_batch: get_fn("q38_softmax_topk10_batch")?,
         moe_build_plan_b64: get_fn("q38_moe_build_plan_b64")?,
-        moe_up_grouped_z24: get_fn("q38_moe_up_grouped_z24")?,
-        moe_down_grouped_z24: get_fn("q38_moe_down_grouped_z24")?,
+        moe_up_grouped_z24: z24_fn("q38_moe_up_grouped_z24")?,
+        moe_down_grouped_z24: z24_fn("q38_moe_down_grouped_z24")?,
         moe_combine11_batch: get_fn("q38_moe_combine11_batch")?,
         argmax_fast_batch: get_fn("q38_argmax_fast_batch")?,
         add_pos: get_fn("q38_add_pos")?,
@@ -947,7 +964,8 @@ impl Qwen38GpuEngine {
         let t0 = Instant::now();
         let ctx = CudaContextHandle::init(0)?;
         ctx.bind_current()?;
-        let fns = load_kernel_fns(&ctx)?;
+        let profile = MixedProfile::from_env()?;
+        let fns = load_kernel_fns(&ctx, profile.is_some())?;
         let pdl = ctx.api.cuLaunchKernelEx.is_some()
             && std::env::var("LEANSONIC_NO_PDL")
                 .map(|v| v != "1")
@@ -1314,6 +1332,15 @@ impl Qwen38GpuEngine {
             .and_then(|s| s.parse().ok())
             .unwrap_or(Q38_LAYERS);
 
+        if let Some(p) = &profile {
+            if force_compact || disable_z24 || max_vram_layers != Q38_LAYERS {
+                return Err(
+                    "expert profile conflicts with compact mode, disabled Z24, or a layer limit"
+                        .into(),
+                );
+            }
+            p.check_capacity(&ctx, vram_reserve_bytes, host_ram_reserve_bytes)?;
+        }
         let mut z24_lo_scratch = vec![0u32; SW_GROUPS_PER_PROJ / 2];
         let mut z24_hi_scratch = vec![0u32; SW_GROUPS_PER_PROJ / 4];
 
@@ -1343,7 +1370,23 @@ impl Qwen38GpuEngine {
                 && available_host_ram_bytes()
                     > host_ram_reserve_bytes.saturating_add(SW_Z24_LAYER_BYTES);
 
-            let switch_mlp = if want_vram || want_pinned {
+            let switch_mlp = if let Some(p) = &profile {
+                let weights = [
+                    [gw.data, gsc.data, gbi.data],
+                    [uw.data, usc.data, ubi.data],
+                    [dw.data, dsc.data, dbi.data],
+                ];
+                let mixed = MixedExperts::load(
+                    &ctx,
+                    p,
+                    l,
+                    weights,
+                    &mut z24_lo_scratch,
+                    &mut z24_hi_scratch,
+                )?;
+                z24_layers += 1;
+                SwitchMlpTier::Mixed(mixed)
+            } else if want_vram || want_pinned {
                 // Attempt `0-ULP` lossless `24-bit` (`Z24`) packing first (`1,425 MiB` vs `1,500 MiB`).
                 let z24_gate = if !disable_z24 {
                     pack_z24_sb_slice(gsc.data, gbi.data, &mut z24_lo_scratch, &mut z24_hi_scratch)
@@ -1581,6 +1624,9 @@ impl Qwen38GpuEngine {
             .flat_map(|s| [&s.weights, &s.scales.bytes, &s.biases.bytes])
             .map(|range| engine.sharded_mmap.bytes_at(range).len())
             .sum();
+        if let Some(p) = &profile {
+            eprintln!("[Qwen38GpuEngine] Profile placement: {} VRAM and {} pinned expert records over {} mixed layers",p.hot_count(),Q38_EXP*Q38_LAYERS-p.hot_count(),Q38_LAYERS);
+        }
         let engram_gib = engram_bytes as f64 / (1u64 << 30) as f64;
         let load_s = t0.elapsed().as_secs_f64();
         eprintln!(
@@ -2822,28 +2868,11 @@ impl Qwen38GpuEngine {
                 self.d_branch_out.ptr,
             );
 
-            let z24_opt = match &layer.switch_mlp {
-                SwitchMlpTier::Vram { buf, z24 } => z24.map(|b| (buf.ptr, b)),
-                SwitchMlpTier::HostPinned { buf, z24 } => z24.map(|b| (buf.dev_ptr, b)),
-                SwitchMlpTier::MmapCompact { .. } => None,
-            };
-
-            if let Some((base_ptr, z24_bases)) = z24_opt {
-                let (mut gw_p, mut glo_p, mut ghi_p) = (
-                    base_ptr + ZOFF_GATE_W as u64,
-                    base_ptr + ZOFF_GATE_LO as u64,
-                    base_ptr + ZOFF_GATE_HI as u64,
-                );
-                let (mut uw_p, mut ulo_p, mut uhi_p) = (
-                    base_ptr + ZOFF_UP_W as u64,
-                    base_ptr + ZOFF_UP_LO as u64,
-                    base_ptr + ZOFF_UP_HI as u64,
-                );
-                let (mut dw_p, mut dlo_p, mut dhi_p) = (
-                    base_ptr + ZOFF_DOWN_W as u64,
-                    base_ptr + ZOFF_DOWN_LO as u64,
-                    base_ptr + ZOFF_DOWN_HI as u64,
-                );
+            if let Some((
+                [mut gw_p, mut glo_p, mut ghi_p, mut uw_p, mut ulo_p, mut uhi_p, mut dw_p, mut dlo_p, mut dhi_p],
+                z24_bases,
+            )) = layer.switch_mlp.z24_parts()
+            {
                 let mut up_bases = z24_bases.up_packed_m1;
                 let mut dn_bases = z24_bases.down_packed_m1;
 
@@ -2907,6 +2936,7 @@ impl Qwen38GpuEngine {
                         b.dev_ptr + OFF_DOWN_BI as u64,
                         0i32,
                     ),
+                    SwitchMlpTier::Mixed(_) => return Err("mixed experts require Z24".into()),
                     SwitchMlpTier::MmapCompact { layer_idx } => {
                         let base = self.stage_compact_top10(*layer_idx)?;
                         (
@@ -3357,27 +3387,13 @@ impl Qwen38GpuEngine {
                 )?;
             }
 
-            let (base_ptr, z24_bases) = match &layer.switch_mlp {
-                SwitchMlpTier::Vram { buf, z24: Some(b) } => (buf.ptr, *b),
-                SwitchMlpTier::HostPinned { buf, z24: Some(b) } => (buf.dev_ptr, *b),
-                _ => return Err("batched MoE requires Z24 Vram/HostPinned tiers".into()),
-            };
-
-            let (mut gw_p, mut glo_p, mut ghi_p) = (
-                base_ptr + ZOFF_GATE_W as u64,
-                base_ptr + ZOFF_GATE_LO as u64,
-                base_ptr + ZOFF_GATE_HI as u64,
-            );
-            let (mut uw_p, mut ulo_p, mut uhi_p) = (
-                base_ptr + ZOFF_UP_W as u64,
-                base_ptr + ZOFF_UP_LO as u64,
-                base_ptr + ZOFF_UP_HI as u64,
-            );
-            let (mut dw_p, mut dlo_p, mut dhi_p) = (
-                base_ptr + ZOFF_DOWN_W as u64,
-                base_ptr + ZOFF_DOWN_LO as u64,
-                base_ptr + ZOFF_DOWN_HI as u64,
-            );
+            let (
+                [mut gw_p, mut glo_p, mut ghi_p, mut uw_p, mut ulo_p, mut uhi_p, mut dw_p, mut dlo_p, mut dhi_p],
+                z24_bases,
+            ) = layer
+                .switch_mlp
+                .z24_parts()
+                .ok_or("batched MoE requires Z24 expert storage")?;
             let mut up_bases = z24_bases.up_packed_m1;
             let mut dn_bases = z24_bases.down_packed_m1;
             let (mut sh_gu_w, mut sh_gu_sc, mut sh_gu_bi) = (
