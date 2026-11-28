@@ -19,6 +19,14 @@ The streaming run order was Engram-only, combined, combined, Engram-only. Each p
 
 Prompt throughput includes time to the first output token; decode spans the remaining 31 intervals. Steady-state speed was essentially unchanged here. The candidate trades startup latency for a smaller direct distribution. [Prompts, generated IDs, every timing sample and quality scores](pro5000.json)
 
+## Parallel CPU expansion and memory tiers
+
+On the same PRO 5000, a second experiment used the combined 105,964,828,539-byte checkpoint for all four launches. Large expert parameter planes now decode across up to eight CPU workers; a selected mmap expert keeps its single-threaded range decoder. The launch order was serial, parallel, parallel, serial. Time to READY was 24.24 and 24.51 seconds for serial, 10.32 and 11.85 seconds for parallel, giving medians of **24.37 → 11.09 seconds**. This is a warm-filesystem comparison on a shared host, with two launches per arm. The earlier 7.88-second figure used the larger Engram-only checkpoint in a separate run.
+
+At 128 prompt / 32 output tokens the parallel run reached 493.00 prompt tok/s and 158.95 decode tok/s, compared with 493.93 and 159.05 in the serial arm. The 32 generated tokens matched in every run, and the parallel teacher matched all 49 full-vocabulary distributions and all four eight-token canaries. With 47/48 layers in VRAM and one mmap-staged layer, the serial compressed and Engram-only models also produced identical distributions and continuations. The all-resident and mmap backends have a small pre-existing floating-point difference, so the compact comparison used identical placement on both sides.
+
+The PRO 4500 independently matched the uncompressed expert control at every one of the 65 held-out positions and all four canaries with the serial decoder. Its native CLI on the 16-position common reference reported mean / worst BF16 KL 0.304394 / 1.440301, top-1 13/16 and PPL 13.0983 (reference 8.4605). [Per-launch metrics and exact comparisons](parallel-and-tiers.json)
+
 ## Reproduction
 
 From the repository root, point `ORIGINAL_MLX_Q4` at the original checkpoint and `NEW_DIRECT_DIR` at a fresh output directory. Build the frame codec, repack, then compare the saved bytes.
