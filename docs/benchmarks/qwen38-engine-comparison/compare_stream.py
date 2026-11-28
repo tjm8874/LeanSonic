@@ -105,7 +105,7 @@ def run(args):
                             if len(fields) > 8 and int(fields[8]) != 0:
                                 raise ValueError("engine reported reused prompt tokens")
                             break
-                    if len(tokens) != n:
+                    if len(tokens) != n and not (args.allow_early_stop and 0 < len(tokens) < n):
                         raise ValueError(f"expected {n}, got {len(tokens)}")
                     records.append(
                         {
@@ -113,6 +113,7 @@ def run(args):
                             "case": case,
                             "prompt": ids,
                             "generated": tokens,
+                            "requested_output_tokens": n,
                             "prefill_to_first_ms": (stamps[0] - sendtime) / 1e6,
                             "decode_ms": (stamps[-1] - stamps[0]) / 1e6,
                             "last_to_done_ms": (done - stamps[-1]) / 1e6,
@@ -156,6 +157,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--generate", type=int, action="append", help="repeat for multiple output lengths")
     parser.add_argument("--held-out-routing", action="store_true")
+    parser.add_argument("--allow-early-stop", action="store_true", help="retain naturally completed requests shorter than the requested output length")
     parser.add_argument("fixtures", type=Path)
     parser.add_argument("log", type=Path)
     parser.add_argument("result", type=Path)
