@@ -143,3 +143,20 @@ Engram produced the highest mean and maximum KL while improving target-token PPL
 For the table/projection split, run engram_ablation.py with the same four path arguments as upstream_q4.py and choose `--background bf16` or `--background q4`. The latter also replaces the routed experts and dense weights. For a native Q4 hyper-connection refit, run refit_hyperconnection.py with the base package, official checkpoint and a new output directory. Each replacement uses the original group-32 layout and the same tensor payload length. The diagnostic overlay retains the superseded tensors.
 
 The native hyper-connection refit used the 103,556,413,821-byte weight-frame baseline, with a 399,769,600-byte replacement tensor payload. Its diagnostic distribution counted 103,956,318,481 file bytes including the original tensors. On the original 49 positions it lowered mean KL from 0.281135 to 0.268808 and PPL from 52.9910 to 50.2589, while worst KL rose from 1.469437 to 1.604807. On the separate 65 positions, mean/worst KL was 0.364191/1.241401, top-1 44/65 and PPL 24.5753. On the expanded 494 positions, mean/worst KL worsened from 0.269670/2.499328 to 0.279999/2.776550 and PPL increased from 15.9460 to 16.0238, although top-1 improved from 406 to 413. The PRO 5000, 5070 Ti and 5060 Ti produced the same full FP32 output hash and eight-token continuation hash for this refit. Keep the stock hyper-connection quantization. [Scores, streaming trials and GPU hash](hyperconnection-refit.json)
+
+## Split Engram table and projections
+
+Each pair of table and projection precisions was run in both upstream backgrounds with identical input IDs, eager execution and the official BF16 reference. All three controls reproduced the earlier full FP32 logits and continuations exactly. Values use the original 49 teacher positions.
+
+| Other weights | Engram table | PLE key/value projections | Mean KL | Worst KL | Top-1 | PPL |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| BF16 | BF16 | BF16 | 0 | 0 | 49/49 | 28.0382 |
+| BF16 | Q4 | BF16 | 0.009395 | 0.064458 | 47/49 | 28.5413 |
+| BF16 | BF16 | Q4 | 0.014053 | 0.122360 | 46/49 | 27.4275 |
+| BF16 | Q4 | Q4 | 0.138276 | 2.545091 | 44/49 | 26.2686 |
+| MLX Q4 | BF16 | BF16 | 0.298536 | 1.472025 | 39/49 | 53.9897 |
+| MLX Q4 | Q4 | BF16 | 0.279530 | 1.495126 | 41/49 | 52.5435 |
+| MLX Q4 | BF16 | Q4 | 0.292975 | 1.490800 | 38/49 | 53.6483 |
+| MLX Q4 | Q4 | Q4 | 0.284651 | 1.429076 | 39/49 | 53.4910 |
+
+Quantizing both components had a larger effect on the BF16 background than either component in isolation. In the Q4 background, restoring both components worsened mean KL. Restoring the two projections alone lowered mean KL and PPL but raised worst KL. The corresponding native experiment in build_ple.py loads an optional BF16 tensor with 12,800 rows and 2,560 columns. [Raw scores and three exact controls](engram-split.json)

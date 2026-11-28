@@ -1,0 +1,200 @@
+{
+  "bf16-both-bf16": {
+    "rows": 49,
+    "vocabulary": 248320,
+    "mean_kl": 0.0,
+    "max_kl": 0.0,
+    "worst_case_position": [
+      0,
+      0
+    ],
+    "top1_matches": 49,
+    "byte_equal_rows": 49,
+    "reference_ppl": 28.038166623626164,
+    "candidate_ppl": 28.038166623626164,
+    "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+    "candidate_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+    "canary_cases": 4,
+    "matching_canaries": 4
+  },
+  "bf16-both-q4": {
+    "rows": 49,
+    "vocabulary": 248320,
+    "mean_kl": 0.1382755581614575,
+    "max_kl": 2.5450908469832045,
+    "worst_case_position": [
+      3,
+      7
+    ],
+    "top1_matches": 44,
+    "byte_equal_rows": 0,
+    "reference_ppl": 28.038166623626164,
+    "candidate_ppl": 26.268562631245135,
+    "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+    "candidate_sha256": "df16cc335e7f089baf5666d3b8e2445ca5ddbce39607582565f5f2aad34b6c77",
+    "canary_cases": 4,
+    "matching_canaries": 3
+  },
+  "bf16-projections-q4": {
+    "rows": 49,
+    "vocabulary": 248320,
+    "mean_kl": 0.01405330443581707,
+    "max_kl": 0.12236038997124249,
+    "worst_case_position": [
+      3,
+      7
+    ],
+    "top1_matches": 46,
+    "byte_equal_rows": 0,
+    "reference_ppl": 28.038166623626164,
+    "candidate_ppl": 27.42745503533594,
+    "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+    "candidate_sha256": "7b941071bbcde578e38d9b6e01837b50a0921462cbca1b59860eb027e58aaaad",
+    "canary_cases": 4,
+    "matching_canaries": 3
+  },
+  "bf16-table-q4": {
+    "rows": 49,
+    "vocabulary": 248320,
+    "mean_kl": 0.009394776780246477,
+    "max_kl": 0.06445832590990681,
+    "worst_case_position": [
+      3,
+      5
+    ],
+    "top1_matches": 47,
+    "byte_equal_rows": 0,
+    "reference_ppl": 28.038166623626164,
+    "candidate_ppl": 28.541278699503323,
+    "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+    "candidate_sha256": "a630225e36a2ce759a14c5693650960269dceeeb1e2e40d3d9992dfa150d684d",
+    "canary_cases": 4,
+    "matching_canaries": 3
+  },
+  "check-bf16-both-bf16": {
+    "rows": 49,
+    "vocabulary": 248320,
+    "mean_kl": 0.0,
+    "max_kl": 0.0,
+    "worst_case_position": [
+      0,
+      0
+    ],
+    "top1_matches": 49,
+    "byte_equal_rows": 49,
+    "reference_ppl": 28.038166623626164,
+    "candidate_ppl": 28.038166623626164,
+    "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+    "candidate_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+    "canary_cases": 4,
+    "matching_canaries": 4
+  },
+  "check-bf16-both-q4": {
+    "rows": 49,
+    "vocabulary": 248320,
+    "mean_kl": 0.0,
+    "max_kl": 0.0,
+    "worst_case_position": [
+      0,
+      0
+    ],
+    "top1_matches": 49,
+    "byte_equal_rows": 49,
+    "reference_ppl": 26.268562631245135,
+    "candidate_ppl": 26.268562631245135,
+    "reference_sha256": "df16cc335e7f089baf5666d3b8e2445ca5ddbce39607582565f5f2aad34b6c77",
+    "candidate_sha256": "df16cc335e7f089baf5666d3b8e2445ca5ddbce39607582565f5f2aad34b6c77",
+    "canary_cases": 4,
+    "matching_canaries": 4
+  },
+  "check-q4-both-q4": {
+    "rows": 49,
+    "vocabulary": 248320,
+    "mean_kl": 0.0,
+    "max_kl": 0.0,
+    "worst_case_position": [
+      0,
+      0
+    ],
+    "top1_matches": 49,
+    "byte_equal_rows": 49,
+    "reference_ppl": 53.491044899915195,
+    "candidate_ppl": 53.491044899915195,
+    "reference_sha256": "e202e5785635727c7ba7b75155cfc3d4e02fde3b2970122703899376a5606892",
+    "candidate_sha256": "e202e5785635727c7ba7b75155cfc3d4e02fde3b2970122703899376a5606892",
+    "canary_cases": 4,
+    "matching_canaries": 4
+  },
+  "q4-both-bf16": {
+    "rows": 49,
+    "vocabulary": 248320,
+    "mean_kl": 0.29853607332742316,
+    "max_kl": 1.4720248814337782,
+    "worst_case_position": [
+      1,
+      8
+    ],
+    "top1_matches": 39,
+    "byte_equal_rows": 0,
+    "reference_ppl": 28.038166623626164,
+    "candidate_ppl": 53.98965127373117,
+    "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+    "candidate_sha256": "88a68110dbebcbda2d9318f4ebe961b18e33619527df7eeff43335aace520f2e",
+    "canary_cases": 4,
+    "matching_canaries": 2
+  },
+  "q4-both-q4": {
+    "rows": 49,
+    "vocabulary": 248320,
+    "mean_kl": 0.28465052631565096,
+    "max_kl": 1.4290755158670843,
+    "worst_case_position": [
+      1,
+      8
+    ],
+    "top1_matches": 39,
+    "byte_equal_rows": 0,
+    "reference_ppl": 28.038166623626164,
+    "candidate_ppl": 53.491044899915195,
+    "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+    "candidate_sha256": "e202e5785635727c7ba7b75155cfc3d4e02fde3b2970122703899376a5606892",
+    "canary_cases": 4,
+    "matching_canaries": 1
+  },
+  "q4-projections-q4": {
+    "rows": 49,
+    "vocabulary": 248320,
+    "mean_kl": 0.2929753889367202,
+    "max_kl": 1.4908000176466376,
+    "worst_case_position": [
+      1,
+      8
+    ],
+    "top1_matches": 38,
+    "byte_equal_rows": 0,
+    "reference_ppl": 28.038166623626164,
+    "candidate_ppl": 53.6483343832243,
+    "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+    "candidate_sha256": "69aaf6ad0712d656987223066bb1899714ea47ea2b6fbd6c54d0c6d9cd47af9d",
+    "canary_cases": 4,
+    "matching_canaries": 2
+  },
+  "q4-table-q4": {
+    "rows": 49,
+    "vocabulary": 248320,
+    "mean_kl": 0.27952966869042367,
+    "max_kl": 1.4951263085388784,
+    "worst_case_position": [
+      1,
+      8
+    ],
+    "top1_matches": 41,
+    "byte_equal_rows": 0,
+    "reference_ppl": 28.038166623626164,
+    "candidate_ppl": 52.54354504515865,
+    "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+    "candidate_sha256": "fa1ca1179b6a4528940c24e84aa01bd19b7efdedbc433a5514b0fe19a669bd04",
+    "canary_cases": 4,
+    "matching_canaries": 1
+  }
+}
