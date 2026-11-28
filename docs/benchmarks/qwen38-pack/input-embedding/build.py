@@ -10,9 +10,8 @@ from safetensors import safe_open
 from safetensors.torch import save_file
 
 
-def refit_q4(base, table):
+def refit_q4(base, table, prefix="language_model.model.embed_tokens."):
     """Fit group-32 affine parameters, retaining the lowest measured SSE for every group."""
-    prefix = "language_model.model.embed_tokens."
     mapping = json.loads((base / "model.safetensors.index.json").read_bytes())["weight_map"]
     planes = {}
     for name in ("weight", "scales", "biases"):
