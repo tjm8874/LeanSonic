@@ -34,3 +34,15 @@ nvcc -O3 -arch=sm_120 -std=c++17 "$d/z24_gpu.cu" -o verify-on-gpu
 ## 32 GB cross-check
 
 On RTX PRO 4500 32 GB, automatic placement used the saving to fit **20/48** expert layers in VRAM, up from 19/48. Sampled process peak consequently rose from 29.793 to 30.443 GiB. For the 16-token input, TTFT was 723.92 → 698.66 ms and decode was 21.84 → 22.64 tok/s. For the 128-token input, TTFT was 5798.46 → 5591.14 ms and decode was 21.78 → 22.57 tok/s. These are one process per arm, one warmup and three repeats per case. The 49 full-vocabulary distributions, four eight-token continuations and repeated 32-token streams matched. On this card both changed MoE kernels also passed the exact-size Compute Sanitizer memcheck with 65,536 bytes of padding and zero reported errors. The compiled kernels used zero local bytes and zero stack bytes. [32 GB timing samples and quality](native32.json)
+
+### Isolating the extra resident layer
+
+On the PRO 4500, a follow-up pinned `LEANSONIC_MAX_RESIDENT_LAYERS` to 19 or 20. All six launches used the same directly loadable checkpoint, context 256, two prompts and 32 greedy output tokens. The order was stock 19, palette 19, palette 20, palette 20, palette 19, stock 19. The engine confirmed every requested placement. All 48 streams, including warmups, produced the same IDs for their respective prompts. Each timing below is a median over six measured requests. Peak VRAM was sampled for the process.
+
+| Wave 1 layout | Peak GiB | TTFT, 16 / 128 tokens (ms) | Decode, 16 / 128 input tokens (tok/s) |
+| --- | ---: | ---: | ---: |
+| Stock, 19 layers | 29.793 | 724.73 / 5832.80 | 21.84 / 21.24 |
+| Palette, 19 layers | 29.088 | 720.81 / 5768.68 | 21.85 / 21.92 |
+| Palette, 20 layers | 30.443 | 701.62 / 5633.50 | 22.64 / 22.29 |
+
+With the palette binary held fixed, moving one additional expert layer to VRAM increased median decode by 3.6% on the short prompt and 1.7% on the long prompt. At 19 layers the short-prompt decode rate differed by 0.01 tok/s between builds. The long-prompt trials showed greater launch-to-launch variation. The stock and palette executables also printed different host Engram size estimates (29.8 and 27.6 GiB) for the same checkpoint path. The table reports process VRAM from NVML. [Timings, loader logs, token IDs and binary hashes](matched32.json)

@@ -1,0 +1,713 @@
+{
+  "binaries_sha256": {
+    "wave1-direct/target/release/examples/q38_stream": "fd8a0c8c58779fee08907af19d84c723e398d1130a597767ef9e5af2cd5198c6",
+    "wave1.cubin": "60b4be96c35a979c0f710f2b8a5c83f2c91a7d99bb6428049ec597bc386d355f",
+    "exp4-probe/word-target/release/examples/q38_stream": "da67240af0d8b6ff0c4a0be85aaeb03edb017229fc47a5a36e08b8555b81d692",
+    "exp4-word.cubin": "42c187351bfae9bb106cc7e92d55b505bde8c726309d1743db11cd028e499d34"
+  },
+  "palette_commit": "b187a55",
+  "order": [
+    "stock19",
+    "palette19",
+    "palette20",
+    "palette20",
+    "palette19",
+    "stock19"
+  ],
+  "warmup_cycle": 0,
+  "generation": "greedy, context 256, 32 output tokens; first to final token = 31 intervals",
+  "summary": {
+    "stock19": [
+      {
+        "prompt_tokens": 16,
+        "ttft_ms": 724.730928,
+        "prompt_tokens_per_s_to_first": 22.077159097038013,
+        "decode_tokens_per_s": 21.835605960661738
+      },
+      {
+        "prompt_tokens": 128,
+        "ttft_ms": 5832.799091000001,
+        "prompt_tokens_per_s_to_first": 21.944866950329867,
+        "decode_tokens_per_s": 21.2426243342717
+      }
+    ],
+    "palette19": [
+      {
+        "prompt_tokens": 16,
+        "ttft_ms": 720.8088805,
+        "prompt_tokens_per_s_to_first": 22.19728479052777,
+        "decode_tokens_per_s": 21.84713139946362
+      },
+      {
+        "prompt_tokens": 128,
+        "ttft_ms": 5768.680899999999,
+        "prompt_tokens_per_s_to_first": 22.188781494223406,
+        "decode_tokens_per_s": 21.920550289195205
+      }
+    ],
+    "palette20": [
+      {
+        "prompt_tokens": 16,
+        "ttft_ms": 701.6169095,
+        "prompt_tokens_per_s_to_first": 22.80446748554312,
+        "decode_tokens_per_s": 22.638391340711323
+      },
+      {
+        "prompt_tokens": 128,
+        "ttft_ms": 5633.500428,
+        "prompt_tokens_per_s_to_first": 22.721219539419195,
+        "decode_tokens_per_s": 22.290194252158113
+      }
+    ]
+  },
+  "fixtures": {
+    "0": {
+      "prompt": [
+        97007,
+        15303,
+        97181,
+        202983,
+        115197,
+        158369,
+        201193,
+        150679,
+        1710,
+        115197,
+        165896,
+        160868,
+        247539,
+        184218,
+        148857,
+        1710
+      ],
+      "generated": [
+        198,
+        115197,
+        158369,
+        14876,
+        5205,
+        95882,
+        103144,
+        98347,
+        52122,
+        95772,
+        95860,
+        98347,
+        19054,
+        161889,
+        99361,
+        149405,
+        95765,
+        5205,
+        95772,
+        95860,
+        98347,
+        52122,
+        95882,
+        103144,
+        98347,
+        19054,
+        161889,
+        99361,
+        149405,
+        95765,
+        5205,
+        95772
+      ]
+    },
+    "1": {
+      "prompt": [
+        760,
+        4998,
+        15417,
+        383,
+        6796,
+        13,
+        561,
+        4998,
+        32147,
+        383,
+        6394,
+        13,
+        97007,
+        15303,
+        97181,
+        202983,
+        115197,
+        158369,
+        201193,
+        150679,
+        1710,
+        115197,
+        165896,
+        160868,
+        247539,
+        184218,
+        148857,
+        1710,
+        727,
+        884,
+        2784,
+        11,
+        292,
+        1590,
+        460,
+        264,
+        478,
+        292,
+        760,
+        1970,
+        369,
+        427,
+        5108,
+        7840,
+        13,
+        43311,
+        279,
+        1970,
+        25,
+        427,
+        5108,
+        7840,
+        13,
+        760,
+        4998,
+        15417,
+        383,
+        6796,
+        13,
+        561,
+        4998,
+        32147,
+        383,
+        6394,
+        13,
+        97007,
+        15303,
+        97181,
+        202983,
+        115197,
+        158369,
+        201193,
+        150679,
+        1710,
+        115197,
+        165896,
+        160868,
+        247539,
+        184218,
+        148857,
+        1710,
+        727,
+        884,
+        2784,
+        11,
+        292,
+        1590,
+        460,
+        264,
+        478,
+        292,
+        760,
+        1970,
+        369,
+        427,
+        5108,
+        7840,
+        13,
+        43311,
+        279,
+        1970,
+        25,
+        427,
+        5108,
+        7840,
+        13,
+        760,
+        4998,
+        15417,
+        383,
+        6796,
+        13,
+        561,
+        4998,
+        32147,
+        383,
+        6394,
+        13,
+        97007,
+        15303,
+        97181,
+        202983,
+        115197,
+        158369,
+        201193,
+        150679,
+        1710,
+        115197
+      ],
+      "generated": [
+        165896,
+        160868,
+        247539,
+        184218,
+        148857,
+        1710,
+        727,
+        884,
+        2784,
+        11,
+        292,
+        1590,
+        460,
+        264,
+        478,
+        292,
+        760,
+        1970,
+        369,
+        427,
+        5108,
+        7840,
+        13,
+        43311,
+        279,
+        1970,
+        25,
+        427,
+        5108,
+        7840,
+        13,
+        271
+      ]
+    }
+  },
+  "launches": {
+    "1-stock19": {
+      "engine_log": "[Qwen38GpuEngine] Loaded direct-engram (22 shards, zero_norm=true, pdl=true, z24=48/48, graph=true) on NVIDIA RTX PRO 4500 Blackwell in 19.73s | Experts: 19/48 VRAM + 29/48 HostPinned + 0/48 MmapCompact + 29.8GiB Async Engram",
+      "peak_bytes": 31989956608,
+      "launch_to_ready_ms": 19726.932853,
+      "samples": [
+        {
+          "cycle": 0,
+          "case": 0,
+          "prefill_to_first_ms": 767.253572,
+          "decode_ms": 1657.668003,
+          "last_to_done_ms": 0.001843,
+          "total_to_done_ms": 2424.923418
+        },
+        {
+          "cycle": 0,
+          "case": 1,
+          "prefill_to_first_ms": 5815.620278,
+          "decode_ms": 1423.843602,
+          "last_to_done_ms": 0.002295,
+          "total_to_done_ms": 7239.466175
+        },
+        {
+          "cycle": 1,
+          "case": 0,
+          "prefill_to_first_ms": 724.745078,
+          "decode_ms": 1419.664881,
+          "last_to_done_ms": 0.001744,
+          "total_to_done_ms": 2144.411703
+        },
+        {
+          "cycle": 1,
+          "case": 1,
+          "prefill_to_first_ms": 5798.968371,
+          "decode_ms": 1423.974907,
+          "last_to_done_ms": 0.001804,
+          "total_to_done_ms": 7222.945082
+        },
+        {
+          "cycle": 2,
+          "case": 0,
+          "prefill_to_first_ms": 724.453944,
+          "decode_ms": 1419.628893,
+          "last_to_done_ms": 0.001874,
+          "total_to_done_ms": 2144.084711
+        },
+        {
+          "cycle": 2,
+          "case": 1,
+          "prefill_to_first_ms": 5799.274202,
+          "decode_ms": 1423.746947,
+          "last_to_done_ms": 0.001964,
+          "total_to_done_ms": 7223.023113
+        },
+        {
+          "cycle": 3,
+          "case": 0,
+          "prefill_to_first_ms": 724.716778,
+          "decode_ms": 1419.734223,
+          "last_to_done_ms": 0.001824,
+          "total_to_done_ms": 2144.452825
+        },
+        {
+          "cycle": 3,
+          "case": 1,
+          "prefill_to_first_ms": 5801.087413,
+          "decode_ms": 1423.888185,
+          "last_to_done_ms": 0.001863,
+          "total_to_done_ms": 7224.977461
+        }
+      ]
+    },
+    "2-palette19": {
+      "engine_log": "[Qwen38GpuEngine] Loaded direct-engram (22 shards, zero_norm=true, pdl=true, z24=48/48, graph=true) on NVIDIA RTX PRO 4500 Blackwell in 14.34s | Experts: 19/48 VRAM + 29/48 HostPinned + 0/48 MmapCompact + 27.6GiB Async Engram",
+      "peak_bytes": 31232884736,
+      "launch_to_ready_ms": 14336.920911,
+      "samples": [
+        {
+          "cycle": 0,
+          "case": 0,
+          "prefill_to_first_ms": 720.065447,
+          "decode_ms": 1412.602106,
+          "last_to_done_ms": 0.001944,
+          "total_to_done_ms": 2132.669497
+        },
+        {
+          "cycle": 0,
+          "case": 1,
+          "prefill_to_first_ms": 5792.750336,
+          "decode_ms": 1429.496455,
+          "last_to_done_ms": 0.00535,
+          "total_to_done_ms": 7222.252141
+        },
+        {
+          "cycle": 1,
+          "case": 0,
+          "prefill_to_first_ms": 727.500477,
+          "decode_ms": 1426.461472,
+          "last_to_done_ms": 0.00514,
+          "total_to_done_ms": 2153.967089
+        },
+        {
+          "cycle": 1,
+          "case": 1,
+          "prefill_to_first_ms": 5821.626933,
+          "decode_ms": 1413.047262,
+          "last_to_done_ms": 0.002205,
+          "total_to_done_ms": 7234.6764
+        },
+        {
+          "cycle": 2,
+          "case": 0,
+          "prefill_to_first_ms": 719.173731,
+          "decode_ms": 1409.657829,
+          "last_to_done_ms": 0.002194,
+          "total_to_done_ms": 2128.833754
+        },
+        {
+          "cycle": 2,
+          "case": 1,
+          "prefill_to_first_ms": 5756.066427,
+          "decode_ms": 1413.147887,
+          "last_to_done_ms": 0.002384,
+          "total_to_done_ms": 7169.216698
+        },
+        {
+          "cycle": 3,
+          "case": 0,
+          "prefill_to_first_ms": 719.263659,
+          "decode_ms": 1447.132147,
+          "last_to_done_ms": 0.004439,
+          "total_to_done_ms": 2166.400245
+        },
+        {
+          "cycle": 3,
+          "case": 1,
+          "prefill_to_first_ms": 6340.272999,
+          "decode_ms": 1555.200504,
+          "last_to_done_ms": 0.005831,
+          "total_to_done_ms": 7895.479334
+        }
+      ]
+    },
+    "3-palette20": {
+      "engine_log": "[Qwen38GpuEngine] Loaded direct-engram (22 shards, zero_norm=true, pdl=true, z24=48/48, graph=true) on NVIDIA RTX PRO 4500 Blackwell in 19.10s | Experts: 20/48 VRAM + 28/48 HostPinned + 0/48 MmapCompact + 27.6GiB Async Engram",
+      "peak_bytes": 32688308224,
+      "launch_to_ready_ms": 19099.591507,
+      "samples": [
+        {
+          "cycle": 0,
+          "case": 0,
+          "prefill_to_first_ms": 709.694591,
+          "decode_ms": 1665.347275,
+          "last_to_done_ms": 0.000701,
+          "total_to_done_ms": 2375.042567
+        },
+        {
+          "cycle": 0,
+          "case": 1,
+          "prefill_to_first_ms": 5599.426717,
+          "decode_ms": 1382.455274,
+          "last_to_done_ms": 0.000712,
+          "total_to_done_ms": 6981.882703
+        },
+        {
+          "cycle": 1,
+          "case": 0,
+          "prefill_to_first_ms": 704.721301,
+          "decode_ms": 1370.149568,
+          "last_to_done_ms": 0.000701,
+          "total_to_done_ms": 2074.87157
+        },
+        {
+          "cycle": 1,
+          "case": 1,
+          "prefill_to_first_ms": 5677.077328,
+          "decode_ms": 1476.309541,
+          "last_to_done_ms": 0.001032,
+          "total_to_done_ms": 7153.387901
+        },
+        {
+          "cycle": 2,
+          "case": 0,
+          "prefill_to_first_ms": 757.396679,
+          "decode_ms": 1490.97981,
+          "last_to_done_ms": 0.007575,
+          "total_to_done_ms": 2248.384064
+        },
+        {
+          "cycle": 2,
+          "case": 1,
+          "prefill_to_first_ms": 6106.208446,
+          "decode_ms": 1506.609583,
+          "last_to_done_ms": 0.006532,
+          "total_to_done_ms": 7612.824561
+        },
+        {
+          "cycle": 3,
+          "case": 0,
+          "prefill_to_first_ms": 764.569714,
+          "decode_ms": 1506.283188,
+          "last_to_done_ms": 0.004068,
+          "total_to_done_ms": 2270.85697
+        },
+        {
+          "cycle": 3,
+          "case": 1,
+          "prefill_to_first_ms": 6080.063865,
+          "decode_ms": 1370.955195,
+          "last_to_done_ms": 0.002144,
+          "total_to_done_ms": 7451.021204
+        }
+      ]
+    },
+    "4-palette20": {
+      "engine_log": "[Qwen38GpuEngine] Loaded direct-engram (22 shards, zero_norm=true, pdl=true, z24=48/48, graph=true) on NVIDIA RTX PRO 4500 Blackwell in 22.61s | Experts: 20/48 VRAM + 28/48 HostPinned + 0/48 MmapCompact + 27.6GiB Async Engram",
+      "peak_bytes": 32688308224,
+      "launch_to_ready_ms": 22609.653945,
+      "samples": [
+        {
+          "cycle": 0,
+          "case": 0,
+          "prefill_to_first_ms": 699.068669,
+          "decode_ms": 1373.056662,
+          "last_to_done_ms": 0.002134,
+          "total_to_done_ms": 2072.127465
+        },
+        {
+          "cycle": 0,
+          "case": 1,
+          "prefill_to_first_ms": 5605.317035,
+          "decode_ms": 1372.579949,
+          "last_to_done_ms": 0.001863,
+          "total_to_done_ms": 6977.898847
+        },
+        {
+          "cycle": 1,
+          "case": 0,
+          "prefill_to_first_ms": 697.903922,
+          "decode_ms": 1368.560929,
+          "last_to_done_ms": 0.002034,
+          "total_to_done_ms": 2066.466885
+        },
+        {
+          "cycle": 1,
+          "case": 1,
+          "prefill_to_first_ms": 5589.029991,
+          "decode_ms": 1372.726933,
+          "last_to_done_ms": 0.001964,
+          "total_to_done_ms": 6961.758888
+        },
+        {
+          "cycle": 2,
+          "case": 0,
+          "prefill_to_first_ms": 698.10813,
+          "decode_ms": 1368.195747,
+          "last_to_done_ms": 0.001834,
+          "total_to_done_ms": 2066.305711
+        },
+        {
+          "cycle": 2,
+          "case": 1,
+          "prefill_to_first_ms": 5589.436365,
+          "decode_ms": 1372.735609,
+          "last_to_done_ms": 0.001884,
+          "total_to_done_ms": 6962.173858
+        },
+        {
+          "cycle": 3,
+          "case": 0,
+          "prefill_to_first_ms": 698.512518,
+          "decode_ms": 1368.447683,
+          "last_to_done_ms": 0.001663,
+          "total_to_done_ms": 2066.961864
+        },
+        {
+          "cycle": 3,
+          "case": 1,
+          "prefill_to_first_ms": 5589.923528,
+          "decode_ms": 1408.756526,
+          "last_to_done_ms": 0.004518,
+          "total_to_done_ms": 6998.684572
+        }
+      ]
+    },
+    "5-palette19": {
+      "engine_log": "[Qwen38GpuEngine] Loaded direct-engram (22 shards, zero_norm=true, pdl=true, z24=48/48, graph=true) on NVIDIA RTX PRO 4500 Blackwell in 24.13s | Experts: 19/48 VRAM + 29/48 HostPinned + 0/48 MmapCompact + 27.6GiB Async Engram",
+      "peak_bytes": 31232884736,
+      "launch_to_ready_ms": 24132.81239,
+      "samples": [
+        {
+          "cycle": 0,
+          "case": 0,
+          "prefill_to_first_ms": 789.180462,
+          "decode_ms": 1540.2528,
+          "last_to_done_ms": 0.001653,
+          "total_to_done_ms": 2329.434915
+        },
+        {
+          "cycle": 0,
+          "case": 1,
+          "prefill_to_first_ms": 6369.27502,
+          "decode_ms": 1632.324433,
+          "last_to_done_ms": 0.008226,
+          "total_to_done_ms": 8001.607679
+        },
+        {
+          "cycle": 1,
+          "case": 0,
+          "prefill_to_first_ms": 819.970429,
+          "decode_ms": 1474.139254,
+          "last_to_done_ms": 0.001994,
+          "total_to_done_ms": 2294.111677
+        },
+        {
+          "cycle": 1,
+          "case": 1,
+          "prefill_to_first_ms": 5773.208521,
+          "decode_ms": 1429.141344,
+          "last_to_done_ms": 0.002435,
+          "total_to_done_ms": 7202.3523
+        },
+        {
+          "cycle": 2,
+          "case": 0,
+          "prefill_to_first_ms": 722.023289,
+          "decode_ms": 1411.439709,
+          "last_to_done_ms": 0.005571,
+          "total_to_done_ms": 2133.468569
+        },
+        {
+          "cycle": 2,
+          "case": 1,
+          "prefill_to_first_ms": 5764.153279,
+          "decode_ms": 1414.207047,
+          "last_to_done_ms": 0.001903,
+          "total_to_done_ms": 7178.362229
+        },
+        {
+          "cycle": 3,
+          "case": 0,
+          "prefill_to_first_ms": 719.594472,
+          "decode_ms": 1410.3833,
+          "last_to_done_ms": 0.001834,
+          "total_to_done_ms": 2129.979606
+        },
+        {
+          "cycle": 3,
+          "case": 1,
+          "prefill_to_first_ms": 5760.262553,
+          "decode_ms": 1414.189101,
+          "last_to_done_ms": 0.001913,
+          "total_to_done_ms": 7174.453567
+        }
+      ]
+    },
+    "6-stock19": {
+      "engine_log": "[Qwen38GpuEngine] Loaded direct-engram (22 shards, zero_norm=true, pdl=true, z24=48/48, graph=true) on NVIDIA RTX PRO 4500 Blackwell in 21.03s | Experts: 19/48 VRAM + 29/48 HostPinned + 0/48 MmapCompact + 29.8GiB Async Engram",
+      "peak_bytes": 31989956608,
+      "launch_to_ready_ms": 21030.348873,
+      "samples": [
+        {
+          "cycle": 0,
+          "case": 0,
+          "prefill_to_first_ms": 788.458129,
+          "decode_ms": 1558.535958,
+          "last_to_done_ms": 0.007064,
+          "total_to_done_ms": 2347.001151
+        },
+        {
+          "cycle": 0,
+          "case": 1,
+          "prefill_to_first_ms": 6262.409974,
+          "decode_ms": 1548.686317,
+          "last_to_done_ms": 0.007053,
+          "total_to_done_ms": 7811.103344
+        },
+        {
+          "cycle": 1,
+          "case": 0,
+          "prefill_to_first_ms": 794.493893,
+          "decode_ms": 1556.720087,
+          "last_to_done_ms": 0.00517,
+          "total_to_done_ms": 2351.21915
+        },
+        {
+          "cycle": 1,
+          "case": 1,
+          "prefill_to_first_ms": 6270.146023,
+          "decode_ms": 1523.211658,
+          "last_to_done_ms": 0.003116,
+          "total_to_done_ms": 7793.360797
+        },
+        {
+          "cycle": 2,
+          "case": 0,
+          "prefill_to_first_ms": 723.017604,
+          "decode_ms": 1416.80331,
+          "last_to_done_ms": 0.001493,
+          "total_to_done_ms": 2139.822407
+        },
+        {
+          "cycle": 2,
+          "case": 1,
+          "prefill_to_first_ms": 5864.510769,
+          "decode_ms": 1603.998487,
+          "last_to_done_ms": 0.015569,
+          "total_to_done_ms": 7468.524825
+        },
+        {
+          "cycle": 3,
+          "case": 0,
+          "prefill_to_first_ms": 874.095316,
+          "decode_ms": 1689.021798,
+          "last_to_done_ms": 0.007785,
+          "total_to_done_ms": 2563.124899
+        },
+        {
+          "cycle": 3,
+          "case": 1,
+          "prefill_to_first_ms": 6678.831772,
+          "decode_ms": 1494.68519,
+          "last_to_done_ms": 0.004488,
+          "total_to_done_ms": 8173.52145
+        }
+      ]
+    }
+  }
+}
