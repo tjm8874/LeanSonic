@@ -1,4 +1,95 @@
 {
+  "test": {
+    "current": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.083731056644495,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.007748134459063128,
+      "median_kld": 0.003487042737626023,
+      "p99_kld": 0.06828254024125002,
+      "max_kld": 1.4620403544509677,
+      "start_chunk": 0,
+      "max_kld_chunk": 36,
+      "max_kld_position": 319,
+      "ref_floor_targets": 14,
+      "top1_matches": 24537,
+      "top1_agreement": 0.9622352941176471
+    },
+    "trial": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.086872933448411,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.007684540379128633,
+      "median_kld": 0.003469222650450977,
+      "p99_kld": 0.06700464894565789,
+      "max_kld": 1.5981301330220687,
+      "start_chunk": 0,
+      "max_kld_chunk": 36,
+      "max_kld_position": 319,
+      "ref_floor_targets": 14,
+      "top1_matches": 24525,
+      "top1_agreement": 0.961764705882353
+    },
+    "paired": {
+      "parent_rows_sha256": "0c3988db54e5ddfc5e86d83b8df3d91ecdb6b4663c8e219ba2351eed27da118b",
+      "trial_rows_sha256": "294719723c76c3a167f2a67565e0d840adff22d21a5f6e9b07063cbff269ea1f",
+      "chunks_with_lower_mean_kl": 45,
+      "chunks_with_higher_mean_kl": 55,
+      "paired_chunk_effects": {
+        "mean_kl_delta": {
+          "trial_vs_parent": -6.359407993698043e-05,
+          "percentile_95": [
+            -0.0002438181404484708,
+            0.00011093901140403921
+          ]
+        },
+        "relative_ppl_change": {
+          "trial_vs_parent": 0.0004435341741243809,
+          "percentile_95": [
+            -0.0006629082840116136,
+            0.0015575579882301793
+          ]
+        },
+        "top1_fraction_delta": {
+          "trial_vs_parent": -0.00047058823529411766,
+          "percentile_95": [
+            -0.0024705882352941176,
+            0.0015294117647058824
+          ]
+        }
+      },
+      "parent_worst": {
+        "chunk": 36,
+        "position": 319,
+        "kl": [
+          1.462040354451,
+          1.598130133022
+        ],
+        "top1": [
+          149876,
+          149876
+        ]
+      },
+      "trial_worst": {
+        "chunk": 36,
+        "position": 319,
+        "kl": [
+          1.462040354451,
+          1.598130133022
+        ],
+        "top1": [
+          149876,
+          149876
+        ]
+      },
+      "same_top1": 24908,
+      "identical_fingerprints": 0
+    }
+  },
   "valid": {
     "current": {
       "chunks": 100,

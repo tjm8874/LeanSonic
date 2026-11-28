@@ -54,10 +54,12 @@ The 13,407,173,808-byte parent and 13,407,193,392-byte fitted overlay differ in 
 
 | Split | Weights | Mean KL | Worst KL | Top-1 matches | PPL |
 | --- | --- | ---: | ---: | ---: | ---: |
+| test | Parent | 0.0077481 | 1.462040 | 24,537 | 7.083731 |
+| test | Fitted | 0.0076845 | 1.598130 | 24,525 | 7.086873 |
 | valid | Parent | 0.0069527 | 0.744671 | 24,645 | 6.530797 |
 | valid | Fitted | 0.0068973 | 1.625774 | 24,650 | 6.536081 |
 
-On validation both arms had their largest KL at chunk 12 position 317. The fitted overlay more than doubled the divergence at that position. Retain the original compact weights for the drafter comparison. [Per-split scores, paired intervals and outliers](compact-scores.json).
+The test top-1 count fell by 12 with the fitted overlay, and worst KL and PPL increased on both splits. On validation both arms had their largest KL at chunk 12 position 317. The fitted overlay more than doubled the divergence at that position. Retain the original compact weights for the drafter comparison. [Per-split scores, paired intervals and outliers](compact-scores.json).
 
 ## Official short solo decode probe
 
@@ -65,4 +67,6 @@ Fresh release CLI processes ran the bench-matrix short workload on the original 
 
 | GPU | Complete cycles of five | Official decode tok/s | Fitted decode tok/s |
 | --- | ---: | ---: | ---: |
-| RTX PRO 4500 | 2 | 169.4 | 169.5 |
+| RTX PRO 4500 | 4 | 168.6 | 168.8 |
+
+A [128-column calibration comparison](paired-groups.md) tested whether a lower projection-error estimate translated to lower end-to-end divergence.

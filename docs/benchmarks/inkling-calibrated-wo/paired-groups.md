@@ -1,0 +1,5 @@
+# Adjacent Q8 calibration groups
+
+Starting from the 64-column fitted codes, estimate the same train second moment for 128 adjacent columns and perform two coordinate sweeps on their joint residual. Each group of 64 keeps its original scale. The optimizer applies a code change in weight units, multiplying the signed code delta by the column's scale. The diagonal damping remains 5% of the mean diagonal. This reduces the 128-column projection-error estimate on withheld train windows in all 24 layers, by 10.74% in aggregate against the 64-column fit, under the same objective.
+
+The official-weight test run shows the limit of that proxy. The 64-column fit scored 0.003125869 mean KL, 0.659475 worst KL, 24,908/25,500 top-1 and PPL 7.072906. The 128-column alternative scored 0.003187369 mean KL, 0.974529 worst KL, 24,894/25,500 top-1 and PPL 7.074723. Its package also grew 6,160 bytes. Retain the 64-column fit for the two-card solo-decode trial. Both results use the identical release CLI/cubin, PRO 4500 and BF16 test oracle. [Physical package and score files](paired-groups.json).
