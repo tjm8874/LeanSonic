@@ -36,3 +36,27 @@ The refit experiment uses `python3 "$d/fit_vo.py"` in the same scratch directory
 On PRO 4500 32 GB, the refit reduced squared weight reconstruction error, but the output metrics were mixed. On the four original prompts, mean BF16 KL changed from 0.281135 to 0.279583, top-1 from 39/49 to 41/49, and PPL from 52.9910 to 52.8158. Worst KL increased from 1.469437 to 1.488480 on the same Japanese token. Both runs matched 0/4 BF16 greedy continuations. The production checkpoint remains the baseline. [Per-projection fit](fit-vo-weights.json) · [Output-quality run](fit-vo-quality32.json)
 
 On four additional inputs on the PRO 5000, the repacked projections changed mean/worst KL from 0.36938/1.40790 to 0.36833/1.27267, PPL from 25.2686 to 25.1579 (BF16 19.9354), and left top-1 at 44/65. Neither arm matched any of the four complete BF16 continuations. The original 49-position candidate result also matched across both PRO GPUs. Reproduce the additional test by using [the held-out token IDs](fit-heldout.ids) in the same upstream and native teacher commands. Layer selection used the original four prompts. The candidate remains experimental because its worst KL on the original set increased. [Held-out baseline](fit-heldout-direct-engram.json) · [Held-out candidate](fit-heldout-fit-vo-q4.json)
+
+### Activation-weighted Q4 fit
+
+For the V and output projections of layers 15, 31, 35 and 39, we captured per-channel mean squared input activations from an upstream BF16 prefill of the four original fixtures (53 input tokens). Each group used an equal mix of uniform weights and its mean-normalized activation energies. The fit kept the original Q4 group size and BF16 scale/bias storage. The temporary checkpoint redirected eight matrices to an additional 42,601,448-byte shard and retained the originals on disk. All inference timings and corpus quality gates for the released model use the stock weights.
+
+| Evaluation set and weights | Mean / worst KL vs official BF16 | Top-1 | Target PPL |
+| --- | ---: | ---: | ---: |
+| Original 49 positions, stock | 0.281135 / 1.469437 | 39/49 | 52.9910 |
+| Original 49 positions, calibrated | 0.268848 / 1.529837 | 41/49 | 51.0314 |
+| Held-out 65 positions, stock | 0.369378 / 1.407895 | 44/65 | 25.2686 |
+| Held-out 65 positions, calibrated | 0.363808 / 1.265943 | 45/65 | 25.7820 |
+
+Official BF16 PPL was 28.0382 and 19.9354 on the original and held-out inputs, respectively. None of the four full eight-token continuations matched BF16 in either group. The PRO 4500 and PRO 5000 produced identical logits at all 65 held-out positions and matching eight-token canaries. We retained the stock checkpoint because the fit increased worst KL on the original set and PPL on the held-out set. [Full teacher scores and cross-device checks](calibrated-vo.json)
+
+Reproduce in the benchmark scratch directory, using the pinned official and packed Q4 checkpoints and the teacher executable from `d46621d`. Only the first command reads calibration activations. Score the held-out inputs after the checkpoint has been written.
+
+```sh
+python3 "$d/capture_vo_energy.py" official-bf16 fixtures.ids moments.safetensors
+OMP_NUM_THREADS=4 python3 "$d/fit_vo.py" --moments moments.safetensors
+"$bin/q38_teacher" fit-vo-calibrated-q4 fixtures.ids calibrated-original
+"$bin/q38_teacher" fit-vo-calibrated-q4 fit-heldout.ids calibrated-heldout
+python3 "$d/../score.py" score-bf16 calibrated-original
+python3 "$d/../score.py" fit-heldout-bf16 calibrated-heldout
+```

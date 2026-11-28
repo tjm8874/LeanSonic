@@ -1,5 +1,6 @@
 """Fit MLX affine Q4 values to the official BF16 weights for selected attention layers."""
 
+import argparse
 import json
 import os
 import tempfile
@@ -7,12 +8,16 @@ from pathlib import Path
 
 import torch
 from safetensors import safe_open
-from safetensors.torch import save_file
+from safetensors.torch import load_file, save_file
 
 layers = (15, 31, 35, 39)
 base = Path("direct-engram")
 official = Path("official-bf16")
-dest = Path("fit-vo-q4")
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--moments", type=Path)
+args = parser.parse_args()
+energy = load_file(args.moments) if args.moments else None
+dest = Path("fit-vo-calibrated-q4" if energy is not None else "fit-vo-q4")
 if dest.exists():
     raise FileExistsError(dest)
 
@@ -30,7 +35,7 @@ def read(root, mapping, key):
         return f.get_tensor(key)
 
 
-def fit(words, scales, biases, target):
+def fit(words, scales, biases, target, channel_energy):
     shift = torch.arange(0, 32, 4)
     codes = (
         ((words.to(torch.int64).unsqueeze(-1) >> shift) & 15)
@@ -41,23 +46,34 @@ def fit(words, scales, biases, target):
     w = target.float().reshape(-1, 32)
     s = scales.float().reshape(-1, 1)
     b = biases.float().reshape(-1, 1)
-    err = ((codes * s + b - w) ** 2).sum(1, keepdim=True)
+    if channel_energy is None:
+        weights = torch.ones(1, 32)
+    else:
+        if channel_energy.shape != (target.shape[1],):
+            raise ValueError("calibration width differs from projection input width")
+        # Shrink each group's channel energy halfway toward a uniform fit.
+        group = channel_energy.reshape(-1, 32).float()
+        mean = group.mean(1, keepdim=True)
+        weights = torch.where(mean > 0, 0.5 + 0.5 * group / mean.clamp_min(1e-30), 1.0)
+        weights = weights.repeat(target.shape[0], 1)
+    norm = weights.sum(1, keepdim=True)
+    err = (weights * (codes * s + b - w).square()).sum(1, keepdim=True)
     baseline = err.sum(dtype=torch.float64).item()
     best = err.clone()
     bs = s.clone()
     bb = b.clone()
     bc = codes.clone()
     for _ in range(5):
-        x = codes - codes.mean(1, keepdim=True)
-        den = (x * x).sum(1, keepdim=True)
+        x = codes - (weights * codes).sum(1, keepdim=True) / norm
+        den = (weights * x * x).sum(1, keepdim=True)
         s = (
-            torch.where(den > 0, (x * w).sum(1, keepdim=True) / den, s)
+            torch.where(den > 0, (weights * x * w).sum(1, keepdim=True) / den, s)
             .bfloat16()
             .float()
         )
-        b = (w - codes * s).mean(1, keepdim=True).bfloat16().float()
+        b = ((weights * (w - codes * s)).sum(1, keepdim=True) / norm).bfloat16().float()
         codes = torch.where(s != 0, torch.round((w - b) / s).clamp(0, 15), codes)
-        err = ((codes * s + b - w) ** 2).sum(1, keepdim=True)
+        err = (weights * (codes * s + b - w).square()).sum(1, keepdim=True)
         use = err < best
         bs = torch.where(use, s, bs)
         bb = torch.where(use, b, bb)
@@ -89,7 +105,9 @@ for i in layers:
         before = after = 0
         for start in range(0, len(orig), 64):
             sl = slice(start, start + 64)
-            values, (err0, err1) = fit(*(x[sl] for x in arrays), orig[sl])
+            values, (err0, err1) = fit(
+                *(x[sl] for x in arrays), orig[sl], energy[name] if energy is not None else None
+            )
             before += err0
             after += err1
             for dst, src in zip(output, values):
@@ -112,4 +130,5 @@ with tempfile.TemporaryDirectory(dir=dest.parent) as tmp:
     save_file(planes, out / "attention-fit-q4.safetensors")
     (out / "model.safetensors.index.json").write_text(json.dumps(q, indent=2) + "\n")
     out.rename(dest)
-Path("fit-vo-weights.json").write_text(json.dumps(stats, indent=2) + "\n")
+report = "fit-vo-calibrated-weights.json" if energy is not None else "fit-vo-weights.json"
+Path(report).write_text(json.dumps(stats, indent=2) + "\n")
