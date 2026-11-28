@@ -49,7 +49,7 @@ const DF2_CHUNKS: usize = 40;
 pub const DF2_KERNEL_SRC: &str = include_str!("../../../kernels/inkling2_dflash2_sm120.cu");
 
 /// Entry points of [`DF2_KERNEL_SRC`], in [`Df2ModuleFns`] field order.
-pub const DF2_KERNEL_NAMES: [&str; 15] = [
+pub const DF2_KERNEL_NAMES: [&str; 16] = [
     "df2_block_init",
     "df2_norm_quant8",
     "df2_rmsnorm_quant",
@@ -65,6 +65,7 @@ pub const DF2_KERNEL_NAMES: [&str; 15] = [
     "df2_select",
     "df2_q8_to_q4",
     "df2_q4_head",
+    "df2_gemm_sk_q4",
 ];
 
 /// Handles of the drafter module's [`DF2_KERNEL_NAMES`].
@@ -85,6 +86,7 @@ pub struct Df2ModuleFns {
     pub select: CUfunction,
     pub q8_to_q4: CUfunction,
     pub q4_head: CUfunction,
+    pub gemm_sk_q4: CUfunction,
 }
 
 /// Loads the drafter module from `LEANSONIC_DF2_CUBIN_PATH`, or compiles [`DF2_KERNEL_SRC`] with
@@ -101,7 +103,7 @@ pub fn load_dflash2_kernels(ctx: &CudaContextHandle) -> Result<Df2ModuleFns, Str
             "cuModuleLoadData(dflash2)",
         )?;
     }
-    let mut f: [CUfunction; 15] = [core::ptr::null_mut(); 15];
+    let mut f: [CUfunction; 16] = [core::ptr::null_mut(); 16];
     for (h, name) in f.iter_mut().zip(DF2_KERNEL_NAMES) {
         let c = std::ffi::CString::new(name).unwrap();
         unsafe {
@@ -124,6 +126,7 @@ pub fn load_dflash2_kernels(ctx: &CudaContextHandle) -> Result<Df2ModuleFns, Str
         select: f[12],
         q8_to_q4: f[13],
         q4_head: f[14],
+        gemm_sk_q4: f[15],
     })
 }
 
@@ -149,8 +152,23 @@ struct Df2Layer {
     conv_a: PlanarQ8Gpu,
     conv_f: PlanarQ8Gpu,
     wo: PlanarQ8Gpu,
-    gu: PlanarQ8Gpu,
-    down: PlanarQ8Gpu,
+    gu: Df2Weight,
+    down: Df2Weight,
+}
+
+/// Signed 4-bit planar matrix (`df2_q8_to_q4` layout): codes `[rows, cols / 2]`, FP32 scales
+/// `[rows, cols / 64]`.
+struct Q4Mat {
+    codes: DeviceBuf,
+    scales: DeviceBuf,
+    rows: usize,
+    cols: usize,
+}
+
+/// An MLP matrix of the drafter: Q4 (`LEANSONIC_DF2_MLP=q4`, default) or Q8_64.
+enum Df2Weight {
+    Q8(PlanarQ8Gpu, usize),
+    Q4(Q4Mat),
 }
 
 /// A planar Q8_64 matrix (or a row range of one) by pointer.
@@ -349,6 +367,11 @@ impl Dflash2DrafterGpu {
         let raw = |name: &str, shape: &[usize]| -> Result<DeviceBuf, String> {
             DeviceBuf::from_host_bytes(ctx, st.require(name, "BF16", shape).data)
         };
+        let mlp_q4 = match std::env::var("LEANSONIC_DF2_MLP").as_deref() {
+            Ok("q8") => false,
+            Ok("q4") | Err(_) => true,
+            Ok(v) => return Err(format!("LEANSONIC_DF2_MLP must be q4 or q8, got {v}")),
+        };
         let mut layers = Vec::with_capacity(DF2_LAYERS);
         let mut qkv_names = Vec::with_capacity(3 * DF2_LAYERS);
         let mut k_norms = Vec::with_capacity(DF2_LAYERS * 256);
@@ -390,14 +413,26 @@ impl Dflash2DrafterGpu {
                     D,
                 )?,
                 wo: q8(ctx, &st, &[&p("self_attn.o_proj.weight")], &[D], DF2_Q)?,
-                gu: q8(
+                gu: Self::mlp_weight(
                     ctx,
-                    &st,
-                    &[&p("mlp.gate_proj.weight"), &p("mlp.up_proj.weight")],
-                    &[DF2_FF, DF2_FF],
+                    fns,
+                    mlp_q4,
+                    q8(
+                        ctx,
+                        &st,
+                        &[&p("mlp.gate_proj.weight"), &p("mlp.up_proj.weight")],
+                        &[DF2_FF, DF2_FF],
+                        D,
+                    )?,
+                    2 * DF2_FF,
+                )?,
+                down: Self::mlp_weight(
+                    ctx,
+                    fns,
+                    mlp_q4,
+                    q8(ctx, &st, &[&p("mlp.down_proj.weight")], &[D], DF2_FF)?,
                     D,
                 )?,
-                down: q8(ctx, &st, &[&p("mlp.down_proj.weight")], &[D], DF2_FF)?,
             });
         }
         let qkv_refs: Vec<&str> = qkv_names.iter().map(String::as_str).collect();
@@ -458,29 +493,32 @@ impl Dflash2DrafterGpu {
         })
     }
 
-    /// Requantizes the target's Q8_64 output head (`VOCAB` rows) into the Q4 drafting copy
-    /// (rows padded to a multiple of 16 with zeros).
-    fn build_head_q4(
+    /// Requantizes `rows` rows of a planar Q8_64 matrix into a [`Q4Mat`] with `rows16` rows
+    /// (the rows past `rows` stay zero).
+    fn q4_from_q8(
         ctx: &Arc<CudaContextHandle>,
         fns: Dflash2KernelFns,
-        unembed_q8: &PlanarQ8Gpu,
-    ) -> Result<(DeviceBuf, DeviceBuf), String> {
-        let rows16 = VOCAB.div_ceil(16) * 16;
-        let codes = DeviceBuf::alloc_zeroed(ctx, rows16 * D / 2)?;
-        let scales = DeviceBuf::alloc_zeroed(ctx, rows16 * (D / 64) * 4)?;
-        let (mut pw, mut ps, mut pc, mut pss) = (
-            unembed_q8.codes.ptr,
-            unembed_q8.scales64.ptr,
+        w: &PlanarQ8Gpu,
+        rows: usize,
+        rows16: usize,
+    ) -> Result<Q4Mat, String> {
+        let cols = w.cols as usize;
+        let codes = DeviceBuf::alloc_zeroed(ctx, rows16 * cols / 2)?;
+        let scales = DeviceBuf::alloc_zeroed(ctx, rows16 * (cols / 64) * 4)?;
+        let (mut pw, mut ps, mut pc, mut pss, mut c) = (
+            w.codes.ptr,
+            w.scales64.ptr,
             codes.ptr,
             scales.ptr,
+            cols as i32,
         );
-        let mut a = args![pw, ps, pc, pss];
+        let mut a = args![pw, ps, pc, pss, c];
         unsafe {
             check_cu(
                 (ctx.api.cuLaunchKernel)(
                     fns.m.q8_to_q4,
-                    VOCAB as u32,
-                    (D / 64) as u32,
+                    rows as u32,
+                    (cols / 64) as u32,
                     1,
                     32,
                     1,
@@ -494,7 +532,67 @@ impl Dflash2DrafterGpu {
             )?;
         }
         ctx.sync_stream(ctx.compute_stream)?;
-        Ok((codes, scales))
+        Ok(Q4Mat {
+            codes,
+            scales,
+            rows: rows16,
+            cols,
+        })
+    }
+
+    /// The Q8_64 head as the Q4 drafting copy (rows padded to a multiple of 16).
+    fn build_head_q4(
+        ctx: &Arc<CudaContextHandle>,
+        fns: Dflash2KernelFns,
+        unembed_q8: &PlanarQ8Gpu,
+    ) -> Result<(DeviceBuf, DeviceBuf), String> {
+        let m = Self::q4_from_q8(ctx, fns, unembed_q8, VOCAB, VOCAB.div_ceil(16) * 16)?;
+        Ok((m.codes, m.scales))
+    }
+
+    /// An MLP matrix: Q4 when `q4` (the Q8_64 upload is released), else Q8_64.
+    fn mlp_weight(
+        ctx: &Arc<CudaContextHandle>,
+        fns: Dflash2KernelFns,
+        q4: bool,
+        w: PlanarQ8Gpu,
+        rows: usize,
+    ) -> Result<Df2Weight, String> {
+        if q4 {
+            Ok(Df2Weight::Q4(Self::q4_from_q8(ctx, fns, &w, rows, rows)?))
+        } else {
+            Ok(Df2Weight::Q8(w, rows))
+        }
+    }
+
+    /// Split-K GEMM of the eight block rows over an MLP matrix into `out`.
+    fn gemm_sk_w(
+        &self,
+        stream: CUstream,
+        w: &Df2Weight,
+        slices: usize,
+        out: CUdeviceptr,
+    ) -> Result<(), String> {
+        match w {
+            Df2Weight::Q8(m, rows) => self.gemm_sk(stream, Q8View::of(m, *rows), slices, out),
+            Df2Weight::Q4(m) => {
+                let slice32 = m.cols / 32 / slices;
+                debug_assert!(
+                    slice32 <= 64 && slice32.is_multiple_of(2) && slice32 * slices * 32 == m.cols
+                );
+                let (mut pw, mut pws, mut px, mut pxs, mut pp) = (
+                    m.codes.ptr,
+                    m.scales.ptr,
+                    self.scr.xq.ptr,
+                    self.scr.xs.ptr,
+                    out,
+                );
+                let (mut r, mut c, mut sl) = (m.rows as i32, m.cols as i32, slice32 as i32);
+                let mut a = args![pw, pws, px, pxs, pp, r, c, sl];
+                let grid = ((m.rows / 16) as u32, slices as u32, 1);
+                self.launch(stream, self.fns.m.gemm_sk_q4, grid, 256, &mut a)
+            }
+        }
     }
 
     /// Clears the selected sequence's context (like the engine's `reset`).
@@ -883,7 +981,7 @@ impl Dflash2DrafterGpu {
             // MLP sublayer.
             self.norm_dyn(stream, &l.post_norm, &l.conv_f)?;
             self.conv2_quant(stream, &l.base_f)?;
-            self.gemm_sk(stream, Q8View::of(&l.gu, 2 * DF2_FF), DF2_SK_GU, s.skp.ptr)?;
+            self.gemm_sk_w(stream, &l.gu, DF2_SK_GU, s.skp.ptr)?;
             {
                 let (mut pg, mut ns, mut ff, mut pq, mut ps) = (
                     s.skp.ptr,
@@ -896,7 +994,7 @@ impl Dflash2DrafterGpu {
                 let grid = ((DF2_BLOCK * DF2_FF / 512) as u32, 1, 1);
                 self.launch(stream, self.fns.m.silu_quant, grid, 256, &mut a)?;
             }
-            self.gemm_sk(stream, Q8View::of(&l.down, D), DF2_SK_DOWN, s.skp.ptr)?;
+            self.gemm_sk_w(stream, &l.down, DF2_SK_DOWN, s.skp.ptr)?;
             self.conv2_post(stream, DF2_SK_DOWN, &l.base_f)?;
         }
         // Head over draft rows 1..=n.

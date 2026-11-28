@@ -882,19 +882,20 @@ extern "C" __global__ void df2_select(
 // two nibble planes of word `k` line up with Q8 activation words `2k` and `2k + 1`.
 // ---------------------------------------------------------------------------------------------
 
-// Grid `(rows, D / 64)`, Block `32` (one warp per group, lane = two columns of the group).
+// Grid `(rows, cols / 64)`, Block `32` (one warp per group, lane = two columns of the group).
 extern "C" __global__ void df2_q8_to_q4(
-    const uint32_t* __restrict__ w_q8_u32,   // [rows, D / 4]
+    const uint32_t* __restrict__ w_q8_u32,   // [rows, cols / 4]
     const float* __restrict__ w_sc64,        // [rows, D / 64]
     uint32_t* __restrict__ w_q4_u32,         // [rows, D / 8]
-    float* __restrict__ w_q4_sc64) {         // [rows, D / 64]
+    float* __restrict__ w_q4_sc64,           // [rows, D / 64]
+    int32_t cols) {
     pdl_wait();
     pdl_trigger();
     const size_t r = blockIdx.x;
     const int g = blockIdx.y;
     const int lane = threadIdx.x;
     // Lane `l` holds columns `2l, 2l + 1` of the group.
-    const uint32_t word = w_q8_u32[r * (kD / 4) + g * 16 + (lane >> 1)];
+    const uint32_t word = w_q8_u32[r * (cols / 4) + g * 16 + (lane >> 1)];
     const int sh = (lane & 1) * 16;
     const int q0 = static_cast<int8_t>((word >> sh) & 0xFFu);
     const int q1 = static_cast<int8_t>((word >> (sh + 8)) & 0xFFu);
@@ -906,7 +907,7 @@ extern "C" __global__ void df2_q8_to_q4(
     const int n1 = min(7, max(-7, __float2int_rn(static_cast<float>(q1) * inv))) & 0xF;
     // Column `c = 2 * lane + j` of the group: 32-column half `h = c / 32`, word `k = (c % 32) / 8`,
     // nibble plane `p = (c % 8) / 4`, byte `b = c % 4`.
-    uint32_t* out = w_q4_u32 + r * (kD / 8) + g * 8;
+    uint32_t* out = w_q4_u32 + r * (cols / 8) + g * 8;
     auto put = [&](int c, int n) { return static_cast<uint32_t>(n) << ((((c & 3) * 8) + ((c >> 2) & 1) * 4)); };
     const int c0 = 2 * lane, c1 = 2 * lane + 1;
     // Both columns of a lane share a word (c0 even, c1 = c0 + 1 within the same 4-column byte run).
@@ -915,7 +916,7 @@ extern "C" __global__ void df2_q8_to_q4(
     v |= __shfl_xor_sync(0xFFFFFFFFu, v, 1);
     v |= __shfl_xor_sync(0xFFFFFFFFu, v, 2);
     if ((lane & 3) == 0) out[lane >> 2] = v;
-    if (lane == 0) w_q4_sc64[r * (kD / 64) + g] = w_sc64[r * (kD / 64) + g] * static_cast<float>(amax) * (1.0f / 7.0f);
+    if (lane == 0) w_q4_sc64[r * (cols / 64) + g] = w_sc64[r * (cols / 64) + g] * static_cast<float>(amax) * (1.0f / 7.0f);
 }
 
 // Sign-extends the two nibble planes of a packed word into int8 words (`lo`: columns `8k..8k+3`,
@@ -1029,6 +1030,97 @@ extern "C" __global__ void __launch_bounds__(256) df2_q4_head(
                     if (row0 + 1 < rows) y[static_cast<size_t>(t) * y_stride + row0 + 1] = v1;
                 }
             }
+        }
+    }
+}
+
+// Split-K GEMM of the eight block rows over a Q4 matrix (layout of `df2_q8_to_q4`):
+// `part[blockIdx.y][t][r] = sum over 32-column slice range blockIdx.y of w[r] . x[t]`
+// (`slice32 <= 64`, even). Grid `(rows / 16, cols32 / slice32)`, Block `256`.
+extern "C" __global__ void __launch_bounds__(256) df2_gemm_sk_q4(
+    const uint4* __restrict__ w_q4,       // [rows, cols / 32]
+    const float* __restrict__ w_sc64,     // [rows, cols / 64]
+    const uint4* __restrict__ x_q8,       // [8, cols / 16]
+    const float* __restrict__ x_sc64,     // [8, cols / 64]
+    float* __restrict__ part,             // [nsplit][8, rows]
+    int32_t rows,
+    int32_t cols,
+    int32_t slice32) {
+    __shared__ uint4 sx[8][128];          // 16,384 B
+    __shared__ float sxs[8][32];
+    const int warp = threadIdx.x >> 5;
+    const int lane = threadIdx.x & 31;
+    const int cols16 = cols >> 4, cols32 = cols >> 5, cols64 = cols >> 6;
+    const int c0 = blockIdx.y * slice32;  // in 32-column units
+    const int row0 = (blockIdx.x * 8 + warp) * 2;
+    const uint4* w_r0 = w_q4 + static_cast<size_t>(row0) * cols32 + c0;
+    const float* s_r0 = w_sc64 + static_cast<size_t>(row0) * cols64 + (c0 >> 1);
+    uint4 w0[2], w1[2];
+    float ws0[2], ws1[2];
+    #pragma unroll
+    for (int i = 0; i < 2; ++i) {
+        const int c32 = lane + 32 * i;
+        if (c32 < slice32) {
+            w0[i] = w_r0[c32];
+            w1[i] = w_r0[cols32 + c32];
+            ws0[i] = s_r0[c32 >> 1];
+            ws1[i] = s_r0[cols64 + (c32 >> 1)];
+        }
+    }
+    pdl_wait();
+    pdl_trigger();
+    const int slice16 = slice32 * 2;
+    for (int i = threadIdx.x; i < 8 * slice16; i += 256) {
+        const int t = i / slice16, j = i - t * slice16;
+        sx[t][j] = x_q8[static_cast<size_t>(t) * cols16 + 2 * c0 + j];
+    }
+    const int slice64 = slice32 >> 1;
+    for (int i = threadIdx.x; i < 8 * slice64; i += 256) {
+        const int t = i / slice64, j = i - t * slice64;
+        sxs[t][j] = x_sc64[static_cast<size_t>(t) * cols64 + (c0 >> 1) + j];
+    }
+    __syncthreads();
+    float a[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+    float b[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+    #pragma unroll
+    for (int i = 0; i < 2; ++i) {
+        const int c32 = lane + 32 * i;
+        if (c32 < slice32) {
+            int l0[8], l1[8];
+            const uint32_t a4[4] = {w0[i].x, w0[i].y, w0[i].z, w0[i].w};
+            const uint32_t b4[4] = {w1[i].x, w1[i].y, w1[i].z, w1[i].w};
+            #pragma unroll
+            for (int k = 0; k < 4; ++k) {
+                df2_unpack_q4(a4[k], l0[2 * k], l0[2 * k + 1]);
+                df2_unpack_q4(b4[k], l1[2 * k], l1[2 * k + 1]);
+            }
+            #pragma unroll
+            for (int t = 0; t < 8; ++t) {
+                const uint4 xa = sx[t][2 * c32], xb = sx[t][2 * c32 + 1];
+                const int xw[8] = {static_cast<int>(xa.x), static_cast<int>(xa.y),
+                                   static_cast<int>(xa.z), static_cast<int>(xa.w),
+                                   static_cast<int>(xb.x), static_cast<int>(xb.y),
+                                   static_cast<int>(xb.z), static_cast<int>(xb.w)};
+                int d0 = 0, d1 = 0;
+                #pragma unroll
+                for (int k = 0; k < 8; ++k) {
+                    d0 = __dp4a(l0[k], xw[k], d0);
+                    d1 = __dp4a(l1[k], xw[k], d1);
+                }
+                const float xsv = sxs[t][c32 >> 1];
+                a[t] = __fmaf_rn(static_cast<float>(d0), ws0[i] * xsv, a[t]);
+                b[t] = __fmaf_rn(static_cast<float>(d1), ws1[i] * xsv, b[t]);
+            }
+        }
+    }
+    float* dst = part + static_cast<size_t>(blockIdx.y) * 8 * rows;
+    #pragma unroll
+    for (int t = 0; t < 8; ++t) {
+        const float v0 = warp_sum(a[t]);
+        const float v1 = warp_sum(b[t]);
+        if (lane == 0) {
+            dst[static_cast<size_t>(t) * rows + row0] = v0;
+            dst[static_cast<size_t>(t) * rows + row0 + 1] = v1;
         }
     }
 }
