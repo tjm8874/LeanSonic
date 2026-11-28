@@ -61,3 +61,17 @@ The stock and palette builds produced byte-identical logits at all 49 scored pos
 | PRO 4500 palette | 20 | 30.490 | 57.17 / 66.05 | 22.66 / 22.60 |
 
 Each cell uses one warm resident process per build and GPU, one warmup and three measured requests at context 256 with 32 greedy output tokens. On this checkpoint the 72 GB card can trade 3.4% of long-prompt decode throughput for 1.781 GiB of space. On the 32 GB card automatic placement spends the saving on one more resident expert layer and increases long-prompt decode by 3.8%. The default remains the stock layout.
+
+### Cost of target verification on PRO 5000
+
+The same 16-token Japanese prompt and 32 continuation inputs exercised the target only, in four stock/palette/palette/stock process launches. Each entry is the median elapsed host call after a warmup cycle, pooled across three measured cycles in each process. Every output ID was checked against serial greedy decoding at the corresponding position.
+
+| Method or verify width | Stock ms/call | Palette ms/call |
+| --- | ---: | ---: |
+| Serial greedy, one token | 6.129 | 6.347 |
+| Verify 1 | 10.126 | 9.979 |
+| Verify 2 | 12.655 | 12.465 |
+| Verify 4 | 17.804 | 17.584 |
+| Verify 8 | 26.183 | 26.034 |
+
+At width two, two serial palette calls cost about 12.694 ms at the measured median. A verify call cost 12.465 ms, leaving only 0.229 ms for other work even if both target predictions can be used. The stock verify call exceeded two stock serial calls. Actual speculative throughput additionally depends on the drafter, acceptance and state management. Reproduce with the same environment as the teacher example, copying [q38_verify_cost.rs](q38_verify_cost.rs) into the core examples directory and passing the checkpoint and fixture IDs. [All per-call timings and fixed IDs](verify-cost.json)
