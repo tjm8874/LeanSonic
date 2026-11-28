@@ -11,7 +11,7 @@ All 991 other tensor payloads and the tokenizer were checked on readback. A seco
 
 ## Quality and memory
 
-On RTX PRO 4500, the prefix parent, converted prefix and converted seven-bit package have identical full-vocabulary fingerprints and score rows on 1,530 positions. The converted seven-bit model gave the same rows on RTX 5070 Ti and RTX 5060 Ti. Mean KL versus BF16 was 0.00859703, worst KL 0.63976597, top-1 agreement 1,469/1,530 and PPL 6.564087. Each GPU kept all 24 expert layers resident.
+On RTX PRO 4500, the prefix parent, converted prefix and converted seven-bit package have identical full-vocabulary fingerprints and score rows on 1,530 positions. The converted seven-bit model gave the same rows on RTX 5070 Ti and RTX 5060 Ti. Mean KL versus BF16 was 0.00859703, worst KL 0.63976597, top-1 agreement 1,469/1,530 and PPL 6.564087. Each GPU kept all 24 expert layers resident. On PRO 4500 the generic full-byte device layout also matched its prefix parent across all 1,530 score rows with both direct-U4 environment switches disabled.
 
 Both complete BF16 splits reproduced every byte of the respective five-bit score file from RTX PRO 4500, including all 51,000 full-vocabulary fingerprints.
 
@@ -44,7 +44,7 @@ The direct-U4 loader now returns nibble indices from the rANS lookup tables and 
 | Gate/up, plain | 221.56 | 139.85 | 0.610–0.660 |
 | Down, plain | 113.30 | 71.47 | 0.617–0.643 |
 
-Five mirrored cycles for each row on a Ryzen 9 9900X, 80 fresh processes total. Times cover production construction of the complete resident layout in host memory, including the conditioned file's companion scale decode. File reads occur before the timer. The full-corpus GPU scores above were collected with the original direct-U4 packing loop and establish a baseline for the revised loader. [Every process and all physical device hashes](device-load/samples.json).
+Five mirrored cycles for each row on a Ryzen 9 9900X, 80 fresh processes total. Times cover production construction of the complete resident layout in host memory, including the conditioned file's companion scale decode. File reads occur before the timer. RTX 5070 Ti reproduced all 1,530 baseline rows after the packing change. The two 25,500-row GPU results above used the original packing loop. [Every process and all physical device hashes](device-load/samples.json).
 
 To repeat the CPU experiment, use fresh checkouts of 47237bb and this version. Append [hook.rs](device-load/hook.rs) to crates/leansonic-core/src/inkling2_gpu.rs in both checkouts to expose the private production method to the timing binary. Copy [bench.rs](device-load/bench.rs) to crates/leansonic-core/examples/time_device_indices.rs, then build the release example. Run `time_device_indices mx NEW_FRAME SCALE_RANS RAW_CODE_COUNT time` or `time_device_indices plain OLD_FRAME SCALE_RANS RAW_CODE_COUNT time`. For independent parity use `dump` in place of `time`, hash stdout and compare with [oracle.py](device-load/oracle.py) on the uncompressed weight bytes. The oracle reads the original byte-frequency table from the companion .rans file.
 
