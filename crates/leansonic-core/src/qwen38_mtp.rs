@@ -38,16 +38,20 @@ macro_rules! kargs {
 
 const MTP: &str = "language_model.mtp";
 
-/// A target-owned group-32 Q4 matrix: `w [rows, cols / 32]` u128, `sc` / `bi` `[rows, cols / 64]`
-/// u32 (two BF16 each).
+/// Target-owned group-32 weight planes. For affine Q4, `bi` points to the BF16
+/// biases and `w` packs eight nibbles per word. Symmetric Q8 has no biases
+/// (`bi == 0`) and stores one signed code per byte. Both store BF16 scales.
 #[derive(Clone, Copy, Debug)]
-pub struct Q4Ref {
+pub struct Group32Ref {
     pub w: CUdeviceptr,
     pub sc: CUdeviceptr,
     pub bi: CUdeviceptr,
     pub rows: i32,
     pub cols: i32,
 }
+
+/// Source-compatible name for the existing public matrix handle.
+pub type Q4Ref = Group32Ref;
 
 struct Q4 {
     w: DeviceBuf,
@@ -193,6 +197,8 @@ struct Fns {
     _q38: CUmodule,
     _mtp: CUmodule,
     embed: CUfunction,
+    embed_q8: Option<CUfunction>,
+    head_q8: Option<CUfunction>,
     q4: CUfunction,
     q4_2560: CUfunction,
     q4_10k: CUfunction,
@@ -416,6 +422,8 @@ impl Qwen38MtpDrafter {
         )?;
         let fns = Fns {
             embed: get(ctx, q38, "q38_embed_init_hc4")?,
+            embed_q8: get(ctx, q38, "q38_embed_q8_hc4").ok(),
+            head_q8: get(ctx, q38, "q38_dense_q8_gemv").ok(),
             q4: get(ctx, q38, "q38_q4_gemv")?,
             q4_2560: get(ctx, q38, "q38_q4_gemv_2560")?,
             q4_10k: get(ctx, q38, "q38_q4_gemv_10k")?,
@@ -874,7 +882,13 @@ impl Qwen38MtpDrafter {
         );
         self.launch(
             s,
-            self.fns.embed,
+            if embed.bi == 0 {
+                self.fns
+                    .embed_q8
+                    .ok_or("Q8 embedding missing from target cubin")?
+            } else {
+                self.fns.embed
+            },
             (10, 1),
             256,
             &mut kargs![ew, esc, ebi, ptok, pehc],
@@ -1083,7 +1097,23 @@ impl Qwen38MtpDrafter {
 
         // Output: own mixer, shared LM head, greedy.
         self.hc_pre(s, &self.mixer)?;
-        self.q4(s, lm_head, self.d_mixed.ptr, self.d_logits.ptr, 0)?;
+        if lm_head.bi == 0 {
+            let (mut w, mut sc, mut rows, mut cols) =
+                (lm_head.w, lm_head.sc, lm_head.rows, lm_head.cols);
+            let (mut x, mut y) = (self.d_mixed.ptr, self.d_logits.ptr);
+            self.launch(
+                s,
+                self.fns
+                    .head_q8
+                    .ok_or("Q8 head missing from target cubin")?,
+                ((rows as u32).div_ceil(8), 1),
+                256,
+                &mut kargs![w, sc, x, y, rows, cols],
+                "q38_dense_q8_gemv",
+            )?;
+        } else {
+            self.q4(s, lm_head, self.d_mixed.ptr, self.d_logits.ptr, 0)?;
+        }
         let (mut lg, mut ot, mut pp2) = (self.d_logits.ptr, self.d_out_tok.ptr, self.d_pos.ptr);
         self.launch(
             s,

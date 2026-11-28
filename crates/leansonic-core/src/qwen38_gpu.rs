@@ -346,13 +346,17 @@ fn advise_willneed_slice(bytes: &[u8]) {
 #[cfg(not(target_os = "linux"))]
 fn advise_willneed_slice(_bytes: &[u8]) {}
 
-struct Q4LinearHostMapped {
+struct MappedEmbedding {
     w: PinnedHostBuf,
     sc: PinnedHostBuf,
-    bi: PinnedHostBuf,
+    bi: Option<PinnedHostBuf>,
 }
 
-impl Q4LinearHostMapped {
+impl MappedEmbedding {
+    fn bias_ptr(&self) -> CUdeviceptr {
+        self.bi.as_ref().map_or(0, |bias| bias.dev_ptr)
+    }
+
     fn from_sharded(
         ctx: &Arc<CudaContextHandle>,
         st: &ShardedSafeTensors,
@@ -360,15 +364,33 @@ impl Q4LinearHostMapped {
         rows: usize,
         cols: usize,
     ) -> Result<Self, String> {
-        let w_tv = st.require(&format!("{prefix}.weight"), "U32", &[rows, cols / 8]);
-        let sc_tv = st.require(&format!("{prefix}.scales"), "BF16", &[rows, cols / 32]);
-        let bi_tv = st.require(&format!("{prefix}.biases"), "BF16", &[rows, cols / 32]);
-        let w = PinnedHostBuf::alloc_uninit(ctx, w_tv.data.len())?;
-        let sc = PinnedHostBuf::alloc_uninit(ctx, sc_tv.data.len())?;
-        let bi = PinnedHostBuf::alloc_uninit(ctx, bi_tv.data.len())?;
-        parallel_copy_into_pinned(w.host_ptr, &[(0, w_tv.data)]);
-        parallel_copy_into_pinned(sc.host_ptr, &[(0, sc_tv.data)]);
-        parallel_copy_into_pinned(bi.host_ptr, &[(0, bi_tv.data)]);
+        let key = format!("{prefix}.weight");
+        let tensor = st.get(&key).ok_or_else(|| format!("missing {key}"))?;
+        let q8 = tensor.dtype == "I8";
+        let expected = if q8 { [rows, cols] } else { [rows, cols / 8] };
+        let expected_bytes = if q8 { rows * cols } else { rows * cols / 2 };
+        if !matches!(tensor.dtype, "I8" | "U32")
+            || tensor.shape != expected
+            || tensor.data.len() != expected_bytes
+        {
+            return Err(format!("invalid embedding tensor {key}"));
+        }
+        let pin = |data: &[u8]| -> Result<PinnedHostBuf, String> {
+            let buffer = PinnedHostBuf::alloc_uninit(ctx, data.len())?;
+            parallel_copy_into_pinned(buffer.host_ptr, &[(0, data)]);
+            Ok(buffer)
+        };
+        let w = pin(tensor.data)?;
+        let sc = pin(st
+            .require(&format!("{prefix}.scales"), "BF16", &[rows, cols / 32])
+            .data)?;
+        let bi = if q8 {
+            None
+        } else {
+            Some(pin(st
+                .require(&format!("{prefix}.biases"), "BF16", &[rows, cols / 32])
+                .data)?)
+        };
         Ok(Self { w, sc, bi })
     }
 }
@@ -448,7 +470,7 @@ enum DenseProjection {
 }
 
 impl DenseProjection {
-    fn shared_planes(&self) -> (CUdeviceptr, CUdeviceptr, CUdeviceptr) {
+    fn planes(&self) -> (CUdeviceptr, CUdeviceptr, CUdeviceptr) {
         match self {
             Self::Q4(m) => (m.w.ptr, m.sc.ptr, m.bi.ptr),
             Self::Q8 {
@@ -930,9 +952,9 @@ pub struct Qwen38GpuEngine {
     zero_centered: bool,
     all_layers_z24: bool,
     sharded_mmap: ShardedSafeTensors,
-    embed: Q4LinearHostMapped,
+    embed: MappedEmbedding,
     final_hc: HyperConnGpu,
-    lm_head: Q4LinearGpu,
+    lm_head: DenseProjection,
     inv_freq32: DeviceBuf,
     layers: Vec<Qwen38LayerGpu>,
     pub resident_expert_layers: usize,
@@ -1229,7 +1251,7 @@ impl Qwen38GpuEngine {
         let t0 = Instant::now();
         let ctx = CudaContextHandle::init(0)?;
         ctx.bind_current()?;
-        let fns = load_kernel_fns(&ctx)?;
+        let mut fns = load_kernel_fns(&ctx)?;
         let pdl = ctx.api.cuLaunchKernelEx.is_some()
             && std::env::var("LEANSONIC_NO_PDL")
                 .map(|v| v != "1")
@@ -1257,13 +1279,18 @@ impl Qwen38GpuEngine {
 
         // Place `496.6 MiB` `embed_tokens` in GPU-mapped `PinnedHostBuf` (only `1,600 B` read/token!),
         // saving `0.49 GiB` of GDDR7 VRAM so all `48/48` `switch_mlp` slabs fit on `RTX PRO 5000 72GB`!
-        let embed = Q4LinearHostMapped::from_sharded(
+        let embed = MappedEmbedding::from_sharded(
             &ctx,
             &st,
             "language_model.model.embed_tokens",
             Q38_VOCAB,
             Q38_D,
         )?;
+        if embed.bi.is_none() {
+            let kernel = module_function(&ctx, fns._module, "q38_embed_q8_hc4")?;
+            fns.embed_init_hc4 = kernel;
+            fns.embed_init_hc4_batch = kernel;
+        }
         let final_hc = load_hyper_conn(
             &ctx,
             &st,
@@ -1272,8 +1299,13 @@ impl Qwen38GpuEngine {
             zero_centered,
             false,
         )?;
-        let lm_head =
-            Q4LinearGpu::from_sharded(&ctx, &st, "language_model.lm_head", Q38_VOCAB, Q38_D)?;
+        let lm_head = DenseProjection::load(
+            &ctx,
+            &st,
+            fns._module,
+            &[("language_model.lm_head", Q38_VOCAB)],
+            Q38_D,
+        )?;
 
         let inv_f: Vec<f32> = (0..32)
             .map(|i| 10_000_000.0_f64.powf(-(2.0 * (i as f64)) / 64.0) as f32)
@@ -2246,26 +2278,21 @@ impl Qwen38GpuEngine {
         }
     }
 
-    /// Shared Q4 embedding table device pointers `(w_u128, sc_u32, bi_u32)` (`[248320, 2560]`).
+    /// Embedding planes. A zero bias denotes signed Q8 codes and group-32 BF16 scales.
     #[inline]
     pub fn embed_ptrs(&self) -> (CUdeviceptr, CUdeviceptr, CUdeviceptr) {
         (
             self.embed.w.dev_ptr,
             self.embed.sc.dev_ptr,
-            self.embed.bi.dev_ptr,
+            self.embed.bias_ptr(),
         )
     }
 
-    /// Shared Q4 `lm_head` device pointers `(w_u128, sc_u32, bi_u32, rows, cols)` (`[248320, 2560]`).
+    /// Head planes and shape. A zero bias denotes signed Q8 codes and group-32 BF16 scales.
     #[inline]
     pub fn lm_head_ptrs(&self) -> (CUdeviceptr, CUdeviceptr, CUdeviceptr, i32, i32) {
-        (
-            self.lm_head.w.ptr,
-            self.lm_head.sc.ptr,
-            self.lm_head.bi.ptr,
-            self.lm_head.rows,
-            self.lm_head.cols,
-        )
+        let (w, sc, bi) = self.lm_head.planes();
+        (w, sc, bi, Q38_VOCAB as i32, Q38_D as i32)
     }
 
     #[inline]
@@ -3134,7 +3161,7 @@ impl Qwen38GpuEngine {
             let (mut ew, mut esc, mut ebi, mut tin, mut dhc) = (
                 self.embed.w.dev_ptr,
                 self.embed.sc.dev_ptr,
-                self.embed.bi.dev_ptr,
+                self.embed.bias_ptr(),
                 self.d_token_in.ptr,
                 self.d_hc.ptr,
             );
@@ -3379,8 +3406,8 @@ impl Qwen38GpuEngine {
                 )?;
             }
 
-            let (mut sh_gu_w, mut sh_gu_sc, mut sh_gu_bi) = layer.sh_gu_gate.shared_planes();
-            let (mut sh_dw, mut sh_dsc, mut sh_dbi) = layer.sh_down.shared_planes();
+            let (mut sh_gu_w, mut sh_gu_sc, mut sh_gu_bi) = layer.sh_gu_gate.planes();
+            let (mut sh_dw, mut sh_dsc, mut sh_dbi) = layer.sh_down.planes();
             let (mut mx, mut sids, mut swts, mut act11, mut mout) = (
                 self.d_mixed.ptr,
                 self.d_sel_ids10.ptr,
@@ -3505,12 +3532,12 @@ impl Qwen38GpuEngine {
 
         if compute_logits {
             self.launch_hc_pre(stream, &self.final_hc)?;
-            self.launch_q4_gemv(
+            self.launch_dense_projection(
                 stream,
                 &self.lm_head,
                 self.d_mixed.ptr,
                 self.d_logits.ptr,
-                0,
+                1,
             )?;
             let (mut log_p, mut out_p, mut pos_p) =
                 (self.d_logits.ptr, self.d_token_out.ptr, self.d_pos.ptr);
@@ -3791,7 +3818,7 @@ impl Qwen38GpuEngine {
             let (mut ew, mut esc, mut ebi, mut tin, mut dhc) = (
                 self.embed.w.dev_ptr,
                 self.embed.sc.dev_ptr,
-                self.embed.bi.dev_ptr,
+                self.embed.bias_ptr(),
                 bb.d_b_tokens.ptr,
                 bb.d_b_hc.ptr,
             );
@@ -4098,8 +4125,8 @@ impl Qwen38GpuEngine {
                 .ok_or("batched MoE requires Z24 Vram/Mixed/HostPinned tiers")?;
             let mut up_bases = z24_bases.up_packed_m1;
             let mut dn_bases = z24_bases.down_packed_m1;
-            let (mut sh_gu_w, mut sh_gu_sc, mut sh_gu_bi) = layer.sh_gu_gate.shared_planes();
-            let (mut sh_dw, mut sh_dsc, mut sh_dbi) = layer.sh_down.shared_planes();
+            let (mut sh_gu_w, mut sh_gu_sc, mut sh_gu_bi) = layer.sh_gu_gate.planes();
+            let (mut sh_dw, mut sh_dsc, mut sh_dbi) = layer.sh_down.planes();
             let (mut act11, mut mout) = (bb.d_b_moe_act11.ptr, bb.d_b_branch_out.ptr);
 
             if is_small_verify {
@@ -4285,12 +4312,12 @@ impl Qwen38GpuEngine {
                     )?;
                 }
                 self.launch_hc_pre(stream, &self.final_hc)?;
-                self.launch_q4_gemv(
+                self.launch_dense_projection(
                     stream,
                     &self.lm_head,
                     self.d_mixed.ptr,
                     self.d_logits.ptr,
-                    0,
+                    1,
                 )?;
                 let (mut log_p, mut out_p, mut pos_p) =
                     (self.d_logits.ptr, self.d_token_out.ptr, self.d_pos.ptr);
@@ -4319,13 +4346,12 @@ impl Qwen38GpuEngine {
             }
             BatchLogitMode::AllVerifyLogits => {
                 self.launch_hc_pre_batch(stream, &self.final_hc, bb, b_count)?;
-                self.launch_q4_gemm_b8(
+                self.launch_dense_projection(
                     stream,
                     &self.lm_head,
                     bb.d_b_mixed.ptr,
                     bb.d_b_logits.ptr,
                     b_count,
-                    0,
                 )?;
                 let (mut log_p, mut out_p, mut pos_p, mut bc) = (
                     bb.d_b_logits.ptr,
@@ -4515,20 +4541,7 @@ impl Qwen38GpuEngine {
         crate::qwen38_mtp::Q4Ref,
         &ShardedSafeTensors,
     ) {
-        let embed = crate::qwen38_mtp::Q4Ref {
-            w: self.embed.w.dev_ptr,
-            sc: self.embed.sc.dev_ptr,
-            bi: self.embed.bi.dev_ptr,
-            rows: Q38_VOCAB as i32,
-            cols: Q38_D as i32,
-        };
-        let lm_head = crate::qwen38_mtp::Q4Ref {
-            w: self.lm_head.w.ptr,
-            sc: self.lm_head.sc.ptr,
-            bi: self.lm_head.bi.ptr,
-            rows: self.lm_head.rows,
-            cols: self.lm_head.cols,
-        };
+        let (embed, lm_head) = crate::qwen38_mtp::Qwen38MtpDrafter::target_q4_refs(self);
         (
             Arc::clone(&self.ctx),
             self.d_hc.ptr,
