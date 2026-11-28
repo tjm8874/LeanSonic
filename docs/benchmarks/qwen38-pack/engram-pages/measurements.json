@@ -1,0 +1,202 @@
+{
+  "0": {
+    "shard": 0,
+    "rows": 2500012,
+    "direct_bytes": 231254334,
+    "page_bytes": 232733804,
+    "tile_bytes": 231254290,
+    "dictionary_entries": [
+      779,
+      811
+    ]
+  },
+  "64": {
+    "shard": 64,
+    "rows": 2500012,
+    "direct_bytes": 231253756,
+    "page_bytes": 232733226,
+    "tile_bytes": 231253712,
+    "dictionary_entries": [
+      632,
+      669
+    ]
+  },
+  "original": {
+    "score": {
+      "rows": 494,
+      "vocabulary": 248320,
+      "mean_kl": 0.0,
+      "max_kl": 0.0,
+      "worst_case_position": [
+        0,
+        0
+      ],
+      "top1_matches": 494,
+      "byte_equal_rows": 494,
+      "reference_ppl": 15.946024916463667,
+      "candidate_ppl": 15.946024916463667,
+      "reference_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "candidate_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "canary_cases": 16,
+      "matching_canaries": 16
+    },
+    "stream": {
+      "distinct_sequences_including_warmup": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+      "sampled_process_peak_bytes": 75486986240,
+      "launch_to_ready_ms": 7905.542059,
+      "warm_rates": [
+        {
+          "case": 0,
+          "input_tokens": 19,
+          "output_tokens": 32,
+          "prefill_tok_s": 395.9069390317483,
+          "decode_tok_s": 163.52804045641523
+        },
+        {
+          "case": 1,
+          "input_tokens": 25,
+          "output_tokens": 32,
+          "prefill_tok_s": 412.25673575149614,
+          "decode_tok_s": 163.3372631225052
+        },
+        {
+          "case": 2,
+          "input_tokens": 6,
+          "output_tokens": 32,
+          "prefill_tok_s": 340.4226540155774,
+          "decode_tok_s": 164.13826755627278
+        },
+        {
+          "case": 3,
+          "input_tokens": 19,
+          "output_tokens": 32,
+          "prefill_tok_s": 400.0299390828092,
+          "decode_tok_s": 163.58088908746083
+        }
+      ]
+    }
+  },
+  "tile": {
+    "score": {
+      "rows": 494,
+      "vocabulary": 248320,
+      "mean_kl": 0.0,
+      "max_kl": 0.0,
+      "worst_case_position": [
+        0,
+        0
+      ],
+      "top1_matches": 494,
+      "byte_equal_rows": 494,
+      "reference_ppl": 15.946024916463667,
+      "candidate_ppl": 15.946024916463667,
+      "reference_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "candidate_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "canary_cases": 16,
+      "matching_canaries": 16
+    },
+    "stream": {
+      "distinct_sequences_including_warmup": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+      "sampled_process_peak_bytes": 75486986240,
+      "launch_to_ready_ms": 8103.750395,
+      "warm_rates": [
+        {
+          "case": 0,
+          "input_tokens": 19,
+          "output_tokens": 32,
+          "prefill_tok_s": 396.68008830265785,
+          "decode_tok_s": 163.56541020854146
+        },
+        {
+          "case": 1,
+          "input_tokens": 25,
+          "output_tokens": 32,
+          "prefill_tok_s": 413.91237643867044,
+          "decode_tok_s": 163.2702857049349
+        },
+        {
+          "case": 2,
+          "input_tokens": 6,
+          "output_tokens": 32,
+          "prefill_tok_s": 341.1553042428689,
+          "decode_tok_s": 164.10885111400768
+        },
+        {
+          "case": 3,
+          "input_tokens": 19,
+          "output_tokens": 32,
+          "prefill_tok_s": 400.87961426941536,
+          "decode_tok_s": 163.55794887146862
+        }
+      ]
+    }
+  },
+  "stacked_pro4500": {
+    "audit": {
+      "engram_rows_exact": 320001536,
+      "other_tensors_exact": 3363,
+      "source_file_bytes": 103556413821,
+      "result_file_bytes": 103556334617
+    },
+    "packed": {
+      "file_bytes": 103556334617,
+      "tensor_delta": -3584
+    },
+    "tile-score": {
+      "rows": 494,
+      "vocabulary": 248320,
+      "mean_kl": 0.0,
+      "max_kl": 0.0,
+      "worst_case_position": [
+        0,
+        0
+      ],
+      "top1_matches": 494,
+      "byte_equal_rows": 494,
+      "reference_ppl": 15.946024916463667,
+      "candidate_ppl": 15.946024916463667,
+      "reference_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "candidate_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "canary_cases": 16,
+      "matching_canaries": 16
+    },
+    "gpu": "NVIDIA RTX PRO 4500 Blackwell",
+    "matched_streams": 16,
+    "peak_process_bytes": 33422311424,
+    "launch_to_ready_ms": 35014.246771,
+    "warm_rates": [
+      {
+        "case": 0,
+        "prefill_tok_s": 123.30071657314653,
+        "decode_tok_s": 67.95400457355002
+      },
+      {
+        "case": 1,
+        "prefill_tok_s": 83.29755120426252,
+        "decode_tok_s": 57.791114616500565
+      },
+      {
+        "case": 2,
+        "prefill_tok_s": 37.12392696305432,
+        "decode_tok_s": 29.832882706196532
+      },
+      {
+        "case": 3,
+        "prefill_tok_s": 120.32900610172557,
+        "decode_tok_s": 42.33811034368916
+      }
+    ]
+  }
+}
