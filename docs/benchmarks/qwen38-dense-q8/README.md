@@ -56,3 +56,21 @@ Commit `070438c` runs all 726 signed-Q8 decoder matrices. The target and drafter
 On the common 176-position Basalt protocol, native Q8 versus Basalt v0.5.7 fixed scored mean/worst truncated KL 0.02043/0.30740 versus 0.01690/0.19575, top-1 171 versus 172, PPL 7.7387 versus 7.6513. On the separate 104 positions the scores were 0.04740/0.78630 versus 0.03287/0.65464, 93 versus 98, and 8.9345 versus 9.1700. The 233- and 494-position complete-vocabulary protocol uses a different selection of positions from those two common subsets. [Native scores and on-device operator checks](full-native.json)
 
 The signed shared-expert projection and the four-stream embedding produced identical independent scalar-check results on the PRO 4500, 5070 Ti and 5060 Ti. The embedding matched the BF16 reconstruction exactly for 10,240 and 174,080 output values. Both kernels passed compute-sanitizer with exactly sized allocations. Each reported an invalid write with the one-float-short red control. The full SM120a cubin passed the repository's SASS audit. The draft remains experimental pending throughput, speculative parity, and the broader BF16 comparisons.
+
+## Full checkpoint, four GPUs and matched public-engine timings
+
+On the PRO 5000, the complete native Q8 model scored mean/worst KL 0.01487/0.05551, 46/49 top-1 and PPL 28.9555 on the original short fixture. On the 233-position fixture, the PRO 5000 matched the 5070 Ti in all FP32 logits, row metadata and eight-token continuations. On all 494 extended positions, the PRO 5000, PRO 4500 and 5060 Ti matched all three files byte for byte.
+
+Four identical prompts, batch one, context 256, 128 outputs each, greedy generation, one warmup and three timed cycles per prompt. Adaptive uses Basalt's zero-temperature setting. Times are observed through the streaming protocol. The table reports the range of per-input medians. LeanSonic Q4 and Q8 have different quantized weights; Basalt uses UD-Q4_K_XL. VRAM is a sampled process peak.
+
+| GPU / engine | Prefill tok/s | Decode tok/s | Package bytes | Sampled peak VRAM bytes |
+|---|---:|---:|---:|---:|
+| PRO 5000 / LeanSonic corrected Q4 | 405.57–453.51 | 160.91–161.66 | 103,556,334,617 | 75,486,986,240 |
+| PRO 5000 / LeanSonic full Q8 mix | 295.46–331.03 | 98.73–104.89 | 105,692,126,511 | 76,055,314,432 |
+| PRO 5000 / Basalt v0.5.7 fixed | 104.05–135.09 | 106.93–134.85 | 115,307,561,176 | 75,608,621,056 |
+| PRO 5000 / Basalt v0.5.7 adaptive | 138.45–139.13 | 138.20–138.81 | 115,307,561,176 | 75,608,621,056 |
+| PRO 4500 / LeanSonic full Q8 mix | 62.83–100.69 | 24.33–41.02 | 105,692,126,511 | 33,390,854,144 |
+
+At 72 GB, full Q8 increased prefill speed relative to both Basalt configurations, but decode was slower on every prompt. Q8 used 9,615,434,665 fewer model bytes and 446,693,376 more peak GPU bytes than Basalt. Keep the full Q8 profile experimental. [All IDs, per-request timings, quality metrics and cross-GPU hashes](full-matched.json.gz)
+
+All eight modified fused MoE kernel entry points passed the independent shared-expert numerical and exact-allocation memory checks. In each entry point, shortening the Q8 weight plane by one 32-code group produced an invalid read in compute-sanitizer and exit 77. [Per-kernel outcomes](fused-memcheck.txt) · [Scalar reference driver](check_shared_moe.cpp)
