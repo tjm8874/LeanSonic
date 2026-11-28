@@ -1,0 +1,91 @@
+{
+  "original": {
+    "rows": 49,
+    "vocabulary": 248320,
+    "mean_kl": 0.0229619690218267,
+    "max_kl": 0.18978999580139222,
+    "worst_case_position": [
+      3,
+      7
+    ],
+    "top1_matches": 46,
+    "byte_equal_rows": 0,
+    "reference_ppl": 28.038166623626164,
+    "candidate_ppl": 28.712277880484134,
+    "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+    "candidate_sha256": "a9de540292dee289223fabd7154fc8a85d4f4c9afec9d862551ba0993c118289",
+    "canary_cases": 4,
+    "matching_canaries": 2
+  },
+  "new": {
+    "rows": 233,
+    "vocabulary": 248320,
+    "mean_kl": 0.029893231792742142,
+    "max_kl": 0.42573901446732065,
+    "worst_case_position": [
+      1,
+      25
+    ],
+    "top1_matches": 216,
+    "byte_equal_rows": 0,
+    "reference_ppl": 18.588504580741304,
+    "candidate_ppl": 18.334997511958274,
+    "reference_sha256": "1cca711252d0578fa8200c84df316a2f86df8304e590fe450f47dc8cbce2e342",
+    "candidate_sha256": "d6c60bd52ea57c7f70aaa945b4ad4a4e616982763dc5017c1c6c4c038d8c5d71",
+    "canary_cases": 8,
+    "matching_canaries": 1
+  },
+  "new-common": {
+    "chunks": 8,
+    "context": 28,
+    "rows": 104,
+    "ppl": 9.097324485258085,
+    "ref_ppl": 9.153459425677505,
+    "mean_kld": 0.03632524288261703,
+    "median_kld": 0.022265346004872594,
+    "p99_kld": 0.32139547503653176,
+    "max_kld": 0.4253886115464978,
+    "start_chunk": 0,
+    "max_kld_chunk": 1,
+    "max_kld_position": 25,
+    "ref_floor_targets": 0,
+    "top1_matches": 95,
+    "top1_agreement": 0.9134615384615384
+  },
+  "original-vs-simulation": {
+    "rows": 49,
+    "vocabulary": 248320,
+    "mean_kl": 0.0,
+    "max_kl": 0.0,
+    "worst_case_position": [
+      0,
+      0
+    ],
+    "top1_matches": 49,
+    "byte_equal_rows": 49,
+    "reference_ppl": 28.712277880484134,
+    "candidate_ppl": 28.712277880484134,
+    "reference_sha256": "a9de540292dee289223fabd7154fc8a85d4f4c9afec9d862551ba0993c118289",
+    "candidate_sha256": "a9de540292dee289223fabd7154fc8a85d4f4c9afec9d862551ba0993c118289",
+    "canary_cases": 4,
+    "matching_canaries": 4
+  },
+  "new-vs-simulation": {
+    "rows": 233,
+    "vocabulary": 248320,
+    "mean_kl": 0.0,
+    "max_kl": 0.0,
+    "worst_case_position": [
+      0,
+      0
+    ],
+    "top1_matches": 233,
+    "byte_equal_rows": 233,
+    "reference_ppl": 18.334997511958274,
+    "candidate_ppl": 18.334997511958274,
+    "reference_sha256": "d6c60bd52ea57c7f70aaa945b4ad4a4e616982763dc5017c1c6c4c038d8c5d71",
+    "candidate_sha256": "d6c60bd52ea57c7f70aaa945b4ad4a4e616982763dc5017c1c6c4c038d8c5d71",
+    "canary_cases": 8,
+    "matching_canaries": 8
+  }
+}
