@@ -1140,11 +1140,26 @@ impl Qwen38GpuEngine {
             Q38_VOCAB,
             Q38_D,
         )?;
+        // flashnext-norm-zero converted 147 norms but left the final mixer in MLX's
+        // folded (1 + weight) representation. Its exact payload identifies both
+        // the original checkpoint and lossless repacks. Other final weights keep
+        // the checkpoint's ordinary convention, including repaired exports.
+        const FOLDED_FINAL_NORM_SHA256: &str =
+            "8224a458ee9fb93bbf6360f04c7448fb97ca235419fa4a2eae31d5894d919525";
+        let final_norm_centered = zero_centered
+            && crate::sha256::sha256_hex(
+                st.require(
+                    "language_model.model.hyper_connection_mixer.hc_norm.weight",
+                    "BF16",
+                    &[Q38_HC_D],
+                )
+                .data,
+            ) != FOLDED_FINAL_NORM_SHA256;
         let final_hc = load_hyper_conn(
             &ctx,
             &st,
             "language_model.model.hyper_connection_mixer",
-            zero_centered,
+            final_norm_centered,
             false,
         )?;
         let lm_head =
