@@ -4,5 +4,6 @@ import LeanSonic.Proofs.ServingAndPrompt
 import LeanSonic.Proofs.SpilledAndEngram
 import LeanSonic.Proofs.Cycle1FrontierProofs
 import LeanSonic.Proofs.Cycle2FrontierProofs
+import LeanSonic.Proofs.Qwen38MixedExperts
 import LeanSonic.Proofs.Qwen38Mtp
 import LeanSonic.Emit

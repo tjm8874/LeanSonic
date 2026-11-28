@@ -24,6 +24,10 @@ use leansonic_core::generated_spec::{
 };
 use leansonic_core::inkling2_gpu::Inkling2GpuEngine;
 use leansonic_core::qwen38_gpu::Qwen38GpuEngine;
+use leansonic_core::qwen38_mtp::{
+    spec_decode_tokens as q38_spec_decode_tokens, spec_prefill_prompt as q38_spec_prefill_prompt,
+    Qwen38MtpDrafter, SpecStats as Q38SpecStats,
+};
 use leansonic_core::qwen_bpe::{
     QwenBpeTokenizer, QWEN_TOK_ENDOFTEXT, QWEN_TOK_IM_END, QWEN_TOK_THINK_CLOSE,
     QWEN_TOK_THINK_OPEN,
@@ -375,8 +379,30 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(4096)
                 .max(prompt_ids.len() + max_tokens + 64);
-            let mut gpu = Qwen38GpuEngine::load_from_dir(dir, max_ctx)?;
-            let (next, prefill_ms) = gpu.prefill_tokens(&prompt_ids)?;
+            let spec_k = spec_opt
+                .or_else(|| {
+                    env::var("LEANSONIC_SPEC_K")
+                        .ok()
+                        .and_then(|s| s.parse().ok())
+                })
+                .unwrap_or(0)
+                .min(7);
+            let mut gpu = Qwen38GpuEngine::load_from_dir_for_spec(dir, max_ctx, true, spec_k > 0)?;
+            let mut mtp_opt = if spec_k > 0
+                && gpu.supports_batched_verify()
+                && Qwen38MtpDrafter::has_mtp_weights(&gpu)
+            {
+                Some(Qwen38MtpDrafter::load_for_engine(&gpu)?)
+            } else {
+                None
+            };
+            let refs = Qwen38MtpDrafter::target_q4_refs(&gpu);
+            let (next, first_draft, prefill_ms) = if let Some(mtp) = mtp_opt.as_mut() {
+                q38_spec_prefill_prompt(&mut gpu, mtp, refs, &prompt_ids, max_tokens > 0)?
+            } else {
+                let (n0, p_ms) = gpu.prefill_tokens(&prompt_ids)?;
+                (n0, 0, p_ms)
+            };
             let t_gen = Instant::now();
             let mut dec = QwenChannelDecoder::new(effort != "none");
             let mut vis_stream_cursor = 0usize;
@@ -384,41 +410,58 @@ fn cmd_prompt(args: &[String]) -> Result<(), String> {
             let mut stdout = io::stdout();
             let mut stderr = io::stderr();
             let mut stream_status = Ok(());
-            let generated = gpu.generate_greedy_tokens(
-                next,
-                max_tokens,
-                &[QWEN_TOK_IM_END, QWEN_TOK_ENDOFTEXT],
-                |tok_id| {
-                    let ch = dec.push_token_with(tok_id, tok.is_special_token(tok_id), |id| {
-                        tok.decode_token_bytes(id)
-                    });
-                    if !emit_json && stream_status.is_ok() {
-                        match ch {
-                            ActiveChannel::VisibleText => {
-                                stream_status = write_utf8_prefix(
-                                    &mut stdout,
-                                    &dec.text_bytes[vis_stream_cursor..],
-                                )
-                                .and_then(|w| {
-                                    vis_stream_cursor += w;
-                                    stdout.flush()
-                                });
-                            }
-                            ActiveChannel::Thinking if show_thinking => {
-                                stream_status = write_utf8_prefix(
-                                    &mut stderr,
-                                    &dec.reasoning_bytes[think_stream_cursor..],
-                                )
-                                .and_then(|w| {
-                                    think_stream_cursor += w;
-                                    stderr.flush()
-                                });
-                            }
-                            _ => {}
+            let mut spec_stats = Q38SpecStats::default();
+            let mut on_tok = |tok_id: u32| {
+                let ch = dec.push_token_with(tok_id, tok.is_special_token(tok_id), |id| {
+                    tok.decode_token_bytes(id)
+                });
+                if !emit_json && stream_status.is_ok() {
+                    match ch {
+                        ActiveChannel::VisibleText => {
+                            stream_status = write_utf8_prefix(
+                                &mut stdout,
+                                &dec.text_bytes[vis_stream_cursor..],
+                            )
+                            .and_then(|w| {
+                                vis_stream_cursor += w;
+                                stdout.flush()
+                            });
                         }
+                        ActiveChannel::Thinking if show_thinking => {
+                            stream_status = write_utf8_prefix(
+                                &mut stderr,
+                                &dec.reasoning_bytes[think_stream_cursor..],
+                            )
+                            .and_then(|w| {
+                                think_stream_cursor += w;
+                                stderr.flush()
+                            });
+                        }
+                        _ => {}
                     }
-                },
-            )?;
+                }
+            };
+            let generated = if let Some(mtp) = mtp_opt.as_mut() {
+                q38_spec_decode_tokens(
+                    &mut gpu,
+                    mtp,
+                    refs,
+                    next,
+                    first_draft,
+                    max_tokens,
+                    spec_k,
+                    &[QWEN_TOK_IM_END, QWEN_TOK_ENDOFTEXT],
+                    &mut spec_stats,
+                    &mut on_tok,
+                )?
+            } else {
+                gpu.generate_greedy_tokens(
+                    next,
+                    max_tokens,
+                    &[QWEN_TOK_IM_END, QWEN_TOK_ENDOFTEXT],
+                    &mut on_tok,
+                )?
+            };
             stream_status.map_err(|e| format!("write output: {e}"))?;
             let hit_stop = max_tokens > 0 && generated.len() < max_tokens;
             dec.finish(hit_stop);
@@ -737,10 +780,36 @@ fn cmd_bench(args: &[String]) -> Result<(), String> {
             .and_then(|s| s.parse().ok())
             .unwrap_or(4096)
             .max(prompt_ids.len() + n_gen + 64);
-        let mut gpu = Qwen38GpuEngine::load_from_dir_with_opts(dir_path, max_ctx, use_graph)?;
+        let spec_k = spec_opt
+            .or_else(|| {
+                env::var("LEANSONIC_SPEC_K")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+            })
+            .unwrap_or(0)
+            .min(7);
+        let mut gpu =
+            Qwen38GpuEngine::load_from_dir_for_spec(dir_path, max_ctx, use_graph, spec_k > 0)?;
+        let mut mtp_opt = if spec_k > 0
+            && gpu.supports_batched_verify()
+            && Qwen38MtpDrafter::has_mtp_weights(&gpu)
+        {
+            Some(Qwen38MtpDrafter::load_for_engine(&gpu)?)
+        } else {
+            None
+        };
+        let refs = Qwen38MtpDrafter::target_q4_refs(&gpu);
         for run_idx in 0..repeat {
             gpu.reset()?;
-            let (next, prefill_ms) = gpu.prefill_tokens(&prompt_ids)?;
+            if let Some(mtp) = mtp_opt.as_mut() {
+                mtp.reset();
+            }
+            let (next, first_draft, prefill_ms) = if let Some(mtp) = mtp_opt.as_mut() {
+                q38_spec_prefill_prompt(&mut gpu, mtp, refs, &prompt_ids, n_gen > 0)?
+            } else {
+                let (n0, p_ms) = gpu.prefill_tokens(&prompt_ids)?;
+                (n0, 0, p_ms)
+            };
             let prefill_tok_s = (prompt_ids.len() as f64) / (prefill_ms / 1000.0).max(1e-9);
             let logits = gpu.read_last_logits()?;
             let mut top_idx: Vec<usize> = (0..logits.len()).collect();
@@ -802,15 +871,49 @@ fn cmd_bench(args: &[String]) -> Result<(), String> {
 
             if n_gen > 0 {
                 let t_dec = Instant::now();
-                let out_ids = gpu.generate_greedy_tokens(next, n_gen, &[], |_| {})?;
+                let mut spec_stats = Q38SpecStats::default();
+                let out_ids = if let Some(mtp) = mtp_opt.as_mut() {
+                    q38_spec_decode_tokens(
+                        &mut gpu,
+                        mtp,
+                        refs,
+                        next,
+                        first_draft,
+                        n_gen,
+                        spec_k,
+                        &[],
+                        &mut spec_stats,
+                        |_| {},
+                    )?
+                } else {
+                    gpu.generate_greedy_tokens(next, n_gen, &[], |_| {})?
+                };
                 let dec_ms = t_dec.elapsed().as_secs_f64() * 1000.0;
-                let dec_tok_s = (n_gen as f64) / (dec_ms / 1000.0).max(1e-9);
-                println!(
-                    "[run {run_idx}] generated {n_gen} tokens: {:.2} ms ({:.2} ms/tok, {:.1} tok/s)",
-                    dec_ms,
-                    dec_ms / (n_gen as f64),
-                    dec_tok_s
-                );
+                let dec_tok_s = (out_ids.len() as f64) / (dec_ms / 1000.0).max(1e-9);
+                if spec_stats.cycles > 0 {
+                    let acc_pct =
+                        100.0 * (spec_stats.accepted as f64) / (spec_stats.drafted.max(1) as f64);
+                    let tok_per_win = (out_ids.len() as f64) / (spec_stats.cycles as f64);
+                    println!(
+                        "[run {run_idx}] generated {} tokens (MTP spec={spec_k}): {:.2} ms ({:.2} ms/tok, {:.1} tok/s) | steps={} accepted={}/{} ({acc_pct:.1}%, {tok_per_win:.2} tok/win, hist={:?})",
+                        out_ids.len(),
+                        dec_ms,
+                        dec_ms / (out_ids.len().max(1) as f64),
+                        dec_tok_s,
+                        spec_stats.cycles,
+                        spec_stats.accepted,
+                        spec_stats.drafted,
+                        spec_stats.accept_hist
+                    );
+                } else {
+                    println!(
+                        "[run {run_idx}] generated {} tokens: {:.2} ms ({:.2} ms/tok, {:.1} tok/s)",
+                        out_ids.len(),
+                        dec_ms,
+                        dec_ms / (out_ids.len().max(1) as f64),
+                        dec_tok_s
+                    );
+                }
                 let csv: Vec<String> = out_ids.iter().map(u32::to_string).collect();
                 println!("{}", csv.join(","));
             }
@@ -1041,17 +1144,18 @@ impl ServingBackend for InklingGpuServingBackend {
 }
 
 struct QwenGpuServingBackend {
-    gpu: Mutex<Qwen38GpuEngine>,
+    gpu: Mutex<(Qwen38GpuEngine, Option<Qwen38MtpDrafter>)>,
     tok: QwenBpeTokenizer,
     device_name: String,
+    spec_k: usize,
     default_effort: String,
 }
 
 impl ServingBackend for QwenGpuServingBackend {
     fn backend_label(&self) -> String {
         format!(
-            "blackwell-gpu:{} (qwen3.8-flash-next, 22-shard)",
-            self.device_name
+            "blackwell-gpu:{} (qwen3.8-flash-next, 22-shard, spec={})",
+            self.device_name, self.spec_k
         )
     }
 
@@ -1073,11 +1177,15 @@ impl ServingBackend for QwenGpuServingBackend {
         let prompt_ids = self.tok.encode_chat_prompt(&req.prompt, effort);
         let max_new = req.max_tokens.clamp(1, 8192);
 
-        let mut gpu = self
+        let mut guard = self
             .gpu
             .lock()
             .map_err(|_| "GPU engine mutex poisoned".to_string())?;
+        let (gpu, mtp_opt) = &mut *guard;
         gpu.reset()?;
+        if let Some(mtp) = mtp_opt.as_mut() {
+            mtp.reset();
+        }
         if prompt_ids.len() + max_new > gpu.max_ctx {
             return Err(format!(
                 "prompt_tokens ({}) + max_tokens ({max_new}) exceeds server max_ctx ({})",
@@ -1086,32 +1194,55 @@ impl ServingBackend for QwenGpuServingBackend {
             ));
         }
 
-        let (next, _prefill_ms) = gpu.prefill_tokens(&prompt_ids)?;
+        let refs = Qwen38MtpDrafter::target_q4_refs(gpu);
+        let (next, first_draft, _prefill_ms) = if let Some(mtp) = mtp_opt.as_mut() {
+            q38_spec_prefill_prompt(gpu, mtp, refs, &prompt_ids, max_new > 0)?
+        } else {
+            let (n0, p_ms) = gpu.prefill_tokens(&prompt_ids)?;
+            (n0, 0, p_ms)
+        };
         let mut dec = QwenChannelDecoder::new(effort != "none");
         let mut vis_cursor = 0usize;
-        let generated = gpu.generate_greedy_tokens(
-            next,
-            max_new,
-            &[QWEN_TOK_IM_END, QWEN_TOK_ENDOFTEXT],
-            |tok_id| {
-                let ch = dec.push_token_with(tok_id, self.tok.is_special_token(tok_id), |id| {
-                    self.tok.decode_token_bytes(id)
-                });
-                if ch == ActiveChannel::VisibleText {
-                    let mut chunk_buf = Vec::new();
-                    if let Ok(consumed) =
-                        write_utf8_prefix(&mut chunk_buf, &dec.text_bytes[vis_cursor..])
-                    {
-                        if consumed > 0 {
-                            vis_cursor += consumed;
-                            if let Ok(s) = std::str::from_utf8(&chunk_buf) {
-                                on_delta(s);
-                            }
+        let mut spec_stats = Q38SpecStats::default();
+        let mut on_tok = |tok_id: u32| {
+            let ch = dec.push_token_with(tok_id, self.tok.is_special_token(tok_id), |id| {
+                self.tok.decode_token_bytes(id)
+            });
+            if ch == ActiveChannel::VisibleText {
+                let mut chunk_buf = Vec::new();
+                if let Ok(consumed) =
+                    write_utf8_prefix(&mut chunk_buf, &dec.text_bytes[vis_cursor..])
+                {
+                    if consumed > 0 {
+                        vis_cursor += consumed;
+                        if let Ok(s) = std::str::from_utf8(&chunk_buf) {
+                            on_delta(s);
                         }
                     }
                 }
-            },
-        )?;
+            }
+        };
+        let generated = if let Some(mtp) = mtp_opt.as_mut() {
+            q38_spec_decode_tokens(
+                gpu,
+                mtp,
+                refs,
+                next,
+                first_draft,
+                max_new,
+                self.spec_k,
+                &[QWEN_TOK_IM_END, QWEN_TOK_ENDOFTEXT],
+                &mut spec_stats,
+                &mut on_tok,
+            )?
+        } else {
+            gpu.generate_greedy_tokens(
+                next,
+                max_new,
+                &[QWEN_TOK_IM_END, QWEN_TOK_ENDOFTEXT],
+                &mut on_tok,
+            )?
+        };
         if vis_cursor < dec.text_bytes.len() {
             let tail = String::from_utf8_lossy(&dec.text_bytes[vis_cursor..]);
             on_delta(&tail);
@@ -1199,12 +1330,30 @@ fn cmd_serve(args: &[String]) -> Result<(), String> {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(8192);
-            let gpu = Qwen38GpuEngine::load_from_dir(dir, max_ctx)?;
+            let spec_k = spec_opt
+                .or_else(|| {
+                    env::var("LEANSONIC_SPEC_K")
+                        .ok()
+                        .and_then(|s| s.parse().ok())
+                })
+                .unwrap_or(0)
+                .min(7);
+            let gpu = Qwen38GpuEngine::load_from_dir_for_spec(dir, max_ctx, true, spec_k > 0)?;
+            let mtp_opt = if spec_k > 0
+                && gpu.supports_batched_verify()
+                && Qwen38MtpDrafter::has_mtp_weights(&gpu)
+            {
+                Some(Qwen38MtpDrafter::load_for_engine(&gpu)?)
+            } else {
+                None
+            };
+            let active_spec = if mtp_opt.is_some() { spec_k } else { 0 };
             let device_name = gpu.ctx.device_name.clone();
             let backend: Arc<dyn ServingBackend> = Arc::new(QwenGpuServingBackend {
-                gpu: Mutex::new(gpu),
+                gpu: Mutex::new((gpu, mtp_opt)),
                 tok,
                 device_name,
+                spec_k: active_spec,
                 default_effort: effort,
             });
             return serve_openai_http_with_backend(&host, port, "qwen3.8-flash-next", backend)
