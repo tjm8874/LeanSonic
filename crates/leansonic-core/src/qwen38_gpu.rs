@@ -23,7 +23,8 @@ use crate::cuda_ffi::{
     CUlaunchConfig, CUmodule, CUstream, CapturedGraphExec, CudaContextHandle, DeviceBuf,
     PinnedHostBuf, CU_EVENT_DISABLE_TIMING,
 };
-use crate::safetensors::{MappedTensorRange, ShardedSafeTensors};
+use crate::qwen38_engram::{make_resident, EngramBytes, EngramPolicy};
+use crate::safetensors::ShardedSafeTensors;
 
 const CUDA_HEADER_SRC: &str = include_str!("../../../kernels/include/leansonic_verified.cuh");
 const CUDA_QWEN38_SRC: &str = include_str!("../../../kernels/qwen38_sm120.cu");
@@ -487,7 +488,7 @@ enum SwitchMlpTier {
 }
 
 struct PleParameter {
-    bytes: MappedTensorRange,
+    bytes: EngramBytes,
     dictionary: bool,
 }
 
@@ -516,15 +517,16 @@ impl PleParameter {
             advise_willneed_slice(t.data);
         }
         Ok(Self {
-            bytes: st
-                .tensor_range(name)
-                .ok_or_else(|| format!("missing Engram parameter {name}"))?,
+            bytes: EngramBytes::Mapped(
+                st.tensor_range(name)
+                    .ok_or_else(|| format!("missing Engram parameter {name}"))?,
+            ),
             dictionary,
         })
     }
 
     fn row(&self, st: &ShardedSafeTensors, row: usize) -> Result<[u16; 5], String> {
-        let data = st.bytes_at(&self.bytes);
+        let data = self.bytes.get(st);
         if self.dictionary {
             return crate::qwen38_pack::Frame::open(data, Q38_PLE_SHARD_ROWS as usize * 5)
                 .and_then(|f| f.row5(row))
@@ -546,7 +548,7 @@ mod engram_tile;
 
 enum PleShard {
     Planes {
-        weights: MappedTensorRange,
+        weights: EngramBytes,
         scales: PleParameter,
         biases: PleParameter,
     },
@@ -562,14 +564,14 @@ impl PleShard {
                 biases,
             } => [weights, &scales.bytes, &biases.bytes]
                 .iter()
-                .map(|r| st.bytes_at(r).len())
+                .map(|r| r.get(st).len())
                 .sum(),
             Self::Tiled(shard) => shard.bytes(st).len(),
         }
     }
 
     fn row<'a>(
-        &self,
+        &'a self,
         st: &'a ShardedSafeTensors,
         row: usize,
     ) -> Result<engram_tile::EngramRow<'a>, String> {
@@ -580,8 +582,8 @@ impl PleShard {
                 scales,
                 biases,
             } => {
-                let w = st
-                    .bytes_at(weights)
+                let w = weights
+                    .get(st)
                     .as_chunks::<80>()
                     .0
                     .get(row)
@@ -1304,9 +1306,10 @@ impl Qwen38GpuEngine {
                         advise_willneed_slice(w_tv.data);
                     }
                     shards.push(PleShard::Planes {
-                        weights: st
-                            .tensor_range(&key)
-                            .ok_or_else(|| format!("missing Engram weights {key}"))?,
+                        weights: EngramBytes::Mapped(
+                            st.tensor_range(&key)
+                                .ok_or_else(|| format!("missing Engram weights {key}"))?,
+                        ),
                         scales: PleParameter::open(&st, &format!("{sp}.scales"), warm_engram)?,
                         biases: PleParameter::open(&st, &format!("{sp}.biases"), warm_engram)?,
                     });
@@ -1807,10 +1810,49 @@ impl Qwen38GpuEngine {
             .flat_map(|ple| &ple.shards)
             .map(|s| s.bytes(&engine.sharded_mmap))
             .sum();
+        let engram_policy = EngramPolicy::choose(
+            std::env::var("LEANSONIC_Q38_ENGRAM").ok().as_deref(),
+            engram_bytes,
+            available_host_ram_bytes(),
+        );
+        if engram_policy == EngramPolicy::Resident {
+            let t_copy = Instant::now();
+            let Qwen38GpuEngine {
+                layers,
+                sharded_mmap,
+                ..
+            } = &mut engine;
+            let mut entries = Vec::new();
+            for ple in layers.iter_mut().filter_map(|layer| layer.ple.as_mut()) {
+                for shard in &mut ple.shards {
+                    match shard {
+                        PleShard::Tiled(tile) => entries.push(&mut tile.storage),
+                        PleShard::Planes {
+                            weights,
+                            scales,
+                            biases,
+                        } => entries.extend([weights, &mut scales.bytes, &mut biases.bytes]),
+                    }
+                }
+            }
+            let threads = std::thread::available_parallelism()
+                .map_or(4, usize::from)
+                .min(16);
+            make_resident(sharded_mmap, &mut entries, threads);
+            eprintln!(
+                "[Qwen38GpuEngine] Engram copied to host memory in {:.2}s (LEANSONIC_Q38_ENGRAM=mmap keeps the file mapping)",
+                t_copy.elapsed().as_secs_f64()
+            );
+        }
+        let engram_kind = if engram_policy == EngramPolicy::Resident {
+            "Resident"
+        } else {
+            "Async"
+        };
         let engram_gib = engram_bytes as f64 / (1u64 << 30) as f64;
         let load_s = t0.elapsed().as_secs_f64();
         eprintln!(
-            "[Qwen38GpuEngine] Loaded {} ({} shards, zero_norm={}, pdl={}, z24={}/48, graph={}) on {} in {:.2}s | Experts: {}/48 VRAM + {}/48 CalibratedMixed ({}/24576 hot VRAM) + {}/48 HostPinned + {}/48 MmapCompact + {engram_gib:.1}GiB Async Engram",
+            "[Qwen38GpuEngine] Loaded {} ({} shards, zero_norm={}, pdl={}, z24={}/48, graph={}) on {} in {:.2}s | Experts: {}/48 VRAM + {}/48 CalibratedMixed ({}/24576 hot VRAM) + {}/48 HostPinned + {}/48 MmapCompact + {engram_gib:.1}GiB {engram_kind} Engram",
             dir.display(),
             engine.sharded_mmap.num_shards(),
             zero_centered,

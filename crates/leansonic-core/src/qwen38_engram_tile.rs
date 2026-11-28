@@ -1,10 +1,10 @@
 //! Four Engram rows share 320 Q4 weight bytes and two 25-byte planes of ten-bit indices.
-use super::{MappedTensorRange, ShardedSafeTensors};
+use super::{EngramBytes, ShardedSafeTensors};
 
 pub(super) type EngramRow<'a> = (&'a [u8; 80], [u16; 5], [u16; 5]);
 
 pub(super) struct TiledShard {
-    range: MappedTensorRange,
+    pub(super) storage: EngramBytes,
     layout: Layout,
 }
 
@@ -83,13 +83,16 @@ impl TiledShard {
         let range = st
             .tensor_range(name)
             .ok_or_else(|| format!("missing range for {name}"))?;
-        Ok(Self { range, layout })
+        Ok(Self {
+            storage: EngramBytes::Mapped(range),
+            layout,
+        })
     }
-    pub(super) fn bytes<'a>(&self, st: &'a ShardedSafeTensors) -> &'a [u8] {
-        st.bytes_at(&self.range)
+    pub(super) fn bytes<'a>(&'a self, st: &'a ShardedSafeTensors) -> &'a [u8] {
+        self.storage.get(st)
     }
     pub(super) fn row<'a>(
-        &self,
+        &'a self,
         st: &'a ShardedSafeTensors,
         row: usize,
     ) -> Result<EngramRow<'a>, String> {
