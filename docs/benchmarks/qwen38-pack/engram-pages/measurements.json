@@ -142,5 +142,61 @@
         }
       ]
     }
+  },
+  "stacked_pro4500": {
+    "audit": {
+      "engram_rows_exact": 320001536,
+      "other_tensors_exact": 3363,
+      "source_file_bytes": 103556413821,
+      "result_file_bytes": 103556334617
+    },
+    "packed": {
+      "file_bytes": 103556334617,
+      "tensor_delta": -3584
+    },
+    "tile-score": {
+      "rows": 494,
+      "vocabulary": 248320,
+      "mean_kl": 0.0,
+      "max_kl": 0.0,
+      "worst_case_position": [
+        0,
+        0
+      ],
+      "top1_matches": 494,
+      "byte_equal_rows": 494,
+      "reference_ppl": 15.946024916463667,
+      "candidate_ppl": 15.946024916463667,
+      "reference_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "candidate_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "canary_cases": 16,
+      "matching_canaries": 16
+    },
+    "gpu": "NVIDIA RTX PRO 4500 Blackwell",
+    "matched_streams": 16,
+    "peak_process_bytes": 33422311424,
+    "launch_to_ready_ms": 35014.246771,
+    "warm_rates": [
+      {
+        "case": 0,
+        "prefill_tok_s": 123.30071657314653,
+        "decode_tok_s": 67.95400457355002
+      },
+      {
+        "case": 1,
+        "prefill_tok_s": 83.29755120426252,
+        "decode_tok_s": 57.791114616500565
+      },
+      {
+        "case": 2,
+        "prefill_tok_s": 37.12392696305432,
+        "decode_tok_s": 29.832882706196532
+      },
+      {
+        "case": 3,
+        "prefill_tok_s": 120.32900610172557,
+        "decode_tok_s": 42.33811034368916
+      }
+    ]
   }
 }

@@ -53,3 +53,7 @@ Each row gives the first request on a fresh engine with 128 generated tokens. Th
 | Japanese | 30 | 845.4 → 399.2 | 49.55 → 76.79 |
 | Python | 23 | 685.2 → 296.4 | 150.89 → 157.03 |
 | Arithmetic | 43 | 977.5 → 475.7 | 60.50 → 90.02 |
+
+## With the lossless expert-weight frames
+
+An integration of this branch with #268 at `d3ec717` also accepts the 103,556,413,821-byte expert-frame model as the converter input. The tiled distribution occupied **103,556,334,617 bytes**. The disk audit checked all 320,001,536 Engram rows and 3,363 other tensor payloads. On the RTX PRO 4500 32 GB, every one of 494 full-vocabulary rows, all 16 eight-token continuations and all 16 held-out 32-output requests matched the untiled compressed model. [Per-case timings, peak VRAM and exact counts](measurements.json)
