@@ -59,13 +59,14 @@ fn is_qwen38_weights_dir(dir: &Path, model_flag: &str) -> bool {
 }
 
 fn print_help() {
-    println!("LeanSonic v0.11.0 — Lean 4-Verified Blackwell Inference Engine & OpenAI Server");
+    println!("LeanSonic v1.0.0 — Lean 4-Verified Blackwell Inference Engine & OpenAI Server");
     println!();
     println!("USAGE:");
     println!(
         "  leansonic -p \"<prompt>\" [--weights <dir>] [--spec 0..7] [--effort none|low|high] [--max-tokens N] [--show-thinking] [--json]"
     );
     println!("  leansonic bench --weights <dir> --tokens <id1,id2|@file|synth:N|chat:@file.txt> [--spec 0..7] [--gen N] [--repeat R] [--no-graph]");
+    println!("  leansonic multiseq --weights <dir> --slots <C> --tokens <spec> [--gen N] [--spec K] [--ctx N] [--repeat R]");
     println!("  leansonic bench-matrix --weights <dir> [--gpus all|0,1] [--n 5] [--ctx 20480] [--spec-prompts <dir>] [--quick] [--out <json>]");
     println!("  leansonic bench-matrix --merge <a.json> <b.json> ...   Combine per-host results into one 4-GPU table");
     println!("  leansonic eval-kld (--weights <dir> | --logits-f32 <file|->) --ref <reference.kld> [--start-chunk INDEX] [--chunks COUNT]");

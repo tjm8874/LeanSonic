@@ -296,7 +296,8 @@ Detailed engineering & hardware verification reports are published in **both Eng
 - **`v0.8.0`**: [English](./docs/releases/v0.8.0_report.md) | [日本語](./docs/releases/v0.8.0_report.ja.md) — `DFlash 2` Block-Diffusion Speculative Decoding & Exact-Size Sanitizer Gate
 - **`v0.9.0`**: [English](./docs/releases/v0.9.0_report.md) | [日本語](./docs/releases/v0.9.0_report.ja.md) — `PDL` Overlap, Packed GPU Expert Scales & `4`-Card Blackwell Matrix
 - **`v0.10.0`**: [English](./docs/releases/v0.10.0_report.md) | [日本語](./docs/releases/v0.10.0_report.ja.md) — Adaptive Spilled `spec_k` Governor & Unified `DFlash 2` Default Drafter
-- **`v0.11.0` (`Inkling-2-Mini` Final Edition)**: [English](./docs/releases/v0.11.0_report.md) | [日本語](./docs/releases/v0.11.0_report.ja.md) — Two-Tier `16g` Speed (`879 tok/s` Prefill / `265 tok/s` Spec) & `32g` Precision (`2,731 tok/s` Prefill / `506 tok/s` Spec) Packs
+- **`v0.11.0` (`Inkling-2-Mini` Final Edition)**: [English](./docs/releases/v0.11.0_report.md) | [日本語](./docs/releases/v0.11.0_report.ja.md) — Two-Tier `16g` Speed (`10,222 tok/s` Prefill / `235.9 tok/s` Spec, `0` Spill) & `32g` Precision (`15,057 tok/s` Prefill / `313.9 tok/s` Spec / `mean_kld = 0.002989`) Packs
+- **`v1.0.0` (General Availability — `Qwen3.8-Flash-Next` & `Inkling-2-Mini`)**: [English](./docs/releases/v1.0.0_report.md) | [日本語](./docs/releases/v1.0.0_report.ja.md) — Full `106 GB` `Qwen3.8-Flash-Next` (`48/48` `Z24` VRAM, `7.9s` Load, `504.4 tok/s` Batched Prefill, `179.6–200.8 tok/s` Full-VRAM `MTP` `--spec 1`, `68.7 tok/s` `PRO 4500` `CalibratedMixed`, `212` Lean 4 Theorems)
 
 ---
 
