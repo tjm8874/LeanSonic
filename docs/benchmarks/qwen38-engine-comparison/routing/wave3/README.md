@@ -39,3 +39,20 @@ target/release/examples/q38_teacher "$MODEL" docs/benchmarks/qwen38-pack/fixture
 ```
 
 Use the second profile for the random control. For stock, use the ordinary cubin with the profile unset and `LEANSONIC_MAX_RESIDENT_LAYERS=19`. For Basalt, use the same four inputs and the two documented sampler/placement configurations. To regenerate the two profiles, follow the [routing trace instructions](../README.md), then run `make_profile.py --resident-layers 19`. A set of 48 profile rows is specific to this model and the selected memory budget. Automatic resizing for long contexts and MTP is outside this experiment.
+
+## Matched BF16 quality gates on the held-out prompts
+
+LeanSonic and Basalt v0.5.7 scored the same four official BF16 references on the PRO 4500. Each prompt used its own full-length context (19, 25, 6 and 19). Both native scorers evaluate next-token targets from position `context // 2` through `context - 2`, for 32 positions in total. They use a uint16 log-probability reference and omit terms with reference log probability at or below −16 from the KL sum. Top-1 and the target-token log losses use the same target positions. Each engine started a fresh process per prompt for quality scoring. The timing runs above kept their processes resident across prompts. The original and calibrated LeanSonic layouts produced byte-identical distributions at all 65 available positions, so the stock native CLI was used for this common subset.
+
+| Candidate | Mean / worst KL vs BF16 | Top-1 agreement | Target PPL |
+| --- | ---: | ---: | ---: |
+| LeanSonic MLX Q4 | 0.37138 / 1.39348 | 20/32 | 16.5712 |
+| Basalt adaptive UD-Q4_K_XL | 0.02914 / 0.11017 | 28/32 | 11.0135 |
+| Basalt fixed UD-Q4_K_XL | 0.02843 / 0.11843 | 29/32 | 11.1264 |
+| Official BF16 | — | 32/32 | 11.6129 |
+
+PPL measures probability assigned to the observed next tokens in this small sample. KL measures how closely the candidate matches the BF16 distribution. Both Basalt configurations were closer to BF16 here. [Per-case native scores and combined results](common-kld.json)
+
+To reproduce, first produce the BF16 teacher dump with the [official reference runner](../../../qwen38-pack/reference/README.md) on the last four inputs of `route-fixtures.ids`. Point `PYTHONPATH` at the absolute engine-comparison directory. Run [split_reference.py](split_reference.py) with the four input lines, BF16 teacher output directory, and a new destination. In each numbered subdirectory run `leansonic eval-kld --weights "$MODEL" --ref ref.kld`. For Basalt, run `basalt_ppl.py "$PWD" "$PWD/score.json" "$BASALT"` followed by the same server and sampler flags as the fixed or adaptive timing run. Pool NLL and KL over scored positions before computing combined PPL and mean KL.
+
+The released CUDA driver's runtime compiler independently reproduced the reference Q4 logits and eight-token continuations on all 65 held-out positions on the 72 GB PRO 5000. The four new sm_120a kernels also passed the tested exact-size boundary at expert 511 on both device and mapped host records with 65,536 bytes of Compute Sanitizer padding. [Cross-device hashes and sanitizer output](validation.json)
