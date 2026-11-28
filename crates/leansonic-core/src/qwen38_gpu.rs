@@ -466,7 +466,7 @@ enum DenseProjection {
         rows: i32,
         cols: i32,
         kernel: CUfunction,
-        batch_kernel: CUfunction,
+        batch_kernel: Option<CUfunction>,
     },
 }
 
@@ -523,7 +523,7 @@ impl DenseProjection {
         }
         Ok(Self::Q8 {
             kernel: module_function(ctx, module, "q38_dense_q8_gemv")?,
-            batch_kernel: module_function(ctx, module, "q38_dense_q8_gemm_b4")?,
+            batch_kernel: optional_module_function(ctx, module, "q38_dense_q8_gemm_b4")?,
             weights: DeviceBuf::from_host_bytes(ctx, &concat_bytes(&weights))?,
             scales: DeviceBuf::from_host_bytes(ctx, &concat_bytes(&scales))?,
             rows: items.iter().map(|(_, rows)| *rows).sum::<usize>() as i32,
@@ -1038,20 +1038,29 @@ fn discover_qwen38_cubin() -> Option<PathBuf> {
     None
 }
 
+fn optional_module_function(
+    ctx: &CudaContextHandle,
+    module: CUmodule,
+    name: &str,
+) -> Result<Option<CUfunction>, String> {
+    const CUDA_ERROR_NOT_FOUND: i32 = 500;
+    let symbol = CString::new(name).unwrap();
+    let mut function = core::ptr::null_mut();
+    let status = unsafe { (ctx.api.cuModuleGetFunction)(&mut function, module, symbol.as_ptr()) };
+    if status == CUDA_ERROR_NOT_FOUND {
+        return Ok(None);
+    }
+    check_cu(status, name)?;
+    Ok(Some(function))
+}
+
 fn module_function(
     ctx: &CudaContextHandle,
     module: CUmodule,
     name: &str,
 ) -> Result<CUfunction, String> {
-    let symbol = CString::new(name).unwrap();
-    let mut function = core::ptr::null_mut();
-    unsafe {
-        check_cu(
-            (ctx.api.cuModuleGetFunction)(&mut function, module, symbol.as_ptr()),
-            name,
-        )?;
-    }
-    Ok(function)
+    optional_module_function(ctx, module, name)?
+        .ok_or_else(|| format!("missing CUDA kernel {name}"))
 }
 
 fn load_kernel_fns(ctx: &Arc<CudaContextHandle>) -> Result<Qwen38KernelFns, String> {
@@ -2915,7 +2924,8 @@ impl Qwen38GpuEngine {
                 batch_kernel,
             } => {
                 let (mut wp, mut sp, mut nr, mut nc) = (weights.ptr, scales.ptr, *rows, *cols);
-                if batch > 1 {
+                // Older Q8 cubins use the single-token kernel across the grid.
+                if let (2.., Some(batch_kernel)) = (batch, batch_kernel) {
                     let mut count = batch as i32;
                     let mut args = kargs![wp, sp, input, output, nr, nc, count];
                     return self.launch_kern(
