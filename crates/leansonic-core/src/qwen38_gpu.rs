@@ -627,6 +627,8 @@ pub struct Qwen38GpuEngine {
     d_hc_low: DeviceBuf,
     d_hc_inj4: DeviceBuf,
     d_mixed: DeviceBuf,
+    d_layer_trace: DeviceBuf,
+    layer_teacher: Option<DeviceBuf>,
     d_branch_out: DeviceBuf,
     d_gdn_in: DeviceBuf,
     d_qkv_conv: DeviceBuf,
@@ -886,6 +888,15 @@ impl Qwen38GpuEngine {
         let d_hc_normed = DeviceBuf::alloc_zeroed(&ctx, Q38_HC_D * 4)?;
         let d_hc_low = DeviceBuf::alloc_zeroed(&ctx, Q38_HC_LOW * 4)?;
         let d_hc_inj4 = DeviceBuf::alloc_zeroed(&ctx, 16)?;
+        let layer_teacher = if std::env::var_os("Q38_TRACE_TEACHER_STATES").is_some() {
+            Some(DeviceBuf::alloc_zeroed(
+                &ctx,
+                (Q38_LAYERS + 1) * Q38_HC_D * 4,
+            )?)
+        } else {
+            None
+        };
+        let d_layer_trace = DeviceBuf::alloc_zeroed(&ctx, (Q38_LAYERS + 1) * Q38_HC_D * 4)?;
         let d_mixed = DeviceBuf::alloc_zeroed(&ctx, Q38_D * 4)?;
         let d_branch_out = DeviceBuf::alloc_zeroed(&ctx, Q38_D * 4)?;
         let d_gdn_in = DeviceBuf::alloc_zeroed(&ctx, 16_480 * 4)?;
@@ -1414,6 +1425,8 @@ impl Qwen38GpuEngine {
             d_hc_low,
             d_hc_inj4,
             d_mixed,
+            d_layer_trace,
+            layer_teacher,
             d_branch_out,
             d_gdn_in,
             d_qkv_conv,
@@ -1719,6 +1732,45 @@ impl Qwen38GpuEngine {
             }
             cur = self.forward_greedy_token(cur)?;
         }
+        Ok(out)
+    }
+
+    pub fn diagnostic_head_input(&self) -> Result<Vec<f32>, String> {
+        self.ctx.sync_compute()?;
+        let mut out = vec![0.0f32; Q38_D];
+        self.d_mixed.copy_to_host_f32(&mut out)?;
+        Ok(out)
+    }
+
+    pub fn set_layer_teacher(&self, states: &[u8]) -> Result<(), String> {
+        let buf = self
+            .layer_teacher
+            .as_ref()
+            .ok_or("teacher buffer disabled")?;
+        if states.len() != buf.byte_len {
+            return Err("unexpected teacher-state byte count".into());
+        }
+        buf.copy_from_host_bytes(states)
+    }
+
+    fn trace_layer(&self, stream: CUstream, slot: usize) -> Result<(), String> {
+        let bytes = Q38_HC_D * 4;
+        unsafe {
+            check_cu(
+                (self.ctx.api.cuMemcpyDtoDAsync_v2)(
+                    self.d_layer_trace.ptr + (slot * bytes) as u64,
+                    self.d_hc.ptr,
+                    bytes,
+                    stream,
+                ),
+                "trace layer",
+            )
+        }
+    }
+    pub fn read_layer_trace(&self) -> Result<Vec<f32>, String> {
+        self.ctx.sync_compute()?;
+        let mut out = vec![0.0f32; (Q38_LAYERS + 1) * Q38_HC_D];
+        self.d_layer_trace.copy_to_host_f32(&mut out)?;
         Ok(out)
     }
 
@@ -2107,7 +2159,22 @@ impl Qwen38GpuEngine {
             )?;
         }
 
+        self.trace_layer(stream, 0)?;
         for l_idx in 0..Q38_LAYERS {
+            if let Some(teacher) = &self.layer_teacher {
+                let bytes = Q38_HC_D * 4;
+                unsafe {
+                    check_cu(
+                        (self.ctx.api.cuMemcpyDtoDAsync_v2)(
+                            self.d_hc.ptr,
+                            teacher.ptr + (l_idx * bytes) as u64,
+                            bytes,
+                            stream,
+                        ),
+                        "apply layer teacher",
+                    )?;
+                }
+            }
             let layer = &self.layers[l_idx];
             if let Some(ple) = &layer.ple {
                 if wait_ple_event_at_layer1 {
@@ -2471,6 +2538,7 @@ impl Qwen38GpuEngine {
             }
 
             self.launch_hc_post(stream)?;
+            self.trace_layer(stream, l_idx + 1)?;
         }
 
         if compute_logits {
