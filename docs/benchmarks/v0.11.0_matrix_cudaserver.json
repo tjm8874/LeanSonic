@@ -1,0 +1,388 @@
+{
+  "binary_sha256": "65d51cb089b0a7d12db356badcdebc1773f02f1c6df09d9e6463b2a6cf82ce59",
+  "commit": "1e49ad3",
+  "ctx": 20480,
+  "engine_env": {
+    "LEANSONIC_CUBIN_PATH": "/home/ts/leansonic-v0110-rel/build/leansonic_sm120a.cubin",
+    "LEANSONIC_DF2_CUBIN_PATH": "/home/ts/leansonic-v0110-rel/build/dflash2_sm120a.cubin"
+  },
+  "gpus": [
+    {
+      "canary": {
+        "canary_pass": true,
+        "cases": [
+          {
+            "answer": "Tokyo",
+            "elapsed_ms": 452.01,
+            "expected": "Tokyo",
+            "id": "short_tokyo",
+            "input_tokens": 27,
+            "nonfinite_logits": 0,
+            "pass": true,
+            "spec7_0ulp": true
+          },
+          {
+            "answer": "RAVEN-731",
+            "elapsed_ms": 3497.52,
+            "expected": "RAVEN-731",
+            "id": "needle_16k_50",
+            "input_tokens": 16384,
+            "nonfinite_logits": 0,
+            "pass": true,
+            "spec7_0ulp": null
+          }
+        ],
+        "passed": 2,
+        "total": 2
+      },
+      "cells": {
+        "c4_32k_code": {
+          "ci95_hi": null,
+          "ci95_lo": null,
+          "median": null,
+          "n": 0,
+          "ratio_to_target": null,
+          "samples": [],
+          "target": null,
+          "verdict": "UNMEASURED"
+        },
+        "c64_total": {
+          "ci95_hi": null,
+          "ci95_lo": null,
+          "median": null,
+          "n": 0,
+          "ratio_to_target": null,
+          "samples": [],
+          "target": null,
+          "verdict": "UNMEASURED"
+        },
+        "decode_16k": {
+          "ci95_hi": 161.9,
+          "ci95_lo": 161.8,
+          "median": 161.8,
+          "n": 3,
+          "ratio_to_target": 1.0786666666666667,
+          "samples": [161.8, 161.9, 161.8],
+          "target": 150,
+          "verdict": "PASS"
+        },
+        "decode_short": {
+          "ci95_hi": 176.7,
+          "ci95_lo": 176.6,
+          "median": 176.7,
+          "n": 3,
+          "ratio_to_target": 1.0273255813953488,
+          "samples": [176.7, 176.7, 176.6],
+          "target": 172,
+          "verdict": "PASS"
+        },
+        "kld_mean": {
+          "ci95_hi": 0.007748134459063128,
+          "ci95_lo": 0.007748134459063128,
+          "median": 0.007748134459063128,
+          "n": 1,
+          "ratio_to_target": 1.0325066043016666,
+          "samples": [0.007748134459063128],
+          "target": 0.008,
+          "verdict": "PASS"
+        },
+        "long_128k_decode": {
+          "ci95_hi": null,
+          "ci95_lo": null,
+          "median": null,
+          "n": 0,
+          "ratio_to_target": null,
+          "samples": [],
+          "target": null,
+          "verdict": "UNMEASURED"
+        },
+        "prefill_128k": {
+          "ci95_hi": null,
+          "ci95_lo": null,
+          "median": null,
+          "n": 0,
+          "ratio_to_target": null,
+          "samples": [],
+          "target": null,
+          "verdict": "UNMEASURED"
+        },
+        "prefill_16k": {
+          "ci95_hi": 9102.1,
+          "ci95_lo": 9078.5,
+          "median": 9083.6,
+          "n": 3,
+          "ratio_to_target": 1.3893545426736005,
+          "samples": [9083.6, 9078.5, 9102.1],
+          "target": 6538,
+          "verdict": "PASS"
+        },
+        "prefill_2k": {
+          "ci95_hi": 10224.4,
+          "ci95_lo": 10221.1,
+          "median": 10222,
+          "n": 3,
+          "ratio_to_target": 1.4571632216678545,
+          "samples": [10221.1, 10224.4, 10222],
+          "target": 7015,
+          "verdict": "PASS"
+        },
+        "spec_accept_wide": {
+          "ci95_hi": null,
+          "ci95_lo": null,
+          "median": null,
+          "n": 0,
+          "ratio_to_target": null,
+          "samples": [],
+          "target": null,
+          "verdict": "UNMEASURED"
+        },
+        "spec_avg": {
+          "ci95_hi": 235.9,
+          "ci95_lo": 235.83333333333334,
+          "median": 235.86666666666665,
+          "n": 3,
+          "ratio_to_target": 1.0255072463768116,
+          "samples": [235.83333333333334, 235.9, 235.86666666666665],
+          "target": 230,
+          "verdict": "PASS"
+        },
+        "spec_wide": {
+          "ci95_hi": null,
+          "ci95_lo": null,
+          "median": null,
+          "n": 0,
+          "ratio_to_target": null,
+          "samples": [],
+          "target": null,
+          "verdict": "UNMEASURED"
+        },
+        "vram_gib": {
+          "ci95_hi": 14.47,
+          "ci95_lo": 14.47,
+          "median": 14.47,
+          "n": 3,
+          "ratio_to_target": 1.078092605390463,
+          "samples": [14.47, 14.47, 14.47],
+          "target": 15.6,
+          "verdict": "PASS"
+        }
+      },
+      "driver": "595.99.02",
+      "engine_device": "NVIDIA GeForce RTX 5070 Ti",
+      "errors": [],
+      "foreign_processes": [],
+      "index": 0,
+      "inputs": {
+        "p16k": "synth:16384 fnv1a64=ec9b964dd9ec8b17",
+        "p2k": "synth:2048 fnv1a64=b653688be1987be7",
+        "short": "synth:32 fnv1a64=ec033ebab2f63f04",
+        "spec_conv": "conv.ids fnv1a64=3c8fdb2c7b56b775",
+        "spec_prose": "prose.ids fnv1a64=56051e00dacc5136",
+        "spec_struct": "struct.ids fnv1a64=424f09b822aec0e9"
+      },
+      "kld": {
+        "max": 1.4620403544509677,
+        "mean": 0.007748134459063128,
+        "ppl": 7.083731056644495,
+        "top1_agreement": 0.9622352941176471
+      },
+      "name": "NVIDIA GeForce RTX 5070 Ti",
+      "pcie": "Gen5 x16",
+      "power_limit_w": "300.00",
+      "resident_expert_layers": "24/24",
+      "sku": "rtx_5070_ti",
+      "uuid": "GPU-REDACTED"
+    },
+    {
+      "canary": {
+        "canary_pass": true,
+        "cases": [
+          {
+            "answer": "Tokyo",
+            "elapsed_ms": 806.61,
+            "expected": "Tokyo",
+            "id": "short_tokyo",
+            "input_tokens": 27,
+            "nonfinite_logits": 0,
+            "pass": true,
+            "spec7_0ulp": true
+          },
+          {
+            "answer": "RAVEN-731",
+            "elapsed_ms": 5928.02,
+            "expected": "RAVEN-731",
+            "id": "needle_16k_50",
+            "input_tokens": 16384,
+            "nonfinite_logits": 0,
+            "pass": true,
+            "spec7_0ulp": null
+          }
+        ],
+        "passed": 2,
+        "total": 2
+      },
+      "cells": {
+        "c4_32k_code": {
+          "ci95_hi": null,
+          "ci95_lo": null,
+          "median": null,
+          "n": 0,
+          "ratio_to_target": null,
+          "samples": [],
+          "target": null,
+          "verdict": "UNMEASURED"
+        },
+        "c64_total": {
+          "ci95_hi": null,
+          "ci95_lo": null,
+          "median": null,
+          "n": 0,
+          "ratio_to_target": null,
+          "samples": [],
+          "target": null,
+          "verdict": "UNMEASURED"
+        },
+        "decode_16k": {
+          "ci95_hi": 88.8,
+          "ci95_lo": 88.8,
+          "median": 88.8,
+          "n": 3,
+          "ratio_to_target": 1.0829268292682928,
+          "samples": [88.8, 88.8, 88.8],
+          "target": 82,
+          "verdict": "PASS"
+        },
+        "decode_short": {
+          "ci95_hi": 99.9,
+          "ci95_lo": 99.8,
+          "median": 99.9,
+          "n": 3,
+          "ratio_to_target": 1.0406250000000001,
+          "samples": [99.9, 99.9, 99.8],
+          "target": 96,
+          "verdict": "PASS"
+        },
+        "kld_mean": {
+          "ci95_hi": 0.007748134459063128,
+          "ci95_lo": 0.007748134459063128,
+          "median": 0.007748134459063128,
+          "n": 1,
+          "ratio_to_target": 1.0325066043016666,
+          "samples": [0.007748134459063128],
+          "target": 0.008,
+          "verdict": "PASS"
+        },
+        "long_128k_decode": {
+          "ci95_hi": null,
+          "ci95_lo": null,
+          "median": null,
+          "n": 0,
+          "ratio_to_target": null,
+          "samples": [],
+          "target": null,
+          "verdict": "UNMEASURED"
+        },
+        "prefill_128k": {
+          "ci95_hi": null,
+          "ci95_lo": null,
+          "median": null,
+          "n": 0,
+          "ratio_to_target": null,
+          "samples": [],
+          "target": null,
+          "verdict": "UNMEASURED"
+        },
+        "prefill_16k": {
+          "ci95_hi": 4358.3,
+          "ci95_lo": 4352.7,
+          "median": 4353.4,
+          "n": 3,
+          "ratio_to_target": 1.5509084431777698,
+          "samples": [4358.3, 4353.4, 4352.7],
+          "target": 2807,
+          "verdict": "PASS"
+        },
+        "prefill_2k": {
+          "ci95_hi": 4889.6,
+          "ci95_lo": 4887.1,
+          "median": 4887.2,
+          "n": 3,
+          "ratio_to_target": 1.6383506537043244,
+          "samples": [4889.6, 4887.2, 4887.1],
+          "target": 2983,
+          "verdict": "PASS"
+        },
+        "spec_accept_wide": {
+          "ci95_hi": null,
+          "ci95_lo": null,
+          "median": null,
+          "n": 0,
+          "ratio_to_target": null,
+          "samples": [],
+          "target": null,
+          "verdict": "UNMEASURED"
+        },
+        "spec_avg": {
+          "ci95_hi": 135.03333333333333,
+          "ci95_lo": 134.9,
+          "median": 135,
+          "n": 3,
+          "ratio_to_target": 1.0384615384615385,
+          "samples": [135.03333333333333, 135, 134.9],
+          "target": 130,
+          "verdict": "PASS"
+        },
+        "spec_wide": {
+          "ci95_hi": null,
+          "ci95_lo": null,
+          "median": null,
+          "n": 0,
+          "ratio_to_target": null,
+          "samples": [],
+          "target": null,
+          "verdict": "UNMEASURED"
+        },
+        "vram_gib": {
+          "ci95_hi": 14.38,
+          "ci95_lo": 14.38,
+          "median": 14.38,
+          "n": 3,
+          "ratio_to_target": 1.0848400556328233,
+          "samples": [14.38, 14.38, 14.38],
+          "target": 15.6,
+          "verdict": "PASS"
+        }
+      },
+      "driver": "595.99.02",
+      "engine_device": "NVIDIA GeForce RTX 5060 Ti",
+      "errors": [],
+      "foreign_processes": [],
+      "index": 1,
+      "inputs": {
+        "p16k": "synth:16384 fnv1a64=ec9b964dd9ec8b17",
+        "p2k": "synth:2048 fnv1a64=b653688be1987be7",
+        "short": "synth:32 fnv1a64=ec033ebab2f63f04",
+        "spec_conv": "conv.ids fnv1a64=3c8fdb2c7b56b775",
+        "spec_prose": "prose.ids fnv1a64=56051e00dacc5136",
+        "spec_struct": "struct.ids fnv1a64=424f09b822aec0e9"
+      },
+      "kld": {
+        "max": 1.4620403544509677,
+        "mean": 0.007748134459063128,
+        "ppl": 7.083731056644495,
+        "top1_agreement": 0.9622352941176471
+      },
+      "name": "NVIDIA GeForce RTX 5060 Ti",
+      "pcie": "Gen4 x16",
+      "power_limit_w": "180.00",
+      "resident_expert_layers": "24/24",
+      "sku": "rtx_5060_ti",
+      "uuid": "GPU-REDACTED"
+    }
+  ],
+  "host": "cudaserver",
+  "method": "fresh process per sample; warm 2nd request per process; median + 95% percentile bootstrap (2000, fixed seed) of the median; PASS iff CI bound clears target",
+  "n_per_cell": 3,
+  "schema": "leansonic.bench-matrix.v1",
+  "weights": "/tmp/v0110_bundle"
+}
