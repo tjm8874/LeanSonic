@@ -425,6 +425,78 @@ extern "C" __global__ void q38_hc_norm4(
     }
 }
 
+// Fused HC pre-branch front: `q38_hc_norm4` + `hc.down` (`q38_q4_gemv_10k`, `silu(y / 4)`) +
+// `hc.inject` (`q38_q4_gemv_10k`, linear) in one launch. Every CTA normalizes all `4` streams with
+// the exact `q38_hc_norm4` reduction order into SMEM (`0-ULP` with the three-launch path), writes
+// its share of `hc_normed` (still read by `q38_hc_mix4`), then `8` rows: `[0, rows_down)` down,
+// `[rows_down, rows_down + n_inj)` inject.
+// Grid: `(ceil((rows_down + n_inj) / 8), 1)`, Block: `256`, `40,992` B SMEM
+extern "C" __global__ void q38_hc_norm_down_inject(
+    const float* __restrict__ hc_in,       // [4, 2560]
+    const float* __restrict__ hc_gamma,    // [4, 2560]
+    float* __restrict__ hc_normed,         // [4, 2560]
+    const uint4* __restrict__ down_w,      // [rows_down, 320]
+    const uint32_t* __restrict__ down_sc,  // [rows_down, 160]
+    const uint32_t* __restrict__ down_bi,  // [rows_down, 160]
+    int32_t rows_down,
+    float* __restrict__ y_low,             // [rows_down]
+    const uint4* __restrict__ inj_w,       // [n_inj, 320] (nullable when `n_inj == 0`)
+    const uint32_t* __restrict__ inj_sc,   // [n_inj, 160]
+    const uint32_t* __restrict__ inj_bi,   // [n_inj, 160]
+    int32_t n_inj,
+    float* __restrict__ y_inj) {           // [n_inj]
+    __shared__ float4 smem_x4[2560];
+    __shared__ float smem_sq[8];
+    __shared__ float smem_inv[4];
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    for (int s = 0; s < 4; ++s) {
+        const float* src = hc_in + s * kD;
+        float sq = 0.0f;
+        for (int d = tid; d < kD; d += 256) {
+            float v = src[d];
+            sq += v * v;
+        }
+        sq = warp_sum(sq);
+        if (lane == 0) smem_sq[warp_id] = sq;
+        __syncthreads();
+        if (warp_id == 0) {
+            float tot = (lane < 8) ? smem_sq[lane] : 0.0f;
+            tot = warp_sum(tot);
+            if (lane == 0) smem_inv[s] = ptx_rsqrt(tot * (1.0f / 2560.0f) + 1e-6f);
+        }
+        __syncthreads();
+    }
+    float* smem_x = reinterpret_cast<float*>(smem_x4);
+    const int share = static_cast<int>(blockIdx.x);
+    for (int i = tid; i < kHcD; i += 256) {
+        const float v = hc_in[i] * smem_inv[i / kD] * hc_gamma[i];
+        smem_x[i] = v;
+        if ((i >> 8) % static_cast<int>(gridDim.x) == share) hc_normed[i] = v;
+    }
+    __syncthreads();
+
+    const int row = blockIdx.x * 8 + warp_id;
+    if (row < rows_down) {
+        float v = warp_dot_q4_row(
+            down_w + static_cast<size_t>(row) * 320u,
+            down_sc + static_cast<size_t>(row) * 160u,
+            down_bi + static_cast<size_t>(row) * 160u,
+            smem_x4, 320, lane);
+        if (lane == 0) y_low[row] = ptx_silu(v * 0.25f);
+    } else if (row < rows_down + n_inj) {
+        const int r = row - rows_down;
+        float v = warp_dot_q4_row(
+            inj_w + static_cast<size_t>(r) * 320u,
+            inj_sc + static_cast<size_t>(r) * 160u,
+            inj_bi + static_cast<size_t>(r) * 160u,
+            smem_x4, 320, lane);
+        if (lane == 0) y_inj[r] = v;
+    }
+}
+
 // Grid: `(10, 1)`, Block: `256` (`2,560` dims)
 extern "C" __global__ void q38_hc_mix4(
     const float* __restrict__ hc_normed,  // [4, 2560]

@@ -266,6 +266,9 @@ struct Qwen38KernelFns {
     q4_gemv_10k: CUfunction,
     ple_inject: CUfunction,
     hc_norm4: CUfunction,
+    /// Fused `hc_norm4` + `hc.down` + `hc.inject` (`None`: older cubin, or
+    /// `LEANSONIC_Q38_HC_FUSE=0`).
+    hc_norm_down_inject: Option<CUfunction>,
     hc_mix4: CUfunction,
     hc_inject4: CUfunction,
     gdn_conv_silu: CUfunction,
@@ -382,6 +385,11 @@ fn load_kernel_fns(ctx: &Arc<CudaContextHandle>) -> Result<Qwen38KernelFns, Stri
         q4_gemv_10k: get_fn("q38_q4_gemv_10k")?,
         ple_inject: get_fn("q38_ple_inject")?,
         hc_norm4: get_fn("q38_hc_norm4")?,
+        hc_norm_down_inject: if std::env::var("LEANSONIC_Q38_HC_FUSE").as_deref() == Ok("0") {
+            None
+        } else {
+            get_fn("q38_hc_norm_down_inject").ok()
+        },
         hc_mix4: get_fn("q38_hc_mix4")?,
         hc_inject4: get_fn("q38_hc_inject4")?,
         gdn_conv_silu: get_fn("q38_gdn_conv_silu")?,
@@ -1214,6 +1222,66 @@ impl Qwen38GpuEngine {
     fn launch_hc_pre(&self, stream: CUstream, hc: &HyperConnGpu) -> Result<(), String> {
         let (mut hc_in, mut gam, mut normed) =
             (self.d_hc.ptr, hc.hc_norm.ptr, self.d_hc_normed.ptr);
+        if let (Some(f), true) = (
+            self.fns.hc_norm_down_inject,
+            hc.down.cols == Q38_HC_D as i32
+                && hc.inject.as_ref().is_none_or(|i| i.cols == Q38_HC_D as i32),
+        ) {
+            // One launch for norm + down + inject (saves two launches per HC pre, 96 / token).
+            let (mut dw, mut dsc, mut dbi, mut rows_down, mut low) = (
+                hc.down.w.ptr,
+                hc.down.sc.ptr,
+                hc.down.bi.ptr,
+                hc.down.rows,
+                self.d_hc_low.ptr,
+            );
+            let (mut iw, mut isc, mut ibi, mut n_inj, mut inj4) = match &hc.inject {
+                Some(i) => (i.w.ptr, i.sc.ptr, i.bi.ptr, i.rows, self.d_hc_inj4.ptr),
+                None => (0, 0, 0, 0i32, self.d_hc_inj4.ptr),
+            };
+            let mut p =
+                kargs![hc_in, gam, normed, dw, dsc, dbi, rows_down, low, iw, isc, ibi, n_inj, inj4];
+            let grid_x = ((rows_down + n_inj) as u32).div_ceil(8);
+            unsafe {
+                check_cu(
+                    (self.ctx.api.cuLaunchKernel)(
+                        f,
+                        grid_x,
+                        1,
+                        1,
+                        256,
+                        1,
+                        1,
+                        0,
+                        stream,
+                        p.as_mut_ptr(),
+                        core::ptr::null_mut(),
+                    ),
+                    "q38_hc_norm_down_inject",
+                )?;
+            }
+            self.launch_q4_gemv(stream, &hc.up, self.d_hc_low.ptr, self.d_hc_up.ptr, 2)?;
+            let (mut up_sig, mut mixed) = (self.d_hc_up.ptr, self.d_mixed.ptr);
+            let mut p_mix = kargs![normed, up_sig, mixed];
+            return unsafe {
+                check_cu(
+                    (self.ctx.api.cuLaunchKernel)(
+                        self.fns.hc_mix4,
+                        10,
+                        1,
+                        1,
+                        256,
+                        1,
+                        1,
+                        0,
+                        stream,
+                        p_mix.as_mut_ptr(),
+                        core::ptr::null_mut(),
+                    ),
+                    "q38_hc_mix4",
+                )
+            };
+        }
         let mut p_norm = kargs![hc_in, gam, normed];
         unsafe {
             check_cu(

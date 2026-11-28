@@ -225,6 +225,12 @@ def kQ38HcNorm4 : KernelResourceSpec :=
     userSmemPerCtaBytes := 36, smemAlignPadBytes := 0, ctasPerSm := 6,
     clusterCtas := 1, minRequiredL1KiB := 120, hasStackSpill := false, hasHotLoopLibmCall := false }
 
+-- Fused `hc_norm4` + `hc.down` + `hc.inject` (`ptxas`: 39 regs, 41,008 B static SMEM, 0 stack).
+def kQ38HcNormDownInject : KernelResourceSpec :=
+  { name := "q38_hc_norm_down_inject", threadsPerCta := 256, rawRegsPerThread := 39,
+    userSmemPerCtaBytes := 41008, smemAlignPadBytes := 0, ctasPerSm := 1,
+    clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
+
 def kQ38HcMix4 : KernelResourceSpec :=
   { name := "q38_hc_mix4", threadsPerCta := 256, rawRegsPerThread := 20,
     userSmemPerCtaBytes := 0, smemAlignPadBytes := 0, ctasPerSm := 6,
@@ -307,5 +313,7 @@ theorem q38_moe_down_combine11_valid : ValidSm120Kernel kQ38MoeDownCombine11 := 
 theorem cycle3_qwen38_all_18_kernels_valid :
     (cycle3Qwen38KernelSuite.all checkSm120Kernel) = true := by
   decide
+
+theorem q38_hc_norm_down_inject_valid : ValidSm120Kernel kQ38HcNormDownInject := by decide
 
 end LeanSonic.Proofs
