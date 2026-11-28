@@ -1878,6 +1878,43 @@ pub fn resolve_pack_weights_dir_with_mode(
     Ok(model_dir.to_path_buf())
 }
 
+fn mxfp8_rans_fits_u4_codebook(data: &[u8]) -> bool {
+    data.len() >= 512
+        && data[..512]
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .filter(|&&freq| freq != [0, 0])
+            .count()
+            <= 16
+}
+
+fn mxfp8_mxscale_fits_u4_codebook(data: &[u8]) -> bool {
+    let Some((header, frames)) = data.split_first_chunk::<8>() else {
+        return false;
+    };
+    let n = usize::from(header[0]);
+    if n >= 8
+        || header[1..=n].windows(2).any(|p| p[0] >= p[1])
+        || header[n + 1..].iter().any(|&b| b != 0)
+    {
+        return false;
+    }
+    let tables_bytes = (n + 1) * 512;
+    if frames.len() < tables_bytes {
+        return false;
+    }
+    let mut used = [false; 256];
+    for bank in frames[..tables_bytes].chunks_exact(512) {
+        for (sym, &freq) in bank.as_chunks::<2>().0.iter().enumerate() {
+            if freq != [0, 0] {
+                used[sym] = true;
+            }
+        }
+    }
+    used.into_iter().filter(|&u| u).count() <= 16
+}
+
 impl Inkling2GpuEngine {
     pub fn load_from_dir(
         model_dir: impl AsRef<Path>,
@@ -1999,20 +2036,19 @@ impl Inkling2GpuEngine {
 
         let auto_mxfp8_u4 = (NVFP4_LAYERS..N_LAYER).all(|il| {
             ["w13_weight", "w2_weight"].into_iter().all(|w| {
-                let Some(t) = st.get(&format!("model.llm.layers.{il}.mlp.experts.{w}.rans_v1"))
-                else {
-                    return false;
-                };
-                t.dtype == "U8"
-                    && t.shape == [t.data.len()]
-                    && t.data.len() >= 512
-                    && t.data[..512]
-                        .as_chunks::<2>()
-                        .0
-                        .iter()
-                        .filter(|&&freq| freq != [0, 0])
-                        .count()
-                        <= 16
+                let pfx = format!("model.llm.layers.{il}.mlp.experts.{w}");
+                match (
+                    st.get(&format!("{pfx}.rans_v1")),
+                    st.get(&format!("{pfx}.mxscale_codes_v1")),
+                ) {
+                    (Some(t), None) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                        mxfp8_rans_fits_u4_codebook(t.data)
+                    }
+                    (None, Some(t)) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                        mxfp8_mxscale_fits_u4_codebook(t.data)
+                    }
+                    _ => false,
+                }
             })
         });
         let (device_u4, u4_was_auto) = match std::env::var("LEANSONIC_MXFP8_DEVICE_U4").as_deref() {
@@ -11969,6 +12005,27 @@ mod tests {
         );
         assert!(resolve_pack_weights_dir_with_mode(&bundle, 16usize << 30, "bad").is_err());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn auto_mxfp8_u4_detects_rans_and_mxscale_codebooks() {
+        let codes16: Vec<u8> = (0..1024).map(|i| (i % 16) as u8).collect();
+        let scales: Vec<u8> = (0..1024 / 32).map(|b| (b % 5) as u8).collect();
+        let mut rans = Vec::new();
+        crate::inkling_mxfp8::pack(&codes16, &mut rans).unwrap();
+        let mut mx = Vec::new();
+        crate::inkling_mxfp8::pack_mxscale_codes(&codes16, &scales, &mut mx).unwrap();
+        assert!(mxfp8_rans_fits_u4_codebook(&rans));
+        assert!(mxfp8_mxscale_fits_u4_codebook(&mx));
+
+        let codes17: Vec<u8> = (0..1024).map(|i| (i % 17) as u8).collect();
+        let mut rans17 = Vec::new();
+        crate::inkling_mxfp8::pack(&codes17, &mut rans17).unwrap();
+        let mut mx17 = Vec::new();
+        crate::inkling_mxfp8::pack_mxscale_codes(&codes17, &scales, &mut mx17).unwrap();
+        assert!(!mxfp8_rans_fits_u4_codebook(&rans17));
+        assert!(!mxfp8_mxscale_fits_u4_codebook(&mx17));
+        assert!(!mxfp8_mxscale_fits_u4_codebook(&[8; 64]));
     }
 
     /// Planted-fault controls for `pdl_audit` (#179): each minimal violation of the PDL
