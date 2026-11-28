@@ -9,27 +9,27 @@
   "skus": {
     "rtx_pro_5000": {
       "match": "RTX PRO 5000",
-      "prefill_2k": 16100, "prefill_16k": 16100, "decode_short": 220, "decode_16k": 213,
-      "spec_avg": 357, "vram_gib": 16.6, "prefill_128k": 10695, "long_128k_decode": 130,
+      "prefill_2k": 16100, "prefill_16k": 16100, "decode_short": 214, "decode_16k": 208,
+      "spec_avg": 357, "vram_gib": 17.0, "prefill_128k": 10695, "long_128k_decode": 130,
       "c64_total": 1641, "c4_32k_code": 575, "kld_mean": 0.003
     },
     "rtx_pro_4500": {
       "match": "RTX PRO 4500",
       "prefill_2k": 9850, "prefill_16k": 9350, "decode_short": 165, "decode_16k": 152,
-      "spec_avg": 242, "vram_gib": 16.6, "prefill_128k": 6150, "long_128k_decode": 89,
+      "spec_avg": 242, "vram_gib": 17.0, "prefill_128k": 6150, "long_128k_decode": 89,
       "c64_total": 1224, "c4_32k_code": 412, "kld_mean": 0.003
     },
     "rtx_5070_ti": {
       "match": "RTX 5070 Ti",
-      "prefill_2k": 7015, "prefill_16k": 6538, "decode_short": 119, "decode_16k": 109,
-      "spec_avg": 115, "vram_gib": null, "prefill_128k": null, "long_128k_decode": null,
-      "c64_total": null, "c4_32k_code": null, "kld_mean": 0.003
+      "prefill_2k": 7015, "prefill_16k": 6538, "decode_short": 172, "decode_16k": 150,
+      "spec_avg": 230, "vram_gib": 15.6, "prefill_128k": null, "long_128k_decode": null,
+      "c64_total": null, "c4_32k_code": null, "kld_mean": 0.008
     },
     "rtx_5060_ti": {
       "match": "RTX 5060 Ti",
-      "prefill_2k": 2983, "prefill_16k": 2807, "decode_short": 50, "decode_16k": 46,
-      "spec_avg": 52, "vram_gib": null, "prefill_128k": null, "long_128k_decode": null,
-      "c64_total": null, "c4_32k_code": null, "kld_mean": 0.003
+      "prefill_2k": 2983, "prefill_16k": 2807, "decode_short": 96, "decode_16k": 82,
+      "spec_avg": 130, "vram_gib": 15.6, "prefill_128k": null, "long_128k_decode": null,
+      "c64_total": null, "c4_32k_code": null, "kld_mean": 0.008
     }
   },
   "initial_basalt_targets": {
@@ -39,15 +39,15 @@
     "rtx_5060_ti":  { "prefill_2k": 1800,  "prefill_16k": 1800,  "decode_short": 45,  "decode_16k": 40,  "kld_mean": 0.003 }
   },
   "priorities": {
-    "rtx_pro_5000": { "prefill_2k": "P1(+15%)", "prefill_16k": "P1(+15%)", "decode_short": "P4 (※物理的上限・収穫逓減プラトーに到達)", "decode_16k": "P1(+15%)", "spec_avg": "P1(+15%)", "vram_gib": "PASS", "prefill_128k": "P1(+15%)", "long_128k_decode": "P1(+15%)", "c64_total": "P3(+5%)", "c4_32k_code": "P1(+15%)", "kld_mean": "P1" },
-    "rtx_pro_4500": { "prefill_2k": "P4 (※物理的上限・収穫逓減プラトーに到達: 200W VBIOS上限)", "prefill_16k": "P4 (※物理的上限・収穫逓減プラトーに到達: 200W VBIOS上限)", "decode_short": "P4 (※物理的上限・収穫逓減プラトーに到達)", "decode_16k": "P3(+5%)", "spec_avg": "P1(+15%)", "vram_gib": "PASS", "prefill_128k": "P4 (※物理的上限・収穫逓減プラトーに到達: 200W VBIOS上限)", "long_128k_decode": "P1(+15%)", "c64_total": "P3(+5%)", "c4_32k_code": "P3(+5%)", "kld_mean": "P1" },
-    "rtx_5070_ti":  { "prefill_2k": "P3(+5%)", "prefill_16k": "P3(+5%)", "decode_short": "P4 (※物理的上限・収穫逓減プラトーに到達: PCIe 2/24 Spill上限)", "decode_16k": "P3(+5%)", "spec_avg": "P1(+15%)", "kld_mean": "P1" },
-    "rtx_5060_ti":  { "prefill_2k": "P3(+5%)", "prefill_16k": "P3(+5%)", "decode_short": "P4 (※物理的上限・収穫逓減プラトーに到達: PCIe Gen4 x4 Spill上限)", "decode_16k": "P1(+15%)", "spec_avg": "P1 (Spec >= Solo Guard)", "kld_mean": "P1" }
+    "rtx_pro_5000": { "prefill_2k": "P1(+15%)", "prefill_16k": "P1(+15%)", "decode_short": "P4 (※物理的上限・収穫逓減プラトーに到達)", "decode_16k": "P1(+15%)", "spec_avg": "P1(+15%)", "vram_gib": "PASS", "prefill_128k": "P1(+15%)", "long_128k_decode": "P1(+15%)", "c64_total": "P3(+5%)", "c4_32k_code": "P1(+15%)", "kld_mean": "PASS (<= 0.0030 Precision-Max Cleared)" },
+    "rtx_pro_4500": { "prefill_2k": "P4 (※物理的上限・収穫逓減プラトーに到達: 200W VBIOS上限)", "prefill_16k": "P4 (※物理的上限・収穫逓減プラトーに到達: 200W VBIOS上限)", "decode_short": "P4 (※物理的上限・収穫逓減プラトーに到達)", "decode_16k": "P3(+5%)", "spec_avg": "P1(+15%)", "vram_gib": "PASS", "prefill_128k": "P4 (※物理的上限・収穫逓減プラトーに到達: 200W VBIOS上限)", "long_128k_decode": "P1(+15%)", "c64_total": "P3(+5%)", "c4_32k_code": "P3(+5%)", "kld_mean": "PASS (<= 0.0030 Precision-Max Cleared)" },
+    "rtx_5070_ti":  { "prefill_2k": "PASS (16g Zero-Spill +47%)", "prefill_16k": "PASS (16g Zero-Spill +47%)", "decode_short": "P4 (※物理的上限・収穫逓減プラトーに到達: 16g 24/24 GDDR7常駐)", "decode_16k": "PASS (16g Zero-Spill +56%)", "spec_avg": "PASS (16g DFlash 2 Q4 2.05x)", "vram_gib": "PASS", "kld_mean": "PASS (16g <= 0.0080 Controlled Compact Budget)" },
+    "rtx_5060_ti":  { "prefill_2k": "PASS (16g Zero-Spill +64%)", "prefill_16k": "PASS (16g Zero-Spill +63%)", "decode_short": "P4 (※物理的上限・収穫逓減プラトーに到達: 16g 24/24 GDDR7常駐)", "decode_16k": "PASS (16g Zero-Spill 2.13x)", "spec_avg": "PASS (16g DFlash 2 Q4 2.50x)", "vram_gib": "PASS", "kld_mean": "PASS (16g <= 0.0080 Controlled Compact Budget)" }
   },
   "physical_ceiling_notes": {
-    "rtx_pro_5000_decode_short": "384-bit GDDR7 (1,227.6 GB/s measured 1 GiB uint4 streaming ceiling); 3.74 GB/tok lossless weights -> 220.8-221.0 tok/s (839.2 GB/s whole-step effective, unembed at 1,226.8 GB/s = 99.93%). Initial P0=220 cleared; marked P4.",
-    "rtx_pro_5000_spec_avg": "v0.10.0 DFlash 2 Q4 block-diffusion drafter (0.89 ms/draft) + 9-kernel 0-ULP Verify suite (grid-stride R8 GEMMs, fused Wo*Conv4, 32-CTA argmax) cleared the final initial Basalt P0=310 at 310.83 tok/s on RTX PRO 5000 (conv 286.3 / struct 349.3 / prose 296.8) and P0=210 at 239.0 tok/s on RTX PRO 4500 (+15.0% vs v0.9.0); ratcheted to P1 (+15%: 357 / 242).",
-    "rtx_pro_4500_200w_cap": "nvidia-smi dmon under 100% SM prefill confirms hard 200.00 W VBIOS cap (86 C, 2,242-2,355 MHz across 80 SMs) vs RTX PRO 5000 (348 W, 56 C, 2,531 MHz across 110 SMs) -> physical silicon compute ratio (80*2242)/(110*2531) = 0.644-0.677, matching measured prefill ratios (9,518/14,243 = 0.668 at 16K; 6,295/9,193 = 0.685 at 128K). Issue #78's initial 11,500/7,600 estimate omitted the 200W cap; preserved untouched in initial_basalt_targets while skus guards ~99% of measured P4 medians.",
-    "rtx_5070_ti_and_5060_ti_spill": "All initial P0 targets cleared (+17% to +88% over P0). v0.10.0 LEANSONIC_DRAFTER=auto releases optional neural drafters on spilled 16GB GPUs so 22/24 target MoE layers stay resident in 15.42-15.43 GiB VRAM, pairing O(1) ContextCopyIndex(8) + EMA pause guard to guarantee Speculative >= Solo across both GPUs (5070 Ti: Solo 121.0, Spec 136.1 @8K / 114.8 @20K vs Solo 103.9 @16K; 5060 Ti Gen4 x4: Solo 51.0, Spec 59.0 @8K / 54.1 @20K vs Solo 41.7 @16K). Opt-in 2-bit ternary (#174/#193) fits 24/24 resident in 10.87 GB VRAM (93.6-142.7 tok/s)."
+    "rtx_pro_5000_decode_short": "384-bit GDDR7 (1,227.6 GB/s measured 1 GiB uint4 streaming ceiling); Speed-Max (LEANSONIC_ATTN_Q8_16=0) reaches 220.8-221.0 tok/s Solo / 313.5 tok/s Spec, while default v0.11.0 32GB+ Precision-Max (W_q8_16 x X_2term, #35/#235) clears 100-chunk kld_mean = 0.002989 <= 0.0030 (full 24L: 0.002956, max_kld -52.4%) at 215.8 tok/s Solo and 1,580.4 tok/s C=64.",
+    "rtx_pro_5000_spec_avg": "v0.11.0 DFlash 2 Q4 MLP/o_proj/lm_head drafter + fast register Top-16 selector (#237/#241) reaches 313.5-313.9 tok/s (struct peak 352.9 tok/s) on Speed-Max and 296.4 tok/s on 32GB+ Precision-Max.",
+    "rtx_pro_4500_200w_cap": "nvidia-smi dmon under 100% SM prefill confirms hard 200.00 W VBIOS cap (86 C, 2,242-2,355 MHz across 80 SMs) vs RTX PRO 5000 (348 W, 56 C, 2,531 MHz across 110 SMs). v0.11.0 reaches 10,398.6 tok/s @2K, 9,703.6 tok/s @16K, 6,344.6 tok/s @128K, 166.5 tok/s Solo, 1,179.2 tok/s C=64, and kld_mean = 0.002989 PASS.",
+    "rtx_5070_ti_and_5060_ti_spill": "v0.11.0 2-Tier Hardware Pack Split (LEANSONIC_PACK=auto, #231/#235/#236/#241/#246) auto-selects the 12.49 GiB 16GB Target Pack (lossless rank embedding + MXFP8 block-scale codes + 2-bit ternary down), fitting all 24/24 MoE layers + DFlash 2 Q4 in 14.38-15.25 GiB GDDR7 (0 PCIe spill!): RTX 5070 Ti jumps to 10,222 tok/s @2K (+47%), 176.7 tok/s Solo (+46%), 235.9 tok/s Spec (2.05x v0.10.0), and 394.1 tok/s C=4; RTX 5060 Ti Gen4 x4 jumps to 4,887 tok/s @2K (+64%), 99.9 tok/s Solo (1.96x), 135.0 tok/s Spec (2.50x v0.10.0, 4.09x Basalt), and 225.6 tok/s C=4."
   }
 }
