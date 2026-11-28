@@ -6,6 +6,19 @@ The converter restored each encoded plane and compared it to its original before
 
 The reader borrows raw BF16 data. For dictionary planes it reconstructs only the requested range. A VRAM or pinned expert layer decodes its six parameter planes (314,572,800 temporary host bytes per layer) before calling the same Z24 packing and placement code. An mmap-staged expert decodes just its selected slice. The extra cost at startup is separate from steady-state GPU inference.
 
+## PRO 5000 72 GB, Wave 3
+
+The directly loadable packages were compared with one unchanged binary at commit `7783d63`. Both held all 48 expert layers in VRAM. On the original four prompts the candidate matched every FP32 logit at 49 positions over 248,320 vocabulary entries and matched all four eight-token greedy continuations. Against official BF16, mean/worst KL remained 0.281135/1.469437, top-1 agreement 39/49, and PPL 52.9910 versus 28.0382 for BF16.
+
+The streaming run order was Engram-only, combined, combined, Engram-only. Each process warmed both prompts once and measured each three times, producing 32 greedy tokens at context 256. Every generated sequence matched across all launches. Sampled peak process VRAM was 75,486,986,240 bytes for both packages. The median launch-to-ready time increased from **7.88 s to 24.73 s** (two launches per package in the host's existing filesystem cache state).
+
+| Input length | Engram-only prefill / decode tok/s | Combined prefill / decode tok/s |
+| --- | ---: | ---: |
+| 16 tokens | 398.11 / 163.07 | 398.41 / 163.09 |
+| 128 tokens | 493.76 / 159.07 | 494.24 / 159.09 |
+
+Prompt throughput includes time to the first output token; decode spans the remaining 31 intervals. Steady-state speed was essentially unchanged here. The candidate trades startup latency for a smaller direct distribution. [Prompts, generated IDs, every timing sample and quality scores](pro5000.json)
+
 ## Reproduction
 
 From the repository root, point `ORIGINAL_MLX_Q4` at the original checkpoint and `NEW_DIRECT_DIR` at a fresh output directory. Build the frame codec, repack, then compare the saved bytes.
