@@ -82,3 +82,7 @@ mkdir "$TRACE_OUT"
 LEANSONIC_QWEN38_CUBIN_PATH="$TARGET_CUBIN" target/release/examples/forced_ops "$MODEL" "$d/extended-sand/prompt.ids" "$d/extended-sand/greedy.ids" "$TRACE_OUT"
 python3 "$d/hc-width/read-forced-ops.py" "$TRACE_OUT"
 ```
+
+On the RTX PRO 4500 32 GB, rerunning the sand input with the combined fix gave **0/756 different buffers** for each of widths 1, 2 and 3 at both offsets. At width 3 the GDN-only baseline had 706/756 and 705/756 differences. The comparison excludes unused GDN output buffers on the QSA layers. [Post-fix trace](hc-width/trace-after.json)
+
+The RTX 5070 Ti independently generated 128 tokens on the four additional English, Japanese, Python and arithmetic inputs. All eight speculative streams (K=1 and K=2) matched greedy. All twelve sequences including greedy matched the corresponding PRO 5000 runs (zero-based cases 5, 8, 12, 16). [Inputs](hc-width/inputs-5070.ids) · [All requests and output IDs](hc-width/generation-5070.tsv)
