@@ -30,3 +30,7 @@ c++ -O3 -std=c++17 "$d/z24_palette.cpp" -o palette-audit
 nvcc -O3 -arch=sm_120 -std=c++17 "$d/z24_gpu.cu" -o verify-on-gpu
 ./verify-on-gpu new-packed-planes
 ```
+
+## 32 GB cross-check
+
+On RTX PRO 4500 32 GB, automatic placement used the saving to fit **20/48** expert layers in VRAM, up from 19/48. Sampled process peak consequently rose from 29.793 to 30.443 GiB. For the 16-token input, TTFT was 723.92 → 698.66 ms and decode was 21.84 → 22.64 tok/s. For the 128-token input, TTFT was 5798.46 → 5591.14 ms and decode was 21.78 → 22.57 tok/s. These are one process per arm, one warmup and three repeats per case. The 49 full-vocabulary distributions, four eight-token continuations and repeated 32-token streams matched. On this card both changed MoE kernels also passed the exact-size Compute Sanitizer memcheck with 65,536 bytes of padding and zero reported errors. The compiled kernels used zero local bytes and zero stack bytes. [32 GB timing samples and quality](native32.json)
