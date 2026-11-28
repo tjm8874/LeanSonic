@@ -2239,7 +2239,8 @@ extern "C" __global__ void q38_hc_down_inj_10k_b4(
             uint4 pk = rw[g];
             float sc = load_bf16_from_u32_array(rsc, g);
             float bi = load_bf16_from_u32_array(rbi, g);
-            if (g_base < 160) {
+            // The scalar kernel assigns alternating 32-group tiles to its two warps.
+            if ((g_base / 32) % 2 == 0) {
                 accum_q4_group32_tk33_multi<4>(pk, sc, bi, smem_x, n_b, lane, part_lo);
             } else {
                 accum_q4_group32_tk33_multi<4>(pk, sc, bi, smem_x, n_b, lane, part_hi);

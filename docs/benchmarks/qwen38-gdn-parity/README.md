@@ -52,3 +52,14 @@ On 494 extended teacher positions the PRO 5000 returned identical FP32 vocabular
 The extended sand-weighing prompt (second line of the extended fixture) still diverges at output index 70 with K=2 before EOS, while the patch fixes K=1 on that input. Compare a forced history with forced_replay.rs by building the file as a leansonic-core example. It accepts MODEL, a prompt-ID text file and a space-separated 128-ID greedy reference. Each row gives verification width, rows committed per sweep, and any (index, observed ID, reference ID) differences. Running this with fixed inputs separates differences due to verification width from a change of token history in free generation.
 
 Fixed-history replay on the PRO 4500 32 GB matched the 128-ID greedy reference for widths 1 and 2, including verifying two rows and committing only the first. Widths 3 and 4 reproduced the index-70 mismatch both with full acceptance and with one or two rows committed. When every row was accepted the probe performed no rollback, so a rejected draft is unnecessary to reproduce this error. [Exact prompt](extended-sand/prompt.ids) · [Greedy token history](extended-sand/greedy.ids) · [Ten width/commit combinations](extended-sand/results.tsv)
+
+## Hyper-connection reduction with three or more rows
+
+In the sand-weighing trace, with the GDN fix applied, scalar and verification widths 1 and 2 matched on all 756 comparable layer buffers, both for the first generated token and after forcing 69 greedy tokens. At width 3 the first differing buffer was the layer-0 hyper-connection down projection (107/320 differences at the first token, 117/320 after 69). The original scalar and B=2 kernels accumulate alternating 32-group tiles into the two partial sums; the B=4 kernel used the first 160 groups for one sum and the last 160 for the other. Selecting the accumulator by tile parity restores the scalar order while retaining batched weight reuse.
+
+On the RTX 5060 Ti, the synthetic test of eight widths (1 to 64) and both injection settings found 48,016 unequal output elements across 24/32 field comparisons on control. With the change, all 32 comparisons matched bitwise, including the final partial tile for widths 3 and 5. Run the test with Python, NumPy and the NVIDIA driver, against cubins built before and after the hyper-connection change.
+
+```sh
+python3 "$d/hc_parity.py" /tmp/q38-control.cubin /tmp/q38-control.cubin
+python3 "$d/hc_parity.py" /tmp/q38-control.cubin /tmp/q38-candidate.cubin --require-exact
+```
