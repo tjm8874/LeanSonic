@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from transport import ENGRAM, exact
+from transport import ENGRAM, EXPERT, exact
 
 ROWS = 2_500_012
 SUFFIX = ".q38dict1"
@@ -23,7 +23,7 @@ def copy_range(inp, out, offset, size):
         size -= len(data)
 
 
-def convert(src, dest, names, codec, rows=ROWS):
+def convert(src, dest, names, codec, rows=ROWS, experts=False):
     """Append dictionary frames after the untouched tensors to preserve typed alignment."""
     with src.open("rb") as inp, tempfile.TemporaryFile(dir=dest.parent) as spool:
         (n,) = struct.unpack("<Q", exact(inp, 8))
@@ -43,11 +43,16 @@ def convert(src, dest, names, codec, rows=ROWS):
                 raise ValueError(f"invalid offsets for {key}")
             original = end
             length = end - start
-            if ENGRAM.fullmatch(key):
+            engram = ENGRAM.fullmatch(key)
+            if engram or (experts and EXPERT.fullmatch(key)):
+                shape = [rows, 5] if engram else (
+                    [512, 2560, 20] if ".down_proj." in key else [512, 640, 80]
+                )
+                words = shape[0] * shape[1] if engram else 512 * 51200
                 if (
                     tensor["dtype"] != "BF16"
-                    or tensor["shape"] != [rows, 5]
-                    or length != 10 * rows
+                    or tensor["shape"] != shape
+                    or length != 2 * words
                 ):
                     raise ValueError(f"invalid BF16 parameters for {key}")
                 inp.seek(8 + n + start)
@@ -57,7 +62,7 @@ def convert(src, dest, names, codec, rows=ROWS):
                 ).stdout
                 if len(frame) < length:
                     check = subprocess.run(
-                        [codec, "restore", str(rows * 5)],
+                        [codec, "restore", str(words)],
                         input=frame,
                         capture_output=True,
                         check=True,
@@ -97,7 +102,7 @@ def convert(src, dest, names, codec, rows=ROWS):
         return changed, original, cursor
 
 
-def pack(source, dest, codec):
+def pack(source, dest, codec, experts=False):
     source = source.resolve()
     dest = dest.resolve()
     if dest.exists() or dest.is_relative_to(source):
@@ -114,12 +119,14 @@ def pack(source, dest, codec):
         shards.setdefault(name, set()).add(key)
     if sum(bool(ENGRAM.fullmatch(k)) for k in mapping) != 256:
         raise ValueError("expected 256 original Engram scale/bias planes")
+    if experts and sum(bool(EXPERT.fullmatch(k)) for k in mapping) != 288:
+        raise ValueError("expected 288 original routed expert scale/bias planes")
     count = original = stored = 0
     with tempfile.TemporaryDirectory(dir=dest.parent, prefix=".q38-engram-") as tmp:
         build = Path(tmp) / "model"
         build.mkdir()
         for name, keys in sorted(shards.items()):
-            changed, before, after = convert(source / name, build / name, keys, codec)
+            changed, before, after = convert(source / name, build / name, keys, codec, experts=experts)
             for key in changed:
                 mapping[key + SUFFIX] = mapping.pop(key)
             original += before
@@ -148,5 +155,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     for arg in ("original", "destination", "codec"):
         parser.add_argument(arg, type=Path)
+    parser.add_argument("--experts", action="store_true", help="also encode the routed expert parameters")
     args = parser.parse_args()
-    pack(args.original, args.destination, args.codec.resolve())
+    pack(args.original, args.destination, args.codec.resolve(), args.experts)

@@ -199,7 +199,7 @@ impl MixedExperts {
         ctx: &Arc<CudaContextHandle>,
         selected: &[bool],
         layer: usize,
-        projections: [[&[u8]; 3]; 3],
+        projections: [(&[u8], ExpertParameter, ExpertParameter); 3],
         low: &mut [u32],
         high: &mut [u32],
     ) -> Result<Self, String> {
@@ -216,8 +216,10 @@ impl MixedExperts {
                 cold.byte_len,
             )
         };
-        for (proj, [weights, scales, biases]) in projections.into_iter().enumerate() {
-            let (sc, bi) = pack_z24_sb_slice(scales, biases, low, high).ok_or_else(|| {
+        for (proj, (weights, scales, biases)) in projections.into_iter().enumerate() {
+            let scales = scales.bytes(0, SW_GROUPS_PER_PROJ * 2)?;
+            let biases = biases.bytes(0, SW_GROUPS_PER_PROJ * 2)?;
+            let (sc, bi) = pack_z24_sb_slice(&scales, &biases, low, high).ok_or_else(|| {
                 format!("layer {layer}, projection {proj} exceeds Z24 exponent span")
             })?;
             bases[proj] = u32::from(sc) | (u32::from(bi) << 8);

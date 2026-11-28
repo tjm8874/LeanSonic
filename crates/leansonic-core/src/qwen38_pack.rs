@@ -106,6 +106,50 @@ impl<'a> Frame<'a> {
         self.entry(code as usize)
     }
 
+    /// Decode a contiguous BF16 word range, retaining its original wire byte order.
+    pub fn decode_range(&self, start: usize, words: usize) -> Result<Vec<u8>, &'static str> {
+        if start > self.words || words > self.words - start {
+            return Err("word range out of bounds");
+        }
+        let bytes = words.checked_mul(2).ok_or("oversized word range")?;
+        let mut result = vec![0; bytes];
+        let decode = |offset: usize, dst: &mut [u8]| -> Result<(), &'static str> {
+            for (i, pair) in dst.as_chunks_mut::<2>().0.iter_mut().enumerate() {
+                *pair = self.word(offset + i)?.to_le_bytes();
+            }
+            Ok(())
+        };
+        // A selected mmap expert is small. Only a full resident plane benefits
+        // from splitting independent word ranges between host threads.
+        let workers = if words >= 2 << 20 {
+            std::thread::available_parallelism()
+                .map_or(1, |n| n.get())
+                .min(8)
+                .min(words >> 20)
+        } else {
+            1
+        };
+        if workers == 1 {
+            decode(start, &mut result)?;
+        } else {
+            let chunk_words = words.div_ceil(workers);
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = result
+                    .chunks_mut(2 * chunk_words)
+                    .enumerate()
+                    .map(|(i, dst)| scope.spawn(move || decode(start + i * chunk_words, dst)))
+                    .collect();
+                for worker in handles {
+                    worker
+                        .join()
+                        .map_err(|_| "expert decoder worker panicked")??;
+                }
+                Ok::<(), &'static str>(())
+            })?;
+        }
+        Ok(result)
+    }
+
     /// Decode the five group parameters of one Engram embedding row.
     pub fn row5(&self, row: usize) -> Result<[u16; 5], &'static str> {
         let i = row.checked_mul(5).ok_or("row out of bounds")?;
@@ -146,6 +190,19 @@ impl<'a> Frame<'a> {
 mod tests {
     use super::*;
     #[test]
+    fn parallel_range_matches_source_at_unaligned_boundaries() {
+        let raw: Vec<_> = (0..(2 << 20) + 15)
+            .flat_map(|i| ((i % 509) as u16).to_le_bytes())
+            .collect();
+        let packed = encode(&raw).unwrap();
+        let view = Frame::open(&packed, raw.len() / 2).unwrap();
+        assert_eq!(
+            view.decode_range(3, (2 << 20) + 7).unwrap(),
+            raw[6..raw.len() - 10]
+        );
+    }
+
+    #[test]
     fn boundaries_and_corruption() {
         for n in [1, 3, 255, 256, 257, 8193, 65536] {
             let raw: Vec<_> = (0..n as u32)
@@ -166,6 +223,10 @@ mod tests {
             assert!(view.row5(raw.len() / 10).is_err());
             assert!(view.row5(usize::MAX).is_err());
             assert!(view.word(raw.len() / 2).is_err());
+            assert_eq!(view.decode_range(1, raw.len() / 2 - 1).unwrap(), raw[2..]);
+            assert_eq!(view.decode_range(raw.len() / 2, 0).unwrap(), []);
+            assert!(view.decode_range(raw.len() / 2 + 1, 0).is_err());
+            assert!(view.decode_range(1, usize::MAX).is_err());
             assert!(Frame::open(&frame[..frame.len() - 1], raw.len() / 2).is_err());
         }
         let mut f = encode(&[1, 0, 2, 0, 3, 0]).unwrap();

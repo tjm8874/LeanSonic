@@ -12,6 +12,10 @@
 //!   dequantized (`16` heads = `10 KiB`) into a 256-slot pinned host ring, and streamed via `cuMemcpyHtoDAsync_v2`.
 //! - Programmatic Dependent Launch (`PDL`) + 48-Layer `CUDA Graph` capture (`decode_graph` + `prefill_graph`).
 
+#[path = "qwen38_expert_parameter.rs"]
+mod expert_parameter;
+use expert_parameter::ExpertParameter;
+
 use core::ffi::c_void;
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
@@ -1448,14 +1452,20 @@ impl Qwen38GpuEngine {
         for (l, part) in partials.into_iter().enumerate() {
             let swp = format!("language_model.model.layers.{l}.mlp.switch_mlp");
             let gw = st.require(&format!("{swp}.gate_proj.weight"), "U32", &[512, 640, 320]);
-            let gsc = st.require(&format!("{swp}.gate_proj.scales"), "BF16", &[512, 640, 80]);
-            let gbi = st.require(&format!("{swp}.gate_proj.biases"), "BF16", &[512, 640, 80]);
+            let gsc =
+                ExpertParameter::open(&st, &format!("{swp}.gate_proj.scales"), &[512, 640, 80])?;
+            let gbi =
+                ExpertParameter::open(&st, &format!("{swp}.gate_proj.biases"), &[512, 640, 80])?;
             let uw = st.require(&format!("{swp}.up_proj.weight"), "U32", &[512, 640, 320]);
-            let usc = st.require(&format!("{swp}.up_proj.scales"), "BF16", &[512, 640, 80]);
-            let ubi = st.require(&format!("{swp}.up_proj.biases"), "BF16", &[512, 640, 80]);
+            let usc =
+                ExpertParameter::open(&st, &format!("{swp}.up_proj.scales"), &[512, 640, 80])?;
+            let ubi =
+                ExpertParameter::open(&st, &format!("{swp}.up_proj.biases"), &[512, 640, 80])?;
             let dw = st.require(&format!("{swp}.down_proj.weight"), "U32", &[512, 2560, 80]);
-            let dsc = st.require(&format!("{swp}.down_proj.scales"), "BF16", &[512, 2560, 20]);
-            let dbi = st.require(&format!("{swp}.down_proj.biases"), "BF16", &[512, 2560, 20]);
+            let dsc =
+                ExpertParameter::open(&st, &format!("{swp}.down_proj.scales"), &[512, 2560, 20])?;
+            let dbi =
+                ExpertParameter::open(&st, &format!("{swp}.down_proj.biases"), &[512, 2560, 20])?;
 
             if let Some(LayerExpertPlan::Mixed(mask)) = mixed_plan.as_ref().map(|mp| &mp.layers[l])
             {
@@ -1465,9 +1475,9 @@ impl Qwen38GpuEngine {
                     mask,
                     l,
                     [
-                        [gw.data, gsc.data, gbi.data],
-                        [uw.data, usc.data, ubi.data],
-                        [dw.data, dsc.data, dbi.data],
+                        (gw.data, gsc, gbi),
+                        (uw.data, usc, ubi),
+                        (dw.data, dsc, dbi),
                     ],
                     &mut z24_lo_scratch,
                     &mut z24_hi_scratch,
@@ -1497,9 +1507,15 @@ impl Qwen38GpuEngine {
                     > host_ram_reserve_bytes.saturating_add(SW_Z24_LAYER_BYTES);
 
             let switch_mlp = if want_vram || want_pinned {
+                let gsc = gsc.bytes(0, SW_GROUPS_PER_PROJ * 2)?;
+                let gbi = gbi.bytes(0, SW_GROUPS_PER_PROJ * 2)?;
+                let usc = usc.bytes(0, SW_GROUPS_PER_PROJ * 2)?;
+                let ubi = ubi.bytes(0, SW_GROUPS_PER_PROJ * 2)?;
+                let dsc = dsc.bytes(0, SW_GROUPS_PER_PROJ * 2)?;
+                let dbi = dbi.bytes(0, SW_GROUPS_PER_PROJ * 2)?;
                 // Attempt `0-ULP` lossless `24-bit` (`Z24`) packing first (`1,425 MiB` vs `1,500 MiB`).
                 let z24_gate = if !disable_z24 {
-                    pack_z24_sb_slice(gsc.data, gbi.data, &mut z24_lo_scratch, &mut z24_hi_scratch)
+                    pack_z24_sb_slice(&gsc, &gbi, &mut z24_lo_scratch, &mut z24_hi_scratch)
                 } else {
                     None
                 };
@@ -1511,24 +1527,20 @@ impl Qwen38GpuEngine {
                         slab.copy_from_host_at(ZOFF_GATE_LO, u32_slice_bytes(&z24_lo_scratch))?;
                         slab.copy_from_host_at(ZOFF_GATE_HI, u32_slice_bytes(&z24_hi_scratch))?;
 
-                        let (u_sc_m1, u_bi_m1) = pack_z24_sb_slice(
-                            usc.data,
-                            ubi.data,
-                            &mut z24_lo_scratch,
-                            &mut z24_hi_scratch,
-                        )
-                        .ok_or_else(|| format!("layer {l} up_proj exceeded Z24 exponent span"))?;
+                        let (u_sc_m1, u_bi_m1) =
+                            pack_z24_sb_slice(&usc, &ubi, &mut z24_lo_scratch, &mut z24_hi_scratch)
+                                .ok_or_else(|| {
+                                    format!("layer {l} up_proj exceeded Z24 exponent span")
+                                })?;
                         slab.copy_from_host_at(ZOFF_UP_W, uw.data)?;
                         slab.copy_from_host_at(ZOFF_UP_LO, u32_slice_bytes(&z24_lo_scratch))?;
                         slab.copy_from_host_at(ZOFF_UP_HI, u32_slice_bytes(&z24_hi_scratch))?;
 
-                        let (d_sc_m1, d_bi_m1) = pack_z24_sb_slice(
-                            dsc.data,
-                            dbi.data,
-                            &mut z24_lo_scratch,
-                            &mut z24_hi_scratch,
-                        )
-                        .ok_or_else(|| format!("layer {l} down_proj exceeded Z24 exponent span"))?;
+                        let (d_sc_m1, d_bi_m1) =
+                            pack_z24_sb_slice(&dsc, &dbi, &mut z24_lo_scratch, &mut z24_hi_scratch)
+                                .ok_or_else(|| {
+                                    format!("layer {l} down_proj exceeded Z24 exponent span")
+                                })?;
                         slab.copy_from_host_at(ZOFF_DOWN_W, dw.data)?;
                         slab.copy_from_host_at(ZOFF_DOWN_LO, u32_slice_bytes(&z24_lo_scratch))?;
                         slab.copy_from_host_at(ZOFF_DOWN_HI, u32_slice_bytes(&z24_hi_scratch))?;
@@ -1556,13 +1568,11 @@ impl Qwen38GpuEngine {
                                 (ZOFF_GATE_HI, u32_slice_bytes(&z24_hi_scratch)),
                             ],
                         );
-                        let (u_sc_m1, u_bi_m1) = pack_z24_sb_slice(
-                            usc.data,
-                            ubi.data,
-                            &mut z24_lo_scratch,
-                            &mut z24_hi_scratch,
-                        )
-                        .ok_or_else(|| format!("layer {l} up_proj exceeded Z24 exponent span"))?;
+                        let (u_sc_m1, u_bi_m1) =
+                            pack_z24_sb_slice(&usc, &ubi, &mut z24_lo_scratch, &mut z24_hi_scratch)
+                                .ok_or_else(|| {
+                                    format!("layer {l} up_proj exceeded Z24 exponent span")
+                                })?;
                         parallel_copy_into_pinned(
                             slab.host_ptr,
                             &[
@@ -1571,13 +1581,11 @@ impl Qwen38GpuEngine {
                                 (ZOFF_UP_HI, u32_slice_bytes(&z24_hi_scratch)),
                             ],
                         );
-                        let (d_sc_m1, d_bi_m1) = pack_z24_sb_slice(
-                            dsc.data,
-                            dbi.data,
-                            &mut z24_lo_scratch,
-                            &mut z24_hi_scratch,
-                        )
-                        .ok_or_else(|| format!("layer {l} down_proj exceeded Z24 exponent span"))?;
+                        let (d_sc_m1, d_bi_m1) =
+                            pack_z24_sb_slice(&dsc, &dbi, &mut z24_lo_scratch, &mut z24_hi_scratch)
+                                .ok_or_else(|| {
+                                    format!("layer {l} down_proj exceeded Z24 exponent span")
+                                })?;
                         parallel_copy_into_pinned(
                             slab.host_ptr,
                             &[
@@ -1603,14 +1611,14 @@ impl Qwen38GpuEngine {
                 } else {
                     let slices: [(usize, &[u8]); 9] = [
                         (OFF_GATE_W, gw.data),
-                        (OFF_GATE_SC, gsc.data),
-                        (OFF_GATE_BI, gbi.data),
+                        (OFF_GATE_SC, &gsc),
+                        (OFF_GATE_BI, &gbi),
                         (OFF_UP_W, uw.data),
-                        (OFF_UP_SC, usc.data),
-                        (OFF_UP_BI, ubi.data),
+                        (OFF_UP_SC, &usc),
+                        (OFF_UP_BI, &ubi),
                         (OFF_DOWN_W, dw.data),
-                        (OFF_DOWN_SC, dsc.data),
-                        (OFF_DOWN_BI, dbi.data),
+                        (OFF_DOWN_SC, &dsc),
+                        (OFF_DOWN_BI, &dbi),
                     ];
                     if resident_expert_layers < max_vram_layers
                         && free_vram > vram_reserve_bytes.saturating_add(SW_LAYER_BYTES)
@@ -2786,63 +2794,66 @@ impl Qwen38GpuEngine {
             .get(&format!("{swp}.gate_proj.weight"))
             .unwrap()
             .data;
-        let gsc = self
-            .sharded_mmap
-            .get(&format!("{swp}.gate_proj.scales"))
-            .unwrap()
-            .data;
-        let gbi = self
-            .sharded_mmap
-            .get(&format!("{swp}.gate_proj.biases"))
-            .unwrap()
-            .data;
+        let gsc = ExpertParameter::open(
+            &self.sharded_mmap,
+            &format!("{swp}.gate_proj.scales"),
+            &[512, 640, 80],
+        )?;
+        let gbi = ExpertParameter::open(
+            &self.sharded_mmap,
+            &format!("{swp}.gate_proj.biases"),
+            &[512, 640, 80],
+        )?;
         let uw = self
             .sharded_mmap
             .get(&format!("{swp}.up_proj.weight"))
             .unwrap()
             .data;
-        let usc = self
-            .sharded_mmap
-            .get(&format!("{swp}.up_proj.scales"))
-            .unwrap()
-            .data;
-        let ubi = self
-            .sharded_mmap
-            .get(&format!("{swp}.up_proj.biases"))
-            .unwrap()
-            .data;
+        let usc = ExpertParameter::open(
+            &self.sharded_mmap,
+            &format!("{swp}.up_proj.scales"),
+            &[512, 640, 80],
+        )?;
+        let ubi = ExpertParameter::open(
+            &self.sharded_mmap,
+            &format!("{swp}.up_proj.biases"),
+            &[512, 640, 80],
+        )?;
         let dw = self
             .sharded_mmap
             .get(&format!("{swp}.down_proj.weight"))
             .unwrap()
             .data;
-        let dsc = self
-            .sharded_mmap
-            .get(&format!("{swp}.down_proj.scales"))
-            .unwrap()
-            .data;
-        let dbi = self
-            .sharded_mmap
-            .get(&format!("{swp}.down_proj.biases"))
-            .unwrap()
-            .data;
+        let dsc = ExpertParameter::open(
+            &self.sharded_mmap,
+            &format!("{swp}.down_proj.scales"),
+            &[512, 2560, 20],
+        )?;
+        let dbi = ExpertParameter::open(
+            &self.sharded_mmap,
+            &format!("{swp}.down_proj.biases"),
+            &[512, 2560, 20],
+        )?;
 
         unsafe {
             let dst = host_stage.host_ptr;
             for (k, &ex_i32) in sel.iter().enumerate() {
                 let ex = ex_i32 as usize;
+                if ex >= Q38_EXP {
+                    return Err("router returned an out-of-range compact expert".into());
+                }
                 core::ptr::copy_nonoverlapping(
                     gw.as_ptr().add(ex * EX_W_BYTES),
                     dst.add(COFF_GATE_W + k * EX_W_BYTES),
                     EX_W_BYTES,
                 );
                 core::ptr::copy_nonoverlapping(
-                    gsc.as_ptr().add(ex * EX_SB_BYTES),
+                    gsc.bytes(ex * EX_SB_BYTES, EX_SB_BYTES)?.as_ptr(),
                     dst.add(COFF_GATE_SC + k * EX_SB_BYTES),
                     EX_SB_BYTES,
                 );
                 core::ptr::copy_nonoverlapping(
-                    gbi.as_ptr().add(ex * EX_SB_BYTES),
+                    gbi.bytes(ex * EX_SB_BYTES, EX_SB_BYTES)?.as_ptr(),
                     dst.add(COFF_GATE_BI + k * EX_SB_BYTES),
                     EX_SB_BYTES,
                 );
@@ -2852,12 +2863,12 @@ impl Qwen38GpuEngine {
                     EX_W_BYTES,
                 );
                 core::ptr::copy_nonoverlapping(
-                    usc.as_ptr().add(ex * EX_SB_BYTES),
+                    usc.bytes(ex * EX_SB_BYTES, EX_SB_BYTES)?.as_ptr(),
                     dst.add(COFF_UP_SC + k * EX_SB_BYTES),
                     EX_SB_BYTES,
                 );
                 core::ptr::copy_nonoverlapping(
-                    ubi.as_ptr().add(ex * EX_SB_BYTES),
+                    ubi.bytes(ex * EX_SB_BYTES, EX_SB_BYTES)?.as_ptr(),
                     dst.add(COFF_UP_BI + k * EX_SB_BYTES),
                     EX_SB_BYTES,
                 );
@@ -2867,12 +2878,12 @@ impl Qwen38GpuEngine {
                     EX_W_BYTES,
                 );
                 core::ptr::copy_nonoverlapping(
-                    dsc.as_ptr().add(ex * EX_SB_BYTES),
+                    dsc.bytes(ex * EX_SB_BYTES, EX_SB_BYTES)?.as_ptr(),
                     dst.add(COFF_DOWN_SC + k * EX_SB_BYTES),
                     EX_SB_BYTES,
                 );
                 core::ptr::copy_nonoverlapping(
-                    dbi.as_ptr().add(ex * EX_SB_BYTES),
+                    dbi.bytes(ex * EX_SB_BYTES, EX_SB_BYTES)?.as_ptr(),
                     dst.add(COFF_DOWN_BI + k * EX_SB_BYTES),
                     EX_SB_BYTES,
                 );
