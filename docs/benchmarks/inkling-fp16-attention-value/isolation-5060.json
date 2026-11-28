@@ -1,0 +1,103 @@
+{
+  "device": "RTX 5060 Ti",
+  "source": "bd048b80a4af885dd15faac570b77d56ba5a0a23",
+  "package_sha256": {
+    "model-00001-of-00001.safetensors": {
+      "sha256": "fd69ae5cdbdb1eb8835bcbc2eae03493a178193ed0d1d2a6b8494d3e38ac45a8",
+      "bytes": 11484081296
+    },
+    "tiktoken/tokenizer.model": {
+      "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8",
+      "bytes": 3386494
+    }
+  },
+  "module_comparison": {
+    "ink2_gqa_attn_g1_q8_decode": {
+      "prior": [
+        760,
+        "0466231c3d3584aa4681ad6303aaa0ef1fa290c587709b00c68c97c602f98cc8"
+      ],
+      "trial": [
+        760,
+        "00fc2b55d831aadc6f8345e6ea7763dacfe7be993b9d50932203769156cba5cd"
+      ]
+    }
+  },
+  "arms": {
+    "current": {
+      "top": 39618,
+      "target": 44259,
+      "kl": 6.139566282072,
+      "agrees": false,
+      "fingerprint": "69bface74adc9426",
+      "score": {
+        "chunks": 1,
+        "context": 512,
+        "rows": 255,
+        "ppl": 5.423815474545339,
+        "ref_ppl": 5.0966631044596955,
+        "mean_kld": 0.04540944285022113,
+        "median_kld": 0.007830460880608937,
+        "p99_kld": 0.25959048362036813,
+        "max_kld": 6.1395662820723125,
+        "start_chunk": 2,
+        "max_kld_chunk": 2,
+        "max_kld_position": 478,
+        "ref_floor_targets": 0,
+        "top1_matches": 240,
+        "top1_agreement": 0.9411764705882353
+      },
+      "rows_sha256": "21348e873f76d0006d424e263ec0fe318779827b283a79de873db393775c449e"
+    },
+    "legacy": {
+      "top": 44259,
+      "target": 44259,
+      "kl": 0.035403481976,
+      "agrees": true,
+      "fingerprint": "31117aeb128435e6",
+      "score": {
+        "chunks": 1,
+        "context": 512,
+        "rows": 255,
+        "ppl": 5.263299955533854,
+        "ref_ppl": 5.0966631044596955,
+        "mean_kld": 0.020050877821444758,
+        "median_kld": 0.007551086162660467,
+        "p99_kld": 0.28528872421697504,
+        "max_kld": 0.5507353484213182,
+        "start_chunk": 2,
+        "max_kld_chunk": 2,
+        "max_kld_position": 477,
+        "ref_floor_targets": 0,
+        "top1_matches": 242,
+        "top1_agreement": 0.9490196078431372
+      },
+      "rows_sha256": "5a29eb3dd5a4a6d361cc278cd8b2cc2d01ac1b9c2e3c1b56c9a8bcf0bfc62a49"
+    },
+    "fallback": {
+      "top": 39618,
+      "target": 44259,
+      "kl": 6.139566282072,
+      "agrees": false,
+      "fingerprint": "69bface74adc9426",
+      "score": {
+        "chunks": 1,
+        "context": 512,
+        "rows": 255,
+        "ppl": 5.423815474545339,
+        "ref_ppl": 5.0966631044596955,
+        "mean_kld": 0.04540944285022113,
+        "median_kld": 0.007830460880608937,
+        "p99_kld": 0.25959048362036813,
+        "max_kld": 6.1395662820723125,
+        "start_chunk": 2,
+        "max_kld_chunk": 2,
+        "max_kld_position": 478,
+        "ref_floor_targets": 0,
+        "top1_matches": 240,
+        "top1_agreement": 0.9411764705882353
+      },
+      "rows_sha256": "21348e873f76d0006d424e263ec0fe318779827b283a79de873db393775c449e"
+    }
+  }
+}

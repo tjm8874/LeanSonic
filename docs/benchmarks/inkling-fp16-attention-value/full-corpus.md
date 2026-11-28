@@ -1,0 +1,97 @@
+# Full BF16 replay and rounding tradeoffs
+
+Candidate ea3a7cf and the current recurrence were each scored on the same 571-slice model and BF16 references. The candidate's complete row files, including full-vocabulary fingerprints, are byte-identical on RTX PRO 5000 and RTX 5060 Ti for both splits. They independently match the earlier G1-only run on RTX 5070 Ti. Each split has 100 WikiText chunks and 25,500 scored positions.
+
+| Split | Recurrence | Mean KL | Worst KL | BF16 top-1 | PPL | 99th percentile KL |
+|---|---|---:|---:|---:|---:|---:|
+| test | current | 0.0172238 | 6.1395663 | 24,071 (94.40%) | 7.128123 | 0.1486843 |
+| test | ea3a7cf | 0.0169571 | 2.8585658 | 24,084 (94.45%) | 7.127375 | 0.1531903 |
+| valid | current | 0.0157144 | 2.6382777 | 24,192 (94.87%) | 6.565670 | 0.1472817 |
+| valid | ea3a7cf | 0.0157347 | 2.5524491 | 24,200 (94.90%) | 6.566551 | 0.1525733 |
+
+The candidate recovers 215 BF16 top tokens and loses 202 on test, and recovers 203 and loses 195 on validation. The large improvement on test chunk 2 position 478 coexists with a regression on test 92:387 (KL 0.068371 to 0.919946 with unchanged top token). Validation mean KL and PPL rise slightly. Both splits improve worst KL and top-1 while increasing p99 KL. This tradeoff keeps the default change under review.
+
+On PRO 5000 both dispatch pair tests pass 704 cases each. The current operator differs from an independent FP64 reference on zero of 202,752 Q8 values; the proposed operator differs on two. The candidate's entire FP64 fixture CSV is identical on both GPUs. [Baseline FP64 fixtures](current-operator-pro5000.csv) · [Candidate FP64 fixtures](candidate-operator-pro5000.csv) · [Model, oracle, binary and row hashes, all scores and tails](candidate-pro5000.json) · [5060 Ti evidence](candidate-5060.json).
+
+To reproduce, use the 571-slice model digest and the pinned scorer in the [isolation instructions](README.md). Score test and validation separately with all 100 chunks, a 512-token prefill chunk, one sequence, FP16 KV, spec off and both mixed-even device paths enabled. Confirm 24/24 resident layers and 16 mixed-even planes. Set DIAG_ROWS separately for each run. Compare current, then candidate on each device and use sha256sum on each complete row file. The full corpus uses G1; the explicit fallback dispatch was also checked on test chunk 2.
+
+## Independent single-round alternative
+
+For finite online-softmax scores the previous maximum or the new score equals the updated maximum. One of the two exponential weights is therefore one. Fusing the other weight's product with the unscaled term rounds the entire weighted sum once. The separate branch implementation uses one exponential per head and iteration of the G1 loop. It can run on the existing FP32 execution units. This observation concerns one recurrence, while full attention also depends on score reduction, exponent approximation and quantization.
+
+The [scalar check](single-round/scalar.py) compares each FP32 result with an exact rational sum rounded to the nearest FP32 value with ties to even. Across 49,152 deterministic inputs, current and ea3a7cf miss the scalar reference on 501 and 417 inputs respectively. The single-round version matches all inputs. An initial CUDA formulation had an 8-byte stack and was rejected. The [revised patch](single-round/once.patch) on top of ea3a7cf passes the SM120a SASS audit. G1 uses 64 registers and zero stack. Only the three FP16 attention functions changed among 243 symbols. Full operator, corpus and throughput checks are required before choosing a default. [Scalar results](single-round/scalar.json) · [Binary and disassembly evidence](single-round/build.json).
+
+
+## RTX 5070 Ti runtime
+
+At the same 1,024 prompt tokens and 32 teacher-forced decode inputs, current and ea3a7cf respectively measured **8,257.00 and 8,256.62 prefill tok/s**, **172.369 and 172.382 decode tok/s**, and **14,784,921,600 bytes** peak on both. Five matched ABBA cycles (20 processes, 40 warm requests per arm) gave candidate/current cycle-bootstrap 95% ratios of 0.99962–1.00025 for prefill and 0.99968–1.00055 for decode. The numerical tradeoff is the adoption question on this GPU. [All per-process timings, predictions, peaks and binary hashes](timing-5070.json).
+
+On the independent PRO 5000 check, the follow-up single-round CUDA branch passes 704 batched-vs-staged and 704 staged-vs-grouped cases. Both dispatches produced zero Q8-code mismatches against the CPU FP64 reference across 202,752 codes each. Their block scale bits also agree with each other on every fixture. The maximum absolute scale error against FP64 was 9.79e-10. [All operator fixtures](single-round/operator-pro5000.csv).
+
+## Single-round model replay
+
+On RTX 5070 Ti, the grouped and fallback single-round implementations reproduce the same score/fingerprint file across all 255 test chunk 2 positions. At position 478 KL is **0.003319562**, versus 6.139566282 for current and 0.035403482 for ea3a7cf. The single-round, ea3a7cf and BF16 top token is 44259.
+
+| Split | Recurrence | Mean KL | Worst KL | BF16 top-1 | PPL | p99 KL |
+|---|---|---:|---:|---:|---:|---:|
+| test | current | 0.0172238 | 6.1395663 | 24,071/25,500 | 7.128123 | 0.1486843 |
+| test | ea3a7cf | 0.0169571 | 2.8585658 | 24,084/25,500 | 7.127375 | 0.1531903 |
+| test | single-round | 0.0169034 | 2.5614264 | 24,073/25,500 | 7.128507 | 0.1492333 |
+| valid | current | 0.0157144 | 2.6382777 | 24,192/25,500 | 6.565670 | 0.1472817 |
+| valid | ea3a7cf | 0.0157347 | 2.5524491 | 24,200/25,500 | 6.566551 | 0.1525733 |
+| valid | single-round | 0.0155615 | 2.4252143 | 24,208/25,500 | 6.565918 | 0.1496439 |
+
+The current and ea3a7cf controls use the PRO 5000 and 5060 Ti full row files above. The new column uses the 5070 Ti. All three score the same underlying model and use the same oracle and scorer settings. See the [row hashes and paired per-position changes](single-round/candidate-5070.json).
+
+The single-round candidate has the lowest mean and worst KL of these three recurrences on both splits. Relative to current it gains 2 test and 16 validation BF16 top tokens. PPL increases by 0.000383 on test and 0.000248 on validation. Relative to ea3a7cf it loses 11 test top matches while gaining 8 on validation. Its new worst test position is chunk 98 position 465. These results motivate testing the single-round implementation as the draft head. A default or release decision also depends on throughput for this specific implementation and its results on other precisions.
+
+## Replaying difficult inputs on other packages
+
+Seven complete 512-token chunks (1,785 scored positions) on RTX PRO 5000 cover test 2, 36, 81, 98, 5 and 23 plus validation 85. The inputs were selected for known failures and over-represent the tails. All arms used the same scorer, references, FP16 KV and 24/24 resident expert layers. The earlier G1-only control reproduces the previous recurrence for grouped decode.
+
+| Package | Recurrence | Mean KL | Worst KL | BF16 top-1 / 1,785 | PPL |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 927 | current | 0.0240336 | 2.5145924 | 1,674 | 7.016078 |
+| 927 | earlier G1 | 0.0240202 | 3.6404352 | 1,669 | 7.010803 |
+| 927 | single-round | 0.0231304 | 2.8376931 | 1,670 | 7.008980 |
+| 931 | current | 0.0251081 | 3.5732129 | 1,679 | 7.006664 |
+| 931 | earlier G1 | 0.0245025 | 3.9699634 | 1,675 | 7.008571 |
+| 931 | single-round | 0.0235355 | 2.4941622 | 1,671 | 7.010177 |
+| four-bank parent | current | 0.0093427 | 1.4620404 | 1,711 | 6.949212 |
+| four-bank parent | single-round | 0.0095386 | 1.4616158 | 1,712 | 6.954150 |
+
+[Model, scorer and cubin identities, all selected positions and full-subset scores](single-round/other-packages.json).
+
+The actual PR source at 85523a7 builds and passes the SM120a SASS audit. Three of 234 functions differ from the previous PR module. All three have identical instruction/control words to the corresponding functions in the 243-function packed integration used for the corpus replay. [Main and integration binary comparison](single-round/pr-build.json).
+
+## How much of the change comes from one chunk?
+
+For each recurrence we aligned the same 25,500 positions and resampled 100 whole chunks with replacement 10,000 times within each split (seed 85523). Mean KL and top-1 use paired differences. PPL uses the ratio obtained by exponentiating the paired mean target-NLL difference. The interval describes sensitivity to the chosen WikiText chunks. Neither the oracle nor the weights were resampled.
+
+| Single-round minus current | Test | Validation |
+| --- | ---: | ---: |
+| Mean KL delta (95% interval) | -0.0003204 (-0.0009718, 0.0001209) | -0.0001529 (-0.0003690, 0.0000498) |
+| Mean KL delta after excluding the largest improving position | -0.0000798 | -0.0001007 |
+| Mean KL delta after excluding that entire chunk | -0.0000554 | -0.0000988 |
+| Chunks with lower mean KL out of 100 | 53 | 53 |
+
+Removing the strongest improvement still leaves a lower empirical mean KL in both splits. The whole-chunk intervals nevertheless include zero for both mean KL differences, and for both top-1 and relative PPL changes. The full-corpus worst-case and operator improvements stand on their directly observed results. [Per-chunk deltas, intervals and hashes](single-round/paired-blocks.json) · [Reproduction with two DIAG_ROWS files](single-round/paired.py).
+
+### Runtime of the single-round head on RTX 5060 Ti
+
+With the 571-slice model and the integrated 85523a7 operators, the current and single-round paths reached **3,955.90 / 3,956.03 prefill tok/s** and **95.460 / 95.457 decode tok/s**. Maximum sampled process GPU allocation was **14,686,355,456 bytes** in both arms. The 95% paired ratio intervals span one for both phases, 0.99954–1.00066 prefill and 0.99988–1.00004 decode. There were five mirrored cycles, ten fresh processes per arm, four warm repetitions per process, 1,024 identical input IDs and 32 forced decode steps, one sequence and FP16 KV. This measures the single-round operator, separately from the earlier ea3a7cf timing. [Hashes, GPU, predicted IDs and all warm/cold timings](single-round/timing-5060.json).
+
+## Official-weight precision-max check
+
+The 32 GB roadmap target uses the original publisher weights. On an RTX PRO 4500, the v0.10.0 baseline (aa4d429) and the single-round patch (1f4feb4 kernel diff on aa4d429) scored the same WikiText-2 test oracle. One observed CLI loaded both cubins. All 24 layers were resident. The test covers 100 chunks of 512 tokens, scoring the last 255 predictions per chunk.
+
+| Test metric | v0.10.0 | Single-round |
+| --- | ---: | ---: |
+| Mean KL | 0.003204114 | 0.003214226 |
+| Worst KL | 0.676308 | 1.517378 |
+| Top-1 matches / 25,500 | 24,896 | 24,868 |
+| PPL | 7.070718 | 7.072706 |
+
+At chunk 36 position 375, KL improved from 0.676308 to 0.101663. At position 319 of that same chunk it increased from 0.112166 to 1.517378, with top choice 149876 in both arms. The paired 95% whole-chunk interval for mean KL change spans −0.0001013 to +0.0001167. Given the larger observed worst case and mean above 0.0030, keep the release recurrence as the precision-max reference.
+
+To repeat, use the official b85c3cfa shard and the same [WikiText oracle and row observer](https://github.com/tjm8874/LeanSonic/tree/fcbd52a/docs/benchmarks/inkling-mxscale-codes#reproduce). Build the observed release CLI once. Compile the SM120a cubin before and after applying the kernel diff with nvcc -O3 -std=c++17. Set LEANSONIC_G1_ATTN=1, LEANSONIC_KV=fp16, LEANSONIC_SEQS=1, LEANSONIC_CTX=8192, LEANSONIC_PREFILL_CHUNK=512, LEANSONIC_PDL=1 and LEANSONIC_PDL_ALL=1. Select the cubin using LEANSONIC_CUBIN_PATH and use a fresh DIAG_ROWS file for each eval-kld --chunks 100 run. [Dataset scores, paired estimates, row and binary hashes](single-round/official-test.json).

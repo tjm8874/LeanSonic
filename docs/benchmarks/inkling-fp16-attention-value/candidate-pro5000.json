@@ -1,0 +1,272 @@
+{
+  "source": "ea3a7cf957817b7a4669a463df6f56b670ccbe4d",
+  "model": {
+    "model-00001-of-00001.safetensors": {
+      "sha256": "fd69ae5cdbdb1eb8835bcbc2eae03493a178193ed0d1d2a6b8494d3e38ac45a8",
+      "bytes": 11484081296
+    },
+    "tiktoken/tokenizer.model": {
+      "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8",
+      "bytes": 3386494
+    }
+  },
+  "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell, 595.99.02",
+  "executables": {
+    "main.cubin": "c3f1a3c452bb1a8a40fc51e6b01c08638e7344e323c8c41a74326a0374e78988",
+    "integrated.cubin": "af2a5ac38a0e1b54ad03a2649121e2ecfa6f3631fc538910fed1882838ba2867",
+    "parity": "ab6e8e3cf90694a3951766da9a599f3c2e1fa3a79d374dcb3a656c7c0fc2af2f",
+    "attention": "cb95ea1c2f26d45d4e0678378de1a0276db7e5fb94a9f6322c4ad6cc7148e485"
+  },
+  "operators": {
+    "current": {
+      "fallback": {
+        "fixtures": 66,
+        "codes": 202752,
+        "code_diff_fp64": 0,
+        "max_scale_abs": 9.78993808763e-10,
+        "max_dequant_rmse": 0.000894470175543,
+        "pair_code_diff": 0,
+        "pair_scale_bit_diff": 0
+      },
+      "g1": {
+        "fixtures": 66,
+        "codes": 202752,
+        "code_diff_fp64": 0,
+        "max_scale_abs": 9.78993808763e-10,
+        "max_dequant_rmse": 0.000894470175543,
+        "pair_code_diff": 0,
+        "pair_scale_bit_diff": 0
+      }
+    },
+    "candidate": {
+      "fallback": {
+        "fixtures": 66,
+        "codes": 202752,
+        "code_diff_fp64": 2,
+        "max_scale_abs": 9.78993808763e-10,
+        "max_dequant_rmse": 0.000894470175543,
+        "pair_code_diff": 0,
+        "pair_scale_bit_diff": 0
+      },
+      "g1": {
+        "fixtures": 66,
+        "codes": 202752,
+        "code_diff_fp64": 2,
+        "max_scale_abs": 9.78993808763e-10,
+        "max_dequant_rmse": 0.000894470175543,
+        "pair_code_diff": 0,
+        "pair_scale_bit_diff": 0
+      }
+    },
+    "candidate_csv_equals_5060": true
+  },
+  "splits": {
+    "test": {
+      "before": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.128123421246044,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.01722382971701655,
+        "median_kld": 0.007870187806128703,
+        "p99_kld": 0.14868429813484524,
+        "max_kld": 6.1395662820723125,
+        "start_chunk": 0,
+        "max_kld_chunk": 2,
+        "max_kld_position": 478,
+        "ref_floor_targets": 14,
+        "top1_matches": 24071,
+        "top1_agreement": 0.9439607843137255
+      },
+      "after": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.127374510265167,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.0169571444086638,
+        "median_kld": 0.007895857418926637,
+        "p99_kld": 0.1531903325957706,
+        "max_kld": 2.8585658015743487,
+        "start_chunk": 0,
+        "max_kld_chunk": 36,
+        "max_kld_position": 375,
+        "ref_floor_targets": 14,
+        "top1_matches": 24084,
+        "top1_agreement": 0.9444705882352942
+      },
+      "before_rows_sha256": "c937c689ee909fa0756ef216bfffa4e6d235e9f1812c950017f34c478433f9d5",
+      "after_rows_sha256": "6ad45d8baae8ce8bc003d6017f79daa5b48ed4cbfe0156b0073961ce9060cb8b",
+      "oracle_sha256": "895fac2136c06dce1854568c83eb76a0225a05fab3c37897a12fec1d56949b97",
+      "equals_earlier_5070_g1": true,
+      "recovered": 215,
+      "lost": 202,
+      "different_top": 455,
+      "changed_fingerprints": 25500,
+      "largest_improvements": [
+        {
+          "chunk": 2,
+          "position": 478,
+          "before_top": 39618,
+          "after_top": 44259,
+          "before_kl": 6.139566282072,
+          "after_kl": 0.035403481976,
+          "delta_kl": -6.104162800096
+        },
+        {
+          "chunk": 30,
+          "position": 293,
+          "before_top": 196977,
+          "after_top": 196977,
+          "before_kl": 1.411369261085,
+          "after_kl": 0.021093258516,
+          "delta_kl": -1.390276002569
+        },
+        {
+          "chunk": 98,
+          "position": 465,
+          "before_top": 152134,
+          "after_top": 152134,
+          "before_kl": 1.258696109522,
+          "after_kl": 0.68485115555,
+          "delta_kl": -0.573844953972
+        }
+      ],
+      "largest_regressions": [
+        {
+          "chunk": 92,
+          "position": 387,
+          "before_top": 49714,
+          "after_top": 49714,
+          "before_kl": 0.068370681803,
+          "after_kl": 0.919945637548,
+          "delta_kl": 0.851574955745
+        },
+        {
+          "chunk": 36,
+          "position": 375,
+          "before_top": 220,
+          "after_top": 220,
+          "before_kl": 2.477216221674,
+          "after_kl": 2.858565801574,
+          "delta_kl": 0.3813495799000002
+        },
+        {
+          "chunk": 81,
+          "position": 291,
+          "before_top": 196977,
+          "after_top": 196977,
+          "before_kl": 1.494941729851,
+          "after_kl": 1.865132079975,
+          "delta_kl": 0.37019035012400003
+        }
+      ],
+      "equals_candidate_5060": true
+    },
+    "valid": {
+      "before": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 6.565670166178593,
+        "ref_ppl": 6.498588819010602,
+        "mean_kld": 0.015714403495723606,
+        "median_kld": 0.00674056402783569,
+        "p99_kld": 0.14728166119804237,
+        "max_kld": 2.63827770139034,
+        "start_chunk": 0,
+        "max_kld_chunk": 85,
+        "max_kld_position": 317,
+        "ref_floor_targets": 10,
+        "top1_matches": 24192,
+        "top1_agreement": 0.9487058823529412
+      },
+      "after": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 6.5665509440363605,
+        "ref_ppl": 6.498588819010602,
+        "mean_kld": 0.015734704183455954,
+        "median_kld": 0.006742465806678519,
+        "p99_kld": 0.15257332477052118,
+        "max_kld": 2.552449083698497,
+        "start_chunk": 0,
+        "max_kld_chunk": 85,
+        "max_kld_position": 317,
+        "ref_floor_targets": 10,
+        "top1_matches": 24200,
+        "top1_agreement": 0.9490196078431372
+      },
+      "before_rows_sha256": "f241787d87f5599bc502b8818dd379864f905f42952f2cbbdfcfb8afb7c26753",
+      "after_rows_sha256": "5227430b860f2989ff870b2bcdf6d8748caaa3851b8ba25b0354b273eb0953ef",
+      "oracle_sha256": "b3d804824373950c9b6d7cd37e5607d132d2f3caca6f80ffd26739b2776a2ca0",
+      "equals_earlier_5070_g1": true,
+      "recovered": 203,
+      "lost": 195,
+      "different_top": 424,
+      "changed_fingerprints": 25500,
+      "largest_improvements": [
+        {
+          "chunk": 25,
+          "position": 312,
+          "before_top": 153101,
+          "after_top": 150580,
+          "before_kl": 1.333688385207,
+          "after_kl": 0.207244370209,
+          "delta_kl": -1.126444014998
+        },
+        {
+          "chunk": 86,
+          "position": 375,
+          "before_top": 150983,
+          "after_top": 150983,
+          "before_kl": 0.951391925773,
+          "after_kl": 0.051255112485,
+          "delta_kl": -0.900136813288
+        },
+        {
+          "chunk": 76,
+          "position": 329,
+          "before_top": 149894,
+          "after_top": 196988,
+          "before_kl": 0.48661991406,
+          "after_kl": 0.029400027743,
+          "delta_kl": -0.457219886317
+        }
+      ],
+      "largest_regressions": [
+        {
+          "chunk": 12,
+          "position": 317,
+          "before_top": 197045,
+          "after_top": 197045,
+          "before_kl": 1.201311610413,
+          "after_kl": 1.815368748348,
+          "delta_kl": 0.6140571379350002
+        },
+        {
+          "chunk": 74,
+          "position": 307,
+          "before_top": 149881,
+          "after_top": 149922,
+          "before_kl": 0.019990414904,
+          "after_kl": 0.431081760545,
+          "delta_kl": 0.411091345641
+        },
+        {
+          "chunk": 11,
+          "position": 374,
+          "before_top": 293,
+          "after_top": 1479,
+          "before_kl": 0.418601991078,
+          "after_kl": 0.819515448679,
+          "delta_kl": 0.40091345760099995
+        }
+      ],
+      "equals_candidate_5060": true
+    }
+  },
+  "focused_dispatch_rows_sha256": "5a29eb3dd5a4a6d361cc278cd8b2cc2d01ac1b9c2e3c1b56c9a8bcf0bfc62a49"
+}

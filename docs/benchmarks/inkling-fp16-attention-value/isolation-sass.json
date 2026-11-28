@@ -1,0 +1,15 @@
+{
+  "compared": 243,
+  "changed": {
+    "ink2_gqa_attn_g1_q8_decode": {
+      "prior": [
+        760,
+        "0466231c3d3584aa4681ad6303aaa0ef1fa290c587709b00c68c97c602f98cc8"
+      ],
+      "trial": [
+        760,
+        "00fc2b55d831aadc6f8345e6ea7763dacfe7be993b9d50932203769156cba5cd"
+      ]
+    }
+  }
+}

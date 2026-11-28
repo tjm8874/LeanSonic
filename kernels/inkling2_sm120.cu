@@ -7654,6 +7654,11 @@ extern "C" __global__ void ink2_ctrl_apply_coalesced_b(
     cur_inout[row] = c - ptx_tanh(forget_acc) * c + ptx_tanh(gain_acc) * m;
 }
 
+// Keep the per-head and three-head FP16 KV paths on the same FP32 recurrence.
+__device__ __forceinline__ float fp16_kv_weighted_value(float prior, float alpha, float p, float value) {
+    return alpha == 1.0f ? __fmaf_rn(p, value, prior) : __fmaf_rn(alpha, prior, value);
+}
+
 // Unified `G=0` Attention + In-Register `Q8_64` Epilogue (`Grid: (24, B)`, `Block: 256`):
 // Eliminates `d_attn_out` DRAM writes/reads and `48` `ink2_quant_q8_64` launches per token/step!
 template<bool kInt8, bool PipelineDecode>
@@ -7757,10 +7762,10 @@ __device__ __forceinline__ void gqa_rel_sink_attn_q8(
         m_w = m_new;
     };
     auto add_value = [&](uint64_t vw, float alpha, float p) {
-        o0 = o0 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>(vw & 0xFFFFu));
-        o1 = o1 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>((vw >> 16) & 0xFFFFu));
-        o2 = o2 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>((vw >> 32) & 0xFFFFu));
-        o3 = o3 * alpha + p * fp16_bits_to_f32(static_cast<uint16_t>((vw >> 48) & 0xFFFFu));
+        o0 = fp16_kv_weighted_value(o0, alpha, p, fp16_bits_to_f32(static_cast<uint16_t>(vw & 0xFFFFu)));
+        o1 = fp16_kv_weighted_value(o1, alpha, p, fp16_bits_to_f32(static_cast<uint16_t>((vw >> 16) & 0xFFFFu)));
+        o2 = fp16_kv_weighted_value(o2, alpha, p, fp16_bits_to_f32(static_cast<uint16_t>((vw >> 32) & 0xFFFFu)));
+        o3 = fp16_kv_weighted_value(o3, alpha, p, fp16_bits_to_f32(static_cast<uint16_t>((vw >> 48) & 0xFFFFu)));
     };
     int j = first + warp_id;
     if constexpr (kInt8) {
@@ -14675,16 +14680,22 @@ __device__ __forceinline__ void gqa_attn_g1_q8_decode_body(
             for (int hh = 0; hh < 3; ++hh) {
                 float dot = __fmul_rn(dots[hh], scale);
                 if (d < kExtent) dot = __fadd_rn(dot, sm_u.rel[hh][d]);
-                const float m_new = (dot > m_w[hh]) ? dot : m_w[hh];
-                const float alpha = ptx_exp(m_w[hh] - m_new);
-                const float p = ptx_exp(dot - m_new);
-                l_w[hh] = __fmaf_rn(l_w[hh], alpha, p);
-                m_w[hh] = m_new;
-                // Match the FP16 per-head fallback: round p*v before fusing the rescaled state.
-                o[hh][0] = __fmaf_rn(o[hh][0], alpha, __fmul_rn(p, v0));
-                o[hh][1] = __fmaf_rn(o[hh][1], alpha, __fmul_rn(p, v1));
-                o[hh][2] = __fmaf_rn(o[hh][2], alpha, __fmul_rn(p, v2));
-                o[hh][3] = __fmaf_rn(o[hh][3], alpha, __fmul_rn(p, v3));
+                if (dot > m_w[hh]) {
+                    const float alpha = ptx_exp(m_w[hh] - dot);
+                    m_w[hh] = dot;
+                    l_w[hh] = __fmaf_rn(l_w[hh], alpha, 1.0f);
+                    o[hh][0] = __fmaf_rn(alpha, o[hh][0], v0);
+                    o[hh][1] = __fmaf_rn(alpha, o[hh][1], v1);
+                    o[hh][2] = __fmaf_rn(alpha, o[hh][2], v2);
+                    o[hh][3] = __fmaf_rn(alpha, o[hh][3], v3);
+                } else {
+                    const float probability = ptx_exp(dot - m_w[hh]);
+                    l_w[hh] = __fadd_rn(l_w[hh], probability);
+                    o[hh][0] = __fmaf_rn(probability, v0, o[hh][0]);
+                    o[hh][1] = __fmaf_rn(probability, v1, o[hh][1]);
+                    o[hh][2] = __fmaf_rn(probability, v2, o[hh][2]);
+                    o[hh][3] = __fmaf_rn(probability, v3, o[hh][3]);
+                }
             }
             wk = nwk; wv = nwv;
             j = jn;

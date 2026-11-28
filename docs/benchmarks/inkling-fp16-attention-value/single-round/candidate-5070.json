@@ -1,0 +1,311 @@
+{
+  "gpu": "NVIDIA GeForce RTX 5070 Ti, 595.99.02",
+  "cubin_sha256": "52bd8f25bbe785726f2f03a8a8fe5c52a426c7c223972f1a6a888f5cbcffc3b6",
+  "splits": {
+    "test": {
+      "summary": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.128506815769381,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.016903393709743326,
+        "median_kld": 0.007891801147529395,
+        "p99_kld": 0.14923328370766792,
+        "max_kld": 2.5614264337011816,
+        "start_chunk": 0,
+        "max_kld_chunk": 98,
+        "max_kld_position": 465,
+        "ref_floor_targets": 14,
+        "top1_matches": 24073,
+        "top1_agreement": 0.9440392156862745
+      },
+      "rows_sha256": "0c4bf030ca0b98e47e3d56f855ac1829af6e682b0ffb07166bef70a5eb0c4c9c",
+      "oracle_sha256": "895fac2136c06dce1854568c83eb76a0225a05fab3c37897a12fec1d56949b97",
+      "current": {
+        "recovered": 208,
+        "lost": 206,
+        "extremes": [
+          {
+            "chunk": 2,
+            "position": 478,
+            "old_kl": 6.139566282072,
+            "new_kl": 0.003319562262,
+            "old_top": 39618,
+            "new_top": 44259,
+            "delta": -6.13624671981
+          },
+          {
+            "chunk": 36,
+            "position": 375,
+            "old_kl": 2.477216221674,
+            "new_kl": 1.886859997905,
+            "old_top": 220,
+            "new_top": 220,
+            "delta": -0.5903562237689999
+          },
+          {
+            "chunk": 23,
+            "position": 330,
+            "old_kl": 1.902075535527,
+            "new_kl": 1.331814566827,
+            "old_top": 21,
+            "new_top": 21,
+            "delta": -0.5702609687
+          },
+          {
+            "chunk": 98,
+            "position": 465,
+            "old_kl": 1.258696109522,
+            "new_kl": 2.561426433701,
+            "old_top": 152134,
+            "new_top": 157728,
+            "delta": 1.302730324179
+          },
+          {
+            "chunk": 92,
+            "position": 387,
+            "old_kl": 0.068370681803,
+            "new_kl": 0.752810048702,
+            "old_top": 49714,
+            "new_top": 49714,
+            "delta": 0.684439366899
+          },
+          {
+            "chunk": 36,
+            "position": 315,
+            "old_kl": 0.02191913385,
+            "new_kl": 0.289343955313,
+            "old_top": 36223,
+            "new_top": 42784,
+            "delta": 0.267424821463
+          }
+        ]
+      },
+      "ea3a7cf": {
+        "recovered": 209,
+        "lost": 220,
+        "extremes": [
+          {
+            "chunk": 36,
+            "position": 375,
+            "old_kl": 2.858565801574,
+            "new_kl": 1.886859997905,
+            "old_top": 220,
+            "new_top": 220,
+            "delta": -0.9717058036690001
+          },
+          {
+            "chunk": 37,
+            "position": 501,
+            "old_kl": 0.59219736821,
+            "new_kl": 0.056471336205,
+            "old_top": 151753,
+            "new_top": 155775,
+            "delta": -0.535726032005
+          },
+          {
+            "chunk": 81,
+            "position": 291,
+            "old_kl": 1.865132079975,
+            "new_kl": 1.465832138735,
+            "old_top": 196977,
+            "new_top": 196977,
+            "delta": -0.39929994124
+          },
+          {
+            "chunk": 98,
+            "position": 465,
+            "old_kl": 0.68485115555,
+            "new_kl": 2.561426433701,
+            "old_top": 152134,
+            "new_top": 157728,
+            "delta": 1.876575278151
+          },
+          {
+            "chunk": 30,
+            "position": 293,
+            "old_kl": 0.021093258516,
+            "new_kl": 1.217633653633,
+            "old_top": 196977,
+            "new_top": 196977,
+            "delta": 1.196540395117
+          },
+          {
+            "chunk": 36,
+            "position": 319,
+            "old_kl": 1.058637342042,
+            "new_kl": 1.387139434674,
+            "old_top": 149876,
+            "new_top": 149876,
+            "delta": 0.3285020926319999
+          }
+        ]
+      }
+    },
+    "valid": {
+      "summary": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 6.565918033015983,
+        "ref_ppl": 6.498588819010602,
+        "mean_kld": 0.01556147683385687,
+        "median_kld": 0.0067711998689739435,
+        "p99_kld": 0.1496439152026192,
+        "max_kld": 2.4252142752166543,
+        "start_chunk": 0,
+        "max_kld_chunk": 85,
+        "max_kld_position": 317,
+        "ref_floor_targets": 10,
+        "top1_matches": 24208,
+        "top1_agreement": 0.9493333333333334
+      },
+      "rows_sha256": "e2850714e3ede8a2402907c0d3d696cd302dbbb0d4ef99f637b98ec25530846b",
+      "oracle_sha256": "b3d804824373950c9b6d7cd37e5607d132d2f3caca6f80ffd26739b2776a2ca0",
+      "current": {
+        "recovered": 198,
+        "lost": 182,
+        "extremes": [
+          {
+            "chunk": 25,
+            "position": 312,
+            "old_kl": 1.333688385207,
+            "new_kl": 0.002304616587,
+            "old_top": 153101,
+            "new_top": 150580,
+            "delta": -1.33138376862
+          },
+          {
+            "chunk": 86,
+            "position": 375,
+            "old_kl": 0.951391925773,
+            "new_kl": 0.002881759574,
+            "old_top": 150983,
+            "new_top": 150983,
+            "delta": -0.948510166199
+          },
+          {
+            "chunk": 76,
+            "position": 329,
+            "old_kl": 0.48661991406,
+            "new_kl": 0.032200326724,
+            "old_top": 149894,
+            "new_top": 149879,
+            "delta": -0.45441958733599996
+          },
+          {
+            "chunk": 3,
+            "position": 404,
+            "old_kl": 0.197441081317,
+            "new_kl": 0.668123168019,
+            "old_top": 220,
+            "new_top": 220,
+            "delta": 0.47068208670199996
+          },
+          {
+            "chunk": 74,
+            "position": 309,
+            "old_kl": 0.09894774959,
+            "new_kl": 0.556895150673,
+            "old_top": 150777,
+            "new_top": 150777,
+            "delta": 0.457947401083
+          },
+          {
+            "chunk": 12,
+            "position": 317,
+            "old_kl": 1.201311610413,
+            "new_kl": 1.522390944493,
+            "old_top": 197045,
+            "new_top": 197045,
+            "delta": 0.32107933408
+          }
+        ]
+      },
+      "ea3a7cf": {
+        "recovered": 197,
+        "lost": 189,
+        "extremes": [
+          {
+            "chunk": 74,
+            "position": 307,
+            "old_kl": 0.431081760545,
+            "new_kl": 0.032750842135,
+            "old_top": 149922,
+            "new_top": 149881,
+            "delta": -0.39833091841
+          },
+          {
+            "chunk": 28,
+            "position": 322,
+            "old_kl": 1.02174389495,
+            "new_kl": 0.661240063078,
+            "old_top": 196988,
+            "new_top": 196988,
+            "delta": -0.36050383187199997
+          },
+          {
+            "chunk": 12,
+            "position": 317,
+            "old_kl": 1.815368748348,
+            "new_kl": 1.522390944493,
+            "old_top": 197045,
+            "new_top": 197045,
+            "delta": -0.29297780385500016
+          },
+          {
+            "chunk": 74,
+            "position": 309,
+            "old_kl": 0.137262892915,
+            "new_kl": 0.556895150673,
+            "old_top": 220,
+            "new_top": 150777,
+            "delta": 0.419632257758
+          },
+          {
+            "chunk": 3,
+            "position": 404,
+            "old_kl": 0.278104701375,
+            "new_kl": 0.668123168019,
+            "old_top": 220,
+            "new_top": 220,
+            "delta": 0.390018466644
+          },
+          {
+            "chunk": 44,
+            "position": 426,
+            "old_kl": 0.289625645521,
+            "new_kl": 0.573744805862,
+            "old_top": 175578,
+            "new_top": 175578,
+            "delta": 0.28411916034100004
+          }
+        ]
+      }
+    }
+  },
+  "focused": {
+    "summary": {
+      "chunks": 1,
+      "context": 512,
+      "rows": 255,
+      "ppl": 5.251556523059592,
+      "ref_ppl": 5.0966631044596955,
+      "mean_kld": 0.018854646873362437,
+      "median_kld": 0.007303697559982961,
+      "p99_kld": 0.2250379980877235,
+      "max_kld": 0.393641031247493,
+      "start_chunk": 2,
+      "max_kld_chunk": 2,
+      "max_kld_position": 477,
+      "ref_floor_targets": 0,
+      "top1_matches": 240,
+      "top1_agreement": 0.9411764705882353
+    },
+    "rows_sha256": "329b238634c84a27e33d9e75023280d71c95c2e1ad2ac206106cf4204df416aa",
+    "top": 44259,
+    "kl": 0.003319562262,
+    "top_agrees": true
+  }
+}

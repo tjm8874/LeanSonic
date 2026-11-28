@@ -1,0 +1,26 @@
+{
+  "old maximum": {
+    "rows": 16384,
+    "rounding_errors": {
+      "current": 501,
+      "pr229": 0,
+      "single_round": 0
+    }
+  },
+  "new maximum": {
+    "rows": 16384,
+    "rounding_errors": {
+      "current": 0,
+      "pr229": 417,
+      "single_round": 0
+    }
+  },
+  "tie": {
+    "rows": 16384,
+    "rounding_errors": {
+      "current": 0,
+      "pr229": 0,
+      "single_round": 0
+    }
+  }
+}
