@@ -4389,35 +4389,81 @@ extern "C" __global__ void q38_hc_up_mix4_b2(
     pdl_trigger();
 }
 
-// A warp computes one output row for one token. Q8 reconstruction rounds each
-// signed-code times BF16 scale to BF16, as in the reference model.
-extern "C" __global__ void q38_dense_q8_gemv(
-    const uint32_t* __restrict__ weights, const uint16_t* __restrict__ scales,
-    const float4* __restrict__ input, float* __restrict__ output, int rows, int cols) {
-    const int row = blockIdx.x * 8 + (threadIdx.x >> 5);
+// All lanes of one warp evaluate a stored Q8 row. Reconstruct the BF16
+// weight before the FP32 dot to match the independent packed-weight teacher.
+__device__ __forceinline__ float q38_q8_row_dot(
+    const uint32_t* weights, const uint16_t* scales, const float4* input,
+    int row, int cols) {
     const int lane = threadIdx.x & 31;
+    const int words = cols / 4;
+    const uint32_t* w = weights + static_cast<size_t>(row) * words;
+    const uint16_t* sc = scales + static_cast<size_t>(row) * (cols / 32);
+    float acc = 0.0f;
+    for (int i = lane; i < words; i += 32) {
+        const uint32_t codes = w[i];
+        const float scale = bf16_to_f32(sc[i / 8]);
+        const float4 v = input[i];
+        const float elements[] = {v.x, v.y, v.z, v.w};
+        #pragma unroll
+        for (int j = 0; j < 4; ++j) {
+            const int code = static_cast<int8_t>(codes >> (8 * j));
+            uint16_t rounded;
+            asm("cvt.rn.bf16.f32 %0, %1;" : "=h"(rounded) : "f"(code * scale));
+            acc = fmaf(bf16_to_f32(rounded), elements[j], acc);
+        }
+    }
+    return warp_sum(acc);
+}
+
+extern "C" __global__ void q38_dense_q8_gemv(
+    const uint32_t* weights, const uint16_t* scales,
+    const float4* input, float* output, int rows, int cols) {
+    const int row = blockIdx.x * 8 + (threadIdx.x >> 5);
     pdl_wait();
     if (row < rows) {
-        const int words = cols >> 2;
-        const uint32_t* w = weights + static_cast<size_t>(row) * words;
-        const float4* x = input + static_cast<size_t>(blockIdx.y) * words;
-        float acc = 0.0f;
-        for (int i = lane; i < words; i += 32) {
-            const size_t group = static_cast<size_t>(row) * (cols >> 5) + (i >> 3);
-            const float scale = bf16_to_f32(scales[group]);
-            const uint32_t codes = w[i];
-            const float4 v = x[i];
-            const float elements[] = {v.x, v.y, v.z, v.w};
-            #pragma unroll
-            for (int j = 0; j < 4; ++j) {
-                const int code = static_cast<int8_t>(codes >> (8 * j));
-                uint16_t rounded;
-                asm("cvt.rn.bf16.f32 %0, %1;" : "=h"(rounded) : "f"(code * scale));
-                acc = fmaf(bf16_to_f32(rounded), elements[j], acc);
-            }
+        const float sum = q38_q8_row_dot(weights, scales, input + static_cast<size_t>(blockIdx.y) * (cols / 4), row, cols);
+        if ((threadIdx.x & 31) == 0) output[static_cast<size_t>(blockIdx.y) * rows + row] = sum;
+    }
+    pdl_trigger();
+}
+
+// The final mixer has 320 rows. Intermediate mixers append four linear injection rows.
+extern "C" __global__ void q38_hc_q8_down_inject(
+    const uint32_t* weights, const uint16_t* scales, const float4* normed,
+    float* low, float* inject, int rows) {
+    const int row = blockIdx.x * 8 + (threadIdx.x >> 5);
+    const int token = blockIdx.y;
+    pdl_wait();
+    if (row < rows) {
+        const float sum = q38_q8_row_dot(weights, scales, normed + token * kD, row, 4 * kD);
+        if ((threadIdx.x & 31) == 0) {
+            if (row < 320) low[token * 320 + row] = ptx_silu(0.25f * sum);
+            else inject[token * 4 + row - 320] = sum;
         }
-        const float sum = warp_sum(acc);
-        if (lane == 0) output[static_cast<size_t>(blockIdx.y) * rows + row] = sum;
+    }
+    pdl_trigger();
+}
+
+extern "C" __global__ void q38_hc_q8_up_mix(
+    const uint32_t* weights, const uint16_t* scales, const float4* low,
+    const float* normed, float* mixed) {
+    const int d = blockIdx.x * 8 + (threadIdx.x >> 5);
+    const int token = blockIdx.y;
+    pdl_wait();
+    if (d < kD) {
+        float contributions[4];
+        #pragma unroll
+        for (int stream = 0; stream < 4; ++stream) {
+            const int row = stream * kD + d;
+            float dot = q38_q8_row_dot(weights, scales, low + token * 80, row, 320);
+            if ((threadIdx.x & 31) == 0)
+                contributions[stream] = ptx_sigmoid(dot) * normed[token * 4 * kD + row];
+        }
+        if ((threadIdx.x & 31) == 0) {
+            const float a = contributions[0] + contributions[2];
+            const float b = contributions[1] + contributions[3];
+            mixed[token * kD + d] = 0.25f * (a + b);
+        }
     }
     pdl_trigger();
 }

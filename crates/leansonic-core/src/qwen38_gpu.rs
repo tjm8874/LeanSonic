@@ -501,9 +501,24 @@ impl DenseProjection {
 
 struct HyperConnGpu {
     hc_norm: DeviceBuf,
-    down: Q4LinearGpu,
-    up: Q4LinearGpu,
-    inject: Option<Q4LinearGpu>,
+    projections: HyperProjections,
+}
+
+enum HyperProjections {
+    Q4 {
+        down: Q4LinearGpu,
+        up: Q4LinearGpu,
+        inject: Option<Q4LinearGpu>,
+    },
+    Q8 {
+        down_weights: DeviceBuf,
+        down_scales: DeviceBuf,
+        up_weights: DeviceBuf,
+        up_scales: DeviceBuf,
+        rows: i32,
+        down_kernel: CUfunction,
+        up_kernel: CUfunction,
+    },
 }
 
 enum AttentionBranchGpu {
@@ -1106,6 +1121,7 @@ fn load_bf16_as_f32_buf(
 fn load_hyper_conn(
     ctx: &Arc<CudaContextHandle>,
     st: &ShardedSafeTensors,
+    module: CUmodule,
     prefix: &str,
     zero_centered: bool,
     has_inject: bool,
@@ -1117,25 +1133,56 @@ fn load_hyper_conn(
         &[Q38_HC_D],
         zero_centered,
     )?;
-    let down = Q4LinearGpu::from_sharded(
-        ctx,
-        st,
-        &format!("{prefix}.input_mix_weight_down"),
-        Q38_HC_LOW,
-        Q38_HC_D,
-    )?;
-    let up = Q4LinearGpu::from_sharded(
-        ctx,
-        st,
-        &format!("{prefix}.input_mix_weight_up"),
-        Q38_HC_D,
-        Q38_HC_LOW,
-    )?;
+    let down_name = format!("{prefix}.input_mix_weight_down");
+    let up_name = format!("{prefix}.input_mix_weight_up");
+    let inject_name = format!("{prefix}.block_inject_weight");
+    if st
+        .get(&format!("{down_name}.weight"))
+        .is_some_and(|t| t.dtype == "I8")
+    {
+        let mut lower = vec![(down_name.as_str(), Q38_HC_LOW)];
+        if has_inject {
+            lower.push((inject_name.as_str(), Q38_HC));
+        }
+        let DenseProjection::Q8 {
+            weights: down_weights,
+            scales: down_scales,
+            rows,
+            ..
+        } = DenseProjection::load(ctx, st, module, &lower, Q38_HC_D)?
+        else {
+            return Err(format!(
+                "expected Q8 down and injection matrices for {prefix}"
+            ));
+        };
+        let DenseProjection::Q8 {
+            weights: up_weights,
+            scales: up_scales,
+            ..
+        } = DenseProjection::load(ctx, st, module, &[(&up_name, Q38_HC_D)], Q38_HC_LOW)?
+        else {
+            return Err(format!("expected Q8 up matrix for {prefix}"));
+        };
+        return Ok(HyperConnGpu {
+            hc_norm,
+            projections: HyperProjections::Q8 {
+                down_weights,
+                down_scales,
+                up_weights,
+                up_scales,
+                rows,
+                down_kernel: module_function(ctx, module, "q38_hc_q8_down_inject")?,
+                up_kernel: module_function(ctx, module, "q38_hc_q8_up_mix")?,
+            },
+        });
+    }
+    let down = Q4LinearGpu::from_sharded(ctx, st, &down_name, Q38_HC_LOW, Q38_HC_D)?;
+    let up = Q4LinearGpu::from_sharded(ctx, st, &up_name, Q38_HC_D, Q38_HC_LOW)?;
     let inject = if has_inject {
         Some(Q4LinearGpu::from_sharded(
             ctx,
             st,
-            &format!("{prefix}.block_inject_weight"),
+            &inject_name,
             Q38_HC,
             Q38_HC_D,
         )?)
@@ -1144,9 +1191,7 @@ fn load_hyper_conn(
     };
     Ok(HyperConnGpu {
         hc_norm,
-        down,
-        up,
-        inject,
+        projections: HyperProjections::Q4 { down, up, inject },
     })
 }
 
@@ -1213,6 +1258,7 @@ impl Qwen38GpuEngine {
         let final_hc = load_hyper_conn(
             &ctx,
             &st,
+            fns._module,
             "language_model.model.hyper_connection_mixer",
             zero_centered,
             false,
@@ -1408,6 +1454,7 @@ impl Qwen38GpuEngine {
             let attn_hc = load_hyper_conn(
                 &ctx,
                 &st,
+                fns._module,
                 &format!("{lp}.attn_hyper_connection"),
                 zero_centered,
                 true,
@@ -1415,6 +1462,7 @@ impl Qwen38GpuEngine {
             let mlp_hc = load_hyper_conn(
                 &ctx,
                 &st,
+                fns._module,
                 &format!("{lp}.mlp_hyper_connection"),
                 zero_centered,
                 true,
@@ -2894,35 +2942,14 @@ impl Qwen38GpuEngine {
             "q38_hc_norm4",
         )?;
 
-        let (mut dw_p, mut dsc_p, mut dbi_p) = (hc.down.w.ptr, hc.down.sc.ptr, hc.down.bi.ptr);
-        let (mut iw_p, mut isc_p, mut ibi_p, mut has_inj) = if let Some(inj) = &hc.inject {
-            (inj.w.ptr, inj.sc.ptr, inj.bi.ptr, 1i32)
-        } else {
-            (0u64, 0u64, 0u64, 0i32)
-        };
-        let (mut low_p, mut inj4_p) = (self.d_hc_low.ptr, self.d_hc_inj4.ptr);
-        let grid_di = if has_inj == 1 { 81u32 } else { 80u32 };
-        let mut p_di =
-            kargs![dw_p, dsc_p, dbi_p, iw_p, isc_p, ibi_p, normed, low_p, inj4_p, has_inj];
-        self.launch_kern(
+        self.launch_hc_projections(
             stream,
-            self.fns.hc_down_inj_10k,
-            (grid_di, 1),
-            256,
-            &mut p_di,
-            "q38_hc_down_inj_10k",
-        )?;
-
-        let (mut uw_p, mut usc_p, mut ubi_p, mut mixed) =
-            (hc.up.w.ptr, hc.up.sc.ptr, hc.up.bi.ptr, self.d_mixed.ptr);
-        let mut p_um = kargs![uw_p, usc_p, ubi_p, low_p, normed, mixed];
-        self.launch_kern(
-            stream,
-            self.fns.hc_up_mix4,
-            (320, 1),
-            256,
-            &mut p_um,
-            "q38_hc_up_mix4",
+            hc,
+            normed,
+            self.d_hc_low.ptr,
+            self.d_hc_inj4.ptr,
+            self.d_mixed.ptr,
+            1,
         )
     }
 
@@ -3577,7 +3604,6 @@ impl Qwen38GpuEngine {
         b_count: usize,
     ) -> Result<(), String> {
         let b_u32 = b_count as u32;
-        let mut bc = b_count as i32;
         let (mut hc_in, mut gam, mut normed) =
             (bb.d_b_hc.ptr, hc.hc_norm.ptr, bb.d_b_hc_normed.ptr);
         let mut p_norm = kargs![hc_in, gam, normed];
@@ -3590,13 +3616,69 @@ impl Qwen38GpuEngine {
             "q38_hc_norm4_batch",
         )?;
 
-        let (mut dw_p, mut dsc_p, mut dbi_p) = (hc.down.w.ptr, hc.down.sc.ptr, hc.down.bi.ptr);
-        let (mut iw_p, mut isc_p, mut ibi_p, mut has_inj) = if let Some(inj) = &hc.inject {
+        self.launch_hc_projections(
+            stream,
+            hc,
+            normed,
+            bb.d_b_hc_low.ptr,
+            bb.d_b_hc_inj4.ptr,
+            bb.d_b_mixed.ptr,
+            b_count,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn launch_hc_projections(
+        &self,
+        stream: CUstream,
+        hc: &HyperConnGpu,
+        mut normed: CUdeviceptr,
+        mut low_p: CUdeviceptr,
+        mut inj4_p: CUdeviceptr,
+        mut mixed: CUdeviceptr,
+        b_count: usize,
+    ) -> Result<(), String> {
+        let b_u32 = b_count as u32;
+        let mut bc = b_count as i32;
+        let (down, up, inject) = match &hc.projections {
+            HyperProjections::Q4 { down, up, inject } => (down, up, inject),
+            HyperProjections::Q8 {
+                down_weights,
+                down_scales,
+                up_weights,
+                up_scales,
+                rows,
+                down_kernel,
+                up_kernel,
+            } => {
+                let (mut dw, mut ds, mut nr) = (down_weights.ptr, down_scales.ptr, *rows);
+                let mut args = kargs![dw, ds, normed, low_p, inj4_p, nr];
+                self.launch_kern(
+                    stream,
+                    *down_kernel,
+                    ((nr as u32).div_ceil(8), b_u32),
+                    256,
+                    &mut args,
+                    "q38_hc_q8_down_inject",
+                )?;
+                let (mut uw, mut us) = (up_weights.ptr, up_scales.ptr);
+                let mut args = kargs![uw, us, low_p, normed, mixed];
+                return self.launch_kern(
+                    stream,
+                    *up_kernel,
+                    ((Q38_D as u32).div_ceil(8), b_u32),
+                    256,
+                    &mut args,
+                    "q38_hc_q8_up_mix",
+                );
+            }
+        };
+        let (mut dw_p, mut dsc_p, mut dbi_p) = (down.w.ptr, down.sc.ptr, down.bi.ptr);
+        let (mut iw_p, mut isc_p, mut ibi_p, mut has_inj) = if let Some(inj) = inject {
             (inj.w.ptr, inj.sc.ptr, inj.bi.ptr, 1i32)
         } else {
             (0u64, 0u64, 0u64, 0i32)
         };
-        let (mut low_p, mut inj4_p) = (bb.d_b_hc_low.ptr, bb.d_b_hc_inj4.ptr);
         if b_count == 1 {
             let grid_di = if has_inj == 1 { 81u32 } else { 80u32 };
             let mut p_di =
@@ -3609,8 +3691,7 @@ impl Qwen38GpuEngine {
                 &mut p_di,
                 "q38_hc_down_inj_10k",
             )?;
-            let (mut uw_p, mut usc_p, mut ubi_p, mut mixed) =
-                (hc.up.w.ptr, hc.up.sc.ptr, hc.up.bi.ptr, bb.d_b_mixed.ptr);
+            let (mut uw_p, mut usc_p, mut ubi_p) = (up.w.ptr, up.sc.ptr, up.bi.ptr);
             let mut p_um = kargs![uw_p, usc_p, ubi_p, low_p, normed, mixed];
             return self.launch_kern(
                 stream,
@@ -3633,8 +3714,7 @@ impl Qwen38GpuEngine {
                 &mut p_di,
                 "q38_hc_down_inj_10k_b2",
             )?;
-            let (mut uw_p, mut usc_p, mut ubi_p, mut mixed) =
-                (hc.up.w.ptr, hc.up.sc.ptr, hc.up.bi.ptr, bb.d_b_mixed.ptr);
+            let (mut uw_p, mut usc_p, mut ubi_p) = (up.w.ptr, up.sc.ptr, up.bi.ptr);
             let mut p_um = kargs![uw_p, usc_p, ubi_p, low_p, normed, mixed];
             return self.launch_kern(
                 stream,
@@ -3658,8 +3738,7 @@ impl Qwen38GpuEngine {
             "q38_hc_down_inj_10k_b4",
         )?;
 
-        let (mut uw_p, mut usc_p, mut ubi_p, mut mixed) =
-            (hc.up.w.ptr, hc.up.sc.ptr, hc.up.bi.ptr, bb.d_b_mixed.ptr);
+        let (mut uw_p, mut usc_p, mut ubi_p) = (up.w.ptr, up.sc.ptr, up.bi.ptr);
         let grid_b8 = b_u32.div_ceil(8);
         let mut p_um = kargs![uw_p, usc_p, ubi_p, low_p, normed, mixed, bc];
         self.launch_kern(
