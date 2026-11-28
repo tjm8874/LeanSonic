@@ -13,7 +13,14 @@ All 991 other tensor payloads and the tokenizer were checked on readback. A seco
 
 On RTX PRO 4500, the prefix parent, converted prefix and converted seven-bit package have identical full-vocabulary fingerprints and score rows on 1,530 positions. The converted seven-bit model gave the same rows on RTX 5070 Ti and RTX 5060 Ti. Mean KL versus BF16 was 0.00859703, worst KL 0.63976597, top-1 agreement 1,469/1,530 and PPL 6.564087. Each GPU kept all 24 expert layers resident.
 
-On the RTX 5070 Ti, the converted seven-bit package also reproduced the five-bit reference's entire 25,500-row test file on RTX PRO 4500. Test mean KL was 0.00774813, worst KL 1.46204035, top-1 agreement 24,537/25,500 and PPL 7.083731. [Score records and row hashes](quality.json).
+Both complete BF16 splits reproduced every byte of the respective five-bit score file from RTX PRO 4500, including all 51,000 full-vocabulary fingerprints.
+
+| Split | Converted seven-bit GPU | Positions | Mean KL | Worst KL | BF16 top-1 agreement | Model PPL | BF16 PPL |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Test | RTX 5070 Ti | 25,500 | 0.00774813 | 1.46204035 | 24,537 (96.22%) | 7.083731 | 7.064408 |
+| Validation | RTX 5060 Ti | 25,500 | 0.00695275 | 0.74467143 | 24,645 (96.65%) | 6.530797 | 6.498589 |
+
+Each split uses 100 chunks of 512 tokens and scores the last 255 transitions per chunk. [Score records and row hashes](quality.json).
 
 | Converted seven-bit package | Prefill tok/s | Decode tok/s | Sampled peak GPU bytes |
 | --- | ---: | ---: | ---: |
