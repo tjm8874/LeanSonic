@@ -1,0 +1,19 @@
+{
+  "parent_shard_plus_tokenizer_bytes": 19529405662,
+  "package_bytes": 19353437702,
+  "files": {
+    "model-00001-of-00001.safetensors": {
+      "bytes": 19350051208,
+      "sha256": "a920fb9f86d46c99fbb34549b7a0d9879fedeacfde64af7a299b7c0b6c89d7bc"
+    },
+    "tiktoken/tokenizer.model": {
+      "bytes": 3386494,
+      "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+    }
+  },
+  "unchanged_tensor_count": 1220,
+  "changed_w_o_planes": 24,
+  "fitted_codes_changed": 16285113,
+  "train_loss_ratio": 0.558246122141184,
+  "heldout_train_loss_ratio": 0.6466931888873264
+}

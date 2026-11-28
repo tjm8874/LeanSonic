@@ -1,0 +1,16 @@
+{
+  "files": {
+    "model-00001-of-00001.safetensors": {
+      "bytes": 13403806898,
+      "sha256": "240faa710451b1d311f3648cd5cc22b2952ae47a569c41b77037f0718b76e20c"
+    },
+    "tiktoken/tokenizer.model": {
+      "bytes": 3386494,
+      "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+    }
+  },
+  "size": 13407193392,
+  "retained_tensors": 975,
+  "changed_codes": 24,
+  "identical_scale_frames": 24
+}

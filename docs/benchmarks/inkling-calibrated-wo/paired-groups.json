@@ -1,0 +1,116 @@
+{
+  "package": {
+    "parent_shard_plus_tokenizer_bytes": 19529405662,
+    "package_bytes": 19353443862,
+    "files": {
+      "model-00001-of-00001.safetensors": {
+        "bytes": 19350057368,
+        "sha256": "2c763656acfeba6b7f9cfe17a35f4ce71ac4d94a202a2697aec7733fe1f094ac"
+      },
+      "tiktoken/tokenizer.model": {
+        "bytes": 3386494,
+        "sha256": "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+      }
+    },
+    "unchanged_tensor_count": 1220,
+    "changed_w_o_planes": 24,
+    "fitted_codes_changed": 20637939,
+    "train_loss_ratio": 0.45085019483296773,
+    "heldout_train_loss_ratio": 0.577232725640247
+  },
+  "heldout_pair_over_single": 0.8925956421324922,
+  "improved_heldout_layers": 24,
+  "scores": {
+    "test": {
+      "current": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.070717629715633,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.003204114040072325,
+        "median_kld": 0.0012665021175253576,
+        "p99_kld": 0.031098084375851702,
+        "max_kld": 0.6763078633251646,
+        "start_chunk": 0,
+        "max_kld_chunk": 36,
+        "max_kld_position": 375,
+        "ref_floor_targets": 14,
+        "top1_matches": 24896,
+        "top1_agreement": 0.9763137254901961
+      },
+      "trial": {
+        "chunks": 100,
+        "context": 512,
+        "rows": 25500,
+        "ppl": 7.074722850867182,
+        "ref_ppl": 7.064408191101908,
+        "mean_kld": 0.0031873691570277834,
+        "median_kld": 0.0012593856425088309,
+        "p99_kld": 0.031789159942749,
+        "max_kld": 0.974529469927754,
+        "start_chunk": 0,
+        "max_kld_chunk": 36,
+        "max_kld_position": 319,
+        "ref_floor_targets": 14,
+        "top1_matches": 24894,
+        "top1_agreement": 0.9762352941176471
+      },
+      "paired": {
+        "parent_rows_sha256": "ae918413773daa0c56abe9095233e87596b560ea13dbc118110eeed9ae7ba6ef",
+        "trial_rows_sha256": "e93611b6622768e786e8d00747e867b37aa485a0ed6729b6ee5a678354421c5b",
+        "chunks_with_lower_mean_kl": 55,
+        "chunks_with_higher_mean_kl": 45,
+        "paired_chunk_effects": {
+          "mean_kl_delta": {
+            "trial_vs_parent": -1.6744883045372543e-05,
+            "percentile_95": [
+              -0.00017553856692611758,
+              0.00014061917305709798
+            ]
+          },
+          "relative_ppl_change": {
+            "trial_vs_parent": 0.0005664518598095695,
+            "percentile_95": [
+              -0.000560069309289343,
+              0.0016882590722259768
+            ]
+          },
+          "top1_fraction_delta": {
+            "trial_vs_parent": -7.843137254901961e-05,
+            "percentile_95": [
+              -0.00203921568627451,
+              0.0017647058823529412
+            ]
+          }
+        },
+        "parent_worst": {
+          "chunk": 36,
+          "position": 375,
+          "kl": [
+            0.676307863325,
+            0.283437965299
+          ],
+          "top1": [
+            220,
+            220
+          ]
+        },
+        "trial_worst": {
+          "chunk": 36,
+          "position": 319,
+          "kl": [
+            0.112166329805,
+            0.974529469928
+          ],
+          "top1": [
+            149876,
+            149876
+          ]
+        },
+        "same_top1": 24917,
+        "identical_fingerprints": 0
+      }
+    }
+  }
+}

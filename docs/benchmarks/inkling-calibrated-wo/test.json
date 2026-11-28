@@ -1,0 +1,91 @@
+{
+  "current": {
+    "chunks": 100,
+    "context": 512,
+    "rows": 25500,
+    "ppl": 7.070717629715633,
+    "ref_ppl": 7.064408191101908,
+    "mean_kld": 0.003204114040072325,
+    "median_kld": 0.0012665021175253576,
+    "p99_kld": 0.031098084375851702,
+    "max_kld": 0.6763078633251646,
+    "start_chunk": 0,
+    "max_kld_chunk": 36,
+    "max_kld_position": 375,
+    "ref_floor_targets": 14,
+    "top1_matches": 24896,
+    "top1_agreement": 0.9763137254901961
+  },
+  "trial": {
+    "chunks": 100,
+    "context": 512,
+    "rows": 25500,
+    "ppl": 7.072905602241228,
+    "ref_ppl": 7.064408191101908,
+    "mean_kld": 0.0031258692150254006,
+    "median_kld": 0.0012077253539815452,
+    "p99_kld": 0.030448182887895567,
+    "max_kld": 0.6594752972164066,
+    "start_chunk": 0,
+    "max_kld_chunk": 69,
+    "max_kld_position": 353,
+    "ref_floor_targets": 14,
+    "top1_matches": 24908,
+    "top1_agreement": 0.9767843137254902
+  },
+  "paired": {
+    "parent_rows_sha256": "ae918413773daa0c56abe9095233e87596b560ea13dbc118110eeed9ae7ba6ef",
+    "trial_rows_sha256": "3e4f8a14d35c860305fb1cad7fda4884473b6193c782692a45660e0a23c8025a",
+    "chunks_with_lower_mean_kl": 55,
+    "chunks_with_higher_mean_kl": 45,
+    "paired_chunk_effects": {
+      "mean_kl_delta": {
+        "trial_vs_parent": -7.824482504564703e-05,
+        "percentile_95": [
+          -0.000218520106399098,
+          6.325361394333333e-05
+        ]
+      },
+      "relative_ppl_change": {
+        "trial_vs_parent": 0.0003094413665164979,
+        "percentile_95": [
+          -0.0008278995440900485,
+          0.0014692491202764207
+        ]
+      },
+      "top1_fraction_delta": {
+        "trial_vs_parent": 0.00047058823529411766,
+        "percentile_95": [
+          -0.0013333333333333333,
+          0.002235294117647059
+        ]
+      }
+    },
+    "parent_worst": {
+      "chunk": 36,
+      "position": 375,
+      "kl": [
+        0.676307863325,
+        0.326483103017
+      ],
+      "top1": [
+        220,
+        220
+      ]
+    },
+    "trial_worst": {
+      "chunk": 69,
+      "position": 353,
+      "kl": [
+        0.608355299862,
+        0.659475297216
+      ],
+      "top1": [
+        1057,
+        1057
+      ]
+    },
+    "same_top1": 24926,
+    "identical_fingerprints": 0
+  }
+}
