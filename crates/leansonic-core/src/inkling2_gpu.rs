@@ -11286,7 +11286,7 @@ mod tests {
         }
 
         #[test]
-        #[ignore = "requires a CUDA device; run under compute-sanitizer --tool memcheck"]
+        #[ignore = "requires a CUDA device; run under compute-sanitizer --tool memcheck --padding 65536"]
         fn exact_size_q8_readers_match_cpu() -> Result<(), String> {
             let ctx = CudaContextHandle::init(0)?;
             let m = module(&ctx)?;
@@ -11466,7 +11466,7 @@ mod tests {
         }
 
         #[test]
-        #[ignore = "requires a CUDA device; run under compute-sanitizer --tool memcheck"]
+        #[ignore = "requires a CUDA device; run under compute-sanitizer --tool memcheck --padding 65536"]
         fn exact_size_dflash2_kernels_match_cpu() -> Result<(), String> {
             let ctx = CudaContextHandle::init(0)?;
             let k = load_dflash2_kernels(&ctx)?;
@@ -11802,15 +11802,442 @@ mod tests {
             Ok(())
         }
 
+        /// `LEANSONIC_EXACT_ONLY=<kernel>` launches only that kernel, so a planted-fault run
+        /// shows each kernel's own report (the first fault stops later launches).
+        fn only() -> Option<String> {
+            std::env::var("LEANSONIC_EXACT_ONLY").ok()
+        }
+
+        /// Launches kernel `name` with dynamic shared memory on a 3-D grid.
+        #[allow(clippy::too_many_arguments)]
+        fn run_smem(
+            ctx: &Arc<CudaContextHandle>,
+            m: CUmodule,
+            name: &str,
+            grid: (u32, u32, u32),
+            block: u32,
+            smem: u32,
+            attr: i32,
+            args: &mut [*mut c_void],
+        ) -> Result<(), String> {
+            if only().is_some_and(|k| k != name) {
+                return Ok(());
+            }
+            let f = func(ctx, m, name)?;
+            unsafe {
+                // CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES = 8, as at engine load.
+                check_cu((ctx.api.cuFuncSetAttribute)(f, 8, attr), "smem attr")?;
+                check_cu(
+                    (ctx.api.cuLaunchKernel)(
+                        f,
+                        grid.0,
+                        grid.1,
+                        grid.2,
+                        block,
+                        1,
+                        1,
+                        smem,
+                        ctx.compute_stream,
+                        args.as_mut_ptr(),
+                        core::ptr::null_mut(),
+                    ),
+                    "launch",
+                )?;
+            }
+            ctx.sync_compute()
+        }
+
+        /// FP16 values in (-2, 2), as raw bits.
+        fn halves(rng: &mut Lcg, n: usize) -> Vec<u8> {
+            (0..n)
+                .flat_map(|_| ((rng.next() & 0xBBFF) as u16).to_le_bytes())
+                .collect()
+        }
+
+        /// The Tensor Core FlashAttention kernels (unsplit, split-KV, 80-query split, and the
+        /// split combine) on exact-size buffers: `B = 70` queries (one full 64-row tile and a
+        /// 6-row tail), Q rows ending at the last row's sink logit, and KV caches holding exactly
+        /// the rows the batch reads — `base + B` for the full-attention layer, a wrapped
+        /// `EXTENT + EXPERT_PAGE` ring for the sliding-window layer. `short` removes rows from the
+        /// end of the full-attention caches (the planted fault). The split + combine outputs are
+        /// also checked against the unsplit kernel.
+        fn flash_cases(ctx: &Arc<CudaContextHandle>, short: usize) -> Result<(), String> {
+            let m = module(ctx)?;
+            let mut rng = Lcg(29);
+            let b = 70usize;
+            let qrgs: Vec<f32> = (0..(b - 1) * SWA_ALL_ROWS + QRGS_ROWS)
+                .map(|_| rng.unit() * 0.5 - 0.25)
+                .collect();
+            let qrgs = f32s(ctx, &qrgs)?;
+            let rel: Vec<u8> = (0..16 * 512)
+                .flat_map(|_| (rng.next() & 0xBE7F_BE7F).to_le_bytes())
+                .collect();
+            let rel = DeviceBuf::from_host_bytes(ctx, &rel)?;
+            let out_q8 = DeviceBuf::alloc_zeroed(ctx, b * 768 * 4)?;
+            let out_sc = DeviceBuf::alloc_zeroed(ctx, b * 48 * 4)?;
+            let tiles = (b as u32).div_ceil(64);
+            let mut bi = b as i32;
+            let mut qstride = SWA_ALL_ROWS as i32;
+            let read_out = |n: usize, buf: &DeviceBuf| -> Result<Vec<f32>, String> {
+                let mut v = vec![0.0f32; n];
+                buf.copy_to_host_f32(&mut v)?;
+                Ok(v)
+            };
+            let mut reference: Option<(Vec<f32>, Vec<f32>)> = None;
+            for (global, base) in [(true, 200usize), (false, 3000)] {
+                let cap = if global {
+                    base + b
+                } else {
+                    EXTENT + EXPERT_PAGE
+                };
+                let rows = if global { cap - short } else { cap };
+                let pos = i32s(ctx, &[base as i32])?;
+                let kc = DeviceBuf::from_host_bytes(ctx, &halves(&mut rng, rows * 1024))?;
+                let vc = DeviceBuf::from_host_bytes(ctx, &halves(&mut rng, rows * 1024))?;
+                let k8 = noise(ctx, &mut rng, rows * 1024)?;
+                let v8 = noise(ctx, &mut rng, rows * 1024)?;
+                let ks = f32s(ctx, &vec![0.01; rows * 8])?;
+                let vs = f32s(ctx, &vec![0.01; rows * 8])?;
+                let (mut pq, mut pr, mut pp, mut po, mut psc) =
+                    (qrgs.ptr, rel.ptr, pos.ptr, out_q8.ptr, out_sc.ptr);
+                let (mut pcap, mut pig) = (cap as i32, i32::from(global));
+                let (mut pk, mut pv) = (kc.ptr, vc.ptr);
+                run_smem(
+                    ctx,
+                    m,
+                    "ink2_flash_attn_tc_q8_b",
+                    (8, tiles, 1),
+                    384,
+                    64_384,
+                    64_512,
+                    &mut args![pq, qstride, pr, pk, pv, pp, pcap, pig, bi, po, psc],
+                )
+                .map_err(|e| format!("tc_q8_b (global {global}): {e}"))?;
+                if global {
+                    reference = Some((read_out(b * 768, &out_q8)?, read_out(b * 48, &out_sc)?));
+                }
+                let (mut pk8, mut pv8, mut pks, mut pvs) = (k8.ptr, v8.ptr, ks.ptr, vs.ptr);
+                run_smem(
+                    ctx,
+                    m,
+                    "ink2_flash_attn_tc_q8_b_i8",
+                    (8, tiles, 1),
+                    384,
+                    63_872,
+                    64_512,
+                    &mut args![pq, qstride, pr, pk8, pv8, pks, pvs, pp, pcap, pig, bi, po, psc],
+                )
+                .map_err(|e| format!("tc_q8_b_i8 (global {global}): {e}"))?;
+                if !global {
+                    continue;
+                }
+                // Split-KV paths (full-attention layers only), each followed by the combine.
+                let splits = 3usize;
+                let part_o = DeviceBuf::alloc_zeroed(ctx, splits * b * N_HEAD * 64 * 4)?;
+                let part_ml = DeviceBuf::alloc_zeroed(ctx, splits * b * N_HEAD * 8)?;
+                let (mut ppo, mut pml) = (part_o.ptr, part_ml.ptr);
+                for name in [
+                    "ink2_flash_attn_tc_split_b",
+                    "ink2_flash_attn_tc_split80_b",
+                    "ink2_flash_attn_tc_split_b_i8",
+                ] {
+                    match name {
+                        "ink2_flash_attn_tc_split_b" => run_smem(
+                            ctx,
+                            m,
+                            name,
+                            (8, tiles, splits as u32),
+                            384,
+                            64_384,
+                            64_512,
+                            &mut args![pq, qstride, pr, pk, pv, pp, pcap, pig, bi, ppo, pml],
+                        ),
+                        "ink2_flash_attn_tc_split80_b" => run_smem(
+                            ctx,
+                            m,
+                            name,
+                            ((b as u32).div_ceil(80), 8, splits as u32),
+                            480,
+                            99_920,
+                            100_352,
+                            &mut args![pq, qstride, pr, pk, pv, pp, bi, ppo, pml],
+                        ),
+                        _ => run_smem(
+                            ctx,
+                            m,
+                            name,
+                            (8, tiles, splits as u32),
+                            384,
+                            63_872,
+                            64_512,
+                            &mut args![
+                                pq, qstride, pr, pk8, pv8, pks, pvs, pp, pcap, pig, bi, ppo, pml
+                            ],
+                        ),
+                    }
+                    .map_err(|e| format!("{name}: {e}"))?;
+                    let mut n_sp = splits as i32;
+                    run_smem(
+                        ctx,
+                        m,
+                        "ink2_flash_attn_split_combine_q8_b",
+                        (N_HEAD as u32, b as u32, 1),
+                        64,
+                        0,
+                        0,
+                        &mut args![ppo, pml, pq, qstride, bi, n_sp, po, psc],
+                    )
+                    .map_err(|e| format!("combine after {name}: {e}"))?;
+                    if name.ends_with("_i8") || short > 0 || only().is_some() {
+                        continue;
+                    }
+                    // Same FP16 cache: the combined split result matches the unsplit kernel
+                    // up to the partial-sum rounding (scales within 1%, codes within 2).
+                    let (want_q8, want_sc) = reference.as_ref().unwrap();
+                    let got_sc = read_out(b * 48, &out_sc)?;
+                    for (i, (&g, &w)) in got_sc.iter().zip(want_sc).enumerate() {
+                        if (g - w).abs() > 1e-2 * w.abs() + 1e-6 {
+                            return Err(format!("{name}: scale {i}: got {g}, want {w}"));
+                        }
+                    }
+                    let got_q8 = read_out(b * 768, &out_q8)?;
+                    for (i, (g, w)) in got_q8.iter().zip(want_q8).enumerate() {
+                        let (g, w) = (g.to_bits().to_le_bytes(), w.to_bits().to_le_bytes());
+                        for j in 0..4 {
+                            let d = (g[j] as i8 as i32 - w[j] as i8 as i32).abs();
+                            if d > 2 {
+                                return Err(format!("{name}: code {}: diff {d}", i * 4 + j));
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        /// The grouped Tensor Core prefill MoE kernels (NVFP4 / ternary with an `exp_begin ..
+        /// exp_end` expert window, MXFP8 raw / 4-bit indexed, raw / packed scales, 128- and
+        /// 160-token tiles) on exact-size buffers. The routing puts tails on every tile size:
+        /// expert 127 (the last) gets 161 pairs (pages 0..2 of the `[page, expert, 64]` map),
+        /// expert 126 gets 65, and experts 0, 5 and 120 a few each. Activations are exactly the
+        /// `P = 237` sorted pairs (`B = 40` tokens for the MXFP8 gate/up input), the weight
+        /// planes exactly the experts the window holds. `short` drops experts from the end of
+        /// the weight planes (the planted fault). Only the sanitizer verdict matters (zero
+        /// weights); the launches must succeed.
+        fn tc_moe_cases(ctx: &Arc<CudaContextHandle>, short: usize) -> Result<(), String> {
+            let m = module(ctx)?;
+            let mut rng = Lcg(31);
+            let (d, ff, e) = (D, FF, N_EXP);
+            let counts_h: Vec<(usize, usize)> =
+                vec![(0, 1), (5, 3), (120, 7), (126, 65), (127, 161)];
+            let tokens = 40usize;
+            let mut counts = vec![0i32; e];
+            let pages = 3usize;
+            let mut toks = vec![0i32; pages * e * 64];
+            let mut pairs_map = vec![0i32; pages * e * 64];
+            let mut sorted = 0usize;
+            for &(ex, c) in &counts_h {
+                counts[ex] = c as i32;
+                for occ in 0..c {
+                    let at = ((occ / 64) * e + ex) * 64 + occ % 64;
+                    toks[at] = (sorted % tokens) as i32;
+                    pairs_map[at] = sorted as i32;
+                    sorted += 1;
+                }
+            }
+            let p = sorted;
+            let (cnt, tok, pair) = (
+                i32s(ctx, &counts)?,
+                i32s(ctx, &toks)?,
+                i32s(ctx, &pairs_map)?,
+            );
+            let zeros = |n: usize| DeviceBuf::alloc_zeroed(ctx, n);
+            let a = f32s(ctx, &vec![1.0; e])?;
+            let up_out = zeros(p * ff * 4)?;
+            let dn_out = zeros(p * d * 2)?;
+            // NVFP4 / ternary: sorted 2-term activations, `[P, 144 | 72]` u128 codes,
+            // `[P, 36 | 18]` uint2 scales, `[P]` global scales.
+            let (xc, xs, xg) = (
+                zeros(p * 144 * 16)?,
+                zeros(p * 36 * 8)?,
+                f32s(ctx, &vec![1.0; p])?,
+            );
+            let (ac, asc, ag) = (
+                zeros(p * 72 * 16)?,
+                zeros(p * 18 * 8)?,
+                f32s(ctx, &vec![1.0; p])?,
+            );
+            for (begin, end) in [(0usize, e), (120, e)] {
+                let local = end - begin - short;
+                for (fam, sfx, ternary) in [
+                    ("nvfp4", "", false),
+                    ("nvfp4", "_packed_scales", false),
+                    ("ternary", "_packed_scales", true),
+                ] {
+                    let packed = !sfx.is_empty();
+                    let code_bytes = if ternary { 8 } else { 16 };
+                    let w13 = zeros(local * 2 * ff * 72 * code_bytes)?;
+                    let w2 = zeros(local * d * 36 * code_bytes)?;
+                    let s13 = if packed {
+                        noise(ctx, &mut rng, packed_scale_bytes(e * 2 * ff * 144, 6))?
+                    } else {
+                        noise(ctx, &mut rng, e * 2 * ff * 36 * 4)?
+                    };
+                    let s2 = if packed {
+                        noise(ctx, &mut rng, packed_scale_bytes(e * d * 72, 6))?
+                    } else {
+                        noise(ctx, &mut rng, e * d * 18 * 4)?
+                    };
+                    for (t, gx, block, tile, smem, attr) in [
+                        ("", 9u32, 512u32, 128usize, 62_480u32, 62_976i32),
+                        ("_t160", 12, 384, 160, 57_616, 58_112),
+                    ] {
+                        let grid = (gx, (p.div_ceil(tile) + e) as u32, 1);
+                        let (mut eb, mut ee) = (begin as i32, end as i32);
+                        let name = format!("ink2_moe_{fam}_tc_up_situ{t}{sfx}");
+                        let (mut pw, mut ps, mut pa) = (w13.ptr, s13.ptr, a.ptr);
+                        let (mut px, mut pxs, mut pxg) = (xc.ptr, xs.ptr, xg.ptr);
+                        let (mut pc, mut pt, mut pp, mut po) =
+                            (cnt.ptr, tok.ptr, pair.ptr, up_out.ptr);
+                        run_smem(
+                            ctx,
+                            m,
+                            &name,
+                            grid,
+                            block,
+                            smem,
+                            attr,
+                            &mut args![pw, ps, pa, px, pxs, pxg, pc, pt, pp, eb, ee, po],
+                        )
+                        .map_err(|e| format!("{name} [{begin}, {end}): {e}"))?;
+                        let name = format!("ink2_moe_{fam}_tc_down{t}{sfx}");
+                        let (mut pw, mut ps) = (w2.ptr, s2.ptr);
+                        let (mut px, mut pxs, mut pxg) = (ac.ptr, asc.ptr, ag.ptr);
+                        let mut po = dn_out.ptr;
+                        run_smem(
+                            ctx,
+                            m,
+                            &name,
+                            grid,
+                            block,
+                            smem,
+                            attr,
+                            &mut args![pw, ps, pa, px, pxs, pxg, pc, pp, eb, ee, po],
+                        )
+                        .map_err(|e| format!("{name} [{begin}, {end}): {e}"))?;
+                    }
+                }
+            }
+            // MXFP8: all 128 experts, gate/up input `[B, 144]` u128 + `[B, 18]` u32 scales,
+            // down input `[P, 72]` u128 + `[P, 9]` u32 scales.
+            let local = e - short;
+            let (x8, x8s) = (zeros(tokens * 144 * 16)?, zeros(tokens * 18 * 4)?);
+            let (a8, a8s) = (zeros(p * 72 * 16)?, zeros(p * 9 * 4)?);
+            for (u4, sfx) in [
+                ("", ""),
+                ("", "_packed_scales"),
+                ("_u4", ""),
+                ("_u4", "_packed_scales"),
+            ] {
+                // Indexed planes: a 16-byte table, then 8 bytes per 16 logical codes.
+                let plane = |rows: usize, u128s: usize| {
+                    if u4.is_empty() {
+                        zeros(local * rows * u128s * 16)
+                    } else {
+                        zeros(16 + local * rows * u128s * 8)
+                    }
+                };
+                let (w13, w2) = (plane(2 * ff, 144)?, plane(d, 72)?);
+                let packed = !sfx.is_empty();
+                let s13 = if packed {
+                    noise(ctx, &mut rng, packed_scale_bytes(e * 2 * ff * 72, 3))?
+                } else {
+                    noise(ctx, &mut rng, e * 2 * ff * 18 * 4)?
+                };
+                let s2 = if packed {
+                    noise(ctx, &mut rng, packed_scale_bytes(e * d * 36, 3))?
+                } else {
+                    noise(ctx, &mut rng, e * d * 9 * 4)?
+                };
+                for (t, block, tile, smem, attr) in [
+                    ("", 512u32, 128usize, 77_840u32, 78_336i32),
+                    ("_t160", 256, 160, 87_568, 88_064),
+                ] {
+                    let grid = (18u32, (p.div_ceil(tile) + e) as u32, 1);
+                    let name = format!("ink2_moe_mxfp8_tc_up_situ{t}{u4}{sfx}");
+                    let (mut pw, mut ps, mut px, mut pxs) = (w13.ptr, s13.ptr, x8.ptr, x8s.ptr);
+                    let (mut pc, mut pt, mut pp, mut po) = (cnt.ptr, tok.ptr, pair.ptr, up_out.ptr);
+                    run_smem(
+                        ctx,
+                        m,
+                        &name,
+                        grid,
+                        block,
+                        smem,
+                        attr,
+                        &mut args![pw, ps, px, pxs, pc, pt, pp, po],
+                    )
+                    .map_err(|e| format!("{name}: {e}"))?;
+                    let name = format!("ink2_moe_mxfp8_tc_down{t}{u4}{sfx}");
+                    let (mut pw, mut ps, mut px, mut pxs) = (w2.ptr, s2.ptr, a8.ptr, a8s.ptr);
+                    let mut po = dn_out.ptr;
+                    run_smem(
+                        ctx,
+                        m,
+                        &name,
+                        grid,
+                        block,
+                        smem,
+                        attr,
+                        &mut args![pw, ps, px, pxs, pc, pp, po],
+                    )
+                    .map_err(|e| format!("{name}: {e}"))?;
+                }
+            }
+            Ok(())
+        }
+
         #[test]
-        #[ignore = "requires a CUDA device; run under compute-sanitizer --tool memcheck"]
+        #[ignore = "requires a CUDA device; run under compute-sanitizer --tool memcheck --padding 65536"]
+        fn exact_size_tc_moe_prefill_kernels() -> Result<(), String> {
+            let ctx = CudaContextHandle::init(0)?;
+            tc_moe_cases(&ctx, 0)
+        }
+
+        #[test]
+        #[ignore = "planted fault: memcheck --padding 65536 must report an out-of-bounds read"]
+        fn exact_size_tc_moe_red_control_overread() -> Result<(), String> {
+            let ctx = CudaContextHandle::init(0)?;
+            // Weight planes one expert short of the window: expert 127 reads past the end.
+            let _ = tc_moe_cases(&ctx, 1);
+            Ok(())
+        }
+
+        #[test]
+        #[ignore = "requires a CUDA device; run under compute-sanitizer --tool memcheck --padding 65536"]
+        fn exact_size_flash_attention_kernels() -> Result<(), String> {
+            let ctx = CudaContextHandle::init(0)?;
+            flash_cases(&ctx, 0)
+        }
+
+        #[test]
+        #[ignore = "planted fault: memcheck --padding 65536 must report an out-of-bounds read"]
+        fn exact_size_flash_red_control_overread() -> Result<(), String> {
+            let ctx = CudaContextHandle::init(0)?;
+            // Full-attention caches one row short of `base + B`.
+            let _ = flash_cases(&ctx, 1);
+            Ok(())
+        }
+
+        #[test]
+        #[ignore = "requires a CUDA device; run under compute-sanitizer --tool memcheck --padding 65536"]
         fn exact_size_moe_decode_kernels() -> Result<(), String> {
             let ctx = CudaContextHandle::init(0)?;
             moe_cases(&ctx, 9, [8, 0, 3, 8, 1, 7, 2, 5])
         }
 
         #[test]
-        #[ignore = "planted fault: memcheck must report an out-of-bounds read"]
+        #[ignore = "planted fault: memcheck --padding 65536 must report an out-of-bounds read"]
         fn exact_size_moe_red_control_overread() -> Result<(), String> {
             let ctx = CudaContextHandle::init(0)?;
             // Expert planes for 8 experts, routed to a ninth.
@@ -11819,7 +12246,7 @@ mod tests {
         }
 
         #[test]
-        #[ignore = "planted fault: memcheck must report an out-of-bounds read"]
+        #[ignore = "planted fault: memcheck --padding 65536 must report an out-of-bounds read"]
         fn exact_size_red_control_overread() -> Result<(), String> {
             let ctx = CudaContextHandle::init(0)?;
             let m = module(&ctx)?;
