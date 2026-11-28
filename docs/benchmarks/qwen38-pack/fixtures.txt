@@ -1,0 +1,4 @@
+The office opens on Monday. The office closes on Friday.
+朝の電車で東京駅に着きました。東京駅から次の電車に乗ります。
+def add(a, b): return a + b
+The code is raven seven. Repeat the code: raven seven.

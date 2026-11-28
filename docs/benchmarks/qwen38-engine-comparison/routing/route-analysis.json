@@ -1,0 +1,42 @@
+{
+  "slot_bytes": 3072000,
+  "capacity": 9216,
+  "calibration_cases": 4,
+  "holdout_cases": 4,
+  "generated_tokens_per_case": 32,
+  "decode_steps_scored_per_case": 31,
+  "train_observed_distinct": 11294,
+  "samples": [
+    {
+      "case": 4,
+      "total": 14880,
+      "stock": 5580,
+      "calibrated": 12958,
+      "equal_layer_quota": 12974
+    },
+    {
+      "case": 5,
+      "total": 14880,
+      "stock": 5580,
+      "calibrated": 12376,
+      "equal_layer_quota": 12326
+    },
+    {
+      "case": 6,
+      "total": 14880,
+      "stock": 5580,
+      "calibrated": 8023,
+      "equal_layer_quota": 8020
+    },
+    {
+      "case": 7,
+      "total": 14880,
+      "stock": 5580,
+      "calibrated": 10470,
+      "equal_layer_quota": 10542
+    }
+  ],
+  "stock_holdout_hit_fraction": 0.375,
+  "calibrated_holdout_hit_fraction": 0.7363407258064516,
+  "equal_layer_quota_holdout_hit_fraction": 0.7369287634408602
+}

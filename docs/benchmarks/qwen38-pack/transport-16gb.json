@@ -1,0 +1,46 @@
+{
+  "engine_commit": "9b3e4f2aabc5e33e73b34e0aea8e031b48aba0fe",
+  "reference_gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+  "reference": "original Q4",
+  "candidate": "transport-restored Q4",
+  "devices": {
+    "RTX 5070 Ti 16 GB": {
+      "rows": 49,
+      "vocabulary": 248320,
+      "mean_kl": 0.0,
+      "max_kl": 0.0,
+      "worst_case_position": [
+        0,
+        0
+      ],
+      "top1_matches": 49,
+      "byte_equal_rows": 49,
+      "reference_ppl": 52.99062111363452,
+      "candidate_ppl": 52.99062111363452,
+      "reference_sha256": "f87fd5d143fe17242c6d6e7af11345a30c3a13605647a8943d795c81883bde37",
+      "candidate_sha256": "f87fd5d143fe17242c6d6e7af11345a30c3a13605647a8943d795c81883bde37",
+      "canary_cases": 4,
+      "matching_canaries": 4,
+      "engine_load": "[Qwen38GpuEngine] Loaded model (22 shards, zero_norm=true, graph=true) on NVIDIA GeForce RTX 5070 Ti in 1372.96s | Experts: 7/48 VRAM + 41/48 HostPinned + 0/48 MmapCompact + 29.8GiB Async Engram"
+    },
+    "RTX 5060 Ti 16 GB": {
+      "rows": 49,
+      "vocabulary": 248320,
+      "mean_kl": 0.0,
+      "max_kl": 0.0,
+      "worst_case_position": [
+        0,
+        0
+      ],
+      "top1_matches": 49,
+      "byte_equal_rows": 49,
+      "reference_ppl": 52.99062111363452,
+      "candidate_ppl": 52.99062111363452,
+      "reference_sha256": "f87fd5d143fe17242c6d6e7af11345a30c3a13605647a8943d795c81883bde37",
+      "candidate_sha256": "f87fd5d143fe17242c6d6e7af11345a30c3a13605647a8943d795c81883bde37",
+      "canary_cases": 4,
+      "matching_canaries": 4,
+      "engine_load": "[Qwen38GpuEngine] Loaded model (22 shards, zero_norm=true, graph=true) on NVIDIA GeForce RTX 5060 Ti in 297.12s | Experts: 7/48 VRAM + 41/48 HostPinned + 0/48 MmapCompact + 29.8GiB Async Engram"
+    }
+  }
+}

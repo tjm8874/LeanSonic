@@ -1,0 +1,8 @@
+Translate into French: The blue train leaves the station before sunrise.
+二つの箱があります。赤い箱にはりんごが三つ、青い箱には五つあります。合計はいくつですか。
+Write a Python function that returns the largest of three integers.
+Explain why a metal spoon feels colder than a wooden spoon at room temperature.
+A traveler takes a train north and then a bus west. Describe the route in one sentence.
+月曜日の朝に雨が降ったので、駅まで歩く予定を変えました。この続きを一文で書いてください。
+def is_even(n): return
+There are six rows of seven seats and nine seats are empty. How many people are seated?

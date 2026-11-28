@@ -263,7 +263,27 @@ pub struct ShardedSafeTensors {
     weight_map: HashMap<String, usize>,
 }
 
+/// Position of a tensor in this model's immutable shard mappings.
+pub(crate) struct MappedTensorRange {
+    shard: usize,
+    bytes: std::ops::Range<usize>,
+}
+
 impl ShardedSafeTensors {
+    pub(crate) fn tensor_range(&self, name: &str) -> Option<MappedTensorRange> {
+        let &shard = self.weight_map.get(name)?;
+        let file = &self.shards[shard];
+        let info = file.tensors.get(name)?;
+        Some(MappedTensorRange {
+            shard,
+            bytes: file.data_base + info.data_start..file.data_base + info.data_end,
+        })
+    }
+
+    pub(crate) fn bytes_at(&self, range: &MappedTensorRange) -> &[u8] {
+        &self.shards[range.shard].mmap.as_slice()[range.bytes.clone()]
+    }
+
     pub fn open_dir(dir: impl AsRef<Path>) -> io::Result<Self> {
         let dir = dir.as_ref();
         let idx_path = dir.join("model.safetensors.index.json");

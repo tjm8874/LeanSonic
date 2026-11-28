@@ -1,0 +1,47 @@
+{
+  "case": 1,
+  "position": 8,
+  "input_ids": [
+    97007,
+    15303,
+    97181,
+    202983,
+    115197,
+    158369,
+    201193,
+    150679,
+    1710
+  ],
+  "full_bf16_to_prefix": {
+    "forward_kl": 0.008657856732109502,
+    "max_abs_logit_diff": 0.734375,
+    "top_ids": [
+      198,
+      198
+    ]
+  },
+  "full_bf16_to_incremental": {
+    "forward_kl": 0.003186060033820987,
+    "max_abs_logit_diff": 0.515625,
+    "top_ids": [
+      198,
+      198
+    ]
+  },
+  "incremental_bf16_to_wave1_q4": {
+    "forward_kl": 1.5191193095920055,
+    "max_abs_logit_diff": 5.75105094909668,
+    "top_ids": [
+      198,
+      198
+    ]
+  },
+  "full_bf16_to_wave1_q4": {
+    "forward_kl": 1.46943687065988,
+    "max_abs_logit_diff": 5.68855094909668,
+    "top_ids": [
+      198,
+      198
+    ]
+  }
+}

@@ -23,7 +23,7 @@ use crate::cuda_ffi::{
     CUlaunchConfig, CUmodule, CUstream, CapturedGraphExec, CudaContextHandle, DeviceBuf,
     PinnedHostBuf, CU_EVENT_DISABLE_TIMING,
 };
-use crate::safetensors::ShardedSafeTensors;
+use crate::safetensors::{MappedTensorRange, ShardedSafeTensors};
 
 const CUDA_HEADER_SRC: &str = include_str!("../../../kernels/include/leansonic_verified.cuh");
 const CUDA_QWEN38_SRC: &str = include_str!("../../../kernels/qwen38_sm120.cu");
@@ -481,14 +481,66 @@ enum SwitchMlpTier {
     },
 }
 
-struct PleShardPtrs {
-    w_ptr: *const u8,
-    sc_ptr: *const u8,
-    bi_ptr: *const u8,
+struct PleParameter {
+    bytes: MappedTensorRange,
+    dictionary: bool,
 }
 
-unsafe impl Send for PleShardPtrs {}
-unsafe impl Sync for PleShardPtrs {}
+impl PleParameter {
+    fn open(st: &ShardedSafeTensors, key: &str, warm: bool) -> Result<Self, String> {
+        let packed = format!("{key}.q38dict1");
+        let rows = Q38_PLE_SHARD_ROWS as usize;
+        let (name, t, dictionary) = match (st.get(key), st.get(&packed)) {
+            (Some(t), None)
+                if t.dtype == "BF16" && t.shape == [rows, 5] && t.data.len() == rows * 10 =>
+            {
+                (key, t, false)
+            }
+            (None, Some(t)) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                crate::qwen38_pack::Frame::open(t.data, rows * 5)
+                    .map_err(|err| format!("{packed}: {err}"))?;
+                (packed.as_str(), t, true)
+            }
+            _ => {
+                return Err(format!(
+                    "missing, ambiguous or malformed Engram parameter {key}"
+                ))
+            }
+        };
+        if warm {
+            advise_willneed_slice(t.data);
+        }
+        Ok(Self {
+            bytes: st
+                .tensor_range(name)
+                .ok_or_else(|| format!("missing Engram parameter {name}"))?,
+            dictionary,
+        })
+    }
+
+    fn row(&self, st: &ShardedSafeTensors, row: usize) -> Result<[u16; 5], String> {
+        let data = st.bytes_at(&self.bytes);
+        if self.dictionary {
+            return crate::qwen38_pack::Frame::open(data, Q38_PLE_SHARD_ROWS as usize * 5)
+                .and_then(|f| f.row5(row))
+                .map_err(|err| format!("invalid Engram row {row}: {err}"));
+        }
+        let bytes = data
+            .as_chunks::<10>()
+            .0
+            .get(row)
+            .ok_or_else(|| format!("invalid Engram row {row}"))?;
+        Ok(std::array::from_fn(|i| {
+            u16::from_le_bytes([bytes[2 * i], bytes[2 * i + 1]])
+        }))
+    }
+}
+
+struct PleShard {
+    weights: MappedTensorRange,
+    scales: PleParameter,
+    biases: PleParameter,
+}
 
 struct PleGpu {
     kv_proj: Q4LinearGpu,
@@ -500,7 +552,7 @@ struct PleGpu {
     multipliers: [i64; 3],
     head_sizes: [i64; 16],
     head_offsets: [i64; 16],
-    shard_ptrs: Vec<PleShardPtrs>,
+    shards: Vec<PleShard>,
 }
 
 struct Qwen38LayerGpu {
@@ -1068,21 +1120,20 @@ impl Qwen38GpuEngine {
                 head_sizes.copy_from_slice(&sizes_v);
                 head_offsets.copy_from_slice(&offs_v);
 
-                let mut shard_ptrs = Vec::with_capacity(Q38_PLE_SHARDS);
+                let mut shards = Vec::with_capacity(Q38_PLE_SHARDS);
                 for s in 0..Q38_PLE_SHARDS {
                     let sp = format!("{pp}.ple_embedding.ngram_embedding.shard_{s}");
-                    let w_tv = st.require(&format!("{sp}.weight"), "U32", &[2_500_012, 20]);
-                    let sc_tv = st.require(&format!("{sp}.scales"), "BF16", &[2_500_012, 5]);
-                    let bi_tv = st.require(&format!("{sp}.biases"), "BF16", &[2_500_012, 5]);
+                    let key = format!("{sp}.weight");
+                    let w_tv = st.require(&key, "U32", &[2_500_012, 20]);
                     if warm_engram {
                         advise_willneed_slice(w_tv.data);
-                        advise_willneed_slice(sc_tv.data);
-                        advise_willneed_slice(bi_tv.data);
                     }
-                    shard_ptrs.push(PleShardPtrs {
-                        w_ptr: w_tv.data.as_ptr(),
-                        sc_ptr: sc_tv.data.as_ptr(),
-                        bi_ptr: bi_tv.data.as_ptr(),
+                    shards.push(PleShard {
+                        weights: st
+                            .tensor_range(&key)
+                            .ok_or_else(|| format!("missing Engram weights {key}"))?,
+                        scales: PleParameter::open(&st, &format!("{sp}.scales"), warm_engram)?,
+                        biases: PleParameter::open(&st, &format!("{sp}.biases"), warm_engram)?,
                     });
                 }
                 Some(PleGpu {
@@ -1095,7 +1146,7 @@ impl Qwen38GpuEngine {
                     multipliers,
                     head_sizes,
                     head_offsets,
-                    shard_ptrs,
+                    shards,
                 })
             } else {
                 None
@@ -1522,9 +1573,18 @@ impl Qwen38GpuEngine {
 
         engine.rebuild_graphs_if_enabled()?;
 
+        let engram_bytes: usize = engine
+            .layers
+            .iter()
+            .filter_map(|layer| layer.ple.as_ref())
+            .flat_map(|ple| &ple.shards)
+            .flat_map(|s| [&s.weights, &s.scales.bytes, &s.biases.bytes])
+            .map(|range| engine.sharded_mmap.bytes_at(range).len())
+            .sum();
+        let engram_gib = engram_bytes as f64 / (1u64 << 30) as f64;
         let load_s = t0.elapsed().as_secs_f64();
         eprintln!(
-            "[Qwen38GpuEngine] Loaded {} ({} shards, zero_norm={}, pdl={}, z24={}/48, graph={}) on {} in {:.2}s | Experts: {}/48 VRAM + {}/48 HostPinned + {}/48 MmapCompact + 29.8GiB Async Engram",
+            "[Qwen38GpuEngine] Loaded {} ({} shards, zero_norm={}, pdl={}, z24={}/48, graph={}) on {} in {:.2}s | Experts: {}/48 VRAM + {}/48 HostPinned + {}/48 MmapCompact + {engram_gib:.1}GiB Async Engram",
             dir.display(),
             engine.sharded_mmap.num_shards(),
             zero_centered,
@@ -2234,16 +2294,21 @@ impl Qwen38GpuEngine {
             let gid = mixed.rem_euclid(ple.head_sizes[h]) + ple.head_offsets[h];
             let shard_idx = (gid / Q38_PLE_SHARD_ROWS) as usize;
             let row_idx = (gid % Q38_PLE_SHARD_ROWS) as usize;
-            let sp = &ple.shard_ptrs[shard_idx];
-
-            let w_row = unsafe { core::slice::from_raw_parts(sp.w_ptr.add(row_idx * 80), 80) };
-            let sc_row = unsafe { core::slice::from_raw_parts(sp.sc_ptr.add(row_idx * 10), 10) };
-            let bi_row = unsafe { core::slice::from_raw_parts(sp.bi_ptr.add(row_idx * 10), 10) };
+            let sp = &ple.shards[shard_idx];
+            let w_row = self
+                .sharded_mmap
+                .bytes_at(&sp.weights)
+                .as_chunks::<80>()
+                .0
+                .get(row_idx)
+                .ok_or_else(|| format!("invalid Engram weight row {row_idx}"))?;
+            let scales = sp.scales.row(&self.sharded_mmap, row_idx)?;
+            let biases = sp.biases.row(&self.sharded_mmap, row_idx)?;
             let out_h = &mut dst_f32[h * 160..(h + 1) * 160];
 
             for g in 0..5usize {
-                let sc = bf16_to_f32(u16::from_le_bytes([sc_row[2 * g], sc_row[2 * g + 1]]));
-                let bi = bf16_to_f32(u16::from_le_bytes([bi_row[2 * g], bi_row[2 * g + 1]]));
+                let sc = bf16_to_f32(scales[g]);
+                let bi = bf16_to_f32(biases[g]);
                 for wi in 0..4usize {
                     let off = (g * 4 + wi) * 4;
                     let word = u32::from_le_bytes(w_row[off..off + 4].try_into().unwrap());
@@ -4678,5 +4743,51 @@ mod tests {
             let _ = cases(true);
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod direct_engram_tests {
+    use super::*;
+    use std::io::{Seek, SeekFrom, Write};
+
+    #[test]
+    fn mapped_raw_and_dictionary_parameters_use_the_same_row_api() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("leansonic-engram-{}-{stamp}", std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let rows = Q38_PLE_SHARD_ROWS as usize;
+        let bytes = rows * 10;
+        // A constant dictionary has no index bits. Encode the represented length in its header.
+        let mut frame = crate::qwen38_pack::encode(&0x8081u16.to_le_bytes()).unwrap();
+        frame[8..16].copy_from_slice(&((rows * 5) as u64).to_le_bytes());
+        let n = frame.len();
+        let end = bytes + n;
+        let header = format!(
+            r#"{{"raw":{{"dtype":"BF16","shape":[{rows},5],"data_offsets":[0,{bytes}]}},"encoded.q38dict1":{{"dtype":"U8","shape":[{n}],"data_offsets":[{bytes},{end}]}}}}"#
+        );
+        let mut f = std::fs::File::create(dir.join("model.safetensors")).unwrap();
+        f.write_all(&(header.len() as u64).to_le_bytes()).unwrap();
+        f.write_all(header.as_bytes()).unwrap();
+        f.seek(SeekFrom::Current(bytes as i64 - 10)).unwrap();
+        for word in [1, 2, 3, 4, 5u16] {
+            f.write_all(&word.to_le_bytes()).unwrap();
+        }
+        f.write_all(&frame).unwrap();
+        drop(f);
+        let st = ShardedSafeTensors::open_dir(&dir).unwrap();
+        let raw = PleParameter::open(&st, "raw", false).unwrap();
+        let packed = PleParameter::open(&st, "encoded", false).unwrap();
+        assert_eq!(raw.row(&st, rows - 1).unwrap(), [1, 2, 3, 4, 5]);
+        assert_eq!(packed.row(&st, rows - 1).unwrap(), [0x8081; 5]);
+        assert!(raw.row(&st, rows).is_err());
+        assert!(packed.row(&st, rows).is_err());
+        assert!(PleParameter::open(&st, "missing", false).is_err());
+        drop(st);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

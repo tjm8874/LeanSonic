@@ -21,6 +21,7 @@ pub mod kernels;
 pub mod offload;
 pub mod qwen38_gpu;
 pub mod qwen38_mtp;
+pub mod qwen38_pack;
 pub mod qwen_bpe;
 pub mod safetensors;
 pub mod serving;
