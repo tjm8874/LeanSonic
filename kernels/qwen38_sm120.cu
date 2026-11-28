@@ -232,6 +232,58 @@ __device__ __forceinline__ float warp_dot_q4_row_smem9(
     return warp_sum(acc);
 }
 
+// Q4 has a bias plane. Symmetric Q8 stores two signed-code vectors per group
+// and rounds each scaled code to BF16 before the FP32 dot.
+__device__ __forceinline__ float shared_group_dot(
+    const uint4* weights, const uint32_t* scales, const uint32_t* biases,
+    size_t group, const float4* x) {
+    if (biases) return dot_q4_group32_smem9(weights[group], load_bf16_from_u32_array(scales, group),
+                                           load_bf16_from_u32_array(biases, group), x);
+    const uint32_t* codes = reinterpret_cast<const uint32_t*>(weights) + 8 * group;
+    const float scale = bf16_to_f32(reinterpret_cast<const uint16_t*>(scales)[group]);
+    float accum[4] = {};
+    #pragma unroll
+    for (int i = 0; i < 8; ++i) {
+        const uint32_t word = codes[i];
+        const float4 v = x[i];
+        const float elements[] = {v.x, v.y, v.z, v.w};
+        #pragma unroll
+        for (int j = 0; j < 4; ++j) {
+            const int code = static_cast<int8_t>(word >> (8 * j));
+            uint16_t rounded;
+            asm("cvt.rn.bf16.f32 %0, %1;" : "=h"(rounded) : "f"(code * scale));
+            accum[j] = __fmaf_rn(bf16_to_f32(rounded), elements[j], accum[j]);
+        }
+    }
+    return (accum[0] + accum[1]) + (accum[2] + accum[3]);
+}
+
+__device__ __forceinline__ float shared_warp_dot(
+    const uint4* weights, const uint32_t* scales, const uint32_t* biases,
+    size_t row, int groups, const float4* x, int lane) {
+    float acc = 0.0f;
+    for (int g = lane; g < groups; g += 32)
+        acc += shared_group_dot(weights, scales, biases, row * groups + g, x + g * 9);
+    return warp_sum(acc);
+}
+
+// Standalone entry for numerical and memory tests of the shared-expert inner loop.
+extern "C" __global__ void q38_shared_q8_projection(
+    const uint4* weights, const uint32_t* scales, const float4* input,
+    float* output, int rows, int cols) {
+    extern __shared__ float4 staged[];
+    const int groups = cols / 32;
+    const int row = blockIdx.x * 8 + (threadIdx.x >> 5);
+    pdl_wait();
+    stage_x_groups_smem9(input + static_cast<size_t>(blockIdx.y) * (cols / 4), staged, groups, threadIdx.x);
+    __syncthreads();
+    if (row < rows) {
+        const float sum = shared_warp_dot(weights, scales, nullptr, row, groups, staged, threadIdx.x & 31);
+        if ((threadIdx.x & 31) == 0) output[static_cast<size_t>(blockIdx.y) * rows + row] = sum;
+    }
+    pdl_trigger();
+}
+
 __device__ __forceinline__ float warp_dot_q4_row_z24_smem9(
     const uint4* __restrict__ row_w,
     const uint32_t* __restrict__ sb_lo_base,
@@ -1401,23 +1453,11 @@ extern "C" __global__ void q38_moe_up_swiglu11(
         if (lane == 0) smem_gu[warp_id] = dot;
     } else {
         const size_t row = static_cast<size_t>(is_up * kMoeFf + m);
-        float dot = warp_dot_q4_row_smem9(
-            sh_gu_gate_w + row * 80u,
-            sh_gu_sc + row * 40u,
-            sh_gu_bi + row * 40u,
-            smem_x9,
-            80,
-            lane);
+        float dot = shared_warp_dot(sh_gu_gate_w, sh_gu_sc, sh_gu_bi, row, 80, smem_x9, lane);
         if (lane == 0) smem_gu[warp_id] = dot;
 
         if (blockIdx.x == 0 && warp_id == 0) {
-            float sg = warp_dot_q4_row_smem9(
-                sh_gu_gate_w + 1280u * 80u,
-                sh_gu_sc + 1280u * 40u,
-                sh_gu_bi + 1280u * 40u,
-                smem_x9,
-                80,
-                lane);
+            float sg = shared_warp_dot(sh_gu_gate_w, sh_gu_sc, sh_gu_bi, 1280u, 80, smem_x9, lane);
             if (lane == 0) sel_wts11[10] = ptx_sigmoid(sg);
         }
     }
@@ -1507,23 +1547,11 @@ extern "C" __global__ void q38_moe_up_swiglu11_z24(
         if (lane == 0) smem_gu[warp_id] = dot;
     } else {
         const size_t row = static_cast<size_t>(is_up * kMoeFf + m);
-        float dot = warp_dot_q4_row_smem9(
-            sh_gu_gate_w + row * 80u,
-            sh_gu_sc + row * 40u,
-            sh_gu_bi + row * 40u,
-            smem_x9,
-            80,
-            lane);
+        float dot = shared_warp_dot(sh_gu_gate_w, sh_gu_sc, sh_gu_bi, row, 80, smem_x9, lane);
         if (lane == 0) smem_gu[warp_id] = dot;
 
         if (blockIdx.x == 0 && warp_id == 0) {
-            float sg = warp_dot_q4_row_smem9(
-                sh_gu_gate_w + 1280u * 80u,
-                sh_gu_sc + 1280u * 40u,
-                sh_gu_bi + 1280u * 40u,
-                smem_x9,
-                80,
-                lane);
+            float sg = shared_warp_dot(sh_gu_gate_w, sh_gu_sc, sh_gu_bi, 1280u, 80, smem_x9, lane);
             if (lane == 0) sel_wts11[10] = ptx_sigmoid(sg);
         }
     }
@@ -1575,13 +1603,7 @@ extern "C" __global__ void q38_moe_down_combine11(
             sum_y += dot * sel_wts11[k];
         }
         {
-            float sh_dot = warp_dot_q4_row_smem9(
-                sh_down_w + static_cast<size_t>(row) * 20u,
-                sh_down_sc + static_cast<size_t>(row) * 10u,
-                sh_down_bi + static_cast<size_t>(row) * 10u,
-                smem_a9 + 10 * 20 * 9,
-                20,
-                lane);
+            float sh_dot = shared_warp_dot(sh_down_w, sh_down_sc, sh_down_bi, row, 20, smem_a9 + 10 * 20 * 9, lane);
             sum_y += sh_dot * sel_wts11[10];
         }
         if (lane == 0) {
@@ -1658,18 +1680,12 @@ extern "C" __global__ void q38_moe_down_combine11_z24(
             sum_y += dot * wt;
         }
         if (is_odd) {
-            const uint4* sh_rw = sh_down_w + static_cast<size_t>(row) * 20u;
-            const uint32_t* sh_rsc = sh_down_sc + static_cast<size_t>(row) * 10u;
-            const uint32_t* sh_rbi = sh_down_bi + static_cast<size_t>(row) * 10u;
             const float4* a_sh = smem_a9 + 10 * 20 * 9;
             float sh_dot = 0.0f;
             #pragma unroll
             for (int it = 0; it < 5; ++it) {
                 const int g = it * 4 + sub_lane;
-                uint4 pk = sh_rw[g];
-                float sc = load_bf16_from_u32_array(sh_rsc, g);
-                float bi = load_bf16_from_u32_array(sh_rbi, g);
-                sh_dot += dot_q4_group32_smem9(pk, sc, bi, a_sh + g * 9);
+                sh_dot += shared_group_dot(sh_down_w, sh_down_sc, sh_down_bi, row * 20u + g, a_sh + g * 9);
             }
             sh_dot += __shfl_xor_sync(lane4_mask, sh_dot, 2);
             sh_dot += __shfl_xor_sync(lane4_mask, sh_dot, 1);
@@ -3205,33 +3221,21 @@ extern "C" __global__ void q38_moe_up_grouped_z24(
             }
         } else {
             const size_t row = static_cast<size_t>(is_up * kMoeFf + m);
-            const uint4* w_ptr = sh_gu_gate_w + row * 80u;
-            const uint32_t* sc_ptr = sh_gu_sc + row * 40u;
-            const uint32_t* bi_ptr = sh_gu_bi + row * 40u;
             for (int g = lane; g < 80; g += 32) {
-                uint4 pk = w_ptr[g];
-                float sc = load_bf16_from_u32_array(sc_ptr, g);
-                float bi = load_bf16_from_u32_array(bi_ptr, g);
                 #pragma unroll
                 for (int t = 0; t < 4; ++t) {
                     if (t < n_sub) {
-                        acc[t] += dot_q4_group32_smem9(pk, sc, bi, smem_x9 + (t * 80 + g) * 9);
+                        acc[t] += shared_group_dot(sh_gu_gate_w, sh_gu_sc, sh_gu_bi, row * 80u + g, smem_x9 + (t * 80 + g) * 9);
                     }
                 }
             }
             if (blockIdx.x == 0 && warp_id == 0) {
                 float sg_acc[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-                const uint4* sg_w = sh_gu_gate_w + 1280u * 80u;
-                const uint32_t* sg_sc = sh_gu_sc + 1280u * 40u;
-                const uint32_t* sg_bi = sh_gu_bi + 1280u * 40u;
                 for (int g = lane; g < 80; g += 32) {
-                    uint4 pk = sg_w[g];
-                    float sc = load_bf16_from_u32_array(sg_sc, g);
-                    float bi = load_bf16_from_u32_array(sg_bi, g);
                     #pragma unroll
                     for (int t = 0; t < 4; ++t) {
                         if (t < n_sub) {
-                            sg_acc[t] += dot_q4_group32_smem9(pk, sc, bi, smem_x9 + (t * 80 + g) * 9);
+                            sg_acc[t] += shared_group_dot(sh_gu_gate_w, sh_gu_sc, sh_gu_bi, 1280u * 80u + g, smem_x9 + (t * 80 + g) * 9);
                         }
                     }
                 }
@@ -3348,19 +3352,13 @@ extern "C" __global__ void q38_moe_down_grouped_z24(
                     }
                 }
             } else {
-                const uint4* sh_rw = sh_down_w + static_cast<size_t>(row) * 20u;
-                const uint32_t* sh_rsc = sh_down_sc + static_cast<size_t>(row) * 10u;
-                const uint32_t* sh_rbi = sh_down_bi + static_cast<size_t>(row) * 10u;
                 #pragma unroll
                 for (int it = 0; it < 5; ++it) {
                     const int g = it * 4 + sub_lane;
-                    uint4 pk = sh_rw[g];
-                    float sc = load_bf16_from_u32_array(sh_rsc, g);
-                    float bi = load_bf16_from_u32_array(sh_rbi, g);
                     #pragma unroll
                     for (int t = 0; t < 8; ++t) {
                         if (t < n_sub) {
-                            dot[t] += dot_q4_group32_smem9(pk, sc, bi, smem_a9 + (t * 20 + g) * 9);
+                            dot[t] += shared_group_dot(sh_down_w, sh_down_sc, sh_down_bi, row * 20u + g, smem_a9 + (t * 20 + g) * 9);
                         }
                     }
                 }
@@ -3716,19 +3714,11 @@ extern "C" __global__ void q38_moe_up_swiglu11_z24_bn(
         if (lane == 0) smem_gu[warp_id] = dot;
     } else {
         const size_t row = static_cast<size_t>(is_up * kMoeFf + m);
-        float dot = warp_dot_q4_row_smem9(
-            sh_gu_gate_w + row * 80u,
-            sh_gu_sc + row * 40u,
-            sh_gu_bi + row * 40u,
-            smem_x9, 80, lane);
+        float dot = shared_warp_dot(sh_gu_gate_w, sh_gu_sc, sh_gu_bi, row, 80, smem_x9, lane);
         if (lane == 0) smem_gu[warp_id] = dot;
 
         if (blockIdx.x == 0 && warp_id == 0) {
-            float sg = warp_dot_q4_row_smem9(
-                sh_gu_gate_w + 1280u * 80u,
-                sh_gu_sc + 1280u * 40u,
-                sh_gu_bi + 1280u * 40u,
-                smem_x9, 80, lane);
+            float sg = shared_warp_dot(sh_gu_gate_w, sh_gu_sc, sh_gu_bi, 1280u, 80, smem_x9, lane);
             if (lane == 0) sel_wts11_batch[static_cast<size_t>(b) * 11u + 10u] = ptx_sigmoid(sg);
         }
     }
@@ -3805,18 +3795,12 @@ extern "C" __global__ void q38_moe_down_combine11_z24_bn(
             sum_y += dot * wt;
         }
         if (is_odd) {
-            const uint4* sh_rw = sh_down_w + static_cast<size_t>(row) * 20u;
-            const uint32_t* sh_rsc = sh_down_sc + static_cast<size_t>(row) * 10u;
-            const uint32_t* sh_rbi = sh_down_bi + static_cast<size_t>(row) * 10u;
             const float4* a_sh = smem_a9 + 10 * 20 * 9;
             float sh_dot = 0.0f;
             #pragma unroll
             for (int it = 0; it < 5; ++it) {
                 const int g = it * 4 + sub_lane;
-                uint4 pk = sh_rw[g];
-                float sc = load_bf16_from_u32_array(sh_rsc, g);
-                float bi = load_bf16_from_u32_array(sh_rbi, g);
-                sh_dot += dot_q4_group32_smem9(pk, sc, bi, a_sh + g * 9);
+                sh_dot += shared_group_dot(sh_down_w, sh_down_sc, sh_down_bi, row * 20u + g, a_sh + g * 9);
             }
             sh_dot += __shfl_xor_sync(lane4_mask, sh_dot, 2);
             sh_dot += __shfl_xor_sync(lane4_mask, sh_dot, 1);

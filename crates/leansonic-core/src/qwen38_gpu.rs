@@ -448,6 +448,15 @@ enum DenseProjection {
 }
 
 impl DenseProjection {
+    fn shared_planes(&self) -> (CUdeviceptr, CUdeviceptr, CUdeviceptr) {
+        match self {
+            Self::Q4(m) => (m.w.ptr, m.sc.ptr, m.bi.ptr),
+            Self::Q8 {
+                weights, scales, ..
+            } => (weights.ptr, scales.ptr, 0),
+        }
+    }
+
     fn load(
         ctx: &Arc<CudaContextHandle>,
         st: &ShardedSafeTensors,
@@ -696,8 +705,8 @@ struct Qwen38LayerGpu {
     attn: AttentionBranchGpu,
     mlp_hc: HyperConnGpu,
     router_bf16: DeviceBuf,
-    sh_gu_gate: Q4LinearGpu,
-    sh_down: Q4LinearGpu,
+    sh_gu_gate: DenseProjection,
+    sh_down: DenseProjection,
     switch_mlp: SwitchMlpTier,
 }
 
@@ -1318,8 +1327,8 @@ impl Qwen38GpuEngine {
             attn: AttentionBranchGpu,
             mlp_hc: HyperConnGpu,
             router_bf16: DeviceBuf,
-            sh_gu_gate: Q4LinearGpu,
-            sh_down: Q4LinearGpu,
+            sh_gu_gate: DenseProjection,
+            sh_down: DenseProjection,
         }
         let mut partials = Vec::with_capacity(Q38_LAYERS);
         let warm_engram = available_host_ram_bytes() > 40 * 1024 * 1024 * 1024;
@@ -1582,9 +1591,10 @@ impl Qwen38GpuEngine {
 
             let router_tv = st.require(&format!("{lp}.mlp.gate.weight"), "BF16", &[Q38_EXP, Q38_D]);
             let router_bf16 = DeviceBuf::from_host_bytes(&ctx, router_tv.data)?;
-            let sh_gu_gate = Q4LinearGpu::from_sharded_concat(
+            let sh_gu_gate = DenseProjection::load(
                 &ctx,
                 &st,
+                fns._module,
                 &[
                     (&format!("{lp}.mlp.shared_expert.gate_proj"), Q38_MOE_FF),
                     (&format!("{lp}.mlp.shared_expert.up_proj"), Q38_MOE_FF),
@@ -1592,14 +1602,19 @@ impl Qwen38GpuEngine {
                 ],
                 Q38_D,
             )?;
-            let sh_down = Q4LinearGpu::from_sharded(
+            let sh_down = DenseProjection::load(
                 &ctx,
                 &st,
-                &format!("{lp}.mlp.shared_expert.down_proj"),
-                Q38_D,
+                fns._module,
+                &[(&format!("{lp}.mlp.shared_expert.down_proj"), Q38_D)],
                 Q38_MOE_FF,
             )?;
 
+            if matches!(sh_gu_gate, DenseProjection::Q8 { .. })
+                || matches!(sh_down, DenseProjection::Q8 { .. })
+            {
+                module_function(&ctx, fns._module, "q38_shared_q8_projection")?;
+            }
             partials.push(PartialLayer {
                 ple,
                 attn_hc,
@@ -3364,16 +3379,8 @@ impl Qwen38GpuEngine {
                 )?;
             }
 
-            let (mut sh_gu_w, mut sh_gu_sc, mut sh_gu_bi) = (
-                layer.sh_gu_gate.w.ptr,
-                layer.sh_gu_gate.sc.ptr,
-                layer.sh_gu_gate.bi.ptr,
-            );
-            let (mut sh_dw, mut sh_dsc, mut sh_dbi) = (
-                layer.sh_down.w.ptr,
-                layer.sh_down.sc.ptr,
-                layer.sh_down.bi.ptr,
-            );
+            let (mut sh_gu_w, mut sh_gu_sc, mut sh_gu_bi) = layer.sh_gu_gate.shared_planes();
+            let (mut sh_dw, mut sh_dsc, mut sh_dbi) = layer.sh_down.shared_planes();
             let (mut mx, mut sids, mut swts, mut act11, mut mout) = (
                 self.d_mixed.ptr,
                 self.d_sel_ids10.ptr,
@@ -4091,16 +4098,8 @@ impl Qwen38GpuEngine {
                 .ok_or("batched MoE requires Z24 Vram/Mixed/HostPinned tiers")?;
             let mut up_bases = z24_bases.up_packed_m1;
             let mut dn_bases = z24_bases.down_packed_m1;
-            let (mut sh_gu_w, mut sh_gu_sc, mut sh_gu_bi) = (
-                layer.sh_gu_gate.w.ptr,
-                layer.sh_gu_gate.sc.ptr,
-                layer.sh_gu_gate.bi.ptr,
-            );
-            let (mut sh_dw, mut sh_dsc, mut sh_dbi) = (
-                layer.sh_down.w.ptr,
-                layer.sh_down.sc.ptr,
-                layer.sh_down.bi.ptr,
-            );
+            let (mut sh_gu_w, mut sh_gu_sc, mut sh_gu_bi) = layer.sh_gu_gate.shared_planes();
+            let (mut sh_dw, mut sh_dsc, mut sh_dbi) = layer.sh_down.shared_planes();
             let (mut act11, mut mout) = (bb.d_b_moe_act11.ptr, bb.d_b_branch_out.ptr);
 
             if is_small_verify {
