@@ -277,4 +277,25 @@ theorem smem9_all_wavefronts_and_offsets_zero_bank_conflict :
       (List.range 9).all fun k => smem9WavefrontNoBankConflict w k) = true := by
   decide
 
+-- ============================================================================
+-- 8. `v1.0.0` Wave 3 `0-ULP` Grouped Active-Expert `(b << 8) | k` Bijection
+--    & Race-Free Partial-Slot Disjointness (`B <= 64`, `K = 11`)
+-- ============================================================================
+
+def packExpertPair (b k : BitVec 32) : BitVec 32 :=
+  (b <<< 8) ||| k
+
+theorem grouped_expert_pair_roundtrip_0ulp (b k : BitVec 32)
+    (hB : b < 64#32) (hK : k < 10#32) :
+    (packExpertPair b k >>> 8) = b ∧ ((packExpertPair b k) &&& 0xFF#32) = k := by
+  unfold packExpertPair
+  bv_decide
+
+theorem grouped_expert_down_part_slot_injective (b1 k1 b2 k2 d1 d2 : Nat)
+    (hK1 : k1 < 11) (hK2 : k2 < 11)
+    (hD1 : d1 < 2560) (hD2 : d2 < 2560)
+    (hEq : (b1 * 11 + k1) * 2560 + d1 = (b2 * 11 + k2) * 2560 + d2) :
+    b1 = b2 ∧ k1 = k2 ∧ d1 = d2 := by
+  omega
+
 end LeanSonic.Proofs.Cycle2Frontier
