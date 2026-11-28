@@ -19,6 +19,7 @@ pub mod inkling_scales;
 mod json_string;
 pub mod kernels;
 pub mod offload;
+mod qwen38_engram;
 pub mod qwen38_gpu;
 pub mod qwen38_mtp;
 pub mod qwen38_pack;
