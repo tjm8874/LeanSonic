@@ -19,6 +19,21 @@ Four slots improved all four total times but added 17–27 ms to median time to 
 
 All three arms peaked at 32,084,328,448 bytes of sampled process VRAM. Four or sixteen slots per layer reserve an additional 560,332,800 or 2,241,331,200 bytes of pinned **host** storage. The direct checkpoint occupies 110,833,479,038 bytes. The optional ordered profile adds 36,500 bytes. [Every sample, token IDs, peak and hash](initial32.json)
 
+## Output length and stable slot assignment
+
+After retaining the physical slot for overlapping experts, four new launches alternated fixed, sixteen slots, sixteen slots and fixed. Each resident process ran all four inputs at 8, 32 and 128 generated tokens. The 192 complete generations, including warmups, reproduced each input's identical greedy prefix across both layouts and all requested lengths. For each input, the 128-token continuation extends the matching shorter ones. The sixteen-slot teacher also matched stock Q4 at all 65 positions and for all four canaries.
+
+Median time from request to DONE in ms, **fixed → sixteen slots** (six timed samples per cell):
+
+| Input | 8 output tokens | 32 output tokens | 128 output tokens |
+| --- | ---: | ---: | ---: |
+| English | 232 → 267 | 619 → 570 | 3,625 → 3,474 |
+| Japanese | 391 → 463 | 849 → 802 | 2,614 → 2,268 |
+| Code | 350 → 415 | 1,144 → 1,095 | 4,582 → 4,289 |
+| Arithmetic | 284 → 319 | 886 → 867 | 3,525 → 3,352 |
+
+Eight-token requests became slower on every input. With 32 and 128 outputs, decode savings outweighed the first-token penalty on all four. Keep adaptation optional. The data do not establish a single break-even length across workloads. [Peak VRAM, TTFT, prefill/decode throughput, transfers and sample-level results](lengths.json)
+
 ## Reproduce
 
 Use the mixed cubin build and GPU selection from the [fixed-placement experiment](../wave3/README.md#reproduction). Commit `5e36e63` produced the first online result; `65968d2` adds overlap-preserving slot assignment. The extended stream harness supports multiple requested output lengths in one resident process. Use the benchmark scripts in this directory's revision.
