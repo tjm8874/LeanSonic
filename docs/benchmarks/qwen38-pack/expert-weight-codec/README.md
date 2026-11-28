@@ -15,6 +15,10 @@ With all 48 layers in VRAM, 494 full-vocabulary FP32 logit rows and 16 eight-tok
 
 Same binary at `b2f5a46`, GPU, cubin, prompts and IDs. Launch order was base / frames / frames / base. Each launch used one warmup and three timed repetitions per prompt. All 32 generated sequences including warmups matched their same-prompt controls. Prefill includes time to first token. Decode uses the remaining 31 token intervals. Peak sampled process VRAM was 75,486,986,240 bytes for both. Median launch-to-ready time rose from **13.68 s to 17.64 s** (individual launches 14.33/13.03 s and 19.42/15.86 s). Filesystem cache was not cleared. Keep the smaller layout optional where startup latency matters. [Run records, exact comparisons and independent disk audit](pro5000.json)
 
+## RTX PRO 4500 32 GB
+
+The same complete package passed the second GPU with 19 layers in VRAM and the remainder in pinned host memory. All 49 original full-vocabulary rows and four greedy continuations matched the stock Q4 reference. All 32 streaming sequences across the four launches also matched. For 16-token prompts, base versus compressed prefill/decode throughput was 57.30/21.85 versus 57.28/21.85 tok/s. For 128-token prompts it was 66.22/21.78 versus 66.20/21.79 tok/s. Peak sampled process VRAM was 32,040,288,256 bytes for each. Median launch-to-ready times were 28.17 s for the base and 29.84 s with weight frames. Individual launches varied from 24.86 to 31.47 s. [PRO 4500 measurements](pro4500.json)
+
 ## Reproduce
 
 Start with the #265 Engram and routed parameter dictionary checkpoint. The converter and audit use Python with the `zstandard` module. The native feature links libzstd (install its development library when building). Ordinary Q4 checkpoints work with the default build.
