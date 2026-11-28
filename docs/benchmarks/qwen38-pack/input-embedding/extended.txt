@@ -1,0 +1,16 @@
+The first train left before sunrise. By the time Mira reached the station, the ticket office had opened and the next departure was listed on the board.
+A technician weighed the empty container, filled it with dry sand, then weighed it again. Subtracting the first reading from the second gives the mass of the sand.
+The editor marked two unclear sentences in the draft. The author kept the first sentence but rewrote the second so readers could tell who made the decision.
+On the return trip the wind changed direction. The crew shortened the sail and checked the compass again before turning toward the harbor.
+改札を出ると雨はもう上がっていた。駅前のベンチにはまだ水滴が残っていたので、二人は屋根の下で地図を広げた。
+会議では、まず現行の手順を全員で確認した。そのうえで、翌月から試す案と、判断に必要な測定項目を議事録に残した。
+印刷が途中で止まったら、画面に表示された用紙サイズとトレイの設定が一致しているか確認する。一致していれば、次に紙詰まりを調べる。
+図書館の閉館時刻が近づいていた。借りた本を返却箱に入れてから、予約していた資料を受け取りにカウンターへ向かった。
+def unique_ordered(values): return list(dict.fromkeys(values))  # retain the first occurrence of each hashable value
+SELECT team_id, COUNT(*) AS entries FROM results WHERE valid = 1 GROUP BY team_id ORDER BY entries DESC, team_id;
+The test calls parse_header twice with the same bytes. It checks that both calls return the same fields and that the input buffer remains unchanged.
+In Rust, let head = values.first(); produces an Option containing a shared reference when the slice is nonempty.
+A tray holds 18 identical jars. If each jar contains 250 millilitres, the tray contains 18 times 250 millilitres, or 4.5 litres.
+A runner completes the first 3 kilometres in 15 minutes and the next 2 kilometres in 12 minutes. The average time per kilometre is the total number of minutes divided by five.
+箱に赤い球が3個、青い球が2個入っている。最初に赤い球を1個取り出して戻さなければ、箱には赤い球と青い球が同じ数だけ残る。
+Let x be an even integer. Writing x as 2k shows that its square is 4k squared and is therefore divisible by four.
