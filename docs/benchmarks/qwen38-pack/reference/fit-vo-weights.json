@@ -1,0 +1,42 @@
+{
+  "layers.15.self_attn.v_proj": {
+    "before_sse": 4.235275147257653,
+    "after_sse": 3.6318568225456147,
+    "sse_ratio": 0.8575255907274991
+  },
+  "layers.15.self_attn.o_proj": {
+    "before_sse": 49.875467997543865,
+    "after_sse": 42.46855032564781,
+    "sse_ratio": 0.8514917660068712
+  },
+  "layers.31.self_attn.v_proj": {
+    "before_sse": 4.5734700325685935,
+    "after_sse": 3.928227087389814,
+    "sse_ratio": 0.8589161095221187
+  },
+  "layers.31.self_attn.o_proj": {
+    "before_sse": 53.38417426670742,
+    "after_sse": 45.53136383419985,
+    "sse_ratio": 0.8529000300112368
+  },
+  "layers.35.self_attn.v_proj": {
+    "before_sse": 4.603725199242945,
+    "after_sse": 3.9526088880354564,
+    "sse_ratio": 0.8585675115198969
+  },
+  "layers.35.self_attn.o_proj": {
+    "before_sse": 52.11336430513552,
+    "after_sse": 44.372293564055326,
+    "sse_ratio": 0.8514570908192671
+  },
+  "layers.39.self_attn.v_proj": {
+    "before_sse": 9.057159177000813,
+    "after_sse": 7.8824345831308165,
+    "sse_ratio": 0.8702987801237921
+  },
+  "layers.39.self_attn.o_proj": {
+    "before_sse": 56.816634502707984,
+    "after_sse": 48.52246539530984,
+    "sse_ratio": 0.8540186482357939
+  }
+}

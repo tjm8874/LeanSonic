@@ -1,0 +1,18 @@
+{
+  "rows": 49,
+  "vocabulary": 248320,
+  "mean_kl": 0.27958338035564007,
+  "max_kl": 1.4884802634228635,
+  "worst_case_position": [
+    1,
+    8
+  ],
+  "top1_matches": 41,
+  "byte_equal_rows": 0,
+  "reference_ppl": 28.038166623626164,
+  "candidate_ppl": 52.81576896180335,
+  "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+  "candidate_sha256": "730a0d5b73b46efaf7bfc63ad2f7a97be44e02e78a167225dd6dba1ebac0172b",
+  "canary_cases": 4,
+  "matching_canaries": 0
+}
