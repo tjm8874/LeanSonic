@@ -116,3 +116,9 @@ d=docs/benchmarks/qwen38-pack
 c++ -std=c++17 -O3 -pthread "$d/block_read.cpp" -lzstd -o /tmp/q38-block-read
 python3 "$d/bench_weight_reads.py" "$MODEL" /tmp/q38-block-read "$SCRATCH" > block-read.jsonl
 ```
+
+## Wave 3 integration on the 72 GB RTX PRO 5000
+
+Commit `d46621d` combines the packed loader with upstream `139229c`. The restored and directly loadable Q4 models produced byte-identical FP32 logits at all 49 positions (248,320 entries each) and the same four eight-token continuations through the batched prefill path. The directly loadable package contains 110,833,479,038 bytes. Against official BF16, mean / worst full-vocabulary KL was 0.281135 / 1.469437, top-1 agreement was 39/49, and target-token PPL was 52.9910 versus BF16's 28.0382. The native CLI independently scored the compact reference at 16 positions: mean / worst KL 0.304394 / 1.440301 and 13/16 top-1 matches.
+
+A fresh resident process using the directly loadable checkpoint reached 398.17 / 494.25 prompt tok/s (submission to first token) and 163.18 / 159.14 decode tok/s on the 16 / 128 token prompts. Each prompt generated 32 tokens at context 256, with one warmup and three timed requests. Peak sampled process VRAM was 70.303 GiB. For the 128-token prompt, the earlier adaptive Basalt v0.5.7 run on the same GPU and token fixture reached 904.40 prompt tok/s and 135.69 decode tok/s. See the [external-engine comparison](../qwen38-engine-comparison/README.md) for model revisions, quantization and quality differences. Reproduce with the teacher, streaming and native CLI commands above at the integration commit. [Full scores, IDs, loader logs and timing samples](wave3-72gb.json)
