@@ -6,8 +6,10 @@ import json
 import mmap
 import os
 import shutil
+import signal
 import struct
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -37,12 +39,19 @@ def ranges(model):
 
 def private_copy(model, out):
     selected = ranges(model)
-    out.mkdir()
-    for file in model.iterdir():
-        if file.name in selected:
-            shutil.copyfile(file, out / file.name)
-        else:
-            os.link(file, out / file.name)
+    if out.exists() or out.resolve().is_relative_to(model.resolve()):
+        raise ValueError("choose a new copy outside the model")
+    with tempfile.TemporaryDirectory(dir=out.parent) as tmp:
+        staging = Path(tmp) / "model"
+        staging.mkdir()
+        for file in model.iterdir():
+            if file.name in selected:
+                shutil.copyfile(file, staging / file.name)
+                with (staging / file.name).open("rb") as f:
+                    os.fsync(f.fileno())
+            else:
+                os.link(file, staging / file.name)
+        staging.rename(out)
 
 
 def residency(model, evict):
@@ -154,19 +163,31 @@ def main():
     run = sub.add_parser("run")
     for k in ("binary", "original", "tile", "prompts", "out"):
         run.add_argument(k, type=Path)
+    run.add_argument("--tile-first", action="store_true")
     a = p.parse_args()
+    if os.sysconf("SC_PAGESIZE") != 4096:
+        raise ValueError("requires 4 KiB system pages")
     if a.mode == "copy":
         private_copy(a.model, a.out)
         return
+
+    def timeout(signum, frame):
+        raise TimeoutError("engine request timed out")
+
+    signal.signal(signal.SIGALRM, timeout)
     prompts = [list(map(int, l.split())) for l in a.prompts.read_text().splitlines()]
     a.out.mkdir()
     for i, case in enumerate((1, 4, 8, 12)):
         order = ("original", "tile") if i % 2 == 0 else ("tile", "original")
+        if a.tile_first:
+            order = tuple(reversed(order))
         outputs = []
         for arm in order:
+            signal.alarm(1200)
             result = trial(
                 a.binary, getattr(a, arm), prompts[case], a.out / f"{case}-{arm}.log"
             )
+            signal.alarm(0)
             result.update(case=case, arm=arm, prompt=prompts[case])
             (a.out / f"{case}-{arm}.json").write_text(json.dumps(result) + "\n")
             outputs.extend(r["tokens"] for r in result["requests"])

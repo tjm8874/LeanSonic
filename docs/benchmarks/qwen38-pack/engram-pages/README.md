@@ -42,3 +42,14 @@ For full-engine tests, run the existing q38_teacher and q38_stream with each mod
 python3 "$d/cold_requests.py" copy "$DIRECT" "$PRIVATE"
 python3 "$d/cold_requests.py" run "$STREAM_BIN" "$PRIVATE" "$TILED" "$EXTENDED_IDS" "$OUT"
 ```
+
+## First access in the native engine
+
+Each row gives the first request on a fresh engine with 128 generated tokens. The benchmark evicted private Engram pages after READY and immediately repeated the request warm. The 128 output IDs matched across all four runs for each prompt. This initial run has one cold sample per layout per input. [Actual residency, per-request faults and output hashes](first-cold-summary.json)
+
+| Prompt | Input tokens | Cold TTFT, original → tile (ms) | Cold decode, original → tile (tok/s) |
+|---|---:|---:|---:|
+| English | 33 | 939.8 → 408.6 | 48.06 → 73.48 |
+| Japanese | 30 | 845.4 → 399.2 | 49.55 → 76.79 |
+| Python | 23 | 685.2 → 296.4 | 150.89 → 157.03 |
+| Arithmetic | 43 | 977.5 → 475.7 | 60.50 → 90.02 |
