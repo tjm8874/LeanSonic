@@ -1437,9 +1437,18 @@ impl Qwen38GpuEngine {
 
         engine.rebuild_graphs_if_enabled()?;
 
+        let engram_bytes: usize = engine
+            .layers
+            .iter()
+            .filter_map(|layer| layer.ple.as_ref())
+            .flat_map(|ple| &ple.shards)
+            .flat_map(|s| [&s.weights, &s.scales.bytes, &s.biases.bytes])
+            .map(|range| engine.sharded_mmap.bytes_at(range).len())
+            .sum();
+        let engram_gib = engram_bytes as f64 / (1u64 << 30) as f64;
         let load_s = t0.elapsed().as_secs_f64();
         eprintln!(
-            "[Qwen38GpuEngine] Loaded {} ({} shards, zero_norm={}, pdl={}, z24={}/48, graph={}) on {} in {:.2}s | Experts: {}/48 VRAM + {}/48 HostPinned + {}/48 MmapCompact + 29.8GiB Async Engram",
+            "[Qwen38GpuEngine] Loaded {} ({} shards, zero_norm={}, pdl={}, z24={}/48, graph={}) on {} in {:.2}s | Experts: {}/48 VRAM + {}/48 HostPinned + {}/48 MmapCompact + {engram_gib:.1}GiB Async Engram",
             dir.display(),
             engine.sharded_mmap.num_shards(),
             zero_centered,
@@ -3207,5 +3216,51 @@ mod tests {
             let _ = cases(true);
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod direct_engram_tests {
+    use super::*;
+    use std::io::{Seek, SeekFrom, Write};
+
+    #[test]
+    fn mapped_raw_and_dictionary_parameters_use_the_same_row_api() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("leansonic-engram-{}-{stamp}", std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let rows = Q38_PLE_SHARD_ROWS as usize;
+        let bytes = rows * 10;
+        // A constant dictionary has no index bits. Encode the represented length in its header.
+        let mut frame = crate::qwen38_pack::encode(&0x8081u16.to_le_bytes()).unwrap();
+        frame[8..16].copy_from_slice(&((rows * 5) as u64).to_le_bytes());
+        let n = frame.len();
+        let end = bytes + n;
+        let header = format!(
+            r#"{{"raw":{{"dtype":"BF16","shape":[{rows},5],"data_offsets":[0,{bytes}]}},"encoded.q38dict1":{{"dtype":"U8","shape":[{n}],"data_offsets":[{bytes},{end}]}}}}"#
+        );
+        let mut f = std::fs::File::create(dir.join("model.safetensors")).unwrap();
+        f.write_all(&(header.len() as u64).to_le_bytes()).unwrap();
+        f.write_all(header.as_bytes()).unwrap();
+        f.seek(SeekFrom::Current(bytes as i64 - 10)).unwrap();
+        for word in [1, 2, 3, 4, 5u16] {
+            f.write_all(&word.to_le_bytes()).unwrap();
+        }
+        f.write_all(&frame).unwrap();
+        drop(f);
+        let st = ShardedSafeTensors::open_dir(&dir).unwrap();
+        let raw = PleParameter::open(&st, "raw", false).unwrap();
+        let packed = PleParameter::open(&st, "encoded", false).unwrap();
+        assert_eq!(raw.row(&st, rows - 1).unwrap(), [1, 2, 3, 4, 5]);
+        assert_eq!(packed.row(&st, rows - 1).unwrap(), [0x8081; 5]);
+        assert!(raw.row(&st, rows).is_err());
+        assert!(packed.row(&st, rows).is_err());
+        assert!(PleParameter::open(&st, "missing", false).is_err());
+        drop(st);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

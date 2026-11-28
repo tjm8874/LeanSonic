@@ -1,9 +1,7 @@
 """Compare resident greedy runs over identical token IDs, timing the streaming boundary."""
 
 import argparse
-import functools
 import json
-import operator
 import os
 import signal
 import subprocess
@@ -26,13 +24,15 @@ def run(args):
     fixtures = [
         list(map(int, line.split())) for line in args.fixtures.read_text().splitlines()
     ]
-    whole = functools.reduce(operator.iadd, fixtures, [])
-    prompts = [
-        fixtures[1],
-        (whole * max(1, (128 + len(whole) - 1) // len(whole)))[:128],
-    ]
-    if len(prompts[1]) != 128:
-        raise ValueError("long fixture length")
+    if args.held_out_routing:
+        if len(fixtures) != 8:
+            raise ValueError("expected four calibration and four held-out fixtures")
+        prompts = fixtures[4:]
+    else:
+        whole = [token for sequence in fixtures for token in sequence]
+        if len(fixtures) < 2 or not whole:
+            raise ValueError("expected a nonempty short and long prompt source")
+        prompts = [fixtures[1], (whole * ((128 + len(whole) - 1) // len(whole)))[:128]]
     records = []
     peak = [0]
     event = threading.Event()
@@ -154,6 +154,7 @@ def run(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--held-out-routing", action="store_true")
     parser.add_argument("fixtures", type=Path)
     parser.add_argument("log", type=Path)
     parser.add_argument("result", type=Path)
