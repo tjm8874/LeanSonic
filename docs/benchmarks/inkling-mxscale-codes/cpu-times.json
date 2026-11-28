@@ -1,0 +1,305 @@
+{
+  "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+  "summary": {
+    "w13": {
+      "plain_ms": 226.7850805,
+      "conditioned_ms": 267.2901172,
+      "ratio": 1.1786053853749872,
+      "interval95": [
+        1.1210633341119838,
+        1.27190071239771
+      ]
+    },
+    "w2": {
+      "plain_ms": 105.2488736,
+      "conditioned_ms": 120.3235802,
+      "ratio": 1.1432291490101039,
+      "interval95": [
+        1.0718644959416486,
+        1.1965682457255689
+      ]
+    }
+  },
+  "processes": [
+    {
+      "cycle": 1,
+      "leg": 0,
+      "projection": "w13",
+      "arm": "plain",
+      "ms": 300.315885
+    },
+    {
+      "cycle": 1,
+      "leg": 1,
+      "projection": "w13",
+      "arm": "mx",
+      "ms": 342.201688
+    },
+    {
+      "cycle": 1,
+      "leg": 2,
+      "projection": "w13",
+      "arm": "mx",
+      "ms": 347.455487
+    },
+    {
+      "cycle": 1,
+      "leg": 3,
+      "projection": "w13",
+      "arm": "plain",
+      "ms": 304.517605
+    },
+    {
+      "cycle": 1,
+      "leg": 0,
+      "projection": "w2",
+      "arm": "plain",
+      "ms": 103.20926499999999
+    },
+    {
+      "cycle": 1,
+      "leg": 1,
+      "projection": "w2",
+      "arm": "mx",
+      "ms": 119.119439
+    },
+    {
+      "cycle": 1,
+      "leg": 2,
+      "projection": "w2",
+      "arm": "mx",
+      "ms": 120.430965
+    },
+    {
+      "cycle": 1,
+      "leg": 3,
+      "projection": "w2",
+      "arm": "plain",
+      "ms": 100.452631
+    },
+    {
+      "cycle": 2,
+      "leg": 0,
+      "projection": "w13",
+      "arm": "mx",
+      "ms": 218.583671
+    },
+    {
+      "cycle": 2,
+      "leg": 1,
+      "projection": "w13",
+      "arm": "plain",
+      "ms": 193.37272
+    },
+    {
+      "cycle": 2,
+      "leg": 2,
+      "projection": "w13",
+      "arm": "plain",
+      "ms": 191.604696
+    },
+    {
+      "cycle": 2,
+      "leg": 3,
+      "projection": "w13",
+      "arm": "mx",
+      "ms": 213.06195
+    },
+    {
+      "cycle": 2,
+      "leg": 0,
+      "projection": "w2",
+      "arm": "mx",
+      "ms": 119.93368
+    },
+    {
+      "cycle": 2,
+      "leg": 1,
+      "projection": "w2",
+      "arm": "plain",
+      "ms": 97.13864
+    },
+    {
+      "cycle": 2,
+      "leg": 2,
+      "projection": "w2",
+      "arm": "plain",
+      "ms": 96.97479200000001
+    },
+    {
+      "cycle": 2,
+      "leg": 3,
+      "projection": "w2",
+      "arm": "mx",
+      "ms": 115.29139099999999
+    },
+    {
+      "cycle": 3,
+      "leg": 0,
+      "projection": "w13",
+      "arm": "plain",
+      "ms": 187.21605399999999
+    },
+    {
+      "cycle": 3,
+      "leg": 1,
+      "projection": "w13",
+      "arm": "mx",
+      "ms": 205.427055
+    },
+    {
+      "cycle": 3,
+      "leg": 2,
+      "projection": "w13",
+      "arm": "mx",
+      "ms": 210.098689
+    },
+    {
+      "cycle": 3,
+      "leg": 3,
+      "projection": "w13",
+      "arm": "plain",
+      "ms": 183.869733
+    },
+    {
+      "cycle": 3,
+      "leg": 0,
+      "projection": "w2",
+      "arm": "plain",
+      "ms": 94.95908299999999
+    },
+    {
+      "cycle": 3,
+      "leg": 1,
+      "projection": "w2",
+      "arm": "mx",
+      "ms": 107.362113
+    },
+    {
+      "cycle": 3,
+      "leg": 2,
+      "projection": "w2",
+      "arm": "mx",
+      "ms": 113.929581
+    },
+    {
+      "cycle": 3,
+      "leg": 3,
+      "projection": "w2",
+      "arm": "plain",
+      "ms": 92.06357799999999
+    },
+    {
+      "cycle": 4,
+      "leg": 0,
+      "projection": "w13",
+      "arm": "mx",
+      "ms": 203.882582
+    },
+    {
+      "cycle": 4,
+      "leg": 1,
+      "projection": "w13",
+      "arm": "plain",
+      "ms": 186.827474
+    },
+    {
+      "cycle": 4,
+      "leg": 2,
+      "projection": "w13",
+      "arm": "plain",
+      "ms": 184.929706
+    },
+    {
+      "cycle": 4,
+      "leg": 3,
+      "projection": "w13",
+      "arm": "mx",
+      "ms": 213.72750200000002
+    },
+    {
+      "cycle": 4,
+      "leg": 0,
+      "projection": "w2",
+      "arm": "mx",
+      "ms": 114.882202
+    },
+    {
+      "cycle": 4,
+      "leg": 1,
+      "projection": "w2",
+      "arm": "plain",
+      "ms": 98.130817
+    },
+    {
+      "cycle": 4,
+      "leg": 2,
+      "projection": "w2",
+      "arm": "plain",
+      "ms": 98.123974
+    },
+    {
+      "cycle": 4,
+      "leg": 3,
+      "projection": "w2",
+      "arm": "mx",
+      "ms": 115.229696
+    },
+    {
+      "cycle": 5,
+      "leg": 0,
+      "projection": "w13",
+      "arm": "plain",
+      "ms": 202.15198800000002
+    },
+    {
+      "cycle": 5,
+      "leg": 1,
+      "projection": "w13",
+      "arm": "mx",
+      "ms": 356.89696999999995
+    },
+    {
+      "cycle": 5,
+      "leg": 2,
+      "projection": "w13",
+      "arm": "mx",
+      "ms": 361.565578
+    },
+    {
+      "cycle": 5,
+      "leg": 3,
+      "projection": "w13",
+      "arm": "plain",
+      "ms": 333.044944
+    },
+    {
+      "cycle": 5,
+      "leg": 0,
+      "projection": "w2",
+      "arm": "plain",
+      "ms": 156.26088299999998
+    },
+    {
+      "cycle": 5,
+      "leg": 1,
+      "projection": "w2",
+      "arm": "mx",
+      "ms": 138.25493799999998
+    },
+    {
+      "cycle": 5,
+      "leg": 2,
+      "projection": "w2",
+      "arm": "mx",
+      "ms": 138.801797
+    },
+    {
+      "cycle": 5,
+      "leg": 3,
+      "projection": "w2",
+      "arm": "plain",
+      "ms": 115.175073
+    }
+  ]
+}

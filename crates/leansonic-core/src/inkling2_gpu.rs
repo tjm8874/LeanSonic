@@ -475,7 +475,47 @@ enum ExpertScaleSource<'a> {
     MeanV1(&'a [u8], usize),
 }
 
-impl ExpertScaleSource<'_> {
+impl<'a> ExpertScaleSource<'a> {
+    fn read(
+        st: &'a MappedSafeTensors,
+        name: &str,
+        dtype: &str,
+        shape: &[usize],
+    ) -> Result<Self, String> {
+        let count: usize = shape.iter().product();
+        let source = match (
+            st.get(name),
+            st.get(&format!("{name}.range_v1")),
+            st.get(&format!("{name}.rans_v1")),
+            st.get(&format!("{name}.neighbor_v1")),
+            st.get(&format!("{name}.mean8_v1")),
+        ) {
+            (Some(t), None, None, None, None)
+                if t.dtype == dtype && t.shape == shape && t.data.len() == count =>
+            {
+                ExpertScaleSource::Raw(t.data)
+            }
+            (None, Some(t), None, None, None) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                ExpertScaleSource::RangeV1(t.data)
+            }
+            (None, None, Some(t), None, None) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                ExpertScaleSource::RansV1(t.data)
+            }
+            (None, None, None, Some(t), None) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                ExpertScaleSource::NeighborV1(t.data, shape[2])
+            }
+            (None, None, None, None, Some(t)) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                ExpertScaleSource::MeanV1(t.data, shape[2])
+            }
+            _ => {
+                return Err(format!(
+                    "missing, ambiguous or invalid Inkling expert scale {name}"
+                ))
+            }
+        };
+        Ok(source)
+    }
+
     fn tiles(
         self,
         count: usize,
@@ -1304,6 +1344,11 @@ enum ScaleFormat {
 #[derive(Clone, Copy)]
 enum ExpertMatrix<'a> {
     Raw(&'a [u8]),
+    MxScale {
+        bytes: &'a [u8],
+        scales: ExpertScaleSource<'a>,
+        count: usize,
+    },
     ScaleSplit {
         ternary: bool,
         format: ScaleFormat,
@@ -1327,6 +1372,12 @@ impl<'a> ExpertMatrix<'a> {
         shape: &[usize],
     ) -> Result<Self, String> {
         let count = shape.iter().product();
+        let mxscale = st.get(&format!("{name}.mxscale_codes_v1"));
+        let plain = st.get(&format!("{name}.rans_v1"));
+        let uses_mxscale = mxscale.is_some();
+        if uses_mxscale && plain.is_some() {
+            return Err(format!("ambiguous MXFP8 code frames for {name}"));
+        }
         let direct = st.get(&format!("{name}.nvscale_direct_v1"));
         let four_banks = st.get(&format!("{name}.nvscale_four_v1"));
         if direct.is_some() && four_banks.is_some() {
@@ -1341,7 +1392,7 @@ impl<'a> ExpertMatrix<'a> {
         };
         match (
             st.get(name),
-            st.get(&format!("{name}.rans_v1")),
+            plain.or(mxscale),
             st.get(&format!("{name}.nvctx_v1")),
             st.get(&format!("{name}.nvctx_trim_v1")),
             st.get(&format!("{name}.nvscale_split_v1")),
@@ -1351,6 +1402,28 @@ impl<'a> ExpertMatrix<'a> {
                 if t.dtype == dtype && t.shape == shape && t.data.len() == count =>
             {
                 Ok(Self::Raw(t.data))
+            }
+            (None, Some(t), None, None, None, None) if uses_mxscale => {
+                if dtype != "F8_E4M3"
+                    || t.dtype != "U8"
+                    || t.shape != [t.data.len()]
+                    || shape.len() != 3
+                    || shape[0] != N_EXP
+                    || !shape[2].is_multiple_of(32)
+                {
+                    return Err(format!("invalid scale-conditioned MXFP8 matrix {name}"));
+                }
+                let scales = ExpertScaleSource::read(
+                    st,
+                    &format!("{name}_scale"),
+                    "U8",
+                    &[shape[0], shape[1], shape[2] / 32],
+                )?;
+                Ok(Self::MxScale {
+                    bytes: t.data,
+                    scales,
+                    count,
+                })
             }
             (None, Some(t), None, None, None, None)
                 if t.dtype == "U8" && t.shape == [t.data.len()] =>
@@ -1415,25 +1488,40 @@ impl<'a> ExpertMatrix<'a> {
                 ternary: true,
                 ..
             } => *count / 2,
-            Self::Packed { count, .. } | Self::ScaleSplit { count, .. } => *count,
+            Self::Packed { count, .. }
+            | Self::ScaleSplit { count, .. }
+            | Self::MxScale { count, .. } => *count,
         }
     }
     // A standard byte-rANS frame lists exactly the symbols its decoder may emit.
     // Store the lookup table and the two indices per byte together, aligned to 16 bytes.
     fn device_codebook(self) -> Result<Vec<u8>, String> {
-        let Self::Packed {
-            bytes,
-            count,
-            coding: ExpertCoding::Byte,
-        } = self
-        else {
-            return Err("device codebooks require rANS MXFP8 frames".into());
+        let count = self.len();
+        let (matrix, tables) = match self {
+            Self::Packed {
+                bytes,
+                count,
+                coding: ExpertCoding::Byte,
+            } => (
+                crate::inkling_mxfp8::Matrix::parse(bytes, count)?,
+                &bytes[..512],
+            ),
+            Self::MxScale {
+                bytes,
+                scales,
+                count,
+            } => Self::mxscale_matrix(bytes, scales, count)?,
+            _ => return Err("device codebooks require rANS MXFP8 frames".into()),
         };
-        let matrix = crate::inkling_mxfp8::Matrix::parse(bytes, count)?;
         let mut result = Vec::with_capacity(16 + count / 2);
         let mut index = [0u8; 256];
-        for (symbol, &freq) in bytes[..512].as_chunks::<2>().0.iter().enumerate() {
-            if freq != [0, 0] {
+        for symbol in 0..256 {
+            if tables
+                .as_chunks::<512>()
+                .0
+                .iter()
+                .any(|t| t[2 * symbol..2 * symbol + 2] != [0, 0])
+            {
                 if result.len() == 16 {
                     return Err("MXFP8 frame exceeds the 16-symbol device codebook limit".into());
                 }
@@ -1457,9 +1545,27 @@ impl<'a> ExpertMatrix<'a> {
         Ok(result)
     }
 
+    fn mxscale_matrix(
+        bytes: &'a [u8],
+        scales: ExpertScaleSource<'a>,
+        count: usize,
+    ) -> Result<(crate::inkling_mxfp8::Matrix<'a>, &'a [u8]), String> {
+        let mut side = Vec::with_capacity(count / 32);
+        scales.tiles(count / 32, |_, tile| {
+            side.extend_from_slice(tile);
+            Ok(())
+        })?;
+        crate::inkling_mxfp8::Matrix::parse_mxscale(bytes, count, side)
+    }
+
     fn place(self, ctx: &Arc<CudaContextHandle>, on_device: bool) -> Result<TierBuf, String> {
         let count = self.len();
         let matrix = match self {
+            Self::MxScale {
+                bytes,
+                scales,
+                count,
+            } => Self::mxscale_matrix(bytes, scales, count)?.0,
             Self::Raw(bytes) => {
                 if on_device {
                     if let Ok(buf) = DeviceBuf::from_host_bytes(ctx, bytes) {
@@ -2232,44 +2338,7 @@ impl Inkling2GpuEngine {
 
             let load_scale = |name: &str, dtype: &str, shape: &[usize]| {
                 let count = shape.iter().product();
-                let source = match (
-                    st.get(name),
-                    st.get(&format!("{name}.range_v1")),
-                    st.get(&format!("{name}.rans_v1")),
-                    st.get(&format!("{name}.neighbor_v1")),
-                    st.get(&format!("{name}.mean8_v1")),
-                ) {
-                    (Some(t), None, None, None, None)
-                        if t.dtype == dtype && t.shape == shape && t.data.len() == count =>
-                    {
-                        ExpertScaleSource::Raw(t.data)
-                    }
-                    (None, Some(t), None, None, None)
-                        if t.dtype == "U8" && t.shape == [t.data.len()] =>
-                    {
-                        ExpertScaleSource::RangeV1(t.data)
-                    }
-                    (None, None, Some(t), None, None)
-                        if t.dtype == "U8" && t.shape == [t.data.len()] =>
-                    {
-                        ExpertScaleSource::RansV1(t.data)
-                    }
-                    (None, None, None, Some(t), None)
-                        if t.dtype == "U8" && t.shape == [t.data.len()] =>
-                    {
-                        ExpertScaleSource::NeighborV1(t.data, shape[2])
-                    }
-                    (None, None, None, None, Some(t))
-                        if t.dtype == "U8" && t.shape == [t.data.len()] =>
-                    {
-                        ExpertScaleSource::MeanV1(t.data, shape[2])
-                    }
-                    _ => {
-                        return Err(format!(
-                            "missing, ambiguous or invalid Inkling expert scale {name}"
-                        ))
-                    }
-                };
+                let source = ExpertScaleSource::read(&st, name, dtype, shape)?;
                 source
                     .upload(&ctx, count, il < NVFP4_LAYERS, &fns)
                     .map_err(|e| format!("{name}: {e}"))
@@ -10942,6 +11011,22 @@ mod tests {
             .flat_map(|&v| [packed[(v & 15) as usize], packed[(v >> 4) as usize]])
             .collect();
         assert_eq!(decoded, raw);
+        let scales: Vec<_> = (0..raw.len() / 32).map(|block| (block % 5) as u8).collect();
+        let mut frame = Vec::new();
+        crate::inkling_mxfp8::pack_mxscale_codes(&raw, &scales, &mut frame).unwrap();
+        let mut scale_frame = Vec::new();
+        crate::inkling_mxfp8::pack(&scales, &mut scale_frame).unwrap();
+        for source in [
+            ExpertScaleSource::Raw(&scales),
+            ExpertScaleSource::RansV1(&scale_frame),
+        ] {
+            let expert = ExpertMatrix::MxScale {
+                bytes: &frame,
+                scales: source,
+                count: raw.len(),
+            };
+            assert_eq!(expert.device_codebook().unwrap(), packed);
+        }
         let mut excessive = raw;
         excessive[0] = 2;
         assert!(encode(&excessive).is_err());
