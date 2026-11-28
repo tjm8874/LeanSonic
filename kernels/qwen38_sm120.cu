@@ -3113,6 +3113,9 @@ extern "C" __global__ void q38_moe_build_plan_b64(
 
 // `0-ULP` Grouped Active-Expert Z24 `moe_up_swiglu` (`Grid (80, 513)`, `Block 512` = `16` warps/CTA = `8` rows/CTA, `46,336` B SMEM!)
 // `blockIdx.y ∈ 0..511`: routed expert `ex` (exits in `< 50 ns` if `cnt == 0`!); `blockIdx.y == 512`: Shared Expert (`b = 0..b_count-1`).
+#ifdef LEANSONIC_Q38_EXPONENT_PALETTE
+#define q38_moe_up_grouped_z24 q38_moe_up_grouped_z24_exp4
+#endif
 extern "C" __global__ void q38_moe_up_grouped_z24(
     const uint4* __restrict__ sw_gate_w,
     const uint32_t* __restrict__ sw_gate_sb_lo,
@@ -3256,6 +3259,9 @@ extern "C" __global__ void q38_moe_up_grouped_z24(
 
 // `0-ULP` Grouped Active-Expert Z24 `moe_down` (`Grid (40, 513)`, `Block 256`, `8` tokens/tile = `23,040` B SMEM -> `2` CTAs/SM!)
 // Writes exact weighted partial `dot * wt` into `down_part [b_count, 11, 2560]` (`7.03 MiB` in L2 cache!).
+#ifdef LEANSONIC_Q38_EXPONENT_PALETTE
+#define q38_moe_down_grouped_z24 q38_moe_down_grouped_z24_exp4
+#endif
 extern "C" __global__ void q38_moe_down_grouped_z24(
     const uint4* __restrict__ sw_down_w,
     const uint32_t* __restrict__ sw_down_sb_lo,

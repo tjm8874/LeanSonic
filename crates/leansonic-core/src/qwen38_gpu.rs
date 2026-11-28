@@ -79,6 +79,16 @@ const MOE_DOWN_Z24_SYMBOL: &str = if cfg!(feature = "q38-exponent-palette") {
 } else {
     "q38_moe_down_combine11_z24"
 };
+const MOE_UP_GROUPED_Z24_SYMBOL: &str = if cfg!(feature = "q38-exponent-palette") {
+    "q38_moe_up_grouped_z24_exp4"
+} else {
+    "q38_moe_up_grouped_z24"
+};
+const MOE_DOWN_GROUPED_Z24_SYMBOL: &str = if cfg!(feature = "q38-exponent-palette") {
+    "q38_moe_down_grouped_z24_exp4"
+} else {
+    "q38_moe_down_grouped_z24"
+};
 const EXP4_GROUPS: usize = SW_GROUPS_PER_PROJ / 512;
 const EXP4_RECORD_BYTES: usize = 128 + EXP4_GROUPS / 2;
 const SW_Z24_HI_BYTES: usize = if cfg!(feature = "q38-exponent-palette") {
@@ -929,8 +939,8 @@ fn load_kernel_fns(ctx: &Arc<CudaContextHandle>) -> Result<Qwen38KernelFns, Stri
         bf16_router_512_b4: get_fn("q38_bf16_router_512_b4")?,
         softmax_topk10_batch: get_fn("q38_softmax_topk10_batch")?,
         moe_build_plan_b64: get_fn("q38_moe_build_plan_b64")?,
-        moe_up_grouped_z24: get_fn("q38_moe_up_grouped_z24")?,
-        moe_down_grouped_z24: get_fn("q38_moe_down_grouped_z24")?,
+        moe_up_grouped_z24: get_fn(MOE_UP_GROUPED_Z24_SYMBOL)?,
+        moe_down_grouped_z24: get_fn(MOE_DOWN_GROUPED_Z24_SYMBOL)?,
         moe_combine11_batch: get_fn("q38_moe_combine11_batch")?,
         argmax_fast_batch: get_fn("q38_argmax_fast_batch")?,
         add_pos: get_fn("q38_add_pos")?,
@@ -3474,7 +3484,7 @@ impl Qwen38GpuEngine {
                 (80, 513),
                 512,
                 &mut p_up,
-                "q38_moe_up_grouped_z24",
+                MOE_UP_GROUPED_Z24_SYMBOL,
             )?;
 
             let mut p_dn = kargs![
@@ -3487,7 +3497,7 @@ impl Qwen38GpuEngine {
                 (40, 513),
                 256,
                 &mut p_dn,
-                "q38_moe_down_grouped_z24",
+                MOE_DOWN_GROUPED_Z24_SYMBOL,
             )?;
 
             let mut p_cmb = kargs![dpart, mout];
@@ -4724,9 +4734,9 @@ mod tests {
                         let gw = noise(ctx, rng, (Q38_EXP * 640 - s) * 80 * 16)?;
                         let uw = noise(ctx, rng, Q38_EXP * 640 * 80 * 16)?;
                         let glo = noise(ctx, rng, Q38_EXP * 640 * 40 * 4)?;
-                        let ghi = noise(ctx, rng, Q38_EXP * 640 * 20 * 4)?;
+                        let ghi = noise(ctx, rng, SW_Z24_HI_BYTES)?;
                         let ulo = noise(ctx, rng, Q38_EXP * 640 * 40 * 4)?;
-                        let uhi = noise(ctx, rng, Q38_EXP * 640 * 20 * 4)?;
+                        let uhi = noise(ctx, rng, SW_Z24_HI_BYTES)?;
                         let (mut pgw, mut pglo, mut pghi, mut puw, mut pulo, mut puhi) =
                             (gw.ptr, glo.ptr, ghi.ptr, uw.ptr, ulo.ptr, uhi.ptr);
                         let (mut psw, mut pss, mut psb, mut pactb) =
@@ -4735,7 +4745,7 @@ mod tests {
                         run(
                             ctx,
                             m,
-                            "q38_moe_up_grouped_z24",
+                            MOE_UP_GROUPED_Z24_SYMBOL,
                             (80, 513),
                             512,
                             &mut kargs![
@@ -4747,7 +4757,7 @@ mod tests {
                     {
                         let dw = noise(ctx, rng, (Q38_EXP * d - s) * 20 * 16)?;
                         let dlo = noise(ctx, rng, Q38_EXP * d * 10 * 4)?;
-                        let dhi = noise(ctx, rng, Q38_EXP * d * 5 * 4)?;
+                        let dhi = noise(ctx, rng, SW_Z24_HI_BYTES)?;
                         let sh_d = noise(ctx, rng, d * 20 * 16)?;
                         let (sh_dsc, sh_dbi) =
                             (noise(ctx, rng, d * 10 * 4)?, noise(ctx, rng, d * 10 * 4)?);
@@ -4760,7 +4770,7 @@ mod tests {
                         run(
                             ctx,
                             m,
-                            "q38_moe_down_grouped_z24",
+                            MOE_DOWN_GROUPED_Z24_SYMBOL,
                             (40, 513),
                             256,
                             &mut kargs![
