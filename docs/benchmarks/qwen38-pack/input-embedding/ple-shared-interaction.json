@@ -1,0 +1,132 @@
+{
+  "build": {
+    "sidecar_bytes": 65536136,
+    "distribution_bytes": 111046627608
+  },
+  "combined-extended": {
+    "rows": 494,
+    "vocabulary": 248320,
+    "mean_kl": 0.26441951283472737,
+    "max_kl": 1.9304258598877853,
+    "worst_case_position": [
+      9,
+      6
+    ],
+    "top1_matches": 409,
+    "byte_equal_rows": 0,
+    "reference_ppl": 11.382111666671216,
+    "candidate_ppl": 15.828754268993281,
+    "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+    "candidate_sha256": "c728af5aa313db706212a78e63bd5283af98cf56adc41660f450c010ca1eff5b",
+    "canary_cases": 16,
+    "matching_canaries": 2
+  },
+  "combined-heldout": {
+    "rows": 65,
+    "vocabulary": 248320,
+    "mean_kl": 0.34726637768704405,
+    "max_kl": 1.1597792356946188,
+    "worst_case_position": [
+      1,
+      20
+    ],
+    "top1_matches": 45,
+    "byte_equal_rows": 0,
+    "reference_ppl": 19.935406275452408,
+    "candidate_ppl": 24.272384099090523,
+    "reference_sha256": "b4bd7f680a9dbb59c0015d5f53ca25ed77c573e4ba953ae9e758e298cf9a3170",
+    "candidate_sha256": "51a530e0b661e2ac491fd4d8bae3f7fadb0d79642bee9019961c461cb27fe2f9",
+    "canary_cases": 4,
+    "matching_canaries": 3
+  },
+  "combined-new": {
+    "rows": 233,
+    "vocabulary": 248320,
+    "mean_kl": 0.3028487940688667,
+    "max_kl": 2.335750920251173,
+    "worst_case_position": [
+      7,
+      22
+    ],
+    "top1_matches": 185,
+    "byte_equal_rows": 0,
+    "reference_ppl": 18.588504580741304,
+    "candidate_ppl": 29.028867406423704,
+    "reference_sha256": "1cca711252d0578fa8200c84df316a2f86df8304e590fe450f47dc8cbce2e342",
+    "candidate_sha256": "e0844cde1b62a7a8a97deb28b07a42ff325f73f7f9de01c337fb163ee8994aa7",
+    "canary_cases": 8,
+    "matching_canaries": 2
+  },
+  "combined-original": {
+    "rows": 49,
+    "vocabulary": 248320,
+    "mean_kl": 0.2733504869278403,
+    "max_kl": 1.3033314232767554,
+    "worst_case_position": [
+      1,
+      8
+    ],
+    "top1_matches": 42,
+    "byte_equal_rows": 0,
+    "reference_ppl": 28.038166623626164,
+    "candidate_ppl": 48.508130085429165,
+    "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+    "candidate_sha256": "3796eeb6943d917e219f3169aec9a7fd6818a04fd2a131fbac3a214758ce71f5",
+    "canary_cases": 4,
+    "matching_canaries": 1
+  },
+  "ple-new": {
+    "rows": 233,
+    "vocabulary": 248320,
+    "mean_kl": 0.30472833108298786,
+    "max_kl": 1.8032070375771478,
+    "worst_case_position": [
+      7,
+      22
+    ],
+    "top1_matches": 179,
+    "byte_equal_rows": 0,
+    "reference_ppl": 18.588504580741304,
+    "candidate_ppl": 29.158915144363494,
+    "reference_sha256": "1cca711252d0578fa8200c84df316a2f86df8304e590fe450f47dc8cbce2e342",
+    "candidate_sha256": "b19505da0f9251e3abd997df22e580e11a45cada54dfda2ba9a0f000cc80332b",
+    "canary_cases": 8,
+    "matching_canaries": 2
+  },
+  "shared-new": {
+    "rows": 233,
+    "vocabulary": 248320,
+    "mean_kl": 0.31227421066456557,
+    "max_kl": 2.239276589876955,
+    "worst_case_position": [
+      3,
+      16
+    ],
+    "top1_matches": 179,
+    "byte_equal_rows": 0,
+    "reference_ppl": 18.588504580741304,
+    "candidate_ppl": 29.782627266010923,
+    "reference_sha256": "1cca711252d0578fa8200c84df316a2f86df8304e590fe450f47dc8cbce2e342",
+    "candidate_sha256": "8c3725b173525b5ae7b7b2de05097a7ef2dbdc4073cdcd20380b8eae42e31074",
+    "canary_cases": 8,
+    "matching_canaries": 2
+  },
+  "stock-new": {
+    "rows": 233,
+    "vocabulary": 248320,
+    "mean_kl": 0.30923172555658346,
+    "max_kl": 2.4665375661499565,
+    "worst_case_position": [
+      3,
+      16
+    ],
+    "top1_matches": 184,
+    "byte_equal_rows": 0,
+    "reference_ppl": 18.588504580741304,
+    "candidate_ppl": 29.171488431766758,
+    "reference_sha256": "1cca711252d0578fa8200c84df316a2f86df8304e590fe450f47dc8cbce2e342",
+    "candidate_sha256": "0300a2a16abbfedf875c42be4eb85a1527d235cea7ceb730235a15facd3b5cfd",
+    "canary_cases": 8,
+    "matching_canaries": 2
+  }
+}

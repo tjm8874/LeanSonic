@@ -174,3 +174,18 @@ Commit `b6e7103` registers the fused BF16 PLE projection in the safetensors inde
 The BF16 diagnostic package was 110,899,015,264 bytes including its original Q4 weights, up from 110,833,479,038; sampled peak process VRAM rose by 67,108,864 bytes to 75,554,095,104. On 16/128 prompt tokens with 32 outputs, warm median decode was 163.01/158.96 tok/s for Q4 and 161.93/157.99 for the candidate. Prefill was 397.20/491.68 and 396.38/491.57 tok/s, respectively. Keep the standalone change experimental: worst KL improved in all three sets, but average KL and PPL worsened on the largest. [Full scores, output IDs, per-request times and exact control](native-ple.json)
 
 Build the overlay with `build_ple.py "$DIRECT" "$OFFICIAL" "$NEW"`. Confirm the index maps `language_model.model.layers.1.ple.kv_proj.probe_bf16` to `ple-bf16-probe.safetensors`. Build the teacher and cubin from the same commit, run the three identical fixture files in both arms, and compare to the official teacher with the ID-aware scorer.
+
+## Combined BF16 PLE and Q4 shared-expert refit
+
+The shared-expert Q4 refit and BF16 PLE key/value projections together improved the four aggregate quality measures against stock on the 49-, 65- and 494-position sets. The new 8-prompt, 233-position holdout was frozen at `9b1654b` before any scoring on it. The official teacher used the full BF16 checkpoint in eager execution. Native arms used identical input IDs, all 248,320 logits and a fixed BF16 reference for each set.
+
+| Positions | Mean KL, stock → both | Worst KL | Top-1 matches | PPL |
+|---|---:|---:|---:|---:|
+| 49 | 0.281135 → 0.273350 | 1.469437 → 1.303331 | 39 → 42 | 52.9910 → 48.5081 |
+| 65 | 0.369378 → 0.347266 | 1.407895 → 1.159779 | 44 → 45 | 25.2686 → 24.2724 |
+| 494 | 0.269670 → 0.264420 | 2.499328 → 1.930426 | 406 → 409 | 15.9460 → 15.8288 |
+| 233, new | 0.309232 → 0.302849 | 2.466538 → 2.335751 | 184 → 185 | 29.1715 → 29.0289 |
+
+On the new set BF16 PPL was 18.5885. Shared-only had mean/worst KL 0.312274/2.239277, top-1 179/233 and PPL 29.7826. PLE-only had 0.304728/1.803207, 179/233 and 29.1589. Both together had the best mean KL, top-1 and PPL of these four native configurations, while PLE-only had the lowest worst KL. The combined diagnostic directory occupied 111,046,627,608 bytes including its superseded Q4 tensors. Absolute differences from BF16 remain. [Raw scores, hashes and continuation counts](ple-shared-interaction.json) · [New inputs](ple-shared-holdout.txt) · [Exact token IDs](ple-shared-holdout.ids)
+
+Run `shared_experts.py "$DIRECT" "$OFFICIAL" "$SHARED"` and `build_ple.py "$SHARED" "$OFFICIAL" "$COMBINED"` in this directory. Use the same cubin and native teacher from `b6e7103` for all four arms; construct the PLE-only arm from the original direct checkpoint. Confirm each PLE launch reports that it loaded BF16 key/value projections. Run the official and native teachers on each fixture, then compare with the ID-aware score.py. All input text is supplied so the raw-ID protocol can also be audited independently.
