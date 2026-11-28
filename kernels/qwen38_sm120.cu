@@ -1861,32 +1861,61 @@ __device__ __forceinline__ void stage_x_groups_tk33(
     }
 }
 
-__device__ __forceinline__ float dot_q4_group32_tk33(
+template <int MAX_T>
+__device__ __forceinline__ void accum_q4_group32_tk33_multi(
     uint4 pk,
     float sc,
     float bi,
-    const float4 (*smem_k)[33],
-    int lane) {
-    float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
+    const float4 (*smem_x)[9][33],
+    int n_b,
+    int lane,
+    float* acc) {
+    float a0[MAX_T], a1[MAX_T], a2[MAX_T], a3[MAX_T];
+    #pragma unroll
+    for (int t = 0; t < MAX_T; ++t) {
+        a0[t] = 0.0f;
+        a1[t] = 0.0f;
+        a2[t] = 0.0f;
+        a3[t] = 0.0f;
+    }
     #pragma unroll
     for (int w_idx = 0; w_idx < 4; ++w_idx) {
-        uint32_t w = (w_idx == 0) ? pk.x : ((w_idx == 1) ? pk.y : ((w_idx == 2) ? pk.z : pk.w));
-        float4 x0 = smem_k[w_idx * 2][lane];
-        float4 x1 = smem_k[w_idx * 2 + 1][lane];
-        a0 = __fmaf_rn(static_cast<float>(w & 0xFu), x0.x, a0);
-        a1 = __fmaf_rn(static_cast<float>((w >> 4) & 0xFu), x0.y, a1);
-        a2 = __fmaf_rn(static_cast<float>((w >> 8) & 0xFu), x0.z, a2);
-        a3 = __fmaf_rn(static_cast<float>((w >> 12) & 0xFu), x0.w, a3);
-        a0 = __fmaf_rn(static_cast<float>((w >> 16) & 0xFu), x1.x, a0);
-        a1 = __fmaf_rn(static_cast<float>((w >> 20) & 0xFu), x1.y, a1);
-        a2 = __fmaf_rn(static_cast<float>((w >> 24) & 0xFu), x1.z, a2);
-        a3 = __fmaf_rn(static_cast<float>((w >> 28) & 0xFu), x1.w, a3);
+        const uint32_t w = (w_idx == 0) ? pk.x : ((w_idx == 1) ? pk.y : ((w_idx == 2) ? pk.z : pk.w));
+        const float q0 = static_cast<float>(w & 0xFu);
+        const float q1 = static_cast<float>((w >> 4) & 0xFu);
+        const float q2 = static_cast<float>((w >> 8) & 0xFu);
+        const float q3 = static_cast<float>((w >> 12) & 0xFu);
+        const float q4 = static_cast<float>((w >> 16) & 0xFu);
+        const float q5 = static_cast<float>((w >> 20) & 0xFu);
+        const float q6 = static_cast<float>((w >> 24) & 0xFu);
+        const float q7 = static_cast<float>((w >> 28) & 0xFu);
+        #pragma unroll
+        for (int t = 0; t < MAX_T; ++t) {
+            if (t < n_b) {
+                const float4 x0 = smem_x[t][w_idx * 2][lane];
+                const float4 x1 = smem_x[t][w_idx * 2 + 1][lane];
+                a0[t] = __fmaf_rn(q0, x0.x, a0[t]);
+                a1[t] = __fmaf_rn(q1, x0.y, a1[t]);
+                a2[t] = __fmaf_rn(q2, x0.z, a2[t]);
+                a3[t] = __fmaf_rn(q3, x0.w, a3[t]);
+                a0[t] = __fmaf_rn(q4, x1.x, a0[t]);
+                a1[t] = __fmaf_rn(q5, x1.y, a1[t]);
+                a2[t] = __fmaf_rn(q6, x1.z, a2[t]);
+                a3[t] = __fmaf_rn(q7, x1.w, a3[t]);
+            }
+        }
     }
-    float dot_nx = (a0 + a1) + (a2 + a3);
-    return __fmaf_rn(dot_nx, sc, bi * smem_k[8][lane].x);
+    #pragma unroll
+    for (int t = 0; t < MAX_T; ++t) {
+        if (t < n_b) {
+            const float dot_nx = (a0[t] + a1[t]) + (a2[t] + a3[t]);
+            acc[t] += __fmaf_rn(dot_nx, sc, bi * smem_x[t][8][lane].x);
+        }
+    }
 }
 
 // `0-ULP` High-Throughput Batched Q4 GEMM (`Block = 512`, `32` rows/CTA = `2` rows/warp, `8` tokens/tile, `38,016` B SMEM!)
+// Unpacks Q4 nibbles ONCE per group and reuses across all `t = 0..7`!
 // Grid: `(ceil(rows / 32), ceil(b_count / 8))`, Block: `512`
 extern "C" __global__ void q38_q4_gemm_b8(
     const uint4* __restrict__ w_u128,      // [rows, cols / 32]
@@ -1929,23 +1958,13 @@ extern "C" __global__ void q38_q4_gemm_b8(
                 const uint4 pk0 = w_u128[static_cast<size_t>(row0) * n_groups + g];
                 const float sc0 = load_bf16_from_u32_array(sc_u32 + static_cast<size_t>(row0) * sc_stride_u32, g);
                 const float bi0 = load_bf16_from_u32_array(bi_u32 + static_cast<size_t>(row0) * sc_stride_u32, g);
-                #pragma unroll
-                for (int t = 0; t < 8; ++t) {
-                    if (t < n_b) {
-                        acc0[t] += dot_q4_group32_tk33(pk0, sc0, bi0, smem_x[t], lane);
-                    }
-                }
+                accum_q4_group32_tk33_multi<8>(pk0, sc0, bi0, smem_x, n_b, lane, acc0);
             }
             if (row1 < rows) {
                 const uint4 pk1 = w_u128[static_cast<size_t>(row1) * n_groups + g];
                 const float sc1 = load_bf16_from_u32_array(sc_u32 + static_cast<size_t>(row1) * sc_stride_u32, g);
                 const float bi1 = load_bf16_from_u32_array(bi_u32 + static_cast<size_t>(row1) * sc_stride_u32, g);
-                #pragma unroll
-                for (int t = 0; t < 8; ++t) {
-                    if (t < n_b) {
-                        acc1[t] += dot_q4_group32_tk33(pk1, sc1, bi1, smem_x[t], lane);
-                    }
-                }
+                accum_q4_group32_tk33_multi<8>(pk1, sc1, bi1, smem_x, n_b, lane, acc1);
             }
         }
         __syncthreads();
@@ -2206,19 +2225,9 @@ extern "C" __global__ void q38_hc_down_inj_10k_b4(
             float sc = load_bf16_from_u32_array(rsc, g);
             float bi = load_bf16_from_u32_array(rbi, g);
             if (g_base < 160) {
-                #pragma unroll
-                for (int t = 0; t < 4; ++t) {
-                    if (t < n_b) {
-                        part_lo[t] += dot_q4_group32_tk33(pk, sc, bi, smem_x[t], lane);
-                    }
-                }
+                accum_q4_group32_tk33_multi<4>(pk, sc, bi, smem_x, n_b, lane, part_lo);
             } else {
-                #pragma unroll
-                for (int t = 0; t < 4; ++t) {
-                    if (t < n_b) {
-                        part_hi[t] += dot_q4_group32_tk33(pk, sc, bi, smem_x[t], lane);
-                    }
-                }
+                accum_q4_group32_tk33_multi<4>(pk, sc, bi, smem_x, n_b, lane, part_hi);
             }
         }
         __syncthreads();
@@ -3453,6 +3462,927 @@ extern "C" __global__ void q38_add_pos(int32_t* pos_ptr, int32_t delta) {
     pdl_wait();
     if (threadIdx.x == 0) {
         *pos_ptr += delta;
+    }
+    pdl_trigger();
+}
+
+// ============================================================================
+// 10. `v1.0.0` Low-Latency Multi-Row Speculative Verify (`1 <= B <= 8`) &
+//     `O(1)` Per-Row Recurrent Checkpointing (`#248` Track 3)
+// ============================================================================
+
+template <int MAX_T>
+__device__ __forceinline__ void warp_dot_q4_row_smem9_multi(
+    const uint4* __restrict__ row_w,
+    const uint32_t* __restrict__ row_sc_u32,
+    const uint32_t* __restrict__ row_bi_u32,
+    const float4* smem_x9_all,
+    int n_b,
+    int lane,
+    float* out_acc) {
+    #pragma unroll
+    for (int t = 0; t < MAX_T; ++t) {
+        out_acc[t] = 0.0f;
+    }
+    for (int g = lane; g < 80; g += 32) {
+        const uint4 pk = row_w[g];
+        const float sc = load_bf16_from_u32_array(row_sc_u32, g);
+        const float bi = load_bf16_from_u32_array(row_bi_u32, g);
+        float a0[MAX_T], a1[MAX_T], a2[MAX_T], a3[MAX_T];
+        #pragma unroll
+        for (int t = 0; t < MAX_T; ++t) {
+            a0[t] = 0.0f; a1[t] = 0.0f; a2[t] = 0.0f; a3[t] = 0.0f;
+        }
+        #pragma unroll
+        for (int w_idx = 0; w_idx < 4; ++w_idx) {
+            const uint32_t w = (w_idx == 0) ? pk.x : ((w_idx == 1) ? pk.y : ((w_idx == 2) ? pk.z : pk.w));
+            const float q0 = static_cast<float>(w & 0xFu);
+            const float q1 = static_cast<float>((w >> 4) & 0xFu);
+            const float q2 = static_cast<float>((w >> 8) & 0xFu);
+            const float q3 = static_cast<float>((w >> 12) & 0xFu);
+            const float q4 = static_cast<float>((w >> 16) & 0xFu);
+            const float q5 = static_cast<float>((w >> 20) & 0xFu);
+            const float q6 = static_cast<float>((w >> 24) & 0xFu);
+            const float q7 = static_cast<float>((w >> 28) & 0xFu);
+            #pragma unroll
+            for (int t = 0; t < MAX_T; ++t) {
+                if (t < n_b) {
+                    const float4* grp9 = smem_x9_all + (t * 80 + g) * 9;
+                    const float4 x0 = grp9[w_idx * 2];
+                    const float4 x1 = grp9[w_idx * 2 + 1];
+                    a0[t] = __fmaf_rn(q0, x0.x, a0[t]);
+                    a1[t] = __fmaf_rn(q1, x0.y, a1[t]);
+                    a2[t] = __fmaf_rn(q2, x0.z, a2[t]);
+                    a3[t] = __fmaf_rn(q3, x0.w, a3[t]);
+                    a0[t] = __fmaf_rn(q4, x1.x, a0[t]);
+                    a1[t] = __fmaf_rn(q5, x1.y, a1[t]);
+                    a2[t] = __fmaf_rn(q6, x1.z, a2[t]);
+                    a3[t] = __fmaf_rn(q7, x1.w, a3[t]);
+                }
+            }
+        }
+        #pragma unroll
+        for (int t = 0; t < MAX_T; ++t) {
+            if (t < n_b) {
+                const float dot_nx = (a0[t] + a1[t]) + (a2[t] + a3[t]);
+                out_acc[t] += __fmaf_rn(dot_nx, sc, bi * smem_x9_all[(t * 80 + g) * 9 + 8].x);
+            }
+        }
+    }
+}
+
+// Zero-loop `2`-CTAs/SM `cols == 2560` Q4 GEMV for `1 <= b_count <= 2` (`23,040 B <= 31,744 B` SMEM -> `2` CTAs/SM = `32` warps/SM!)
+// Grid: `(ceil(rows / 32), 1)`, Block: `512` (`2` rows/warp = `32` rows/CTA)
+extern "C" __global__ void q38_q4_gemv_2560_b2(
+    const uint4* __restrict__ w_u128,      // [rows, 80]
+    const uint32_t* __restrict__ sc_u32,   // [rows, 40]
+    const uint32_t* __restrict__ bi_u32,   // [rows, 40]
+    const float4* x4_batch,                // [b_count, 640]
+    float* y_batch,                        // [b_count, rows]
+    int32_t rows,
+    int32_t b_count,
+    int32_t post_mode) {
+    __shared__ float4 smem_x9[2 * 80 * 9]; // `23,040` B <= `31,744` B (`2` CTAs/SM under `64 KiB` carveout!)
+
+    const int tid = threadIdx.x;
+    pdl_wait();
+    for (int t = 0; t < b_count; ++t) {
+        stage_x_groups_smem9(x4_batch + static_cast<size_t>(t) * 640u, smem_x9 + t * 80 * 9, 80, tid, 512);
+    }
+    __syncthreads();
+
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int row0 = blockIdx.x * 32 + warp_id * 2;
+    const int row1 = row0 + 1;
+
+    if (row0 < rows) {
+        float acc0[2];
+        warp_dot_q4_row_smem9_multi<2>(
+            w_u128 + static_cast<size_t>(row0) * 80u,
+            sc_u32 + static_cast<size_t>(row0) * 40u,
+            bi_u32 + static_cast<size_t>(row0) * 40u,
+            smem_x9, b_count, lane, acc0);
+        #pragma unroll
+        for (int t = 0; t < 2; ++t) {
+            if (t < b_count) {
+                float v = warp_sum(acc0[t]);
+                if (lane == 0) {
+                    if (post_mode == 1) v = ptx_silu(v * 0.25f);
+                    else if (post_mode == 2) v = ptx_sigmoid(v);
+                    y_batch[static_cast<size_t>(t) * rows + row0] = v;
+                }
+            }
+        }
+    }
+    if (row1 < rows) {
+        float acc1[2];
+        warp_dot_q4_row_smem9_multi<2>(
+            w_u128 + static_cast<size_t>(row1) * 80u,
+            sc_u32 + static_cast<size_t>(row1) * 40u,
+            bi_u32 + static_cast<size_t>(row1) * 40u,
+            smem_x9, b_count, lane, acc1);
+        #pragma unroll
+        for (int t = 0; t < 2; ++t) {
+            if (t < b_count) {
+                float v = warp_sum(acc1[t]);
+                if (lane == 0) {
+                    if (post_mode == 1) v = ptx_silu(v * 0.25f);
+                    else if (post_mode == 2) v = ptx_sigmoid(v);
+                    y_batch[static_cast<size_t>(t) * rows + row1] = v;
+                }
+            }
+        }
+    }
+    pdl_trigger();
+}
+
+// Zero-loop `512`-thread `cols == 2560` Q4 GEMV for `1 <= b_count <= 4` (`46,080` B SMEM, `16` warps/CTA!)
+// Grid: `(ceil(rows / 32), 1)`, Block: `512` (`2` rows/warp = `32` rows/CTA)
+extern "C" __global__ void q38_q4_gemv_2560_b4(
+    const uint4* __restrict__ w_u128,      // [rows, 80]
+    const uint32_t* __restrict__ sc_u32,   // [rows, 40]
+    const uint32_t* __restrict__ bi_u32,   // [rows, 40]
+    const float4* x4_batch,                // [b_count, 640]
+    float* y_batch,                        // [b_count, rows]
+    int32_t rows,
+    int32_t b_count,
+    int32_t post_mode) {
+    __shared__ float4 smem_x9[4 * 80 * 9]; // `46,080` B SMEM
+
+    const int tid = threadIdx.x;
+    pdl_wait();
+    for (int t = 0; t < b_count; ++t) {
+        stage_x_groups_smem9(x4_batch + static_cast<size_t>(t) * 640u, smem_x9 + t * 80 * 9, 80, tid, 512);
+    }
+    __syncthreads();
+
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int row0 = blockIdx.x * 32 + warp_id * 2;
+    const int row1 = row0 + 1;
+
+    if (row0 < rows) {
+        float acc0[4];
+        warp_dot_q4_row_smem9_multi<4>(
+            w_u128 + static_cast<size_t>(row0) * 80u,
+            sc_u32 + static_cast<size_t>(row0) * 40u,
+            bi_u32 + static_cast<size_t>(row0) * 40u,
+            smem_x9, b_count, lane, acc0);
+        #pragma unroll
+        for (int t = 0; t < 4; ++t) {
+            if (t < b_count) {
+                float v = warp_sum(acc0[t]);
+                if (lane == 0) {
+                    if (post_mode == 1) v = ptx_silu(v * 0.25f);
+                    else if (post_mode == 2) v = ptx_sigmoid(v);
+                    y_batch[static_cast<size_t>(t) * rows + row0] = v;
+                }
+            }
+        }
+    }
+    if (row1 < rows) {
+        float acc1[4];
+        warp_dot_q4_row_smem9_multi<4>(
+            w_u128 + static_cast<size_t>(row1) * 80u,
+            sc_u32 + static_cast<size_t>(row1) * 40u,
+            bi_u32 + static_cast<size_t>(row1) * 40u,
+            smem_x9, b_count, lane, acc1);
+        #pragma unroll
+        for (int t = 0; t < 4; ++t) {
+            if (t < b_count) {
+                float v = warp_sum(acc1[t]);
+                if (lane == 0) {
+                    if (post_mode == 1) v = ptx_silu(v * 0.25f);
+                    else if (post_mode == 2) v = ptx_sigmoid(v);
+                    y_batch[static_cast<size_t>(t) * rows + row1] = v;
+                }
+            }
+        }
+    }
+    pdl_trigger();
+}
+
+// `0-ULP` `5`-CTAs/SM Small-Batch Verify `moe_up_swiglu11_z24_bn` (`Grid (160, 11 * b_count)`, `Block 256`!)
+// Eliminates all `41,040`-CTA empty-expert & `build_plan` fixed overhead for `1 <= b_count <= 8`!
+#ifdef LEANSONIC_Q38_EXPONENT_PALETTE
+#define q38_moe_up_swiglu11_z24_bn q38_moe_up_swiglu11_z24_bn_exp4
+#endif
+extern "C" __global__ void q38_moe_up_swiglu11_z24_bn(
+    const uint4* __restrict__ sw_gate_w,
+    const uint32_t* __restrict__ sw_gate_sb_lo,
+    const uint32_t* __restrict__ sw_gate_sb_hi,
+    const uint4* __restrict__ sw_up_w,
+    const uint32_t* __restrict__ sw_up_sb_lo,
+    const uint32_t* __restrict__ sw_up_sb_hi,
+    uint32_t packed_bases_m1,
+    const uint4* __restrict__ sh_gu_gate_w,
+    const uint32_t* __restrict__ sh_gu_sc,
+    const uint32_t* __restrict__ sh_gu_bi,
+    const float4* x4_batch,                // [b_count, 640]
+    const int32_t* sel_ids10_batch,        // [b_count, 10]
+    float* sel_wts11_batch,                // [b_count, 11]
+    float* act11_batch) {                  // [b_count, 11, 640]
+    __shared__ float4 smem_x9[80 * 9];     // `11,520` B SMEM -> `5` CTAs/SM = `40` warps/SM!
+    __shared__ float smem_gu[8];
+
+    const int tid = threadIdx.x;
+    const int b = blockIdx.y / 11;
+    const int k = blockIdx.y - b * 11;
+
+    pdl_wait();
+    stage_x_groups_smem9(x4_batch + static_cast<size_t>(b) * 640u, smem_x9, 80, tid);
+    __syncthreads();
+
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int m = blockIdx.x * 4 + (warp_id >> 1);
+    const int is_up = warp_id & 1;
+
+    if (k < kTopK) {
+        const int ex = sel_ids10_batch[static_cast<size_t>(b) * kTopK + k];
+        const size_t row = static_cast<size_t>(ex) * kMoeFf + m;
+        const uint4* w_ptr = (is_up ? sw_up_w : sw_gate_w) + row * 80u;
+        const uint32_t* sb_lo = is_up ? sw_up_sb_lo : sw_gate_sb_lo;
+        const uint32_t* sb_hi = is_up ? sw_up_sb_hi : sw_gate_sb_hi;
+        const uint32_t base_sc_m1 = is_up ? ((packed_bases_m1 >> 16) & 0xFFu) : (packed_bases_m1 & 0xFFu);
+        const uint32_t base_bi_m1 = is_up ? ((packed_bases_m1 >> 24) & 0xFFu) : ((packed_bases_m1 >> 8) & 0xFFu);
+        float dot = warp_dot_q4_row_z24_smem9(
+            w_ptr, sb_lo, sb_hi, row * 80u, base_sc_m1, base_bi_m1, smem_x9, 80, lane);
+        if (lane == 0) smem_gu[warp_id] = dot;
+    } else {
+        const size_t row = static_cast<size_t>(is_up * kMoeFf + m);
+        float dot = warp_dot_q4_row_smem9(
+            sh_gu_gate_w + row * 80u,
+            sh_gu_sc + row * 40u,
+            sh_gu_bi + row * 40u,
+            smem_x9, 80, lane);
+        if (lane == 0) smem_gu[warp_id] = dot;
+
+        if (blockIdx.x == 0 && warp_id == 0) {
+            float sg = warp_dot_q4_row_smem9(
+                sh_gu_gate_w + 1280u * 80u,
+                sh_gu_sc + 1280u * 40u,
+                sh_gu_bi + 1280u * 40u,
+                smem_x9, 80, lane);
+            if (lane == 0) sel_wts11_batch[static_cast<size_t>(b) * 11u + 10u] = ptx_sigmoid(sg);
+        }
+    }
+    __syncthreads();
+
+    if (lane == 0 && is_up == 0) {
+        float g = smem_gu[warp_id];
+        float u = smem_gu[warp_id + 1];
+        act11_batch[(static_cast<size_t>(b) * 11u + k) * kMoeFf + m] = ptx_silu(g) * u;
+    }
+    pdl_trigger();
+}
+
+// `0-ULP` `2`-CTAs/SM Small-Batch Verify `moe_down_combine11_z24_bn` (`Grid (80, b_count)`, `Block 256`!)
+#ifdef LEANSONIC_Q38_EXPONENT_PALETTE
+#define q38_moe_down_combine11_z24_bn q38_moe_down_combine11_z24_bn_exp4
+#endif
+extern "C" __global__ void q38_moe_down_combine11_z24_bn(
+    const uint4* __restrict__ sw_down_w,
+    const uint32_t* __restrict__ sw_down_sb_lo,
+    const uint32_t* __restrict__ sw_down_sb_hi,
+    uint32_t down_bases_m1,
+    const uint4* __restrict__ sh_down_w,
+    const uint32_t* __restrict__ sh_down_sc,
+    const uint32_t* __restrict__ sh_down_bi,
+    const float4* act11_x4_batch,          // [b_count, 11, 160]
+    const int32_t* sel_ids10_batch,        // [b_count, 10]
+    const float* sel_wts11_batch,          // [b_count, 11]
+    float* moe_out_batch) {                // [b_count, 2560]
+    __shared__ float4 smem_a9[11 * 20 * 9]; // `31,680` B <= `31,744` B (`2` CTAs/SM under `64 KiB` carveout!)
+
+    const int tid = threadIdx.x;
+    const int b = blockIdx.y;
+    const int32_t* sel_ids10 = sel_ids10_batch + static_cast<size_t>(b) * kTopK;
+    const float* sel_wts11 = sel_wts11_batch + static_cast<size_t>(b) * 11u;
+
+    pdl_wait();
+    stage_x_groups_smem9(act11_x4_batch + static_cast<size_t>(b) * (11u * 160u), smem_a9, 11 * 20, tid);
+    __syncthreads();
+
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int sub_row = lane >> 2;
+    const int sub_lane = lane & 3;
+    const int pair_id = warp_id >> 1;
+    const int is_odd = warp_id & 1;
+    const int row = blockIdx.x * 32 + pair_id * 8 + sub_row;
+
+    const uint32_t base_sc_m1 = down_bases_m1 & 0xFFu;
+    const uint32_t base_bi_m1 = (down_bases_m1 >> 8) & 0xFFu;
+
+    float sum_y = 0.0f;
+    if (row < kD) {
+        const uint32_t lane4_mask = 0xFu << (sub_row * 4);
+        const int k_start = is_odd ? 5 : 0;
+        const int k_end = is_odd ? 10 : 5;
+        for (int k = k_start; k < k_end; ++k) {
+            const int ex = sel_ids10[k];
+            const float wt = sel_wts11[k];
+            const size_t r_idx = static_cast<size_t>(ex) * kD + static_cast<size_t>(row);
+            const uint4* rw = sw_down_w + r_idx * 20u;
+            const size_t g_base = r_idx * 20u;
+            const float4* a_k = smem_a9 + k * 20 * 9;
+
+            float dot = 0.0f;
+            #pragma unroll
+            for (int it = 0; it < 5; ++it) {
+                const int g = it * 4 + sub_lane;
+                uint4 pk = rw[g];
+                float sc, bi;
+                load_z24_sb_pair(sw_down_sb_lo, sw_down_sb_hi, g_base + static_cast<size_t>(g), base_sc_m1, base_bi_m1, &sc, &bi);
+                dot += dot_q4_group32_smem9(pk, sc, bi, a_k + g * 9);
+            }
+            dot += __shfl_xor_sync(lane4_mask, dot, 2);
+            dot += __shfl_xor_sync(lane4_mask, dot, 1);
+            sum_y += dot * wt;
+        }
+        if (is_odd) {
+            const uint4* sh_rw = sh_down_w + static_cast<size_t>(row) * 20u;
+            const uint32_t* sh_rsc = sh_down_sc + static_cast<size_t>(row) * 10u;
+            const uint32_t* sh_rbi = sh_down_bi + static_cast<size_t>(row) * 10u;
+            const float4* a_sh = smem_a9 + 10 * 20 * 9;
+            float sh_dot = 0.0f;
+            #pragma unroll
+            for (int it = 0; it < 5; ++it) {
+                const int g = it * 4 + sub_lane;
+                uint4 pk = sh_rw[g];
+                float sc = load_bf16_from_u32_array(sh_rsc, g);
+                float bi = load_bf16_from_u32_array(sh_rbi, g);
+                sh_dot += dot_q4_group32_smem9(pk, sc, bi, a_sh + g * 9);
+            }
+            sh_dot += __shfl_xor_sync(lane4_mask, sh_dot, 2);
+            sh_dot += __shfl_xor_sync(lane4_mask, sh_dot, 1);
+            sum_y += sh_dot * sel_wts11[10];
+        }
+    }
+    __syncthreads();
+
+    float* smem_part = reinterpret_cast<float*>(smem_a9);
+    if (sub_lane == 0 && row < kD) {
+        smem_part[warp_id * 8 + sub_row] = sum_y;
+    }
+    __syncthreads();
+
+    if (is_odd == 0 && sub_lane == 0 && row < kD) {
+        moe_out_batch[static_cast<size_t>(b) * kD + row] =
+            smem_part[warp_id * 8 + sub_row] + smem_part[(warp_id + 1) * 8 + sub_row];
+    }
+    pdl_trigger();
+}
+
+// Layer 1 causal PLE inject with `O(1)` per-row `ple_hist9` checkpoint (`Grid (4, 1)`, `Block 256`)
+extern "C" __global__ void q38_ple_inject_ckpt_b8(
+    float* hc_batch,                          // [b_count, 10240]
+    const float* kv_batch,                    // [b_count, 12800]
+    const float* __restrict__ norm_key_w,     // [4, 2560]
+    const float* __restrict__ norm_query_w,   // [4, 2560]
+    const float* __restrict__ norm_conv_w,    // [4, 2560]
+    const float4* __restrict__ conv_w4,       // [4, 2560]
+    float* ple_hist9,                         // [9, 10240]
+    float* ple_ckpt_out,                      // [(b_count - 1), 9, 10240] or nullptr
+    const int32_t* pos0_ptr,
+    int32_t b_count) {
+    __shared__ float smem_a[8];
+    __shared__ float smem_b[8];
+    __shared__ float smem_c[8];
+    __shared__ float smem_scalars[4];
+
+    const int s = blockIdx.x;
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const float* nk_s = norm_key_w + s * kD;
+    const float* nq_s = norm_query_w + s * kD;
+    const float* nc_s = norm_conv_w + s * kD;
+    const float4* cw_s = conv_w4 + s * kD;
+
+    pdl_wait();
+    const int pos0 = *pos0_ptr;
+
+    for (int b = 0; b < b_count; ++b) {
+        const int pos = pos0 + b;
+        float* hc_s = hc_batch + static_cast<size_t>(b) * kHcD + s * kD;
+        const float* kv_b = kv_batch + static_cast<size_t>(b) * (kHcD + kD);
+        const float* kr_s = kv_b + s * kD;
+        const float* val_raw = kv_b + kHcD;
+
+        float sq_k = 0.0f, sq_q = 0.0f, sq_v = 0.0f;
+        for (int d = tid; d < kD; d += 256) {
+            float kv = kr_s[d];
+            float qv = hc_s[d];
+            float vv = val_raw[d];
+            sq_k += kv * kv;
+            sq_q += qv * qv;
+            sq_v += vv * vv;
+        }
+        sq_k = warp_sum(sq_k);
+        sq_q = warp_sum(sq_q);
+        sq_v = warp_sum(sq_v);
+        if (lane == 0) {
+            smem_a[warp_id] = sq_k;
+            smem_b[warp_id] = sq_q;
+            smem_c[warp_id] = sq_v;
+        }
+        __syncthreads();
+        if (warp_id == 0) {
+            float tk = (lane < 8) ? smem_a[lane] : 0.0f;
+            float tq = (lane < 8) ? smem_b[lane] : 0.0f;
+            float tv = (lane < 8) ? smem_c[lane] : 0.0f;
+            tk = warp_sum(tk);
+            tq = warp_sum(tq);
+            tv = warp_sum(tv);
+            if (lane == 0) {
+                smem_scalars[0] = ptx_rsqrt(tk * (1.0f / 2560.0f) + 1e-6f);
+                smem_scalars[1] = ptx_rsqrt(tq * (1.0f / 2560.0f) + 1e-6f);
+                smem_scalars[3] = tv * (1.0f / 2560.0f);
+            }
+        }
+        __syncthreads();
+
+        const float inv_k = smem_scalars[0];
+        const float inv_q = smem_scalars[1];
+        float dot = 0.0f;
+        for (int d = tid; d < kD; d += 256) {
+            dot += (kr_s[d] * inv_k * nk_s[d]) * (hc_s[d] * inv_q * nq_s[d]);
+        }
+        dot = warp_sum(dot);
+        if (lane == 0) smem_a[warp_id] = dot;
+        __syncthreads();
+        if (warp_id == 0) {
+            float td = (lane < 8) ? smem_a[lane] : 0.0f;
+            td = warp_sum(td);
+            if (lane == 0) {
+                float g = td * 0.01976423537605237f;
+                float g_abs = fabsf(g);
+                float g_clamp = (g_abs < 1e-6f) ? 1e-6f : g_abs;
+                float signed_sqrt = (g > 0.0f) ? ptx_sqrt(g_clamp) : ((g < 0.0f) ? -ptx_sqrt(g_clamp) : 0.0f);
+                float sig = ptx_sigmoid(signed_sqrt);
+                smem_scalars[2] = sig;
+                smem_scalars[3] = ptx_rsqrt(sig * sig * smem_scalars[3] + 1e-6f);
+            }
+        }
+        __syncthreads();
+
+        const float sig_g = smem_scalars[2];
+        const float inv_gv = smem_scalars[3];
+        const int s_m9 = pos % 9;
+        const int s_m6 = (pos + 3) % 9;
+        const int s_m3 = (pos + 6) % 9;
+
+        for (int d = tid; d < kD; d += 256) {
+            const int ch = s * kD + d;
+            float gv = sig_g * val_raw[d];
+            float gvn = gv * inv_gv * nc_s[d];
+
+            float x_m9 = ple_hist9[static_cast<size_t>(s_m9) * kHcD + ch];
+            float x_m6 = ple_hist9[static_cast<size_t>(s_m6) * kHcD + ch];
+            float x_m3 = ple_hist9[static_cast<size_t>(s_m3) * kHcD + ch];
+            ple_hist9[static_cast<size_t>(s_m9) * kHcD + ch] = gvn;
+
+            float4 cw = cw_s[d];
+            float c_out = ptx_silu(cw.x * x_m9 + cw.y * x_m6 + cw.z * x_m3 + cw.w * gvn);
+            hc_s[d] += gv + c_out;
+
+            if (ple_ckpt_out != nullptr && (b + 1) < b_count) {
+                float* dst_ckpt = ple_ckpt_out + static_cast<size_t>(b) * (9u * kHcD);
+                #pragma unroll
+                for (int sl = 0; sl < 9; ++sl) {
+                    dst_ckpt[static_cast<size_t>(sl) * kHcD + ch] = ple_hist9[static_cast<size_t>(sl) * kHcD + ch];
+                }
+            }
+        }
+        __syncthreads();
+    }
+    pdl_trigger();
+}
+
+// Causal Conv4 + SiLU with `O(1)` per-row `conv_hist3` checkpoint (`Grid (40, 1)`, `Block 256`)
+extern "C" __global__ void q38_gdn_conv_silu_ckpt_b8(
+    const float* gdn_in_batch,            // [b_count, 16480]
+    const float4* __restrict__ conv_w4,   // [10240]
+    float* conv_hist3,                    // [10240 * 3]
+    float* conv_ckpt_out,                 // [(b_count - 1), 10240 * 3] or nullptr
+    float* qkv_conv_batch,                // [b_count, 10240]
+    int32_t b_count) {
+    const int c = blockIdx.x * 256 + threadIdx.x;
+    float4 w = (c < 10240) ? conv_w4[c] : make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+    pdl_wait();
+    if (c < 10240) {
+        float* h = conv_hist3 + c * 3;
+        float h0 = h[0], h1 = h[1], h2 = h[2];
+        for (int b = 0; b < b_count; ++b) {
+            float x = gdn_in_batch[static_cast<size_t>(b) * 16480u + c];
+            float y = ptx_silu(w.x * h0 + w.y * h1 + w.z * h2 + w.w * x);
+            qkv_conv_batch[static_cast<size_t>(b) * 10240u + c] = y;
+            h0 = h1;
+            h1 = h2;
+            h2 = x;
+            if (conv_ckpt_out != nullptr && (b + 1) < b_count) {
+                float* ck = conv_ckpt_out + static_cast<size_t>(b) * 30720u + c * 3;
+                ck[0] = h0;
+                ck[1] = h1;
+                ck[2] = h2;
+            }
+        }
+        h[0] = h0;
+        h[1] = h1;
+        h[2] = h2;
+    }
+    pdl_trigger();
+}
+
+// `0-ULP` On-Chip `smem_S + s_hi` Causal GDN Recurrent Step with `O(1)` per-row `state_f32` checkpoint (`Grid (48, 1)`, `Block 128`)
+// Keeps `[128, 128]` FP32 recurrent state on-chip across all `b = 0..b_count-1` (`1` DRAM load + `1` final store instead of `b_count` R+W sweeps!).
+extern "C" __global__ void q38_gdn_recurrent_step_ckpt_b8(
+    const float* qkv_conv_batch,          // [b_count, 10240]
+    const float* gdn_in_batch,            // [b_count, 16480]
+    const float* __restrict__ a_log,      // [48]
+    const float* __restrict__ dt_bias,    // [48]
+    const float* __restrict__ norm_w,     // [128]
+    int32_t use_sigmoid_gate,
+    int32_t b_count,
+    float* state_f32,                     // [48 * 128 * 128]
+    float* state_ckpt_out,                // [(b_count - 1), 48 * 128 * 128] or nullptr
+    float* gdn_out_batch) {               // [b_count, 6144]
+    __shared__ float smem_S[64][129];     // `33,024` B SMEM (`0` bank conflicts: stride `129` is odd!)
+    __shared__ float smem_q[128];
+    __shared__ float smem_k[128];
+    __shared__ float smem_red[4];
+    __shared__ float smem_gate[3];
+
+    const int vh = blockIdx.x;
+    const int kh = vh / 3;
+    const int dv = threadIdx.x;
+    const int warp_id = dv >> 5;
+    const int lane = dv & 31;
+    const float nw_dv = norm_w[dv];
+    const float al_vh = (dv == 0) ? a_log[vh] : 0.0f;
+    const float dt_vh = (dv == 0) ? dt_bias[vh] : 0.0f;
+    float* S_vh = state_f32 + static_cast<size_t>(vh) * 16384u;
+
+    pdl_wait();
+    #pragma unroll
+    for (int dk = 0; dk < 64; ++dk) {
+        smem_S[dk][dv] = S_vh[dk * 128 + dv];
+    }
+    float s_hi[64];
+    #pragma unroll
+    for (int dk = 0; dk < 64; ++dk) {
+        s_hi[dk] = S_vh[(64 + dk) * 128 + dv];
+    }
+    __syncthreads();
+
+    for (int b = 0; b < b_count; ++b) {
+        const float* qkv_conv = qkv_conv_batch + static_cast<size_t>(b) * 10240u;
+        const float* zba_buf = gdn_in_batch + static_cast<size_t>(b) * 16480u + 10240u;
+
+        float qv = qkv_conv[kh * 128 + dv];
+        float kv = qkv_conv[2048 + kh * 128 + dv];
+        float q_sq = warp_sum(qv * qv);
+        float k_sq = warp_sum(kv * kv);
+        if (lane == 0) smem_red[warp_id] = q_sq;
+        __syncthreads();
+        float q_tot = smem_red[0] + smem_red[1] + smem_red[2] + smem_red[3];
+        float q_inv = ptx_rsqrt(q_tot + 1e-6f) * 0.08838834764831845f;
+        __syncthreads();
+        if (lane == 0) smem_red[warp_id] = k_sq;
+        __syncthreads();
+        float k_tot = smem_red[0] + smem_red[1] + smem_red[2] + smem_red[3];
+        float k_inv = ptx_rsqrt(k_tot + 1e-6f);
+
+        smem_q[dv] = qv * q_inv;
+        smem_k[dv] = kv * k_inv;
+        if (dv == 0) {
+            float b_raw = zba_buf[6144 + vh];
+            float a_raw = zba_buf[6192 + vh];
+            float g = -ptx_exp(al_vh) * ptx_softplus(a_raw + dt_vh);
+            smem_gate[0] = ptx_exp(g);
+            smem_gate[1] = ptx_sigmoid(b_raw);
+        }
+        __syncthreads();
+
+        const float decay = smem_gate[0];
+        const float beta = smem_gate[1];
+
+        float kv_mem = 0.0f;
+        #pragma unroll 8
+        for (int dk = 0; dk < 64; ++dk) {
+            kv_mem += (smem_S[dk][dv] * decay) * smem_k[dk];
+        }
+        #pragma unroll
+        for (int dk = 0; dk < 64; ++dk) {
+            kv_mem += (s_hi[dk] * decay) * smem_k[64 + dk];
+        }
+        const float v_val = qkv_conv[4096 + vh * 128 + dv];
+        const float delta = (v_val - kv_mem) * beta;
+
+        float* ck_vh = (state_ckpt_out != nullptr && (b + 1) < b_count)
+            ? (state_ckpt_out + static_cast<size_t>(b) * 786432u + static_cast<size_t>(vh) * 16384u)
+            : nullptr;
+
+        float out_v = 0.0f;
+        #pragma unroll 8
+        for (int dk = 0; dk < 64; ++dk) {
+            float s_new = smem_S[dk][dv] * decay + smem_k[dk] * delta;
+            smem_S[dk][dv] = s_new;
+            if (ck_vh != nullptr) {
+                ck_vh[dk * 128 + dv] = s_new;
+            }
+            out_v += s_new * smem_q[dk];
+        }
+        #pragma unroll
+        for (int dk = 0; dk < 64; ++dk) {
+            float s_new = s_hi[dk] * decay + smem_k[64 + dk] * delta;
+            s_hi[dk] = s_new;
+            if (ck_vh != nullptr) {
+                ck_vh[(64 + dk) * 128 + dv] = s_new;
+            }
+            out_v += s_new * smem_q[64 + dk];
+        }
+
+        float o_sq = warp_sum(out_v * out_v);
+        if (lane == 0) smem_red[warp_id] = o_sq;
+        __syncthreads();
+        if (dv == 0) {
+            float o_tot = smem_red[0] + smem_red[1] + smem_red[2] + smem_red[3];
+            smem_gate[2] = ptx_rsqrt(o_tot * (1.0f / 128.0f) + 1e-6f);
+        }
+        __syncthreads();
+
+        float z_val = zba_buf[vh * 128 + dv];
+        float gate_act = use_sigmoid_gate ? ptx_sigmoid(z_val) : ptx_silu(z_val);
+        gdn_out_batch[static_cast<size_t>(b) * 6144u + vh * 128 + dv] = out_v * smem_gate[2] * nw_dv * gate_act;
+        __syncthreads();
+    }
+
+    #pragma unroll
+    for (int dk = 0; dk < 64; ++dk) {
+        S_vh[dk * 128 + dv] = smem_S[dk][dv];
+    }
+    #pragma unroll
+    for (int dk = 0; dk < 64; ++dk) {
+        S_vh[(64 + dk) * 128 + dv] = s_hi[dk];
+    }
+    pdl_trigger();
+}
+
+__device__ __forceinline__ void accum_q4_group32_smem9_b2(
+    uint4 pk,
+    float sc,
+    float bi,
+    const float4* grp0,
+    const float4* grp1,
+    float* acc) {
+    float a00 = 0.0f, a01 = 0.0f, a02 = 0.0f, a03 = 0.0f;
+    float a10 = 0.0f, a11 = 0.0f, a12 = 0.0f, a13 = 0.0f;
+    #pragma unroll
+    for (int w_idx = 0; w_idx < 4; ++w_idx) {
+        const uint32_t w = (w_idx == 0) ? pk.x : ((w_idx == 1) ? pk.y : ((w_idx == 2) ? pk.z : pk.w));
+        const float q0 = static_cast<float>(w & 0xFu);
+        const float q1 = static_cast<float>((w >> 4) & 0xFu);
+        const float q2 = static_cast<float>((w >> 8) & 0xFu);
+        const float q3 = static_cast<float>((w >> 12) & 0xFu);
+        const float q4 = static_cast<float>((w >> 16) & 0xFu);
+        const float q5 = static_cast<float>((w >> 20) & 0xFu);
+        const float q6 = static_cast<float>((w >> 24) & 0xFu);
+        const float q7 = static_cast<float>((w >> 28) & 0xFu);
+
+        const float4 x00 = grp0[w_idx * 2];
+        const float4 x01 = grp0[w_idx * 2 + 1];
+        a00 = __fmaf_rn(q0, x00.x, a00);
+        a01 = __fmaf_rn(q1, x00.y, a01);
+        a02 = __fmaf_rn(q2, x00.z, a02);
+        a03 = __fmaf_rn(q3, x00.w, a03);
+        a00 = __fmaf_rn(q4, x01.x, a00);
+        a01 = __fmaf_rn(q5, x01.y, a01);
+        a02 = __fmaf_rn(q6, x01.z, a02);
+        a03 = __fmaf_rn(q7, x01.w, a03);
+
+        const float4 x10 = grp1[w_idx * 2];
+        const float4 x11 = grp1[w_idx * 2 + 1];
+        a10 = __fmaf_rn(q0, x10.x, a10);
+        a11 = __fmaf_rn(q1, x10.y, a11);
+        a12 = __fmaf_rn(q2, x10.z, a12);
+        a13 = __fmaf_rn(q3, x10.w, a13);
+        a10 = __fmaf_rn(q4, x11.x, a10);
+        a11 = __fmaf_rn(q5, x11.y, a11);
+        a12 = __fmaf_rn(q6, x11.z, a12);
+        a13 = __fmaf_rn(q7, x11.w, a13);
+    }
+    acc[0] += __fmaf_rn((a00 + a01) + (a02 + a03), sc, bi * grp0[8].x);
+    acc[1] += __fmaf_rn((a10 + a11) + (a12 + a13), sc, bi * grp1[8].x);
+}
+
+// `0-ULP` `2`-CTAs/SM `B = 2` Q4 GEMV for `cols != 2560` (`out_proj [2560, 6144]`, `o_proj [2560, 4096]`, `ple.kv_proj`)
+// Grid: `(ceil(rows / 8), 1)` = `320` CTAs across `110` SMs, Block: `256` (`27,648 B <= 31,744 B` SMEM -> `2` CTAs/SM!)
+extern "C" __global__ void q38_q4_gemv_b2(
+    const uint4* __restrict__ w_u128,      // [rows, cols/32]
+    const uint32_t* __restrict__ sc_u32,   // [rows, cols/64]
+    const uint32_t* __restrict__ bi_u32,   // [rows, cols/64]
+    const float4* x4_batch,                // [2, cols/4]
+    float* y_batch,                        // [2, rows]
+    int32_t rows,
+    int32_t cols,
+    int32_t post_mode) {
+    __shared__ float4 smem_x9[2 * 96 * 9]; // `27,648` B <= `31,744` B (`2` CTAs/SM under `64 KiB` carveout!)
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int row = blockIdx.x * 8 + warp_id;
+    const int num_groups = cols >> 5;
+    const int num_x4 = cols >> 2;
+
+    float acc0 = 0.0f, acc1 = 0.0f;
+    const uint4* rw = (row < rows) ? (w_u128 + static_cast<size_t>(row) * num_groups) : nullptr;
+    const uint32_t* rsc = (row < rows) ? (sc_u32 + static_cast<size_t>(row) * (num_groups >> 1)) : nullptr;
+    const uint32_t* rbi = (row < rows) ? (bi_u32 + static_cast<size_t>(row) * (num_groups >> 1)) : nullptr;
+
+    pdl_wait();
+    for (int g_base = 0; g_base < num_groups; g_base += 96) {
+        const int tile_g = ((num_groups - g_base) < 96) ? (num_groups - g_base) : 96;
+        stage_x_groups_smem9(x4_batch + (g_base * 8), smem_x9, tile_g, tid, 256);
+        stage_x_groups_smem9(x4_batch + num_x4 + (g_base * 8), smem_x9 + 96 * 9, tile_g, tid, 256);
+        __syncthreads();
+
+        if (row < rows) {
+            float a[2] = {acc0, acc1};
+            for (int g = lane; g < tile_g; g += 32) {
+                const int gg = g_base + g;
+                uint4 pk = rw[gg];
+                float sc = load_bf16_from_u32_array(rsc, gg);
+                float bi = load_bf16_from_u32_array(rbi, gg);
+                accum_q4_group32_smem9_b2(pk, sc, bi, smem_x9 + g * 9, smem_x9 + (96 + g) * 9, a);
+            }
+            acc0 = a[0];
+            acc1 = a[1];
+        }
+        __syncthreads();
+    }
+
+    if (row < rows) {
+        float v0 = warp_sum(acc0);
+        float v1 = warp_sum(acc1);
+        if (lane == 0) {
+            if (post_mode == 1) {
+                v0 = ptx_silu(v0 * 0.25f);
+                v1 = ptx_silu(v1 * 0.25f);
+            } else if (post_mode == 2) {
+                v0 = ptx_sigmoid(v0);
+                v1 = ptx_sigmoid(v1);
+            }
+            y_batch[row] = v0;
+            y_batch[rows + row] = v1;
+        }
+    }
+    pdl_trigger();
+}
+
+// `0-ULP` `B = 2` Fused `hc_down_inj_10k_b2` (`Grid (81, 1)` across `110` SMs, `Block 256`, only `2` 160-group tiles!)
+extern "C" __global__ void q38_hc_down_inj_10k_b2(
+    const uint4* __restrict__ down_w,     // [320, 320]
+    const uint32_t* __restrict__ down_sc, // [320, 160]
+    const uint32_t* __restrict__ down_bi, // [320, 160]
+    const uint4* __restrict__ inj_w,      // [4, 320] or nullptr
+    const uint32_t* __restrict__ inj_sc,  // [4, 160] or nullptr
+    const uint32_t* __restrict__ inj_bi,  // [4, 160] or nullptr
+    const float4* hc_normed4_batch,       // [2, 2560]
+    float* hc_low_batch,                  // [2, 320]
+    float* hc_inj4_batch,                 // [2, 4]
+    int32_t has_inject) {
+    __shared__ float4 smem_n9[2 * 160 * 9]; // `46,080` B SMEM
+    __shared__ float smem_pair[2][8];
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int row_local = warp_id >> 1;    // `2` warps collaborate per row (`4` rows/CTA -> `81` CTAs!)
+    const int half_id = warp_id & 1;
+    const int row = blockIdx.x * 4 + row_local;
+    const int max_rows = has_inject ? 324 : 320;
+
+    float part[2] = {0.0f, 0.0f};
+    const uint4* rw = nullptr;
+    const uint32_t* rsc = nullptr;
+    const uint32_t* rbi = nullptr;
+    if (row < max_rows) {
+        rw = (row < 320) ? (down_w + static_cast<size_t>(row) * 320u) : (inj_w + static_cast<size_t>(row - 320) * 320u);
+        rsc = (row < 320) ? (down_sc + static_cast<size_t>(row) * 160u) : (inj_sc + static_cast<size_t>(row - 320) * 160u);
+        rbi = (row < 320) ? (down_bi + static_cast<size_t>(row) * 160u) : (inj_bi + static_cast<size_t>(row - 320) * 160u);
+    }
+
+    pdl_wait();
+    // Tile 0: `g = 0..159`
+    stage_x_groups_smem9(hc_normed4_batch, smem_n9, 160, tid, 256);
+    stage_x_groups_smem9(hc_normed4_batch + 2560u, smem_n9 + 160 * 9, 160, tid, 256);
+    __syncthreads();
+    if (row < max_rows) {
+        for (int g = half_id * 32 + lane; g < 160; g += 64) {
+            uint4 pk = rw[g];
+            float sc = load_bf16_from_u32_array(rsc, g);
+            float bi = load_bf16_from_u32_array(rbi, g);
+            accum_q4_group32_smem9_b2(pk, sc, bi, smem_n9 + g * 9, smem_n9 + (160 + g) * 9, part);
+        }
+    }
+    __syncthreads();
+
+    // Tile 1: `g = 160..319` (`half_id == 0` starts at `192 + lane`, `half_id == 1` starts at `160 + lane` -> exact `0-ULP` order!)
+    stage_x_groups_smem9(hc_normed4_batch + 1280u, smem_n9, 160, tid, 256);
+    stage_x_groups_smem9(hc_normed4_batch + 2560u + 1280u, smem_n9 + 160 * 9, 160, tid, 256);
+    __syncthreads();
+    if (row < max_rows) {
+        const int g_first = (half_id == 0) ? (32 + lane) : lane;
+        for (int g_rel = g_first; g_rel < 160; g_rel += 64) {
+            const int g = 160 + g_rel;
+            uint4 pk = rw[g];
+            float sc = load_bf16_from_u32_array(rsc, g);
+            float bi = load_bf16_from_u32_array(rbi, g);
+            accum_q4_group32_smem9_b2(pk, sc, bi, smem_n9 + g_rel * 9, smem_n9 + (160 + g_rel) * 9, part);
+        }
+        smem_pair[0][warp_id] = warp_sum(part[0]);
+        smem_pair[1][warp_id] = warp_sum(part[1]);
+    }
+    __syncthreads();
+
+    if (row < max_rows && half_id == 0 && lane == 0) {
+        float v0 = smem_pair[0][warp_id] + smem_pair[0][warp_id + 1];
+        float v1 = smem_pair[1][warp_id] + smem_pair[1][warp_id + 1];
+        if (row < 320) {
+            hc_low_batch[row] = ptx_silu(v0 * 0.25f);
+            hc_low_batch[320u + row] = ptx_silu(v1 * 0.25f);
+        } else {
+            hc_inj4_batch[row - 320] = v0;
+            hc_inj4_batch[4u + (row - 320)] = v1;
+        }
+    }
+    pdl_trigger();
+}
+
+// `0-ULP` `6`-CTAs/SM (`48` warps/SM = `100%` occupancy!) `B = 2` `hc_up_mix4_b2` (`Grid (320, 1)`, `Block 256`)
+extern "C" __global__ void q38_hc_up_mix4_b2(
+    const uint4* __restrict__ up_w,       // [10240, 10]
+    const uint32_t* __restrict__ up_sc,   // [10240, 5]
+    const uint32_t* __restrict__ up_bi,   // [10240, 5]
+    const float4* hc_low4_batch,          // [2, 80]
+    const float* hc_normed_batch,         // [2, 10240]
+    float* mixed_out_batch) {             // [2, 2560]
+    __shared__ float4 smem_low9[2 * 10 * 9]; // `2,880` B SMEM -> `6` CTAs/SM = `48` warps/SM!
+
+    const int tid = threadIdx.x;
+    pdl_wait();
+    stage_x_groups_smem9(hc_low4_batch, smem_low9, 10, tid, 256);
+    stage_x_groups_smem9(hc_low4_batch + 80u, smem_low9 + 10 * 9, 10, tid, 256);
+    __syncthreads();
+
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int d = blockIdx.x * 8 + warp_id;
+    if (d < kD) {
+        const int s = lane >> 3;
+        const int sub_lane = lane & 7;
+        const size_t row = static_cast<size_t>(s) * kD + static_cast<size_t>(d);
+        const uint4* rw = up_w + row * 10u;
+        const uint32_t* rsc = up_sc + row * 5u;
+        const uint32_t* rbi = up_bi + row * 5u;
+
+        float acc[2] = {0.0f, 0.0f};
+        {
+            const int g0 = sub_lane;
+            uint4 pk0 = rw[g0];
+            float sc0 = load_bf16_from_u32_array(rsc, g0);
+            float bi0 = load_bf16_from_u32_array(rbi, g0);
+            accum_q4_group32_smem9_b2(pk0, sc0, bi0, smem_low9 + g0 * 9, smem_low9 + (10 + g0) * 9, acc);
+        }
+        if (sub_lane < 2) {
+            const int g1 = 8 + sub_lane;
+            uint4 pk1 = rw[g1];
+            float sc1 = load_bf16_from_u32_array(rsc, g1);
+            float bi1 = load_bf16_from_u32_array(rbi, g1);
+            accum_q4_group32_smem9_b2(pk1, sc1, bi1, smem_low9 + g1 * 9, smem_low9 + (10 + g1) * 9, acc);
+        }
+
+        #pragma unroll
+        for (int t = 0; t < 2; ++t) {
+            float a = acc[t];
+            a += __shfl_xor_sync(0xFFFFFFFFu, a, 4);
+            a += __shfl_xor_sync(0xFFFFFFFFu, a, 2);
+            a += __shfl_xor_sync(0xFFFFFFFFu, a, 1);
+            float weighted = 0.0f;
+            if (sub_lane == 0) {
+                weighted = ptx_sigmoid(a) * hc_normed_batch[static_cast<size_t>(t) * kHcD + row];
+            }
+            weighted += __shfl_down_sync(0xFFFFFFFFu, weighted, 16);
+            weighted += __shfl_down_sync(0xFFFFFFFFu, weighted, 8);
+            if (lane == 0) {
+                mixed_out_batch[static_cast<size_t>(t) * kD + d] = weighted * 0.25f;
+            }
+        }
     }
     pdl_trigger();
 }

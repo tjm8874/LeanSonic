@@ -189,6 +189,7 @@ struct Fns {
     _mtp: CUmodule,
     embed: CUfunction,
     q4: CUfunction,
+    q4_2560: CUfunction,
     q4_10k: CUfunction,
     hc_norm4: CUfunction,
     hc_mix4: CUfunction,
@@ -324,6 +325,7 @@ impl Qwen38MtpDrafter {
         let fns = Fns {
             embed: get(ctx, q38, "q38_embed_init_hc4")?,
             q4: get(ctx, q38, "q38_q4_gemv")?,
+            q4_2560: get(ctx, q38, "q38_q4_gemv_2560")?,
             q4_10k: get(ctx, q38, "q38_q4_gemv_10k")?,
             hc_norm4: get(ctx, q38, "q38_hc_norm4")?,
             hc_mix4: get(ctx, q38, "q38_hc_mix4")?,
@@ -336,7 +338,7 @@ impl Qwen38MtpDrafter {
             topk: get(ctx, q38, "q38_softmax_topk10")?,
             moe_up: get(ctx, q38, "q38_moe_up_swiglu11")?,
             moe_down: get(ctx, q38, "q38_moe_down_combine11")?,
-            argmax: get(ctx, q38, "q38_argmax_and_inc_pos")?,
+            argmax: get(ctx, q38, "q38_argmax_fast")?,
             rmsnorm: get(ctx, mtp, "q38_mtp_rmsnorm")?,
             add_bcast4: get(ctx, mtp, "q38_mtp_add_bcast4")?,
             _q38: q38,
@@ -487,6 +489,12 @@ impl Qwen38MtpDrafter {
         })
     }
 
+    /// The drafter's own `[4, 2560]` HC output of the last `step` (before its mixer). Passing it
+    /// back as `hc_hidden` chains the drafter for `K > 1`.
+    pub fn hc_out(&self) -> CUdeviceptr {
+        self.d_hc.ptr
+    }
+
     /// MTP positions consumed so far (one per `step`).
     pub fn position(&self) -> usize {
         self.pos
@@ -543,7 +551,16 @@ impl Qwen38MtpDrafter {
         let (mut w, mut sc, mut bi, mut px, mut py) = (m.w, m.sc, m.bi, x, y);
         let (mut rows, mut cols, mut md) = (m.rows, m.cols, mode);
         let grid = ((m.rows as u32).div_ceil(8), 1);
-        if m.cols == Q38_HC_D as i32 {
+        if m.cols == Q38_D as i32 {
+            self.launch(
+                s,
+                self.fns.q4_2560,
+                grid,
+                256,
+                &mut kargs![w, sc, bi, px, py, rows, md],
+                "q38_q4_gemv_2560",
+            )
+        } else if m.cols == Q38_HC_D as i32 {
             self.launch(
                 s,
                 self.fns.q4_10k,
@@ -612,6 +629,30 @@ impl Qwen38MtpDrafter {
         next_tok: u32,
         embed: Q4Ref,
         lm_head: Q4Ref,
+    ) -> Result<u32, String> {
+        self.step_impl(hc_hidden, next_tok, embed, lm_head, false)
+    }
+
+    /// Like [`Self::step`], but only writes this position's KV / indexer rows and returns no
+    /// draft. Draft extend uses it for accepted positions whose draft is already known.
+    pub fn step_kv_only(
+        &mut self,
+        hc_hidden: CUdeviceptr,
+        next_tok: u32,
+        embed: Q4Ref,
+        lm_head: Q4Ref,
+    ) -> Result<(), String> {
+        self.step_impl(hc_hidden, next_tok, embed, lm_head, true)
+            .map(|_| ())
+    }
+
+    fn step_impl(
+        &mut self,
+        hc_hidden: CUdeviceptr,
+        next_tok: u32,
+        embed: Q4Ref,
+        lm_head: Q4Ref,
+        kv_only: bool,
     ) -> Result<u32, String> {
         if self.pos >= self.max_ctx {
             return Err(format!("MTP drafter reached max_ctx {}", self.max_ctx));
@@ -737,6 +778,10 @@ impl Qwen38MtpDrafter {
             &mut kargs![qp, qn, kn, iqn, ikn, invf, pp, qr, qg, kc, vc, iq, irk, ibk],
             "q38_qsa_prep_and_cache",
         )?;
+        if kv_only {
+            self.pos += 1;
+            return Ok(u32::MAX);
+        }
         let n_blocks = ((self.pos + 1) / 4) as i32;
         let mut use_mask: i32 = i32::from(n_blocks > 512);
         if use_mask == 1 {
@@ -837,9 +882,9 @@ impl Qwen38MtpDrafter {
             s,
             self.fns.argmax,
             (1, 1),
-            256,
+            1024,
             &mut kargs![lg, ot, pp2],
-            "q38_argmax_and_inc_pos",
+            "q38_argmax_fast",
         )?;
         self.ctx.sync_compute()?;
         let mut draft = 0i32;
@@ -866,10 +911,111 @@ impl Qwen38MtpDrafter {
     }
 }
 
+/// Counters from [`spec_generate`].
+#[derive(Debug, Default, Clone)]
+pub struct SpecStats {
+    pub cycles: usize,
+    pub drafted: usize,
+    pub accepted: usize,
+    pub rollbacks: usize,
+    /// `accept_hist[a]`: cycles that accepted exactly `a` drafts.
+    pub accept_hist: Vec<usize>,
+    /// Wall time of the prompt phase (s).
+    pub prompt_s: f64,
+}
+
+/// Greedy speculative decode with the built-in MTP drafter: `k` (`1..=7`) chained drafts per
+/// cycle, one `forward_verify_tokens(&[cur, d1..dk])`, then the drafter re-runs the accepted
+/// positions with the target's own HC rows (draft extend). The emitted ids equal plain greedy
+/// decode because the verify path is batch-invariant (`0-ULP`, #256).
+///
+/// The target must hold `48/48` Z24 layers (the batched verify path). A partial accept rolls the
+/// target back to the accepted row with `commit_or_rollback_verify_row` (per-row checkpoints, #264).
+pub fn spec_generate(
+    eng: &mut crate::qwen38_gpu::Qwen38GpuEngine,
+    mtp: &mut Qwen38MtpDrafter,
+    (embed, lm_head): (Q4Ref, Q4Ref),
+    prompt: &[u32],
+    n: usize,
+    k: usize,
+    stats: &mut SpecStats,
+) -> Result<Vec<u32>, String> {
+    use crate::qwen38_gpu::Q38_MAX_VERIFY_BATCH;
+    if prompt.is_empty() || n == 0 {
+        return Ok(Vec::new());
+    }
+    if !(1..Q38_MAX_VERIFY_BATCH).contains(&k) {
+        return Err(format!("spec k must be 1..={}", Q38_MAX_VERIFY_BATCH - 1));
+    }
+    let row = |eng: &crate::qwen38_gpu::Qwen38GpuEngine, r: usize| {
+        eng.hc_batch_row_ptr(r).ok_or_else(|| {
+            "speculative decode needs the batched verify path (48/48 Z24)".to_string()
+        })
+    };
+    // Prompt: verify-sized chunks so the drafter sees the target HC at every position.
+    let t0 = std::time::Instant::now();
+    let mut cur = 0u32;
+    let mut draft = 0u32;
+    for (c, chunk) in prompt.chunks(Q38_MAX_VERIFY_BATCH).enumerate() {
+        let out = eng.forward_verify_tokens(chunk)?;
+        for (r, &o) in out.iter().enumerate() {
+            let i = c * Q38_MAX_VERIFY_BATCH + r;
+            match prompt.get(i + 1) {
+                Some(&next) => mtp.step_kv_only(row(eng, r)?, next, embed, lm_head)?,
+                None => draft = mtp.step(row(eng, r)?, o, embed, lm_head)?,
+            }
+        }
+        cur = *out.last().unwrap();
+    }
+    stats.prompt_s = t0.elapsed().as_secs_f64();
+    let mut out = Vec::with_capacity(n + k + 1);
+    let mut seq = Vec::with_capacity(k + 1);
+    while out.len() < n {
+        stats.cycles += 1;
+        // Chain the drafter from its own HC output.
+        let q0 = mtp.position();
+        seq.clear();
+        seq.push(cur);
+        seq.push(draft);
+        let kk = k.min(n - out.len());
+        for _ in 1..kk {
+            let d = mtp.step(mtp.hc_out(), *seq.last().unwrap(), embed, lm_head)?;
+            seq.push(d);
+        }
+        stats.drafted += seq.len() - 1;
+        let ver = eng.forward_verify_tokens(&seq)?;
+        let mut a = 0usize;
+        while a + 1 < seq.len() && ver[a] == seq[a + 1] {
+            a += 1;
+        }
+        stats.accepted += a;
+        if stats.accept_hist.len() <= a {
+            stats.accept_hist.resize(a + 1, 0);
+        }
+        stats.accept_hist[a] += 1;
+        out.extend_from_slice(&seq[..=a]);
+        let next = ver[a];
+        if a + 1 < seq.len() {
+            stats.rollbacks += 1;
+        }
+        // O(1): restores the per-row checkpoint of row `a` (#264); no re-run.
+        eng.commit_or_rollback_verify_row(a)?;
+        // Draft extend: rewrite the drafter's positions with the target's HC rows.
+        mtp.rewind(q0);
+        for r in 0..a {
+            mtp.step_kv_only(row(eng, r)?, seq[r + 1], embed, lm_head)?;
+        }
+        draft = mtp.step(row(eng, a)?, next, embed, lm_head)?;
+        cur = next;
+    }
+    out.truncate(n);
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::qwen38_gpu::Qwen38GpuEngine;
+    use crate::qwen38_gpu::{Qwen38GpuEngine, Q38_MAX_VERIFY_BATCH};
 
     /// Exact-size memcheck for the two MTP fusion kernels (`--padding 65536`): inputs and outputs
     /// of exactly `n` floats; `short` drops the last input element (the planted fault).
@@ -976,8 +1122,9 @@ mod tests {
         let mut mtp =
             Qwen38MtpDrafter::load(&ctx, st, prompt.len() + n + 64, zero_centered, 512 << 20)?;
         eprintln!(
-            "MTP MoE in VRAM: {}, zero_centered {zero_centered}",
-            mtp.moe_in_vram
+            "MTP MoE in VRAM: {}, zero_centered {zero_centered}, {:.2} GiB free after load",
+            mtp.moe_in_vram,
+            ctx.mem_info()?.0 as f64 / (1u64 << 30) as f64
         );
         let next_pos = std::env::var("LEANSONIC_Q38_MTP_POS").as_deref() == Ok("next");
         if next_pos {
@@ -1023,6 +1170,166 @@ mod tests {
             1e3 * target_s / total as f64,
             1e3 * mtp_s / total as f64
         );
+        Ok(())
+    }
+
+    fn env_prompt() -> Vec<u32> {
+        std::env::var("LEANSONIC_Q38_MTP_PROMPT")
+            .ok()
+            .map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect())
+            .unwrap_or_else(|| (0..32).map(|i| ((i * 7 + 100) % 50_000) as u32).collect())
+    }
+
+    /// Times `forward_verify_tokens` for `B = 1..8` against `B` serial decode steps.
+    #[test]
+    #[ignore = "needs a Qwen3.8 model (LEANSONIC_Q38_MODEL) and an SM120 GPU"]
+    fn verify_batch_cost() -> Result<(), String> {
+        let dir = std::env::var("LEANSONIC_Q38_MODEL").map_err(|_| "set LEANSONIC_Q38_MODEL")?;
+        let prompt = env_prompt();
+        let mut eng = Qwen38GpuEngine::load_from_dir_with_opts(&dir, 4096, true)?;
+        let (mut cur, _) = eng.prefill_tokens(&prompt)?;
+        for _ in 0..8 {
+            cur = eng.forward_greedy_token(cur)?;
+        }
+        let mut snap = eng.alloc_recurrent_snapshot()?;
+        let reps = 20;
+        for b in 1..=Q38_MAX_VERIFY_BATCH {
+            let toks: Vec<u32> = (0..b)
+                .map(|i| cur.wrapping_add(i as u32 * 11) % 200_000)
+                .collect();
+            eng.snapshot_recurrent_state(&mut snap)?;
+            let serial: Vec<u32> = toks
+                .iter()
+                .map(|&t| eng.forward_greedy_token(t))
+                .collect::<Result<_, _>>()?;
+            eng.restore_recurrent_state(&snap)?;
+            let batched = eng.forward_verify_tokens(&toks)?;
+            eng.restore_recurrent_state(&snap)?;
+            let mut v_ms = 0.0;
+            for _ in 0..reps {
+                let t0 = std::time::Instant::now();
+                eng.forward_verify_tokens(&toks)?;
+                v_ms += t0.elapsed().as_secs_f64() * 1e3;
+                eng.restore_recurrent_state(&snap)?;
+            }
+            let mut s_ms = 0.0;
+            for _ in 0..reps {
+                let t0 = std::time::Instant::now();
+                for &t in &toks {
+                    eng.forward_greedy_token(t)?;
+                }
+                s_ms += t0.elapsed().as_secs_f64() * 1e3;
+                eng.restore_recurrent_state(&snap)?;
+            }
+            let t0 = std::time::Instant::now();
+            for _ in 0..reps {
+                eng.snapshot_recurrent_state(&mut snap)?;
+                eng.restore_recurrent_state(&snap)?;
+            }
+            eng.cuda_ctx().sync_compute()?;
+            let sr_ms = t0.elapsed().as_secs_f64() * 1e3 / reps as f64;
+            eprintln!(
+                "B={b}: verify {:.2} ms, serial {:.2} ms, snapshot+restore {:.3} ms, ids equal {}",
+                v_ms / reps as f64,
+                s_ms / reps as f64,
+                sr_ms,
+                serial == batched
+            );
+        }
+        Ok(())
+    }
+
+    /// Greedy `--spec K` with the MTP drafter must emit exactly the greedy ids
+    /// (`LEANSONIC_Q38_SPEC_K`, default `1,2,3`).
+    #[test]
+    #[ignore = "needs a Qwen3.8 model (LEANSONIC_Q38_MODEL) and an SM120 GPU"]
+    fn mtp_spec_matches_greedy() -> Result<(), String> {
+        let dir = std::env::var("LEANSONIC_Q38_MODEL").map_err(|_| "set LEANSONIC_Q38_MODEL")?;
+        let n: usize = std::env::var("LEANSONIC_Q38_MTP_TOKENS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(128);
+        let ks: Vec<usize> = std::env::var("LEANSONIC_Q38_SPEC_K")
+            .unwrap_or_else(|_| "1,2,3".into())
+            .split(',')
+            .filter_map(|t| t.trim().parse().ok())
+            .collect();
+        let prompt = env_prompt();
+        let max_ctx = std::env::var("LEANSONIC_Q38_MAX_CTX")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(prompt.len() + n + 64);
+        let mut eng = Qwen38GpuEngine::load_from_dir_with_opts(&dir, max_ctx, true)?;
+
+        let (first, _) = eng.prefill_tokens(&prompt)?;
+        let t0 = std::time::Instant::now();
+        let reference = eng.generate_greedy_tokens(first, n, &[], |_| {})?;
+        let greedy_s = t0.elapsed().as_secs_f64();
+        eprintln!("greedy: {:.2} tok/s", n as f64 / greedy_s);
+
+        if std::env::var("LEANSONIC_Q38_DEMOTE").as_deref() == Ok("1") {
+            let demoted = eng.demote_one_expert_layer_for_drafter()?;
+            let t0 = std::time::Instant::now();
+            eng.reset()?;
+            let (first, _) = eng.prefill_tokens(&prompt)?;
+            let again = eng.generate_greedy_tokens(first, n, &[], |_| {})?;
+            eprintln!(
+                "demoted one expert layer: {demoted}; greedy {:.2} tok/s, same ids {}",
+                n as f64 / t0.elapsed().as_secs_f64(),
+                again == reference
+            );
+        }
+        let (ctx, _hc, embed, lm_head, st) = eng.mtp_view();
+        let probe = st
+            .require(
+                "language_model.model.layers.0.attn_hyper_connection.hc_norm.weight",
+                "BF16",
+                &[Q38_HC_D],
+            )
+            .to_u16_vec();
+        let zero_centered = probe
+            .iter()
+            .map(|&u| f32::from_bits(u32::from(u) << 16))
+            .sum::<f32>()
+            / (Q38_HC_D as f32)
+            < 0.5;
+        let mut mtp = Qwen38MtpDrafter::load(&ctx, st, max_ctx, zero_centered, 512 << 20)?;
+        eprintln!("MTP MoE in VRAM: {}", mtp.moe_in_vram);
+        let mut ok = true;
+        for &k in &ks {
+            eng.reset()?;
+            mtp.reset();
+            let mut stats = SpecStats::default();
+            let t0 = std::time::Instant::now();
+            let got = spec_generate(
+                &mut eng,
+                &mut mtp,
+                (embed, lm_head),
+                &prompt,
+                n,
+                k,
+                &mut stats,
+            )?;
+            let spec_s = t0.elapsed().as_secs_f64() - stats.prompt_s;
+            let first_diff = got.iter().zip(&reference).position(|(a, b)| a != b);
+            let same = got == reference;
+            ok &= same;
+            eprintln!(
+                "spec {k}: equal {same} (first diff {first_diff:?}), {} cycles, accepted {}/{} drafts ({:.1}%), {:.2} tokens/cycle, rollbacks {}, accepted-count histogram {:?}, decode {:.2} tok/s (prompt {:.0} ms)",
+                stats.cycles,
+                stats.accepted,
+                stats.drafted,
+                100.0 * stats.accepted as f64 / stats.drafted.max(1) as f64,
+                n as f64 / stats.cycles as f64,
+                stats.rollbacks,
+                stats.accept_hist,
+                n as f64 / spec_s,
+                stats.prompt_s * 1e3
+            );
+        }
+        if !ok {
+            return Err("speculative output differs from greedy".into());
+        }
         Ok(())
     }
 }
