@@ -6,6 +6,8 @@ use std::io::{self, Write};
 use std::mem::MaybeUninit;
 
 mod mean_scales;
+mod mxscale;
+pub use mxscale::{pack_mxscale_codes, unpack_mxscale_codes};
 mod scale_split;
 pub use scale_split::{pack_scale_split, unpack_scale_split};
 mod scale_context;

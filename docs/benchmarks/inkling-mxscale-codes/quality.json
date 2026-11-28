@@ -1,0 +1,191 @@
+{
+  "prefix-parent": {
+    "gpu": "NVIDIA RTX PRO 4500 Blackwell, 595.99.02, 200.00 W",
+    "score": {
+      "chunks": 6,
+      "context": 512,
+      "rows": 1530,
+      "ppl": 6.564087027816951,
+      "ref_ppl": 6.532327441454407,
+      "mean_kld": 0.008597032476653206,
+      "median_kld": 0.0031051328603721624,
+      "p99_kld": 0.09089610978843714,
+      "max_kld": 0.639765969751533,
+      "start_chunk": 0,
+      "max_kld_chunk": 5,
+      "max_kld_position": 268,
+      "ref_floor_targets": 1,
+      "top1_matches": 1469,
+      "top1_agreement": 0.9601307189542484
+    },
+    "rows_sha256": "2f0536ed33e23063e251d05b2b9670644f5a9eb2dfd763bb9560921b84a10111"
+  },
+  "prefix-mx": {
+    "gpu": "NVIDIA RTX PRO 4500 Blackwell, 595.99.02, 200.00 W",
+    "score": {
+      "chunks": 6,
+      "context": 512,
+      "rows": 1530,
+      "ppl": 6.564087027816951,
+      "ref_ppl": 6.532327441454407,
+      "mean_kld": 0.008597032476653206,
+      "median_kld": 0.0031051328603721624,
+      "p99_kld": 0.09089610978843714,
+      "max_kld": 0.639765969751533,
+      "start_chunk": 0,
+      "max_kld_chunk": 5,
+      "max_kld_position": 268,
+      "ref_floor_targets": 1,
+      "top1_matches": 1469,
+      "top1_agreement": 0.9601307189542484
+    },
+    "rows_sha256": "2f0536ed33e23063e251d05b2b9670644f5a9eb2dfd763bb9560921b84a10111"
+  },
+  "seven-mx": {
+    "gpu": "NVIDIA RTX PRO 4500 Blackwell, 595.99.02, 200.00 W",
+    "score": {
+      "chunks": 6,
+      "context": 512,
+      "rows": 1530,
+      "ppl": 6.564087027816951,
+      "ref_ppl": 6.532327441454407,
+      "mean_kld": 0.008597032476653206,
+      "median_kld": 0.0031051328603721624,
+      "p99_kld": 0.09089610978843714,
+      "max_kld": 0.639765969751533,
+      "start_chunk": 0,
+      "max_kld_chunk": 5,
+      "max_kld_position": 268,
+      "ref_floor_targets": 1,
+      "top1_matches": 1469,
+      "top1_agreement": 0.9601307189542484
+    },
+    "rows_sha256": "2f0536ed33e23063e251d05b2b9670644f5a9eb2dfd763bb9560921b84a10111"
+  },
+  "test": {
+    "gpu": "NVIDIA GeForce RTX 5070 Ti, 595.99.02, 300.00 W",
+    "score": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.083731056644495,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.007748134459063128,
+      "median_kld": 0.003487042737626023,
+      "p99_kld": 0.06828254024125002,
+      "max_kld": 1.4620403544509677,
+      "start_chunk": 0,
+      "max_kld_chunk": 36,
+      "max_kld_position": 319,
+      "ref_floor_targets": 14,
+      "top1_matches": 24537,
+      "top1_agreement": 0.9622352941176471
+    },
+    "rows_sha256": "0c3988db54e5ddfc5e86d83b8df3d91ecdb6b4663c8e219ba2351eed27da118b"
+  },
+  "valid": {
+    "gpu": "NVIDIA GeForce RTX 5060 Ti, 595.99.02, 180.00 W",
+    "score": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 6.530796538895046,
+      "ref_ppl": 6.498588819010602,
+      "mean_kld": 0.0069527481936567555,
+      "median_kld": 0.0029995884805433387,
+      "p99_kld": 0.06561031666002116,
+      "max_kld": 0.7446714344476419,
+      "start_chunk": 0,
+      "max_kld_chunk": 12,
+      "max_kld_position": 317,
+      "ref_floor_targets": 10,
+      "top1_matches": 24645,
+      "top1_agreement": 0.9664705882352941
+    },
+    "rows_sha256": "e50fcf6be3c338ecbf6eada5b698d8943547d032f1356f92783472fb0245f757"
+  },
+  "generic-parent": {
+    "gpu": "NVIDIA RTX PRO 4500 Blackwell, 595.99.02, 200.00 W",
+    "score": {
+      "chunks": 6,
+      "context": 512,
+      "rows": 1530,
+      "ppl": 6.564087027816951,
+      "ref_ppl": 6.532327441454407,
+      "mean_kld": 0.008597032476653206,
+      "median_kld": 0.0031051328603721624,
+      "p99_kld": 0.09089610978843714,
+      "max_kld": 0.639765969751533,
+      "start_chunk": 0,
+      "max_kld_chunk": 5,
+      "max_kld_position": 268,
+      "ref_floor_targets": 1,
+      "top1_matches": 1469,
+      "top1_agreement": 0.9601307189542484
+    },
+    "rows_sha256": "2f0536ed33e23063e251d05b2b9670644f5a9eb2dfd763bb9560921b84a10111"
+  },
+  "generic-mx": {
+    "gpu": "NVIDIA RTX PRO 4500 Blackwell, 595.99.02, 200.00 W",
+    "score": {
+      "chunks": 6,
+      "context": 512,
+      "rows": 1530,
+      "ppl": 6.564087027816951,
+      "ref_ppl": 6.532327441454407,
+      "mean_kld": 0.008597032476653206,
+      "median_kld": 0.0031051328603721624,
+      "p99_kld": 0.09089610978843714,
+      "max_kld": 0.639765969751533,
+      "start_chunk": 0,
+      "max_kld_chunk": 5,
+      "max_kld_position": 268,
+      "ref_floor_targets": 1,
+      "top1_matches": 1469,
+      "top1_agreement": 0.9601307189542484
+    },
+    "rows_sha256": "2f0536ed33e23063e251d05b2b9670644f5a9eb2dfd763bb9560921b84a10111"
+  },
+  "fused-5070": {
+    "gpu": "NVIDIA GeForce RTX 5070 Ti, 595.99.02, 300.00 W",
+    "score": {
+      "chunks": 6,
+      "context": 512,
+      "rows": 1530,
+      "ppl": 6.564087027816951,
+      "ref_ppl": 6.532327441454407,
+      "mean_kld": 0.008597032476653206,
+      "median_kld": 0.0031051328603721624,
+      "p99_kld": 0.09089610978843714,
+      "max_kld": 0.639765969751533,
+      "start_chunk": 0,
+      "max_kld_chunk": 5,
+      "max_kld_position": 268,
+      "ref_floor_targets": 1,
+      "top1_matches": 1469,
+      "top1_agreement": 0.9601307189542484
+    },
+    "rows_sha256": "2f0536ed33e23063e251d05b2b9670644f5a9eb2dfd763bb9560921b84a10111"
+  },
+  "seven-mx-pro5000": {
+    "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell, 595.99.02, 350.00 W",
+    "score": {
+      "chunks": 6,
+      "context": 512,
+      "rows": 1530,
+      "ppl": 6.564087027816951,
+      "ref_ppl": 6.532327441454407,
+      "mean_kld": 0.008597032476653206,
+      "median_kld": 0.0031051328603721624,
+      "p99_kld": 0.09089610978843714,
+      "max_kld": 0.639765969751533,
+      "start_chunk": 0,
+      "max_kld_chunk": 5,
+      "max_kld_position": 268,
+      "ref_floor_targets": 1,
+      "top1_matches": 1469,
+      "top1_agreement": 0.9601307189542484
+    },
+    "rows_sha256": "2f0536ed33e23063e251d05b2b9670644f5a9eb2dfd763bb9560921b84a10111"
+  }
+}
