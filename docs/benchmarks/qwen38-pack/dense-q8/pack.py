@@ -9,6 +9,7 @@ import sys
 import tempfile
 
 from safetensors import safe_open
+import numpy as np
 import torch
 
 INDEX = "model.safetensors.index.json"
@@ -36,7 +37,10 @@ def read_header(stream):
     return json.loads(stream.read(length)), 8 + length
 
 
-def encode(official, index, prefix, scratch):
+def encode(official, index, prefix, scratch, bits=8):
+    if bits not in (6, 8):
+        raise ValueError("supported signed code widths are six and eight")
+    limit = (1 << (bits - 1)) - 1
     key = source_key(prefix)
     codes = scratch / (prefix + ".i8")
     scales = scratch / (prefix + ".bf16")
@@ -48,12 +52,21 @@ def encode(official, index, prefix, scratch):
         with codes.open("xb") as c, scales.open("xb") as s:
             for first in range(0, rows, 256):
                 weights = matrix[first:first + 256].float().reshape(-1, 32)
-                scale = (weights.abs().amax(dim=1, keepdim=True) / 127).bfloat16()
+                scale = (weights.abs().amax(dim=1, keepdim=True) / limit).bfloat16()
                 divisor = torch.where(scale == 0, 1.0, scale.float())
-                quant = (weights / divisor).round().clamp(-127, 127).to(torch.int8)
-                c.write(quant.numpy().tobytes())
+                quant = (weights / divisor).round().clamp(-limit, limit).to(torch.int8)
+                if bits == 6:
+                    q = quant.numpy().view("u1").reshape(-1, 4) & 63
+                    # Four signed six-bit fields in three little-endian bytes.
+                    packed = np.stack((q[:, 0] | (q[:, 1] << 6),
+                                       (q[:, 1] >> 2) | (q[:, 2] << 4),
+                                       (q[:, 2] >> 4) | (q[:, 3] << 2)), axis=1)
+                    c.write(packed.tobytes())
+                else:
+                    c.write(quant.numpy().tobytes())
                 s.write(scale.view(torch.uint16).numpy().astype("<u2", copy=False).tobytes())
-    return {prefix + ".weight": ("I8", [rows, cols], codes),
+    layout = ("I8", [rows, cols], codes) if bits == 8 else ("U8", [rows, cols * 3 // 4], codes)
+    return {prefix + ".weight": layout,
             prefix + ".scales": ("BF16", [rows, cols // 32], scales)}
 
 
@@ -82,6 +95,8 @@ def rewrite(source, dest, updated, removed):
                 dtype, shape, path = updated[key]
                 size = path.stat().st_size
                 expected = ([shape[0], shape[1] // 8], "U32") if dtype == "I8" else (shape, "BF16")
+                if dtype == "U8":
+                    expected = ([shape[0], shape[1] * 4 // 3], "I8")
                 if (info["shape"], info["dtype"]) != expected:
                     raise ValueError(f"unexpected original layout for {key}")
             new[key] = dict(dtype=dtype, shape=shape, data_offsets=[offset, offset + size])

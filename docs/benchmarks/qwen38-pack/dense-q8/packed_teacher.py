@@ -36,8 +36,9 @@ class Store:
     def __init__(self, directory):
         self.directory = directory
         manifest = json.loads((directory / INDEX).read_text())
-        if manifest["metadata"].get("leansonic_dense_format") != "symmetric-q8-group32-bf16":
-            raise ValueError("expected the mixed Q8 package")
+        self.format = manifest["metadata"].get("leansonic_dense_format")
+        if self.format not in {"symmetric-q8-group32-bf16", "symmetric-q6-group32-bf16"}:
+            raise ValueError("expected signed group-32 Q6 or Q8 dense weights")
         self.mapping = manifest["weight_map"]
         self.used = set()
         self.decoder = zstandard.ZstdDecompressor()
@@ -186,15 +187,24 @@ def load(directory):
                 model.set_submodule(module, PackedExperts(model.get_submodule(module), store, prefix))
             continue
         src = store.dense(key)
-        if src.dtype == torch.int8:
+        if src.dtype in (torch.int8, torch.uint8):
             scales = store.dense(key.removesuffix(".weight") + ".scales")
             rows, cols = param.shape
-            if tuple(src.shape) != (rows, cols) or scales.shape != (rows, cols // 32) or scales.dtype != torch.bfloat16:
+            six = store.format == "symmetric-q6-group32-bf16"
+            packed_cols = cols // 4 * 3 if six else cols
+            dtype = torch.uint8 if six else torch.int8
+            if src.dtype != dtype or tuple(src.shape) != (rows, packed_cols) or scales.shape != (rows, cols // 32) or scales.dtype != torch.bfloat16:
                 raise ValueError(key)
             value = torch.empty_like(param, device="cuda")
             for first in range(0, rows, 256):
                 sl = slice(first, first + 256)
-                w = src[sl].cuda().float().reshape(-1, 32)
+                raw = src[sl].cuda()
+                if six:
+                    triples = raw.reshape(-1, 3).int()
+                    words = triples[:, 0] | (triples[:, 1] << 8) | (triples[:, 2] << 16)
+                    codes = (words[:, None] >> torch.arange(0, 24, 6, device=raw.device)) & 63
+                    raw = (codes ^ 32) - 32
+                w = raw.float().reshape(-1, 32)
                 value[sl] = (w * scales[sl].cuda().float().reshape(-1, 1)).reshape_as(value[sl])
         else:
             if name.endswith(".conv1d.weight"):

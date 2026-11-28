@@ -26,7 +26,7 @@ def plane(directory, mapping, info, name, dtype, dims):
     t = tensors[name]
     if t["dtype"] != dtype or t["shape"] != list(dims):
         raise ValueError(name)
-    types = {"I8": "i1", "BF16": "<u2"}
+    types = {"I8": "i1", "U8": "u1", "BF16": "<u2"}
     return np.memmap(directory / sh, dtype=types[dtype], mode="r",
                      offset=base + t["data_offsets"][0], shape=dims)
 
@@ -54,6 +54,9 @@ def f32(bits):
 
 
 def audit(base, official, model):
+    fmt = json.loads((model / INDEX).read_bytes())["metadata"]["leansonic_dense_format"]
+    limits = {"symmetric-q8-group32-bf16": 127, "symmetric-q6-group32-bf16": 31}
+    limit = limits[fmt]
     mappings = [json.loads((p / INDEX).read_bytes())["weight_map"] for p in (base, official, model)]
     m, u, v = mappings
     old = headers(base, m)
@@ -69,18 +72,27 @@ def audit(base, official, model):
         key = source_key(p)
         rows, cols = src[u[key]][1][key]["shape"]
         ref = plane(official, u, src, key, "BF16", (rows, cols))
-        codes = plane(model, v, new, p + ".weight", "I8", (rows, cols))
+        if limit == 31:
+            codes = plane(model, v, new, p + ".weight", "U8", (rows, cols // 4 * 3))
+        else:
+            codes = plane(model, v, new, p + ".weight", "I8", (rows, cols))
         scales = plane(model, v, new, p + ".scales", "BF16", (rows, cols // 32))
         for i in range(0, rows, 256):
             sl = slice(i, i + 256)
             x = f32(ref[sl]).reshape(-1, 32)
             if not np.isfinite(x).all():
                 raise ValueError(f"nonfinite {p}")
-            scale_bits = bf16_bits(np.abs(x).max(axis=1, keepdims=True) / np.float32(127))
+            scale_bits = bf16_bits(np.abs(x).max(axis=1, keepdims=True) / np.float32(limit))
             scale = f32(scale_bits)
-            expected = np.clip(np.rint(x / np.where(scale == 0, 1, scale)), -127, 127).astype(np.int8)
-            if not np.array_equal(scale_bits.ravel(), scales[sl].ravel()) or not np.array_equal(expected.ravel(), codes[sl].ravel()):
-                raise ValueError(f"Q8 encoding differs at {p} row block {i}")
+            expected = np.clip(np.rint(x / np.where(scale == 0, 1, scale)), -limit, limit).astype(np.int8)
+            actual = codes[sl]
+            if limit == 31:
+                triples = actual.reshape(-1, 3).astype(np.uint32)
+                words = triples[:, 0] + 256 * triples[:, 1] + 65536 * triples[:, 2]
+                values = ((words[:, None] >> np.arange(0, 24, 6, dtype=np.uint32)) & 63).astype(np.int8)
+                actual = (values ^ 32) - 32
+            if not np.array_equal(scale_bits.ravel(), scales[sl].ravel()) or not np.array_equal(expected.ravel(), actual.ravel()):
+                raise ValueError(f"signed encoding differs at {p} row block {i}")
         elements += rows * cols
     for key, sh in v.items():
         if key in changed:
@@ -96,7 +108,7 @@ def audit(base, official, model):
             if digest(base / sh, a + lo, hi - lo) != digest(model / sh, b + low, high - low):
                 raise ValueError(f"changed tensor {key}")
         count += 1
-    return dict(q8_matrices=len(names), codes_exact=elements, scales_exact=elements // 32,
+    return dict({("q6_matrices" if limit == 31 else "q8_matrices"): len(names)}, codes_exact=elements, scales_exact=elements // 32,
                 unchanged_tensors=count, distribution_bytes=sum(f.stat().st_size for f in model.iterdir()))
 
 

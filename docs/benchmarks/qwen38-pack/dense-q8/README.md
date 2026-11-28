@@ -39,3 +39,15 @@ python3 "$d/packed_teacher.py" "$Q8_OFFICIAL_NORMS" "$FIXTURES" "$OUTPUT"
 ```
 
 Reloading the physical seventeen-shard replacement through the upstream packed teacher gave the same full-vocabulary FP32 logits as the mixed-source simulation at every original (49) and new (233) position. The independent 494-position set scored mean/worst KL 0.02345/0.25815, 461/494 top-1 matches and PPL 11.3706 (BF16 11.3821). [Stored checkpoint results and common public-engine protocol](official-norms-packed.json)
+
+## Group-32 six-bit distribution
+
+Starting from the official-norm Q8 directory, pack_q6.py re-quantizes each original official BF16 matrix with symmetric range −31 to 31. Four signed six-bit codes occupy three little-endian bytes. Each group retains one BF16 scale. All 726 eligible matrices use this encoding. The resulting self-contained package occupies **104,471,569,199 bytes**, saving **1,220,557,312 bytes** versus Q8. It is 915,234,582 bytes larger than the compact Q4 baseline. The 512 bytes beyond the code-payload savings come from metadata and header length differences.
+
+An independent NumPy audit decoded all 4,882,227,200 code fields and all 152,569,600 scales back from disk and recomputed each from the original BF16 matrix. It also checked all 1,313 unchanged tensor payloads or file identities against the official-norm Q8 package. [Model bytes](q6-build.json) · [Complete bit and scale audit](q6-audit.json)
+
+```sh
+python3 "$d/pack_q6.py" "$Q8_OFFICIAL_NORMS" "$OFFICIAL_BF16" "$Q6"
+python3 "$d/audit.py" "$Q8_OFFICIAL_NORMS" "$OFFICIAL_BF16" "$Q6"
+python3 "$d/packed_teacher.py" "$Q6" "$FIXTURES" "$OUTPUT"
+```
