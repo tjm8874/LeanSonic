@@ -1,5 +1,8 @@
 //! Profile-guided placement of lossless Z24 expert records.
 use super::*;
+#[path = "qwen38_adaptive.rs"]
+mod adaptive;
+use adaptive::AdaptiveLayer;
 
 const EXPERT_BYTES: usize = SW_Z24_PROJ_BYTES / Q38_EXP;
 const TABLE_BYTES: usize = Q38_EXP * size_of::<u64>();
@@ -7,18 +10,33 @@ const TABLE_BYTES: usize = Q38_EXP * size_of::<u64>();
 pub(super) struct MixedProfile {
     layers: Vec<Vec<bool>>,
     hot_count: usize,
+    reserves: Vec<Vec<usize>>,
+    pub(super) slots: usize,
 }
 
 impl MixedProfile {
     pub(super) fn from_env() -> Result<Option<Self>, String> {
+        let slots = std::env::var("Q38_ADAPT_SLOTS")
+            .ok()
+            .map(|s| {
+                s.parse::<usize>()
+                    .map_err(|_| "invalid adaptive expert count")
+            })
+            .transpose()?
+            .unwrap_or(0);
         let Some(path) = std::env::var_os("Q38_EXPERT_PROFILE") else {
+            if slots > 0 {
+                return Err("adaptive slots require Q38_EXPERT_PROFILE".into());
+            }
             return Ok(None);
         };
         let content =
             std::fs::read_to_string(path).map_err(|e| format!("read expert profile: {e}"))?;
         let mut layers = Vec::new();
         let mut hot_count = 0;
+        let mut reserves = Vec::new();
         for line in content.lines() {
+            let mut priority = Vec::new();
             let mut selected = vec![false; Q38_EXP];
             for entry in line.split_whitespace() {
                 let id: usize = entry.parse().map_err(|_| "invalid expert index")?;
@@ -28,9 +46,14 @@ impl MixedProfile {
                         layers.len()
                     ));
                 }
+                priority.push(id);
                 selected[id] = true;
                 hot_count += 1;
             }
+            if slots > priority.len() {
+                return Err("adaptive capacity exceeds layer quota".into());
+            }
+            reserves.push(priority.into_iter().rev().take(slots).collect());
             layers.push(selected);
         }
         if layers.len() != Q38_LAYERS {
@@ -39,7 +62,12 @@ impl MixedProfile {
                 layers.len()
             ));
         }
-        Ok(Some(Self { layers, hot_count }))
+        Ok(Some(Self {
+            layers,
+            hot_count,
+            reserves,
+            slots,
+        }))
     }
 
     pub(super) fn hot_count(&self) -> usize {
@@ -53,7 +81,7 @@ impl MixedProfile {
         host_reserve: usize,
     ) -> Result<(), String> {
         let resident = 3 * (self.hot_count * EXPERT_BYTES + Q38_LAYERS * TABLE_BYTES);
-        let pinned = 3 * (Q38_LAYERS * Q38_EXP - self.hot_count) * EXPERT_BYTES;
+        let pinned = 3 * (Q38_LAYERS * (Q38_EXP + self.slots) - self.hot_count) * EXPERT_BYTES;
         if ctx.mem_info()?.0 <= resident + gpu_reserve
             || available_host_ram_bytes() <= pinned + host_reserve
         {
@@ -69,6 +97,7 @@ pub(super) struct MixedExperts {
     _hot: DeviceBuf,
     _cold: PinnedHostBuf,
     pointers: DeviceBuf,
+    adaptive: Option<Box<AdaptiveLayer>>,
     bases: Z24LayerBases,
 }
 
@@ -135,7 +164,19 @@ impl MixedExperts {
                 hot.copy_from_host_at(proj * staging.len(), &staging)?;
             }
         }
+        let adaptive = if profile.slots > 0 {
+            Some(Box::new(AdaptiveLayer::new(
+                ctx,
+                &profile.reserves[layer],
+                selected,
+                &cold,
+                &pointers,
+            )?))
+        } else {
+            None
+        };
         Ok(Self {
+            adaptive,
             _hot: hot,
             _cold: cold,
             pointers: DeviceBuf::from_host_bytes(ctx, &pointers)?,
@@ -144,6 +185,12 @@ impl MixedExperts {
                 down_packed_m1: bases[2],
             },
         })
+    }
+    pub(super) fn adapt(&mut self, ctx: &CudaContextHandle, ids: &[i32]) -> Result<usize, String> {
+        self.adaptive
+            .as_mut()
+            .ok_or("adaptive expert storage missing")?
+            .apply(ctx, &self.pointers, ids)
     }
 }
 

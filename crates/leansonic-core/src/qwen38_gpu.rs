@@ -760,6 +760,7 @@ pub struct Qwen38GpuEngine {
     d_moe_act11: DeviceBuf,
     d_logits: DeviceBuf,
     batch_bufs: Option<Qwen38BatchBuffers>,
+    prefill_routes: Option<DeviceBuf>,
     host_pos: usize,
     decode_graph: Option<CapturedGraphExec>,
     prefill_graph: Option<CapturedGraphExec>,
@@ -1564,6 +1565,14 @@ impl Qwen38GpuEngine {
             (None, None)
         };
 
+        let prefill_routes = if profile.as_ref().is_some_and(|p| p.slots > 0) {
+            Some(DeviceBuf::alloc_uninit(
+                &ctx,
+                Q38_LAYERS * Q38_MAX_BATCH * Q38_TOP_K * 4,
+            )?)
+        } else {
+            None
+        };
         let mut engine = Self {
             ctx,
             fns,
@@ -1615,6 +1624,7 @@ impl Qwen38GpuEngine {
             d_sel_wts11,
             d_moe_act11,
             d_logits,
+            prefill_routes,
             batch_bufs: None,
             host_pos: 0,
             decode_graph: None,
@@ -3130,6 +3140,7 @@ impl Qwen38GpuEngine {
         stream: CUstream,
         bb: &Qwen38BatchBuffers,
         b_count: usize,
+        route_capture: Option<u64>,
     ) -> Result<(), String> {
         let b_u32 = b_count as u32;
         let mut bc = b_count as i32;
@@ -3382,6 +3393,20 @@ impl Qwen38GpuEngine {
                     &mut p_tk,
                     "q38_softmax_topk10_batch",
                 )?;
+                if let Some(out) = route_capture {
+                    let bytes = b_count * Q38_TOP_K * size_of::<i32>();
+                    unsafe {
+                        check_cu(
+                            (self.ctx.api.cuMemcpyDtoDAsync_v2)(
+                                out + (l_idx * bytes) as u64,
+                                sids,
+                                bytes,
+                                stream,
+                            ),
+                            "capture prompt expert IDs",
+                        )?;
+                    }
+                }
 
                 let (mut eoff, mut epairs) = (bb.d_b_exp_offsets.ptr, bb.d_b_exp_pairs.ptr);
                 let mut p_plan = kargs![sids, bc, eoff, epairs];
@@ -3506,7 +3531,13 @@ impl Qwen38GpuEngine {
             )?;
         }
 
-        self.enqueue_batch_48_layers(stream, bb, b_count)?;
+        let route_capture =
+            if self.host_pos == 0 && !matches!(mode, BatchLogitMode::AllVerifyLogits) {
+                self.prefill_routes.as_ref().map(|buf| buf.ptr)
+            } else {
+                None
+            };
+        self.enqueue_batch_48_layers(stream, bb, b_count, route_capture)?;
 
         let mut out_ids = Vec::new();
         match mode {
@@ -3621,6 +3652,39 @@ impl Qwen38GpuEngine {
             }
         }
 
+        if let Some(ptr) = route_capture {
+            self.ctx.sync_compute()?;
+            let timer = Instant::now();
+            let mut routes = vec![0i32; Q38_LAYERS * b_count * Q38_TOP_K];
+            unsafe {
+                check_cu(
+                    (self.ctx.api.cuMemcpyDtoH_v2)(
+                        routes.as_mut_ptr().cast(),
+                        ptr,
+                        routes.len() * size_of::<i32>(),
+                    ),
+                    "read prompt routes",
+                )?;
+            }
+            let mut moved = 0;
+            for (layer, ids) in self
+                .layers
+                .iter_mut()
+                .zip(routes.chunks_exact(b_count * Q38_TOP_K))
+            {
+                let SwitchMlpTier::Mixed(mixed) = &mut layer.switch_mlp else {
+                    return Err("adaptive prefill requires mixed expert records".into());
+                };
+                moved += mixed.adapt(&self.ctx, ids)?;
+            }
+            if std::env::var_os("Q38_ADAPT_STATS").is_some() {
+                eprintln!(
+                    "[Q38 adaptive] prompt_rows={b_count} moved={moved} bytes={} update_ms={:.3}",
+                    moved * (SW_Z24_LAYER_BYTES / Q38_EXP),
+                    timer.elapsed().as_secs_f64() * 1000.
+                );
+            }
+        }
         self.host_pos += b_count;
         Ok(out_ids)
     }
