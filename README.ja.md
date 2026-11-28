@@ -255,7 +255,8 @@ python3 ci/check_lean_axioms.py
 - **`v0.8.0`**: [日本語](./docs/releases/v0.8.0_report.ja.md) | [English](./docs/releases/v0.8.0_report.md) — `DFlash 2` ブロック拡散投機デコード ＆ Exact-Size Sanitizer ゲート
 - **`v0.9.0`**: [日本語](./docs/releases/v0.9.0_report.ja.md) | [English](./docs/releases/v0.9.0_report.md) — `PDL` オーバーラップ・GPU圧縮スケール常駐 ＆ Blackwell 4カード統合検証
 - **`v0.10.0`**: [日本語](./docs/releases/v0.10.0_report.ja.md) | [English](./docs/releases/v0.10.0_report.md) — `16 GB` Spilled 機向け適応型 `spec_k` ガバナ ＆ `DFlash 2` 標準化
-- **`v0.11.0`（`Inkling-2-Mini` 完成版）**: [日本語](./docs/releases/v0.11.0_report.ja.md) | [English](./docs/releases/v0.11.0_report.md) — `16g` 高速パック（`879 tok/s` Prefill / `265 tok/s` Spec）＆ `32g` 精度追求パック（`2,731 tok/s` Prefill / `506 tok/s` Spec）二階層完成
+- **`v0.11.0`（`Inkling-2-Mini` 完成版）**: [日本語](./docs/releases/v0.11.0_report.ja.md) | [English](./docs/releases/v0.11.0_report.md) — `16g` 高速パック（`10,222 tok/s` Prefill / `235.9 tok/s` Spec・Spill `0`）＆ `32g` 精度追求パック（`15,057 tok/s` Prefill / `313.9 tok/s` Spec / `mean_kld = 0.002989`）二階層完成
+- **`v1.0.0`（正式版 GA — `Qwen3.8-Flash-Next` & `Inkling-2-Mini` 統合完成）**: [日本語](./docs/releases/v1.0.0_report.ja.md) | [English](./docs/releases/v1.0.0_report.md) — `106 GB` `Qwen3.8-Flash-Next` 完全対応（`48/48` `Z24` VRAM 常駐・`7.9 秒` 起動・`504.4 tok/s` Prefill・`179.6〜200.8 tok/s` VRAM 常駐 `MTP` `--spec 1`・`PRO 4500` `CalibratedMixed` `68.7 tok/s`・Lean 4 `212` 定理）
 
 ---
 
