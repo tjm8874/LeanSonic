@@ -12,6 +12,7 @@ LeanSonic 9bc4d48 uses the 13,437,429,480-byte seven-bit package. Native vLLM 8c
 Use the [same two-engine protocol, runner and timer definitions](../../vllm/README.md#reproduce) with the seven-bit [model hashes](../package.json) and an RTX PRO 5000. Generate the anchor locally with `python3 leg.py anchor vllm` before the five cycles. [GPU, package and executable hashes, predicted IDs, warm/cold samples and all peaks](measurement.json.gz).
 
 
+
 ## BF16 quality on PRO 5000
 
 The normal seven-bit CLI and native vLLM scored the same 25,500 target positions per split on this GPU. Both use the same BF16 WikiText oracle and Rust scorer. The native worker exposes the full FP32 vocabulary before forcing each ground-truth token. The rank row files also match the earlier PRO 4500 five-bit files byte for byte.
@@ -20,8 +21,12 @@ The normal seven-bit CLI and native vLLM scored the same 25,500 target positions
 | --- | --- | ---: | ---: | ---: | ---: |
 | test | LeanSonic seven-bit | 0.0077481 | 1.4620404 | 96.224% | 7.083731 |
 | test | Native vLLM | 0.0109014 | 7.3723311 | 95.553% | 7.098681 |
+| valid | LeanSonic seven-bit | 0.0069527 | 0.7446714 | 96.647% | 6.530797 |
+| valid | Native vLLM | 0.0093524 | 2.5101105 | 95.910% | 6.518925 |
 
 On test, native vLLM chose different top-1 tokens on 1,354 of 25,500 identical prefixes between the two measured GPU runs. The PRO 5000 native worst position was chunk 2, position 478. At that same position KL was 7.372331 for native PRO 5000, 0.025777 for native PRO 4500 and 0.032423 for the ranked model. These observations do not identify the cause of the native difference. [Paired chunk intervals and outliers](paired-test.json).
+
+On valid, native vLLM chose different top-1 tokens on 1,180 of 25,500 identical prefixes between the two measured GPU runs. The PRO 5000 native worst position was chunk 64, position 494. At that same position KL was 2.510111 for native PRO 5000, 2.894327 for native PRO 4500 and 0.231688 for the ranked model. These observations do not identify the cause of the native difference. [Paired chunk intervals and outliers](paired-valid.json).
 
 [Score JSON, cross-card counts and row hashes](quality.json). Use the [pinned full-vocabulary capture and corpus reproduction](https://github.com/tjm8874/LeanSonic/tree/4d40691/docs/benchmarks/inkling-class-frames/three-engines/quality) on the selected GPU.
 
