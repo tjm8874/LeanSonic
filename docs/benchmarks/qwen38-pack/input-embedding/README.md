@@ -160,3 +160,17 @@ Each pair of table and projection precisions was run in both upstream background
 | MLX Q4 | Q4 | Q4 | 0.284651 | 1.429076 | 39/49 | 53.4910 |
 
 Quantizing both components had a larger effect on the BF16 background than either component in isolation. In the Q4 background, restoring both components worsened mean KL. Restoring the two projections alone lowered mean KL and PPL but raised worst KL. The corresponding native experiment in build_ple.py loads an optional BF16 tensor with 12,800 rows and 2,560 columns. [Raw scores and three exact controls](engram-split.json)
+
+## Native BF16 PLE projections
+
+Commit `b6e7103` registers the fused BF16 PLE projection in the safetensors index. An initial overlay omitted that entry and ran the Q4 control path; it is excluded. For the accepted trials the manifest pointed to the new sidecar and every candidate teacher logged that it loaded BF16 PLE key/value projections. The unchanged control reproduced all 494 native logit rows and all 16 native canaries. Each row gives stock → candidate against the official BF16 teacher on the RTX PRO 5000 72 GB.
+
+| Scored positions | Mean KL | Worst KL | Top-1 matches | PPL |
+|---|---:|---:|---:|---:|
+| 49 | 0.281135 → 0.276779 | 1.469437 → 1.459692 | 39 → 40 | 52.9910 → 52.6399 |
+| 65 | 0.369378 → 0.345537 | 1.407895 → 1.206189 | 44 → 45 | 25.2686 → 24.9235 |
+| 494 | 0.269670 → 0.269985 | 2.499328 → 2.046052 | 406 → 408 | 15.9460 → 16.0018 |
+
+The BF16 diagnostic package was 110,899,015,264 bytes including its original Q4 weights, up from 110,833,479,038; sampled peak process VRAM rose by 67,108,864 bytes to 75,554,095,104. On 16/128 prompt tokens with 32 outputs, warm median decode was 163.01/158.96 tok/s for Q4 and 161.93/157.99 for the candidate. Prefill was 397.20/491.68 and 396.38/491.57 tok/s, respectively. Keep the standalone change experimental: worst KL improved in all three sets, but average KL and PPL worsened on the largest. [Full scores, output IDs, per-request times and exact control](native-ple.json)
+
+Build the overlay with `build_ple.py "$DIRECT" "$OFFICIAL" "$NEW"`. Confirm the index maps `language_model.model.layers.1.ple.kv_proj.probe_bf16` to `ple-bf16-probe.safetensors`. Build the teacher and cubin from the same commit, run the three identical fixture files in both arms, and compare to the official teacher with the ID-aware scorer.
