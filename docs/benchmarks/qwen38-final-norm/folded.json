@@ -1,0 +1,72 @@
+[
+  {
+    "tensor": "language_model.model.hyper_connection_mixer.hc_norm.weight",
+    "elements": 10240,
+    "equal_to_official": 0,
+    "equal_to_folded": 10240,
+    "sha256": "8224a458ee9fb93bbf6360f04c7448fb97ca235419fa4a2eae31d5894d919525"
+  },
+  {
+    "tensor": "language_model.mtp.hyper_connection_mixer.hc_norm.weight",
+    "elements": 10240,
+    "equal_to_official": 0,
+    "equal_to_folded": 10240,
+    "sha256": "6c17016a5bac51d121b7d3fcc450264f572759247bddb263dbeea9ce9106e205"
+  },
+  {
+    "tensor": "language_model.mtp.layers.0.attn_hyper_connection.hc_norm.weight",
+    "elements": 10240,
+    "equal_to_official": 0,
+    "equal_to_folded": 10240,
+    "sha256": "c7598e20e45060cd09f2a66d1dc963c33a09088a381d9abb8188edb0bb5a968b"
+  },
+  {
+    "tensor": "language_model.mtp.layers.0.mlp_hyper_connection.hc_norm.weight",
+    "elements": 10240,
+    "equal_to_official": 0,
+    "equal_to_folded": 10240,
+    "sha256": "5fc7c488681dfd8c1ac75a54c7e1b9388732c990c474c2958baa1cae42a9f644"
+  },
+  {
+    "tensor": "language_model.mtp.layers.0.self_attn.indexer.k_layernorm.weight",
+    "elements": 128,
+    "equal_to_official": 0,
+    "equal_to_folded": 128,
+    "sha256": "1df727089de8f687f68ac3809ff8421f7712905a561c19c29dc020b91986673f"
+  },
+  {
+    "tensor": "language_model.mtp.layers.0.self_attn.indexer.q_layernorm.weight",
+    "elements": 128,
+    "equal_to_official": 0,
+    "equal_to_folded": 128,
+    "sha256": "8004a66dbce5305582e1a5f5a9ceecfc63c81ea341468ffa1148ad38c3e666f4"
+  },
+  {
+    "tensor": "language_model.mtp.layers.0.self_attn.k_norm.weight",
+    "elements": 256,
+    "equal_to_official": 0,
+    "equal_to_folded": 256,
+    "sha256": "c705c3576a2a192de15f06b4f1c09506a96177fbc3ee2deb101c93db7c95fd87"
+  },
+  {
+    "tensor": "language_model.mtp.layers.0.self_attn.q_norm.weight",
+    "elements": 256,
+    "equal_to_official": 0,
+    "equal_to_folded": 256,
+    "sha256": "5391d239a59417ed155c004e812f1e9528ec51e0aa35376c55a201e241d03852"
+  },
+  {
+    "tensor": "language_model.mtp.pre_fc_norm_embedding.weight",
+    "elements": 2560,
+    "equal_to_official": 0,
+    "equal_to_folded": 2560,
+    "sha256": "636cac841613be0a8acdf8cb2d11d302348a62b123c6ab6c1b87a90a8cabc27a"
+  },
+  {
+    "tensor": "language_model.mtp.pre_fc_norm_hidden.weight",
+    "elements": 10240,
+    "equal_to_official": 0,
+    "equal_to_folded": 10240,
+    "sha256": "b70b2aeda944afbc5447bcdd6d32bdf826b15f1500c91bc4f5a87b74dbdf9782"
+  }
+]

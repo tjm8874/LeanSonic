@@ -975,8 +975,9 @@ fn load_bf16_as_f32_buf(
     expected_shape: &[usize],
     add_one: bool,
 ) -> Result<DeviceBuf, String> {
-    let u16s = st.require(name, "BF16", expected_shape).to_u16_vec();
-    let offset = if add_one { 1.0f32 } else { 0.0f32 };
+    let tensor = st.require(name, "BF16", expected_shape);
+    let offset = crate::qwen38_norm::offset(name, tensor.data, add_one);
+    let u16s = tensor.to_u16_vec();
     let f32s: Vec<f32> = u16s.into_iter().map(|u| offset + bf16_to_f32(u)).collect();
     DeviceBuf::from_host_bytes(ctx, f32_slice_bytes(&f32s))
 }
