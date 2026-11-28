@@ -166,5 +166,26 @@
       "top1_agreement": 0.9601307189542484
     },
     "rows_sha256": "2f0536ed33e23063e251d05b2b9670644f5a9eb2dfd763bb9560921b84a10111"
+  },
+  "seven-mx-pro5000": {
+    "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell, 595.99.02, 350.00 W",
+    "score": {
+      "chunks": 6,
+      "context": 512,
+      "rows": 1530,
+      "ppl": 6.564087027816951,
+      "ref_ppl": 6.532327441454407,
+      "mean_kld": 0.008597032476653206,
+      "median_kld": 0.0031051328603721624,
+      "p99_kld": 0.09089610978843714,
+      "max_kld": 0.639765969751533,
+      "start_chunk": 0,
+      "max_kld_chunk": 5,
+      "max_kld_position": 268,
+      "ref_floor_targets": 1,
+      "top1_matches": 1469,
+      "top1_agreement": 0.9601307189542484
+    },
+    "rows_sha256": "2f0536ed33e23063e251d05b2b9670644f5a9eb2dfd763bb9560921b84a10111"
   }
 }
