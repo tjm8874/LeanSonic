@@ -608,7 +608,7 @@ impl Dflash2DrafterGpu {
         for (name, &r_cnt) in names.iter().zip(rows_per) {
             let src = st.require(name, "BF16", &[r_cnt, cols]).as_u16_slice();
             for row in src.chunks_exact(cols) {
-                for grp in row.chunks_exact(64) {
+                for grp in row.as_chunks::<64>().0 {
                     let mut vals = [0.0f32; 64];
                     let mut amax = 0.0f32;
                     for (i, &u) in grp.iter().enumerate() {
@@ -619,7 +619,7 @@ impl Dflash2DrafterGpu {
                     let sc = amax * (1.0 / 7.0);
                     let inv = if amax > 0.0 { 7.0 / amax } else { 0.0 };
                     scales.extend_from_slice(&sc.to_le_bytes());
-                    for w8 in vals.chunks_exact(8) {
+                    for w8 in vals.as_chunks::<8>().0 {
                         for b in 0..4 {
                             let n0 =
                                 ((w8[b] * inv).round_ties_even() as i8).clamp(-7, 7) as u8 & 0x0F;
