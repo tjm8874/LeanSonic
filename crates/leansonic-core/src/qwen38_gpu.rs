@@ -524,8 +524,9 @@ impl PleParameter {
                 .map_err(|err| format!("invalid Engram row {row}: {err}"));
         }
         let bytes = data
-            .chunks_exact(10)
-            .nth(row)
+            .as_chunks::<10>()
+            .0
+            .get(row)
             .ok_or_else(|| format!("invalid Engram row {row}"))?;
         Ok(std::array::from_fn(|i| {
             u16::from_le_bytes([bytes[2 * i], bytes[2 * i + 1]])
@@ -1820,8 +1821,9 @@ impl Qwen38GpuEngine {
             let w_row = self
                 .sharded_mmap
                 .bytes_at(&sp.weights)
-                .chunks_exact(80)
-                .nth(row_idx)
+                .as_chunks::<80>()
+                .0
+                .get(row_idx)
                 .ok_or_else(|| format!("invalid Engram weight row {row_idx}"))?;
             let scales = sp.scales.row(&self.sharded_mmap, row_idx)?;
             let biases = sp.biases.row(&self.sharded_mmap, row_idx)?;

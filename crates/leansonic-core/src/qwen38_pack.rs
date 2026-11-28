@@ -22,7 +22,7 @@ pub fn encode(raw: &[u8]) -> Result<Vec<u8>, &'static str> {
     }
     let mut lookup = vec![u32::MAX; 65536];
     let mut dictionary = Vec::new();
-    for pair in raw.chunks_exact(2) {
+    for pair in raw.as_chunks::<2>().0 {
         let word = u16::from_le_bytes([pair[0], pair[1]]);
         if lookup[word as usize] == u32::MAX {
             lookup[word as usize] = dictionary.len() as u32;
@@ -41,7 +41,7 @@ pub fn encode(raw: &[u8]) -> Result<Vec<u8>, &'static str> {
     }
     let mut accumulator = 0u32;
     let mut used = 0;
-    for pair in raw.chunks_exact(2) {
+    for pair in raw.as_chunks::<2>().0 {
         let word = u16::from_le_bytes([pair[0], pair[1]]);
         accumulator |= lookup[word as usize] << used;
         used += bits;
@@ -154,13 +154,13 @@ mod tests {
                 .collect();
             let frame = encode(&raw).unwrap();
             let view = Frame::open(&frame, raw.len() / 2).unwrap();
-            for (i, pair) in raw.chunks_exact(2).enumerate() {
-                assert_eq!(view.word(i).unwrap().to_le_bytes(), pair);
+            for (i, pair) in raw.as_chunks::<2>().0.iter().enumerate() {
+                assert_eq!(view.word(i).unwrap().to_le_bytes(), *pair);
             }
-            for (row, group) in raw.chunks_exact(10).enumerate() {
+            for (row, group) in raw.as_chunks::<10>().0.iter().enumerate() {
                 assert_eq!(
                     view.row5(row).unwrap().map(u16::to_le_bytes).concat(),
-                    group
+                    *group
                 );
             }
             assert!(view.row5(raw.len() / 10).is_err());
