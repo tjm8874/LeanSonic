@@ -68,7 +68,7 @@ All seven arms used the same 494 next-token positions, the full 248,320-token vo
 | Shared refit + BF16 input | 0.266433 | 2.696336 | 413/494 | 15.7210 |
 | Output head Q4 refit | 0.264810 | 2.748131 | 404/494 | 15.9066 |
 
-The two higher-precision input tables raised mean KL on the expanded set. Refitting the output head alone produced the lowest mean KL and raised worst KL from 2.4993 to 2.7481. Both maxima occur at token position 20 of the Python passage (zero-based case 8). The shared-expert-only refit improved all four aggregate measures relative to stock here, although its PPL increased on the previous 65 positions. None of the seven arms reproduced any full eight-token BF16 continuation on these 16 prompts. Leave the default model unchanged. [Full scores, worst positions and logit hashes](extended-scores.json)
+The two higher-precision input tables raised mean KL on the expanded set. Refitting the output head alone produced the lowest mean KL and raised worst KL from 2.4993 to 2.7481. Both maxima occur at token position 20 of the Python passage (zero-based case 8). The shared-expert-only refit improved all four aggregate measures relative to stock here, although its PPL increased on the previous 65 positions. The stock, BF16 input, Q8 input and input-refit arms matched 1/16 full BF16 continuations. Both shared-expert refits matched 2/16, and the output-head refit matched 3/16. Leave the default model unchanged. [Full scores, worst positions and logit hashes](extended-scores.json)
 
 To reproduce, use `extended.ids` in both the reference and candidate teacher commands above. For the head-only run, pass `refit_head_q4` to `build.py`; it fits the output projection against the BF16 head and preserves the input embedding. This diagnostic overlay measured 111,230,791,349 file bytes, including the superseded Q4 head. Its replacement tensor payload has the same length as the stock head.
 
@@ -97,7 +97,7 @@ The RTX PRO 5000 ran the same upstream eager model and token IDs with different 
 | Only routed experts from MLX Q4 | 0.018161 | 0.127472 | 43/49 | 29.0826 |
 | Entire checkpoint from MLX Q4 | 0.284651 | 1.429076 | 39/49 | 53.4910 |
 
-With full MLX Q4 as reference, the native implementation has mean/worst KL 0.021105/0.159408, the same top-1 at 49/49 teacher positions and PPL 52.9910. These 49 positions support investigating quantized weights outside the routed experts. More inputs are required to generalize this result.
+With full MLX Q4 as reference, the native implementation has mean/worst KL 0.021105/0.159408, the same top-1 at 49/49 teacher positions, four matching eight-token continuations out of four, and PPL 52.9910. These 49 positions support investigating quantized weights outside the routed experts. More inputs are required to generalize this result.
 
 On 16 additional prompts (494 positions), the official BF16 engine with only attention V and O weights replaced by MLX Q4 gave mean/worst KL 0.013737/0.149657 for layers 15, 31, 35 and 39, or 0.026107/0.385368 across all 12 attention layers. Respectively 471 and 456 top-1 predictions matched and PPL was 11.3720 and 11.4763 (BF16 11.3821). The unchanged upstream control reproduced all 494 rows and 16 continuations exactly.
 
@@ -111,7 +111,7 @@ The reverse intervention installs original BF16 weights into native Q4 attention
 | Twelve O | 0.253121 | 2.085065 | 408/494 | 16.1145 | 111,210,969,236 |
 | Twelve V+O | 0.258190 | 2.614155 | 400/494 | 16.1082 | 111,242,429,338 |
 
-All native arms matched 0/16 complete BF16 eight-token continuations. Adding all V+O tensors cost 408,950,300 file bytes and increased sampled peak process memory from 75,486,986,240 to 75,914,805,248 bytes. The compute-sanitizer projection test reported zero errors and four CPU/guard checks passed. Keep the overlays experimental. [Per-arm scores, logit hashes and streaming measurements](attention-and-upstream.json)
+Of 16 full eight-token BF16 continuations, stock, twelve O and twelve V+O each matched one. Four V+O and twelve V each matched two. Adding all V+O tensors cost 408,950,300 file bytes and increased sampled peak process memory from 75,486,986,240 to 75,914,805,248 bytes. The compute-sanitizer projection test reported zero errors and four CPU/guard checks passed. Keep the overlays experimental. [Per-arm scores, logit hashes and streaming measurements](attention-and-upstream.json)
 
 For reproduction, use the upstream Python environment in the reference setup and a fresh output directory for each command. Use the raw MLX checkpoint for the Q4 argument.
 

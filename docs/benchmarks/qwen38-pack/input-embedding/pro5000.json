@@ -15,7 +15,7 @@
     "reference_sha256": "b4bd7f680a9dbb59c0015d5f53ca25ed77c573e4ba953ae9e758e298cf9a3170",
     "candidate_sha256": "e1ea51021eb3bae299bd4664003198af213b097bf38d85c0d48d96c251bc34b7",
     "canary_cases": 4,
-    "matching_canaries": 0
+    "matching_canaries": 3
   },
   "bf16-original": {
     "rows": 49,
@@ -33,7 +33,7 @@
     "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
     "candidate_sha256": "5908da4c7f2a2fdc0c2387ab6029ffd2cff9469b9b508570d04908de5645fbb8",
     "canary_cases": 4,
-    "matching_canaries": 0
+    "matching_canaries": 1
   },
   "q8-heldout": {
     "rows": 65,
@@ -51,7 +51,7 @@
     "reference_sha256": "b4bd7f680a9dbb59c0015d5f53ca25ed77c573e4ba953ae9e758e298cf9a3170",
     "candidate_sha256": "8073c3f74b7016657bf7271538f9cf68bf73d542d8f40cb15a482b45d09fc049",
     "canary_cases": 4,
-    "matching_canaries": 0
+    "matching_canaries": 3
   },
   "q8-original": {
     "rows": 49,
@@ -69,7 +69,7 @@
     "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
     "candidate_sha256": "37f55225e5fa4673a41cc8a9789b1c41214b5981a6918aa99aca1c99bda5908d",
     "canary_cases": 4,
-    "matching_canaries": 0
+    "matching_canaries": 1
   },
   "size-bf16": {
     "mode": "bf16",
@@ -115,7 +115,7 @@
     "reference_sha256": "b4bd7f680a9dbb59c0015d5f53ca25ed77c573e4ba953ae9e758e298cf9a3170",
     "candidate_sha256": "c5ae9da4abc84735892d4325ef41de85d113bf808426f50f18585680b859ae4c",
     "canary_cases": 4,
-    "matching_canaries": 0
+    "matching_canaries": 3
   },
   "stock-original-control": {
     "rows": 49,
@@ -151,6 +151,6 @@
     "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
     "candidate_sha256": "32f22430fb15114a198cdb404d24875ed4e76557be8d9afc3c53c6d7faa7a986",
     "canary_cases": 4,
-    "matching_canaries": 0
+    "matching_canaries": 1
   }
 }

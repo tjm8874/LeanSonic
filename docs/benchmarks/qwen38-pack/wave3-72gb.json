@@ -38,7 +38,7 @@
     "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
     "candidate_sha256": "32f22430fb15114a198cdb404d24875ed4e76557be8d9afc3c53c6d7faa7a986",
     "canary_cases": 4,
-    "matching_canaries": 0
+    "matching_canaries": 1
   },
   "native_cli_eval_kld": {
     "chunks": 4,

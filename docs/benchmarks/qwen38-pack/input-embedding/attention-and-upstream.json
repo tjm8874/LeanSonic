@@ -72,7 +72,7 @@
       "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
       "candidate_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
       "canary_cases": 16,
-      "matching_canaries": 0
+      "matching_canaries": 1
     },
     "twelve-o": {
       "rows": 494,
@@ -90,7 +90,7 @@
       "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
       "candidate_sha256": "74a5d4650fc7a294a03adca3f932fe4130b1c9a07ac71e4d2f2f976fc31553d6",
       "canary_cases": 16,
-      "matching_canaries": 0
+      "matching_canaries": 1
     },
     "twelve-v": {
       "rows": 494,
@@ -108,7 +108,7 @@
       "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
       "candidate_sha256": "54f7a647f7cae39054fb0e03d8b5fb5ab9f04c58955d320db34dca0c47f288ed",
       "canary_cases": 16,
-      "matching_canaries": 0
+      "matching_canaries": 2
     },
     "four-vo": {
       "rows": 494,
@@ -126,7 +126,7 @@
       "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
       "candidate_sha256": "39e856c15e18ea4f7514b066f39d8a9d6f7d43fee75402ceaeb8fd419b5e3a9e",
       "canary_cases": 16,
-      "matching_canaries": 0
+      "matching_canaries": 2
     },
     "control": {
       "rows": 494,
@@ -162,7 +162,7 @@
       "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
       "candidate_sha256": "ca8e00529f50d7a78bdeb211e6b52e616f9f13ee5979f2cab1c66ab7cd416b94",
       "canary_cases": 16,
-      "matching_canaries": 0
+      "matching_canaries": 1
     }
   },
   "official_mlx_q4": {
@@ -200,7 +200,7 @@
       "reference_sha256": "e202e5785635727c7ba7b75155cfc3d4e02fde3b2970122703899376a5606892",
       "candidate_sha256": "32f22430fb15114a198cdb404d24875ed4e76557be8d9afc3c53c6d7faa7a986",
       "canary_cases": 4,
-      "matching_canaries": 0
+      "matching_canaries": 4
     },
     "bf16-all-q4": {
       "rows": 49,
@@ -236,7 +236,7 @@
       "reference_sha256": "2c93804edf9e4c5e2d6d6b76cf03aa20cfcd07be7d422dc7151e8ec4f35395b6",
       "candidate_sha256": "32f22430fb15114a198cdb404d24875ed4e76557be8d9afc3c53c6d7faa7a986",
       "canary_cases": 4,
-      "matching_canaries": 0
+      "matching_canaries": 1
     }
   },
   "pro5000_stream": {
