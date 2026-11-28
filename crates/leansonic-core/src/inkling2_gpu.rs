@@ -1568,6 +1568,66 @@ fn known_prompt_limit(tokens: usize) -> usize {
         .next_power_of_two()
 }
 
+/// Resolves a 2-tier hardware pack directory (`16GB Target Pack` vs `32GB+ Target Pack`, `#235`)
+/// from `model_dir` given GPU `total_vram_bytes` and `pack_mode` (`LEANSONIC_PACK`:
+/// `"auto"` default, `"16g"`, `"32g"`, or `"exact"`).
+///
+/// - In `"auto"` mode, if `model_dir` is a bundle root without a direct shard file, selects
+///   `<model_dir>/16g` when `total_vram_bytes < 24 GiB` and `<model_dir>/32g` otherwise, leaving
+///   explicit single-pack directories untouched.
+/// - In explicit `"16g"` or `"32g"` mode, checks `<model_dir>/<tier>` as well as sibling
+///   `<name>_<tier>` / `<name>-<tier>` directories before falling back to `model_dir`.
+pub fn resolve_pack_weights_dir_with_mode(
+    model_dir: &Path,
+    total_vram_bytes: usize,
+    pack_mode: &str,
+) -> Result<std::path::PathBuf, String> {
+    const SHARD: &str = "model-00001-of-00001.safetensors";
+    if pack_mode == "exact" {
+        return Ok(model_dir.to_path_buf());
+    }
+    let want_16g = match pack_mode {
+        "16g" => true,
+        "32g" => false,
+        "auto" => total_vram_bytes < (24usize << 30),
+        other => {
+            return Err(format!(
+                "LEANSONIC_PACK must be auto, 16g, 32g or exact, got {other}"
+            ))
+        }
+    };
+    let tier = if want_16g { "16g" } else { "32g" };
+    if pack_mode == "auto" {
+        if !model_dir.join(SHARD).is_file() {
+            let sub = model_dir.join(tier);
+            if sub.join(SHARD).is_file() {
+                return Ok(sub);
+            }
+        }
+        return Ok(model_dir.to_path_buf());
+    }
+    let mut candidates = vec![model_dir.join(tier)];
+    if let (Some(parent), Some(name)) = (
+        model_dir.parent(),
+        model_dir.file_name().and_then(|s| s.to_str()),
+    ) {
+        let base = name
+            .strip_suffix("_16g")
+            .or_else(|| name.strip_suffix("-16g"))
+            .or_else(|| name.strip_suffix("_32g"))
+            .or_else(|| name.strip_suffix("-32g"))
+            .unwrap_or(name);
+        candidates.push(parent.join(format!("{base}_{tier}")));
+        candidates.push(parent.join(format!("{base}-{tier}")));
+    }
+    for cand in candidates {
+        if cand.join(SHARD).is_file() {
+            return Ok(cand);
+        }
+    }
+    Ok(model_dir.to_path_buf())
+}
+
 impl Inkling2GpuEngine {
     pub fn load_from_dir(
         model_dir: impl AsRef<Path>,
@@ -1665,9 +1725,59 @@ impl Inkling2GpuEngine {
             _ => return Err("LEANSONIC_GPU_SCALES must be raw or packed".into()),
         };
 
-        let device_u4 = std::env::var("LEANSONIC_MXFP8_DEVICE_U4").as_deref() == Ok("1");
-        let direct_all =
-            device_u4 && std::env::var("LEANSONIC_MXFP8_DIRECT_ALL").as_deref() == Ok("1");
+        let orig_model_dir = model_dir;
+        let (_, total_vram_for_pack) = ctx.mem_info()?;
+        let pack_mode = std::env::var("LEANSONIC_PACK").unwrap_or_else(|_| "auto".into());
+        let resolved_model_dir =
+            resolve_pack_weights_dir_with_mode(orig_model_dir, total_vram_for_pack, &pack_mode)?;
+        if resolved_model_dir != orig_model_dir {
+            eprintln!(
+                "[LeanSonic Pack] Selected {} pack: {} (GPU VRAM: {:.2} GiB)",
+                if total_vram_for_pack < (24usize << 30) || pack_mode == "16g" {
+                    "16g"
+                } else {
+                    "32g"
+                },
+                resolved_model_dir.display(),
+                total_vram_for_pack as f64 / (1024.0 * 1024.0 * 1024.0)
+            );
+        }
+        let model_dir = resolved_model_dir.as_path();
+        let st_path = model_dir.join("model-00001-of-00001.safetensors");
+        let st = MappedSafeTensors::open(&st_path)
+            .map_err(|e| format!("open {}: {e}", st_path.display()))?;
+
+        let auto_mxfp8_u4 = (NVFP4_LAYERS..N_LAYER).all(|il| {
+            ["w13_weight", "w2_weight"].into_iter().all(|w| {
+                let Some(t) = st.get(&format!("model.llm.layers.{il}.mlp.experts.{w}.rans_v1"))
+                else {
+                    return false;
+                };
+                t.dtype == "U8"
+                    && t.shape == [t.data.len()]
+                    && t.data.len() >= 512
+                    && t.data[..512]
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .filter(|&&freq| freq != [0, 0])
+                        .count()
+                        <= 16
+            })
+        });
+        let (device_u4, u4_was_auto) = match std::env::var("LEANSONIC_MXFP8_DEVICE_U4").as_deref() {
+            Ok("1") => (true, false),
+            Ok("0") => (false, false),
+            Ok("auto") | Err(std::env::VarError::NotPresent) => (auto_mxfp8_u4, auto_mxfp8_u4),
+            _ => (false, false),
+        };
+        let direct_all = device_u4
+            && match std::env::var("LEANSONIC_MXFP8_DIRECT_ALL").as_deref() {
+                Ok("1") | Ok("auto") => true,
+                Ok("0") => false,
+                Err(std::env::VarError::NotPresent) => u4_was_auto,
+                _ => false,
+            };
         let direct_device_tc = direct_all
             || (device_u4 && std::env::var("LEANSONIC_MXFP8_LOOKUP_PREFILL").as_deref() == Ok("1"));
         let fns = Self::load_module_functions(
@@ -1739,9 +1849,6 @@ impl Inkling2GpuEngine {
         } else {
             MAX_SPEC_TOKENS
         };
-        let st_path = model_dir.join("model-00001-of-00001.safetensors");
-        let st = MappedSafeTensors::open(&st_path)
-            .map_err(|e| format!("open {}: {e}", st_path.display()))?;
 
         let embed = match (
             st.get("model.llm.embed.weight"),
@@ -1903,7 +2010,11 @@ impl Inkling2GpuEngine {
         };
 
         // Load the optional drafter before budgeting memory for tiered expert weights.
-        let mtp_path = model_dir.join("mtp.safetensors");
+        let mtp_path = if model_dir.join("mtp.safetensors").exists() {
+            model_dir.join("mtp.safetensors")
+        } else {
+            orig_model_dir.join("mtp.safetensors")
+        };
         // Drafter choice (#103 / #177 / #204): `LEANSONIC_DRAFTER=auto` (default) prefers DFlash 2
         // when its checkpoint is found for engines of up to `DF2_MAX_SEQS` sequences; multi-seq
         // engines (`2 <= LEANSONIC_SEQS <= DF2_MAX_SEQS`) load both DFlash 2 and DSpark and pick
@@ -2416,7 +2527,13 @@ impl Inkling2GpuEngine {
         let d_ms_tokens = DeviceBuf::alloc_zeroed(&ctx, MAX_MS_ROWS * 4)?;
         // Older modules and grouped/verify paths can still read full-width nibbles.
         let mut ternary_scratch = |slot: usize, setting: &str, bytes: usize| -> Result<_, String> {
-            let mode = std::env::var(setting).unwrap_or_default();
+            let mode = std::env::var(setting).unwrap_or_else(|_| {
+                if slot == 1 && total_vram_for_pack < (24usize << 30) {
+                    "auto".into()
+                } else {
+                    String::new()
+                }
+            });
             let auto = slot == 1 && mode == "auto";
             if mode != "1" && !auto {
                 return Ok(None);
@@ -10879,6 +10996,45 @@ mod tests {
         }
     }
 
+    #[test]
+    fn resolve_pack_weights_dir_selects_16g_and_32g_tiers() {
+        let root = std::env::temp_dir().join(format!("leansonic_pack_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let d16 = root.join("bundle/16g");
+        let d32 = root.join("bundle/32g");
+        let single = root.join("single");
+        let single_16 = root.join("single_16g");
+        for d in [&d16, &d32, &single, &single_16] {
+            std::fs::create_dir_all(d).unwrap();
+            std::fs::write(d.join("model-00001-of-00001.safetensors"), b"").unwrap();
+        }
+        let bundle = root.join("bundle");
+        // Auto mode routes bundle roots by total VRAM (< 24 GiB vs >= 24 GiB), leaving direct
+        // single-pack directories untouched unless an explicit tier is requested.
+        assert_eq!(
+            resolve_pack_weights_dir_with_mode(&bundle, 16usize << 30, "auto").unwrap(),
+            d16
+        );
+        assert_eq!(
+            resolve_pack_weights_dir_with_mode(&bundle, 32usize << 30, "auto").unwrap(),
+            d32
+        );
+        assert_eq!(
+            resolve_pack_weights_dir_with_mode(&single, 16usize << 30, "auto").unwrap(),
+            single
+        );
+        assert_eq!(
+            resolve_pack_weights_dir_with_mode(&single, 32usize << 30, "16g").unwrap(),
+            single_16
+        );
+        assert_eq!(
+            resolve_pack_weights_dir_with_mode(&bundle, 16usize << 30, "exact").unwrap(),
+            bundle
+        );
+        assert!(resolve_pack_weights_dir_with_mode(&bundle, 16usize << 30, "bad").is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// Planted-fault controls for `pdl_audit` (#179): each minimal violation of the PDL
     /// contract must fail the audit, so a regression in the checker cannot pass silently.
     #[test]
@@ -11574,6 +11730,123 @@ mod tests {
                     if ((g - want) as f64).abs() > bound + 1e-3 {
                         return Err(format!(
                             "df2_q4_head t={t} row={rr}: got {g}, want {want} +- {bound}"
+                        ));
+                    }
+                }
+            }
+
+            // Split-K `df2_gemm_sk_q4` on exact-size 8-row x_q8 and 32-row Q4 MLP plane (`cols = 6912`, `S = 4`).
+            {
+                let (m_rows, m_cols, m_slices) = (32usize, 6912usize, 4usize);
+                let wm = Q8::random(&mut rng, m_rows, m_cols);
+                let xm = Q8::random(&mut rng, 8, m_cols);
+                let (wmc, wms) = wm.upload(&ctx)?;
+                let (xmc, xms) = xm.upload(&ctx)?;
+                let mq4c = DeviceBuf::alloc_zeroed(&ctx, m_rows * m_cols / 2)?;
+                let mq4s = DeviceBuf::alloc_zeroed(&ctx, m_rows * (m_cols / 64) * 4)?;
+                let (mut pw, mut pws, mut pc, mut pcs, mut cc) =
+                    (wmc.ptr, wms.ptr, mq4c.ptr, mq4s.ptr, m_cols as i32);
+                run(
+                    &ctx,
+                    k.q8_to_q4,
+                    (m_rows as u32, (m_cols / 64) as u32),
+                    32,
+                    &mut args![pw, pws, pc, pcs, cc],
+                )?;
+                let mpart = DeviceBuf::alloc_zeroed(&ctx, m_slices * 8 * m_rows * 4)?;
+                let (mut qc, mut qs, mut px, mut pxs, mut pp) =
+                    (mq4c.ptr, mq4s.ptr, xmc.ptr, xms.ptr, mpart.ptr);
+                let (mut r, mut c, mut sl) = (
+                    m_rows as i32,
+                    m_cols as i32,
+                    (m_cols / 32 / m_slices) as i32,
+                );
+                run(
+                    &ctx,
+                    k.gemm_sk_q4,
+                    ((m_rows / 16) as u32, m_slices as u32),
+                    256,
+                    &mut args![qc, qs, px, pxs, pp, r, c, sl],
+                )?;
+                let mut h_part = vec![0f32; m_slices * 8 * m_rows];
+                mpart.copy_to_host_f32(&mut h_part)?;
+                for t in 0..8 {
+                    for rr in 0..m_rows {
+                        let got: f32 = (0..m_slices)
+                            .map(|q| h_part[q * 8 * m_rows + t * m_rows + rr])
+                            .sum();
+                        let want = wm.dot(rr, &xm, t);
+                        let mut bound = 0f64;
+                        for c64 in 0..m_cols / 64 {
+                            let amax = (0..64)
+                                .map(|j| (wm.codes[rr * m_cols + c64 * 64 + j] as i32).abs())
+                                .max()
+                                .unwrap() as f64;
+                            let xsum: f64 = (0..64)
+                                .map(|j| (xm.codes[t * m_cols + c64 * 64 + j] as f64).abs())
+                                .sum();
+                            bound += amax / 14.0
+                                * xsum
+                                * wm.scales[rr * (m_cols / 64) + c64] as f64
+                                * xm.scales[t * (m_cols / 64) + c64] as f64;
+                        }
+                        if ((got - want) as f64).abs() > bound + 1e-2 {
+                            return Err(format!(
+                                "df2_gemm_sk_q4 t={t} rr={rr}: got {got}, want {want} +- {bound}"
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // Register Top-16 (`df2_top16_part` + `df2_top16_merge`): exact-size allocations and
+            // bit-exact Top-16 candidate ID & logit parity against CPU sort (`df2_before`).
+            let top_rows = 3usize;
+            let mut h_logits = Vec::with_capacity(top_rows * VOCAB);
+            for _ in 0..top_rows * VOCAB {
+                h_logits.push(((rng.next() as i32 % 4096) as f32) * 0.015625);
+            }
+            let d_logits = f32s(&ctx, &h_logits)?;
+            let d_part = DeviceBuf::alloc_zeroed(&ctx, top_rows * 40 * 34 * 4)?;
+            let d_cand = DeviceBuf::alloc_zeroed(&ctx, top_rows * 32 * 4)?;
+            let d_tail = DeviceBuf::alloc_zeroed(&ctx, top_rows * 2 * 4)?;
+            {
+                let (mut pl, mut vv, mut cap, mut pp) =
+                    (d_logits.ptr, VOCAB as i32, 30.0f32, d_part.ptr);
+                run(
+                    &ctx,
+                    k.top16_part,
+                    (top_rows as u32, 40),
+                    256,
+                    &mut args![pl, vv, cap, pp],
+                )?;
+                let (mut pp, mut pc, mut pt) = (d_part.ptr, d_cand.ptr, d_tail.ptr);
+                run(
+                    &ctx,
+                    k.top16_merge,
+                    (top_rows as u32, 1),
+                    32,
+                    &mut args![pp, pc, pt],
+                )?;
+            }
+            let mut h_cand_f = vec![0f32; top_rows * 32];
+            d_cand.copy_to_host_f32(&mut h_cand_f)?;
+            for r in 0..top_rows {
+                let mut pairs: Vec<(f32, usize)> = h_logits[r * VOCAB..(r + 1) * VOCAB]
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .map(|(i, v)| (v, i))
+                    .collect();
+                pairs.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+                for idx in 0..16 {
+                    let got_id = h_cand_f[r * 32 + idx].to_bits() as usize;
+                    let got_bits = h_cand_f[r * 32 + 16 + idx].to_bits();
+                    let (want_v, want_id) = pairs[idx];
+                    if got_id != want_id || got_bits != want_v.to_bits() {
+                        return Err(format!(
+                            "df2_top16 row={r} k={idx}: got ({got_id}, {got_bits:#x}) != want ({want_id}, {:#x})",
+                            want_v.to_bits()
                         ));
                     }
                 }

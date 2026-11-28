@@ -30,11 +30,27 @@ pub struct TiktokenBpe {
 impl TiktokenBpe {
     pub fn from_model_dir(model_dir: impl AsRef<Path>) -> io::Result<Self> {
         let dir = model_dir.as_ref();
-        let path = if dir.join("tiktoken/tokenizer.model").exists() {
-            dir.join("tiktoken/tokenizer.model")
-        } else {
-            dir.join("tokenizer.model")
-        };
+        let mut candidates = vec![
+            dir.join("tiktoken/tokenizer.model"),
+            dir.join("tokenizer.model"),
+        ];
+        for sub in ["32g", "16g"] {
+            candidates.push(dir.join(sub).join("tiktoken/tokenizer.model"));
+            candidates.push(dir.join(sub).join("tokenizer.model"));
+        }
+        if matches!(
+            dir.file_name().and_then(|s| s.to_str()),
+            Some("16g" | "32g")
+        ) {
+            if let Some(parent) = dir.parent() {
+                candidates.push(parent.join("tiktoken/tokenizer.model"));
+                candidates.push(parent.join("tokenizer.model"));
+            }
+        }
+        let path = candidates
+            .into_iter()
+            .find(|p| p.exists())
+            .unwrap_or_else(|| dir.join("tokenizer.model"));
         let raw = fs::read_to_string(path)?;
         Self::from_tiktoken_str(&raw)
     }

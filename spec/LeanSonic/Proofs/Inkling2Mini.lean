@@ -2583,42 +2583,42 @@ def kDf2TapQuant : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
-/-- DFlash 2: Chunk Top-16 + softcapped chunk LSE (`31` regs, `40512` B SMEM). -/
+/-- DFlash 2: Register-resident Chunk Top-16 + softcapped chunk LSE (`64` regs, `128` B SMEM -> `4` CTAs/SM, `120` KiB L1). -/
 def kDf2Top16Part : KernelResourceSpec :=
   { name := "df2_top16_part"
     threadsPerCta := 256
-    rawRegsPerThread := 31
-    userSmemPerCtaBytes := 40512
+    rawRegsPerThread := 64
+    userSmemPerCtaBytes := 128
     smemAlignPadBytes := 0
-    ctasPerSm := 2
+    ctasPerSm := 4
     clusterCtas := 1
-    minRequiredL1KiB := 28
+    minRequiredL1KiB := 120
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
-/-- DFlash 2: Row Top-16 + full-vocabulary LSE merge (`40` regs, `5184` B SMEM). -/
+/-- DFlash 2: Single-warp zero-barrier Row Top-16 + full-vocabulary LSE merge (`66` regs, `0` B SMEM -> `8` CTAs/SM, `120` KiB L1). -/
 def kDf2Top16Merge : KernelResourceSpec :=
   { name := "df2_top16_merge"
-    threadsPerCta := 256
-    rawRegsPerThread := 40
-    userSmemPerCtaBytes := 5184
+    threadsPerCta := 32
+    rawRegsPerThread := 66
+    userSmemPerCtaBytes := 0
     smemAlignPadBytes := 0
-    ctasPerSm := 6
+    ctasPerSm := 8
     clusterCtas := 1
-    minRequiredL1KiB := 64
+    minRequiredL1KiB := 120
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
-/-- DFlash 2: Rank-256 bilinear candidate selector (`40` regs, `132` B SMEM). -/
+/-- DFlash 2: SMEM-staged Rank-256 bilinear candidate selector (`40` regs, `8324` B SMEM -> `3` CTAs/SM, `96` KiB L1). -/
 def kDf2Select : KernelResourceSpec :=
   { name := "df2_select"
     threadsPerCta := 512
     rawRegsPerThread := 40
-    userSmemPerCtaBytes := 132
+    userSmemPerCtaBytes := 8324
     smemAlignPadBytes := 0
     ctasPerSm := 3
     clusterCtas := 1
-    minRequiredL1KiB := 120
+    minRequiredL1KiB := 96
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
@@ -2681,6 +2681,14 @@ def dflash2DrafterKernelSuite : List KernelResourceSpec :=
 
 theorem dflash2_drafter_kernels_all_valid :
     (dflash2DrafterKernelSuite.all checkSm120Kernel) = true := by decide
+
+/-- DFlash 2 `16GB` Co-Resident KV Ring + `Q4_64` `o_proj` VRAM Reduction Theorem (`#235`):
+    Compacting the 5-layer KV rings (`2 * 5 * 2112 * 1024`) from FP32 to BF16 saves `43,253,760` B per sequence
+    (`346,030,080` B at `C = 8`), and `Q4_64` `wo` (`5 * [2304, 4096]`) saves `23,592,960` B (`-66,846,720` B total at `C = 1`). -/
+theorem dflash2_bf16_ring_and_q4_wo_vram_saved :
+    let ringElems := 2 * 5 * 2112 * 1024
+    let woGroups := 5 * 2304 * (4096 / 64)
+    (ringElems * 2 + woGroups * 36) + 66846720 = (ringElems * 4 + woGroups * 68) := by decide
 
 -- ============================================================================
 -- Cycle 12 (`v0.10.0` #204 / #177): `310+ tok/s` Speculative Verify Breakthrough Suite

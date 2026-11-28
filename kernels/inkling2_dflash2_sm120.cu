@@ -63,6 +63,13 @@ __device__ __forceinline__ float bf16_to_f32(uint16_t b) {
     return __uint_as_float(static_cast<uint32_t>(b) << 16);
 }
 
+__device__ __forceinline__ uint16_t f32_to_bf16_rn(float x) {
+    uint32_t u = __float_as_uint(x);
+    if ((u & 0x7FFFFFFFu) > 0x7F800000u) return 0x7FC0u;
+    u += 0x00007FFFu + ((u >> 16) & 1u);
+    return static_cast<uint16_t>(u >> 16);
+}
+
 __device__ __forceinline__ void pdl_wait() {
 #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900)
     asm volatile("griddepcontrol.wait;" ::: "memory");
@@ -482,8 +489,9 @@ extern "C" __global__ void df2_qk_prep(
     int32_t pos0,
     int32_t cap,
     int64_t ring_layer,
-    float* __restrict__ k_ring,               // [layers, cap, 1024]
-    float* __restrict__ v_ring) {             // [layers, cap, 1024]
+    void* __restrict__ k_ring,                // [layers, cap, 1024] FP32 or BF16
+    void* __restrict__ v_ring,                // [layers, cap, 1024] FP32 or BF16
+    int32_t kv_bf16) {
     pdl_wait();
     pdl_trigger();
     __shared__ float smem_hd[128];
@@ -501,9 +509,22 @@ extern "C" __global__ void df2_qk_prep(
     if (hh < 8) {
         const int col = k_col + l * layer_cols + hh * 128 + d;
         const float kr = head_norm_neox_rope128(sum(col), kn_bf16_p + l * 64, inv_freq64, pos, smem_hd);
-        const size_t cell = l * ring_layer + static_cast<size_t>(pos % cap) * kDf2Kv + hh * 128 + d;
-        k_ring[cell] = kr;
-        v_ring[cell] = sum(col + kDf2Kv);
+        const float vr = sum(col + kDf2Kv);
+        const size_t cell = static_cast<size_t>(l) * static_cast<size_t>(ring_layer) +
+                            static_cast<size_t>(pos % cap) * kDf2Kv + hh * 128 + d;
+        if (kv_bf16) {
+            const uint32_t kb = static_cast<uint32_t>(f32_to_bf16_rn(kr));
+            const uint32_t vb = static_cast<uint32_t>(f32_to_bf16_rn(vr));
+            const uint32_t kp = kb | (__shfl_xor_sync(0xFFFFFFFFu, kb, 1) << 16);
+            const uint32_t vp = vb | (__shfl_xor_sync(0xFFFFFFFFu, vb, 1) << 16);
+            if ((d & 1) == 0) {
+                static_cast<uint32_t*>(k_ring)[cell >> 1] = kp;
+                static_cast<uint32_t*>(v_ring)[cell >> 1] = vp;
+            }
+        } else {
+            static_cast<float*>(k_ring)[cell] = kr;
+            static_cast<float*>(v_ring)[cell] = vr;
+        }
     } else {
         const int col = (hh - 8) * 128 + d;
         q_out[static_cast<size_t>(r) * kDf2Q + col] =
@@ -513,16 +534,18 @@ extern "C" __global__ void df2_qk_prep(
 
 // Non-causal block attention, quantized for `wo`: the 8 rows attend every ring key in `[lo, hi)`
 // (cell `p % cap`); 32 query heads over 8 KV heads; the head's 128 outputs become two Q8_64
-// groups of row `t`. Grid `(32, 8)`, Block `512` (16 warps split the keys).
+// groups of row `t`. Supports both FP32 (`kv_bf16 == 0`) and BF16 (`kv_bf16 != 0`) KV rings.
+// Grid `(32, 8)`, Block `512` (16 warps split the keys).
 extern "C" __global__ void __launch_bounds__(512) df2_attn_q8(
     const float* __restrict__ q,       // [8, 4096]
-    const float* __restrict__ k_ring,  // [cap, 1024]
-    const float* __restrict__ v_ring,  // [cap, 1024]
+    const void* __restrict__ k_ring,   // [cap, 1024] FP32 or BF16
+    const void* __restrict__ v_ring,   // [cap, 1024] FP32 or BF16
     int32_t lo,
     int32_t hi,
     int32_t cap,
     uint32_t* __restrict__ xq,         // [8, 4096 / 4]
-    float* __restrict__ xs) {          // [8, 4096 / 64]
+    float* __restrict__ xs,            // [8, 4096 / 64]
+    int32_t kv_bf16) {
     pdl_wait();
     pdl_trigger();
     constexpr int kW = 16;
@@ -541,8 +564,24 @@ extern "C" __global__ void __launch_bounds__(512) df2_attn_q8(
     float o0 = 0.0f, o1 = 0.0f, o2 = 0.0f, o3 = 0.0f;
     for (int p = lo + warp; p < hi; p += kW) {
         const size_t cell = static_cast<size_t>(p % cap) * kDf2Kv + kvh * 128;
-        const float4 k4 = reinterpret_cast<const float4*>(k_ring + cell)[lane];
-        const float4 v4 = reinterpret_cast<const float4*>(v_ring + cell)[lane];
+        float4 k4, v4;
+        if (kv_bf16) {
+            const uint2 ku = reinterpret_cast<const uint2*>(k_ring)[(cell >> 2) + lane];
+            const uint2 vu = reinterpret_cast<const uint2*>(v_ring)[(cell >> 2) + lane];
+            k4 = make_float4(
+                bf16_to_f32(static_cast<uint16_t>(ku.x & 0xFFFFu)),
+                bf16_to_f32(static_cast<uint16_t>(ku.x >> 16)),
+                bf16_to_f32(static_cast<uint16_t>(ku.y & 0xFFFFu)),
+                bf16_to_f32(static_cast<uint16_t>(ku.y >> 16)));
+            v4 = make_float4(
+                bf16_to_f32(static_cast<uint16_t>(vu.x & 0xFFFFu)),
+                bf16_to_f32(static_cast<uint16_t>(vu.x >> 16)),
+                bf16_to_f32(static_cast<uint16_t>(vu.y & 0xFFFFu)),
+                bf16_to_f32(static_cast<uint16_t>(vu.y >> 16)));
+        } else {
+            k4 = reinterpret_cast<const float4*>(static_cast<const float*>(k_ring) + cell)[lane];
+            v4 = reinterpret_cast<const float4*>(static_cast<const float*>(v_ring) + cell)[lane];
+        }
         const float dot = warp_sum(q4.x * k4.x + q4.y * k4.y + q4.z * k4.z + q4.w * k4.w) * scale;
         const float m_new = fmaxf(m, dot);
         const float alpha = ptx_exp(m - m_new);
@@ -639,26 +678,12 @@ __device__ __forceinline__ bool df2_before(float va, int ia, float vb, int ib) {
     return va > vb || (va == vb && ia < ib);
 }
 
-constexpr int kDf2Chunks = 40;  // 5,002 tokens per chunk -> 40 KB of shared memory
+constexpr int kDf2Chunks = 40;  // <= 5,002 tokens per chunk -> <= 20 items/thread in registers!
 
-// Block-wide pick of the first (value desc, id asc) element after `(last_v, last_i)` among the
-// `n` (value, id) pairs in shared memory. All threads of the 256-thread block return the pick.
-__device__ __forceinline__ void df2_block_pick(
-    const float* sv, const int* si, int n, float last_v, int last_i, float* red_v, int* red_i,
-    float& out_v, int& out_i) {
-    const int tid = threadIdx.x;
-    const int warp = tid >> 5;
-    const int lane = tid & 31;
-    float bv = -3.0e38f;
-    int bi = 0x7fffffff;
-    for (int j = tid; j < n; j += blockDim.x) {
-        const float v = sv[j];
-        const int i = si[j];
-        if (df2_before(last_v, last_i, v, i) && df2_before(v, i, bv, bi)) {
-            bv = v;
-            bi = i;
-        }
-    }
+// Block-wide argmax over per-thread `(bv, bi)` candidates (`df2_before` tie-breaking) using
+// double-buffered warp-leader scratch `red_v8[8], red_i8[8]` (only ONE `__syncthreads()` per pick!).
+__device__ __forceinline__ void df2_reduce_pick8(
+    float bv, int bi, int warp, int lane, float* red_v8, int* red_i8, float& out_v, int& out_i) {
     #pragma unroll
     for (int mask = 16; mask > 0; mask >>= 1) {
         const float ov = __shfl_xor_sync(0xffffffffu, bv, mask);
@@ -669,27 +694,27 @@ __device__ __forceinline__ void df2_block_pick(
         }
     }
     if (lane == 0) {
-        red_v[warp] = bv;
-        red_i[warp] = bi;
+        red_v8[warp] = bv;
+        red_i8[warp] = bi;
     }
     __syncthreads();
-    bv = red_v[0];
-    bi = red_i[0];
-    for (int w = 1; w < static_cast<int>(blockDim.x >> 5); ++w) {
-        if (df2_before(red_v[w], red_i[w], bv, bi)) {
-            bv = red_v[w];
-            bi = red_i[w];
+    bv = red_v8[0];
+    bi = red_i8[0];
+    #pragma unroll
+    for (int w = 1; w < 8; ++w) {
+        if (df2_before(red_v8[w], red_i8[w], bv, bi)) {
+            bv = red_v8[w];
+            bi = red_i8[w];
         }
     }
-    __syncthreads();
     out_v = bv;
     out_i = bi;
 }
 
-// Stage 1 of the Top-16: chunk `blockIdx.y` of row `blockIdx.x` is staged in shared memory, its
-// sorted Top-16 `(value, id)` and its softcapped log-sum-exp `(m, l)` over ALL its tokens are
-// written to `part`. Grid `(rows, 40)`, Block `256`.
-extern "C" __global__ void df2_top16_part(
+// Stage 1 of the Top-16: chunk `blockIdx.y` of row `blockIdx.x` is held in 20 register pairs per
+// thread (`128` B SMEM total instead of `40.5` KB!), its sorted Top-16 `(value, id)` and softcapped
+// log-sum-exp `(m, l)` over ALL its tokens are written to `part`. Grid `(rows, 40)`, Block `256`.
+extern "C" __global__ void __launch_bounds__(256) df2_top16_part(
     const float* __restrict__ logits,  // [rows, vocab]
     int32_t vocab,
     float cap,
@@ -697,28 +722,38 @@ extern "C" __global__ void df2_top16_part(
     pdl_wait();
     pdl_trigger();
     const float inv_cap = __fdividef(1.0f, cap); // fast reciprocal: no IEEE-division call
-    constexpr int kMaxChunk = 5056;
-    __shared__ float sv[kMaxChunk];
-    __shared__ int si[kMaxChunk];
-    __shared__ float red_v[8];
-    __shared__ int red_i[8];
+    constexpr int kPer = 20;                     // 20 * 256 = 5,120 >= ceil(200064 / 40) = 5,002
+    __shared__ float red_v[2][8];
+    __shared__ int red_i[2][8];
+    const int tid = threadIdx.x;
+    const int warp = tid >> 5;
+    const int lane = tid & 31;
     const int r = blockIdx.x;
     const int ch = blockIdx.y;
     const int per = (vocab + kDf2Chunks - 1) / kDf2Chunks;
     const int i0 = ch * per;
     const int n = max(0, min(vocab, i0 + per) - i0);
     const float* row = logits + static_cast<size_t>(r) * vocab;
+    float rv[kPer];
+    int ri[kPer];
     float m = -3.0e38f, l = 0.0f;
-    for (int j = threadIdx.x; j < n; j += 256) {
-        const float v = row[i0 + j];
-        sv[j] = v;
-        si[j] = i0 + j;
-        const float c = cap * ptx_tanh(v * inv_cap);
-        if (c > m) {
-            l = l * ptx_exp(m - c) + 1.0f;
-            m = c;
+    #pragma unroll
+    for (int u = 0; u < kPer; ++u) {
+        const int j = tid + 256 * u;
+        if (j < n) {
+            const float v = row[i0 + j];
+            rv[u] = v;
+            ri[u] = i0 + j;
+            const float c = cap * ptx_tanh(v * inv_cap);
+            if (c > m) {
+                l = l * ptx_exp(m - c) + 1.0f;
+                m = c;
+            } else {
+                l += ptx_exp(c - m);
+            }
         } else {
-            l += ptx_exp(c - m);
+            rv[u] = -3.0e38f;
+            ri[u] = 0x7fffffff;
         }
     }
     #pragma unroll
@@ -729,16 +764,16 @@ extern "C" __global__ void df2_top16_part(
         l = l * ptx_exp(m - nm) + ol * ptx_exp(om - nm);
         m = nm;
     }
-    if ((threadIdx.x & 31) == 0) {
-        red_v[threadIdx.x >> 5] = m;
-        red_i[threadIdx.x >> 5] = __float_as_int(l);
+    if (lane == 0) {
+        red_v[1][warp] = m;
+        red_i[1][warp] = __float_as_int(l);
     }
     __syncthreads();
     float* out = part + (static_cast<size_t>(r) * kDf2Chunks + ch) * 34;
-    if (threadIdx.x == 0) {
-        float bm = red_v[0], bl = __int_as_float(red_i[0]);
+    if (tid == 0) {
+        float bm = red_v[1][0], bl = __int_as_float(red_i[1][0]);
         for (int w = 1; w < 8; ++w) {
-            const float om = red_v[w], ol = __int_as_float(red_i[w]);
+            const float om = red_v[1][w], ol = __int_as_float(red_i[1][w]);
             const float nm = fmaxf(bm, om);
             bl = bl * ptx_exp(bm - nm) + ol * ptx_exp(om - nm);
             bm = nm;
@@ -746,84 +781,141 @@ extern "C" __global__ void df2_top16_part(
         out[32] = bm;
         out[33] = bl;
     }
-    __syncthreads();
-    float last_v = 3.0e38f;
-    int last_i = -1;
     for (int k = 0; k < kDf2Top; ++k) {
-        df2_block_pick(sv, si, n, last_v, last_i, red_v, red_i, last_v, last_i);
-        if (threadIdx.x == 0) {
-            out[k] = last_v;
-            out[16 + k] = __int_as_float(last_i);
+        float bv = rv[0];
+        int bi = ri[0];
+        #pragma unroll
+        for (int u = 1; u < kPer; ++u) {
+            if (df2_before(rv[u], ri[u], bv, bi)) {
+                bv = rv[u];
+                bi = ri[u];
+            }
+        }
+        float win_v;
+        int win_i;
+        df2_reduce_pick8(bv, bi, warp, lane, red_v[k & 1], red_i[k & 1], win_v, win_i);
+        if (tid == 0) {
+            out[k] = win_v;
+            out[16 + k] = __int_as_float(win_i);
+        }
+        #pragma unroll
+        for (int u = 0; u < kPer; ++u) {
+            if (ri[u] == win_i) {
+                rv[u] = -3.0e38f;
+                ri[u] = 0x7fffffff;
+            }
         }
     }
 }
 
-// Stage 2: merges the 40 chunk Top-16 lists into the row's sorted Top-16 (ties to the lower id)
-// and the chunk LSEs into the full-vocabulary softcapped `(m, l)`. Grid `rows`, Block `256`.
-extern "C" __global__ void df2_top16_merge(
+// Stage 2: merges the 40 chunk Top-16 lists (`640` candidates = 20 register pairs/lane in a
+// SINGLE 32-thread warp — ZERO `__syncthreads()` barriers and `0` B shared memory!) into the
+// row's sorted Top-16 (ties to the lower id) and the chunk LSEs into the full-vocabulary
+// softcapped `(m, l)`. Grid `rows`, Block `32`.
+extern "C" __global__ void __launch_bounds__(32) df2_top16_merge(
     const float* __restrict__ part,  // [rows, 40, 34]
     int32_t* __restrict__ cand,      // [rows, 32]: 16 ids, then 16 raw logit bit patterns
     float* __restrict__ lse) {       // [rows, 2]: full-vocabulary softcapped (m, l)
     pdl_wait();
     pdl_trigger();
-    __shared__ float sv[kDf2Chunks * kDf2Top];
-    __shared__ int si[kDf2Chunks * kDf2Top];
-    __shared__ float red_v[8];
-    __shared__ int red_i[8];
+    constexpr int kPer = 20;         // 20 * 32 = 640 == kDf2Chunks * kDf2Top
+    const int lane = threadIdx.x;
     const int r = blockIdx.x;
     const float* in = part + static_cast<size_t>(r) * kDf2Chunks * 34;
-    for (int j = threadIdx.x; j < kDf2Chunks * kDf2Top; j += 256) {
-        const int ch = j / kDf2Top, k = j % kDf2Top;
-        sv[j] = in[ch * 34 + k];
-        si[j] = __float_as_int(in[ch * 34 + 16 + k]);
+    float rv[kPer];
+    int ri[kPer];
+    #pragma unroll
+    for (int u = 0; u < kPer; ++u) {
+        const int j = lane + 32 * u;
+        const int ch = j >> 4, k = j & 15;
+        rv[u] = in[ch * 34 + k];
+        ri[u] = __float_as_int(in[ch * 34 + 16 + k]);
     }
-    if (threadIdx.x == 0) {
-        float bm = -3.0e38f, bl = 0.0f;
-        for (int ch = 0; ch < kDf2Chunks; ++ch) {
-            const float om = in[ch * 34 + 32], ol = in[ch * 34 + 33];
-            const float nm = fmaxf(bm, om);
-            bl = bl * ptx_exp(bm - nm) + ol * ptx_exp(om - nm);
-            bm = nm;
-        }
+    float bm = -3.0e38f, bl = 0.0f;
+    for (int ch = lane; ch < kDf2Chunks; ch += 32) {
+        const float om = in[ch * 34 + 32], ol = in[ch * 34 + 33];
+        const float nm = fmaxf(bm, om);
+        bl = bl * ptx_exp(bm - nm) + ol * ptx_exp(om - nm);
+        bm = nm;
+    }
+    #pragma unroll
+    for (int mask = 16; mask > 0; mask >>= 1) {
+        const float om = __shfl_xor_sync(0xffffffffu, bm, mask);
+        const float ol = __shfl_xor_sync(0xffffffffu, bl, mask);
+        const float nm = fmaxf(bm, om);
+        bl = bl * ptx_exp(bm - nm) + ol * ptx_exp(om - nm);
+        bm = nm;
+    }
+    if (lane == 0) {
         lse[r * 2] = bm;
         lse[r * 2 + 1] = bl;
     }
-    __syncthreads();
-    float last_v = 3.0e38f;
-    int last_i = -1;
     for (int k = 0; k < kDf2Top; ++k) {
-        df2_block_pick(sv, si, kDf2Chunks * kDf2Top, last_v, last_i, red_v, red_i, last_v, last_i);
-        if (threadIdx.x == 0) {
-            cand[r * 32 + k] = last_i;
-            cand[r * 32 + 16 + k] = __float_as_int(last_v);
+        float bv = rv[0];
+        int bi = ri[0];
+        #pragma unroll
+        for (int u = 1; u < kPer; ++u) {
+            if (df2_before(rv[u], ri[u], bv, bi)) {
+                bv = rv[u];
+                bi = ri[u];
+            }
+        }
+        #pragma unroll
+        for (int mask = 16; mask > 0; mask >>= 1) {
+            const float ov = __shfl_xor_sync(0xffffffffu, bv, mask);
+            const int oi = __shfl_xor_sync(0xffffffffu, bi, mask);
+            if (df2_before(ov, oi, bv, bi)) {
+                bv = ov;
+                bi = oi;
+            }
+        }
+        if (lane == 0) {
+            cand[r * 32 + k] = bi;
+            cand[r * 32 + 16 + k] = __float_as_int(bv);
+        }
+        #pragma unroll
+        for (int u = 0; u < kPer; ++u) {
+            if (ri[u] == bi) {
+                rv[u] = -3.0e38f;
+                ri[u] = 0x7fffffff;
+            }
         }
     }
 }
 
 // Bilinear candidate selector: step d scores candidate c as
 //   raw_logit(c) + sum_i (pred[prev][i] * g[d][i]) * succ[c][i]
-// (ties to the lower id), then `prev = best`; `conf[d]` is the full-vocabulary probability of
-// the pick with `cap * tanh(. / cap)` applied after the correction. Grid `1`, Block `512`
-// (one warp per candidate).
-extern "C" __global__ void df2_select(
+// where `g[0..n]` is summed over `g_splits` split-K partials into shared memory once upfront.
+// Grid `1`, Block `512` (one warp per candidate).
+extern "C" __global__ void __launch_bounds__(512) df2_select(
     int32_t anchor,
     const int32_t* __restrict__ cand,     // [n, 32]
     const float* __restrict__ tail,       // [n, 2]: full-vocabulary softcapped (m, l)
-    const float* __restrict__ g,          // [n, 256]
+    const float* __restrict__ g,          // [g_splits][..., 256]
+    int32_t g_splits,
+    int32_t g_split_stride,
     const uint32_t* __restrict__ pred,    // [vocab, 128] BF16 pairs
     const uint32_t* __restrict__ succ,    // [vocab, 128] BF16 pairs
     int32_t n,
     float cap,
-    int32_t* __restrict__ ids,            // [n]
+    int32_t* __restrict__ ids,            // [n] (device-mapped pinned host or device)
     float* __restrict__ conf) {           // [n]
     pdl_wait();
     pdl_trigger();
     const float inv_cap = __fdividef(1.0f, cap); // fast reciprocal: no IEEE-division call
+    __shared__ float sg[8][kDf2Rank];            // 8,192 B
     __shared__ float s_sc[kDf2Top];
     __shared__ int s_id[kDf2Top];
     __shared__ int s_prev;
     const int warp = threadIdx.x >> 5;
     const int lane = threadIdx.x & 31;
+    for (int idx = threadIdx.x; idx < n * kDf2Rank; idx += 512) {
+        float v = 0.0f;
+        for (int s = 0; s < g_splits; ++s) {
+            v += g[static_cast<size_t>(s) * g_split_stride + idx];
+        }
+        sg[idx >> 8][idx & 255] = v;
+    }
     if (threadIdx.x == 0) s_prev = anchor;
     __syncthreads();
     for (int d = 0; d < n; ++d) {
@@ -836,8 +928,8 @@ extern "C" __global__ void df2_select(
             const int pi = lane * 4 + j;  // pair index 0..127
             const uint32_t pp = pred[static_cast<size_t>(prev) * 128 + pi];
             const uint32_t sp = succ[static_cast<size_t>(cid) * 128 + pi];
-            const float g0 = g[d * kDf2Rank + 2 * pi];
-            const float g1 = g[d * kDf2Rank + 2 * pi + 1];
+            const float g0 = sg[d][2 * pi];
+            const float g1 = sg[d][2 * pi + 1];
             acc += (bf16_to_f32(static_cast<uint16_t>(pp & 0xFFFFu)) * g0) *
                    bf16_to_f32(static_cast<uint16_t>(sp & 0xFFFFu));
             acc += (bf16_to_f32(static_cast<uint16_t>(pp >> 16)) * g1) *
