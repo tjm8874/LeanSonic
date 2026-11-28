@@ -1,0 +1,348 @@
+{
+  "hardware": "RTX PRO 5000 72 GB Blackwell",
+  "ablations": {
+    "original": {
+      "stock": {
+        "rows": 49,
+        "vocabulary": 248320,
+        "mean_kl": 0.28113518125362963,
+        "max_kl": 1.46943687065988,
+        "worst_case_position": [
+          1,
+          8
+        ],
+        "top1_matches": 39,
+        "byte_equal_rows": 0,
+        "reference_ppl": 28.038166623626164,
+        "candidate_ppl": 52.991022603491864,
+        "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+        "candidate_sha256": "32f22430fb15114a198cdb404d24875ed4e76557be8d9afc3c53c6d7faa7a986",
+        "canary_cases": 4,
+        "matching_canaries": 1
+      },
+      "reconstructed": {
+        "rows": 49,
+        "vocabulary": 248320,
+        "mean_kl": 0.10004963259352201,
+        "max_kl": 0.584552905720383,
+        "worst_case_position": [
+          3,
+          4
+        ],
+        "top1_matches": 41,
+        "byte_equal_rows": 0,
+        "reference_ppl": 28.038166623626164,
+        "candidate_ppl": 33.27752955967996,
+        "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+        "candidate_sha256": "6a2f566ec8f1cbb33cb4a6e2d6c7bb6e8f1a798a76ed46cb090c8fc14a3e29b5",
+        "canary_cases": 4,
+        "matching_canaries": 2
+      },
+      "official": {
+        "rows": 49,
+        "vocabulary": 248320,
+        "mean_kl": 0.10002992262277802,
+        "max_kl": 0.5856419139751687,
+        "worst_case_position": [
+          3,
+          4
+        ],
+        "top1_matches": 41,
+        "byte_equal_rows": 0,
+        "reference_ppl": 28.038166623626164,
+        "candidate_ppl": 33.26874564977761,
+        "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+        "candidate_sha256": "3d0758e7b115055fc08031c01ad1e645aee45a54f375d2942421319ed22140f5",
+        "canary_cases": 4,
+        "matching_canaries": 2
+      },
+      "combined": {
+        "rows": 49,
+        "vocabulary": 248320,
+        "mean_kl": 0.10253784325611405,
+        "max_kl": 0.7255728409356713,
+        "worst_case_position": [
+          3,
+          4
+        ],
+        "top1_matches": 42,
+        "byte_equal_rows": 0,
+        "reference_ppl": 28.038166623626164,
+        "candidate_ppl": 31.422993181527723,
+        "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+        "candidate_sha256": "67e44e1b8300c79b6eb4b2416371fc791bfadd32999a927dc9a38dbe435668c6",
+        "canary_cases": 4,
+        "matching_canaries": 2
+      }
+    },
+    "heldout": {
+      "stock": {
+        "rows": 65,
+        "vocabulary": 248320,
+        "mean_kl": 0.36937848913112115,
+        "max_kl": 1.4078953940049241,
+        "worst_case_position": [
+          1,
+          20
+        ],
+        "top1_matches": 44,
+        "byte_equal_rows": 0,
+        "reference_ppl": 19.935406275452408,
+        "candidate_ppl": 25.268597736025463,
+        "reference_sha256": "b4bd7f680a9dbb59c0015d5f53ca25ed77c573e4ba953ae9e758e298cf9a3170",
+        "candidate_sha256": "c5ae9da4abc84735892d4325ef41de85d113bf808426f50f18585680b859ae4c",
+        "canary_cases": 4,
+        "matching_canaries": 3
+      },
+      "reconstructed": {
+        "rows": 65,
+        "vocabulary": 248320,
+        "mean_kl": 0.1643508508260756,
+        "max_kl": 1.112682512480704,
+        "worst_case_position": [
+          1,
+          20
+        ],
+        "top1_matches": 44,
+        "byte_equal_rows": 0,
+        "reference_ppl": 19.935406275452408,
+        "candidate_ppl": 20.393042235557516,
+        "reference_sha256": "b4bd7f680a9dbb59c0015d5f53ca25ed77c573e4ba953ae9e758e298cf9a3170",
+        "candidate_sha256": "c4d9dc6e2d1b9efe7aa5f3e2a703235783d22d97b65484110f51e3b68ce1f39e",
+        "canary_cases": 4,
+        "matching_canaries": 3
+      },
+      "official": {
+        "rows": 65,
+        "vocabulary": 248320,
+        "mean_kl": 0.16436525195014393,
+        "max_kl": 1.1129560959175393,
+        "worst_case_position": [
+          1,
+          20
+        ],
+        "top1_matches": 44,
+        "byte_equal_rows": 0,
+        "reference_ppl": 19.935406275452408,
+        "candidate_ppl": 20.394497998488227,
+        "reference_sha256": "b4bd7f680a9dbb59c0015d5f53ca25ed77c573e4ba953ae9e758e298cf9a3170",
+        "candidate_sha256": "fce1be787b104e8e726430161824a4d86591dbb0e2ce7b7a4e73fae017b0c374",
+        "canary_cases": 4,
+        "matching_canaries": 3
+      },
+      "combined": {
+        "rows": 65,
+        "vocabulary": 248320,
+        "mean_kl": 0.14548073586531587,
+        "max_kl": 0.9071613895636963,
+        "worst_case_position": [
+          1,
+          20
+        ],
+        "top1_matches": 46,
+        "byte_equal_rows": 0,
+        "reference_ppl": 19.935406275452408,
+        "candidate_ppl": 19.6804239522995,
+        "reference_sha256": "b4bd7f680a9dbb59c0015d5f53ca25ed77c573e4ba953ae9e758e298cf9a3170",
+        "candidate_sha256": "51111f1726456996cd8244d3282a062eb1a9d09b15ab631c739647530ff6d592",
+        "canary_cases": 4,
+        "matching_canaries": 3
+      }
+    },
+    "extended": {
+      "stock": {
+        "rows": 494,
+        "vocabulary": 248320,
+        "mean_kl": 0.26967042252760437,
+        "max_kl": 2.4993284016812174,
+        "worst_case_position": [
+          8,
+          20
+        ],
+        "top1_matches": 406,
+        "byte_equal_rows": 0,
+        "reference_ppl": 11.382111666671216,
+        "candidate_ppl": 15.946024916463667,
+        "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+        "candidate_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+        "canary_cases": 16,
+        "matching_canaries": 1
+      },
+      "reconstructed": {
+        "rows": 494,
+        "vocabulary": 248320,
+        "mean_kl": 0.11960443489676871,
+        "max_kl": 2.321750487034586,
+        "worst_case_position": [
+          8,
+          20
+        ],
+        "top1_matches": 414,
+        "byte_equal_rows": 0,
+        "reference_ppl": 11.382111666671216,
+        "candidate_ppl": 12.315888306983448,
+        "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+        "candidate_sha256": "624d98a7814a72536244996729a53eae60d20d7db41cab0aa4f51279a52c2363",
+        "canary_cases": 16,
+        "matching_canaries": 2
+      },
+      "official": {
+        "rows": 494,
+        "vocabulary": 248320,
+        "mean_kl": 0.11960823999824907,
+        "max_kl": 2.323130660040319,
+        "worst_case_position": [
+          8,
+          20
+        ],
+        "top1_matches": 414,
+        "byte_equal_rows": 0,
+        "reference_ppl": 11.382111666671216,
+        "candidate_ppl": 12.315841176778749,
+        "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+        "candidate_sha256": "d8979b51b4157aec94afb2ba16917a57b791bcca661e2ca5ce8e0382e6434a00",
+        "canary_cases": 16,
+        "matching_canaries": 2
+      },
+      "combined": {
+        "rows": 494,
+        "vocabulary": 248320,
+        "mean_kl": 0.11586604516299033,
+        "max_kl": 1.5344742224908117,
+        "worst_case_position": [
+          9,
+          6
+        ],
+        "top1_matches": 415,
+        "byte_equal_rows": 0,
+        "reference_ppl": 11.382111666671216,
+        "candidate_ppl": 12.250466503155362,
+        "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+        "candidate_sha256": "9ac70371797df32fb536e491721f3ac5c7151a486baa1daca50cf6342fb146aa",
+        "canary_cases": 16,
+        "matching_canaries": 2
+      }
+    },
+    "new": {
+      "stock": {
+        "rows": 233,
+        "vocabulary": 248320,
+        "mean_kl": 0.30923172555658346,
+        "max_kl": 2.4665375661499565,
+        "worst_case_position": [
+          3,
+          16
+        ],
+        "top1_matches": 184,
+        "byte_equal_rows": 0,
+        "reference_ppl": 18.588504580741304,
+        "candidate_ppl": 29.171488431766758,
+        "reference_sha256": "1cca711252d0578fa8200c84df316a2f86df8304e590fe450f47dc8cbce2e342",
+        "candidate_sha256": "0300a2a16abbfedf875c42be4eb85a1527d235cea7ceb730235a15facd3b5cfd",
+        "canary_cases": 8,
+        "matching_canaries": 2
+      },
+      "reconstructed": {
+        "rows": 233,
+        "vocabulary": 248320,
+        "mean_kl": 0.15860790876130382,
+        "max_kl": 1.9216151752784176,
+        "worst_case_position": [
+          3,
+          16
+        ],
+        "top1_matches": 184,
+        "byte_equal_rows": 0,
+        "reference_ppl": 18.588504580741304,
+        "candidate_ppl": 20.62353138732593,
+        "reference_sha256": "1cca711252d0578fa8200c84df316a2f86df8304e590fe450f47dc8cbce2e342",
+        "candidate_sha256": "5e03614fda1fbda796d574c998a1d11eeabd8c58ebf5c21d9315112daf52fe4a",
+        "canary_cases": 8,
+        "matching_canaries": 2
+      },
+      "official": {
+        "rows": 233,
+        "vocabulary": 248320,
+        "mean_kl": 0.15857763307052924,
+        "max_kl": 1.9208873499125205,
+        "worst_case_position": [
+          3,
+          16
+        ],
+        "top1_matches": 184,
+        "byte_equal_rows": 0,
+        "reference_ppl": 18.588504580741304,
+        "candidate_ppl": 20.623199695539654,
+        "reference_sha256": "1cca711252d0578fa8200c84df316a2f86df8304e590fe450f47dc8cbce2e342",
+        "candidate_sha256": "26c3a63184872628e332388a3683cdafcfbc728ed77ed2f78956517bb1f8ba2d",
+        "canary_cases": 8,
+        "matching_canaries": 2
+      },
+      "combined": {
+        "rows": 233,
+        "vocabulary": 248320,
+        "mean_kl": 0.1593909377343468,
+        "max_kl": 1.4949535105476093,
+        "worst_case_position": [
+          5,
+          24
+        ],
+        "top1_matches": 184,
+        "byte_equal_rows": 0,
+        "reference_ppl": 18.588504580741304,
+        "candidate_ppl": 20.653230895344336,
+        "reference_sha256": "1cca711252d0578fa8200c84df316a2f86df8304e590fe450f47dc8cbce2e342",
+        "candidate_sha256": "db225f4bcde5082c615205fb302f6ae54492299bdd137e58e1458b73cafd9a0c",
+        "canary_cases": 8,
+        "matching_canaries": 2
+      }
+    }
+  },
+  "model_build": {
+    "reconstructed": {
+      "mode": "reconstructed",
+      "elements": 10240,
+      "raw_mean": 3.749807357788086,
+      "official_mean": 2.7497220039367676,
+      "exported_sha256": "8224a458ee9fb93bbf6360f04c7448fb97ca235419fa4a2eae31d5894d919525",
+      "official_sha256": "1839065ee4233a226a255aed20ae0a85913c53404b4e6093b036e8ef1103b09c",
+      "installed_sha256": "59f7a6ebc4e47b0dba46d5bd7f10c156bc08cb3709347e5c5dec5077e914ee79",
+      "equals_bf16_one_plus_official": 10240,
+      "subtract_add_returns_raw": 10240,
+      "sidecar_bytes": 20608,
+      "distribution_bytes": 110833499645
+    },
+    "official": {
+      "mode": "official",
+      "elements": 10240,
+      "raw_mean": 3.749807357788086,
+      "official_mean": 2.7497220039367676,
+      "exported_sha256": "8224a458ee9fb93bbf6360f04c7448fb97ca235419fa4a2eae31d5894d919525",
+      "official_sha256": "1839065ee4233a226a255aed20ae0a85913c53404b4e6093b036e8ef1103b09c",
+      "installed_sha256": "1839065ee4233a226a255aed20ae0a85913c53404b4e6093b036e8ef1103b09c",
+      "equals_bf16_one_plus_official": 10240,
+      "subtract_add_returns_raw": 10240,
+      "sidecar_bytes": 20608,
+      "distribution_bytes": 110833499645
+    },
+    "combined": {
+      "mode": "reconstructed",
+      "elements": 10240,
+      "raw_mean": 3.749807357788086,
+      "official_mean": 2.7497220039367676,
+      "exported_sha256": "8224a458ee9fb93bbf6360f04c7448fb97ca235419fa4a2eae31d5894d919525",
+      "official_sha256": "1839065ee4233a226a255aed20ae0a85913c53404b4e6093b036e8ef1103b09c",
+      "installed_sha256": "59f7a6ebc4e47b0dba46d5bd7f10c156bc08cb3709347e5c5dec5077e914ee79",
+      "equals_bf16_one_plus_official": 10240,
+      "subtract_add_returns_raw": 10240,
+      "sidecar_bytes": 20608,
+      "distribution_bytes": 111046648215
+    }
+  },
+  "dense_export_counts": {
+    "quantized": 854,
+    "different": 148,
+    "equal": 196,
+    "routed": 96
+  }
+}
