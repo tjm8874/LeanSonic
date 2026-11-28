@@ -3852,9 +3852,55 @@ mod tests {
             block: u32,
             args: &mut [*mut c_void],
         ) -> Result<(), String> {
-            if only().is_some_and(|k| k != name) {
-                return Ok(());
+            if let Some(filter) = only() {
+                if filter.strip_suffix("_mixed") == Some(name)
+                    && matches!(
+                        name,
+                        "q38_moe_up_swiglu11_z24"
+                            | "q38_moe_down_combine11_z24"
+                            | "q38_moe_up_grouped_z24"
+                            | "q38_moe_down_grouped_z24"
+                    )
+                {
+                    // Exercise the exact end of one record on each tier. The fixture
+                    // deliberately selects expert 511, the last valid table entry.
+                    let bytes = SW_Z24_PROJ_BYTES / Q38_EXP;
+                    let gpu = DeviceBuf::alloc_zeroed(ctx, bytes)?;
+                    let cpu = PinnedHostBuf::alloc_uninit(ctx, bytes)?;
+                    unsafe {
+                        std::ptr::write_bytes(cpu.host_ptr, 0, bytes);
+                    }
+                    for address in [gpu.ptr, cpu.dev_ptr] {
+                        let table = DeviceBuf::from_host_bytes(
+                            ctx,
+                            &address.to_ne_bytes().repeat(Q38_EXP),
+                        )?;
+                        let mut table_ptr = table.ptr;
+                        let mut params = args.to_vec();
+                        params[0] = (&mut table_ptr as *mut u64).cast();
+                        if name.starts_with("q38_moe_up_") {
+                            params[3] = params[0];
+                        }
+                        launch(ctx, m, &filter, grid, block, &mut params)?;
+                    }
+                    eprintln!("checked {filter} with expert 511 on both tiers");
+                    return Ok(());
+                }
+                if filter != name {
+                    return Ok(());
+                }
             }
+            launch(ctx, m, name, grid, block, args)
+        }
+
+        fn launch(
+            ctx: &Arc<CudaContextHandle>,
+            m: CUmodule,
+            name: &str,
+            grid: (u32, u32),
+            block: u32,
+            args: &mut [*mut c_void],
+        ) -> Result<(), String> {
             let c = CString::new(name).unwrap();
             let mut f: CUfunction = core::ptr::null_mut();
             unsafe {
