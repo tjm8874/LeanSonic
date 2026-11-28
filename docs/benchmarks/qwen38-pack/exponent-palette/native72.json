@@ -1,0 +1,548 @@
+{
+  "q4_parity": {
+    "rows": 49,
+    "vocabulary": 248320,
+    "mean_kl": 0.0,
+    "max_kl": 0.0,
+    "worst_case_position": [
+      0,
+      0
+    ],
+    "top1_matches": 49,
+    "byte_equal_rows": 49,
+    "reference_ppl": 52.991022603491864,
+    "candidate_ppl": 52.991022603491864,
+    "reference_sha256": "32f22430fb15114a198cdb404d24875ed4e76557be8d9afc3c53c6d7faa7a986",
+    "candidate_sha256": "32f22430fb15114a198cdb404d24875ed4e76557be8d9afc3c53c6d7faa7a986",
+    "canary_cases": 4,
+    "matching_canaries": 4
+  },
+  "cases": {
+    "0": {
+      "prompt": [
+        97007,
+        15303,
+        97181,
+        202983,
+        115197,
+        158369,
+        201193,
+        150679,
+        1710,
+        115197,
+        165896,
+        160868,
+        247539,
+        184218,
+        148857,
+        1710
+      ],
+      "generated": [
+        198,
+        115197,
+        158369,
+        14876,
+        5205,
+        95882,
+        103144,
+        98347,
+        52122,
+        95772,
+        95860,
+        98347,
+        19054,
+        161889,
+        99361,
+        149405,
+        95765,
+        5205,
+        95772,
+        95860,
+        98347,
+        52122,
+        95882,
+        103144,
+        98347,
+        19054,
+        161889,
+        99361,
+        149405,
+        95765,
+        5205,
+        95772
+      ]
+    },
+    "1": {
+      "prompt": [
+        760,
+        4998,
+        15417,
+        383,
+        6796,
+        13,
+        561,
+        4998,
+        32147,
+        383,
+        6394,
+        13,
+        97007,
+        15303,
+        97181,
+        202983,
+        115197,
+        158369,
+        201193,
+        150679,
+        1710,
+        115197,
+        165896,
+        160868,
+        247539,
+        184218,
+        148857,
+        1710,
+        727,
+        884,
+        2784,
+        11,
+        292,
+        1590,
+        460,
+        264,
+        478,
+        292,
+        760,
+        1970,
+        369,
+        427,
+        5108,
+        7840,
+        13,
+        43311,
+        279,
+        1970,
+        25,
+        427,
+        5108,
+        7840,
+        13,
+        760,
+        4998,
+        15417,
+        383,
+        6796,
+        13,
+        561,
+        4998,
+        32147,
+        383,
+        6394,
+        13,
+        97007,
+        15303,
+        97181,
+        202983,
+        115197,
+        158369,
+        201193,
+        150679,
+        1710,
+        115197,
+        165896,
+        160868,
+        247539,
+        184218,
+        148857,
+        1710,
+        727,
+        884,
+        2784,
+        11,
+        292,
+        1590,
+        460,
+        264,
+        478,
+        292,
+        760,
+        1970,
+        369,
+        427,
+        5108,
+        7840,
+        13,
+        43311,
+        279,
+        1970,
+        25,
+        427,
+        5108,
+        7840,
+        13,
+        760,
+        4998,
+        15417,
+        383,
+        6796,
+        13,
+        561,
+        4998,
+        32147,
+        383,
+        6394,
+        13,
+        97007,
+        15303,
+        97181,
+        202983,
+        115197,
+        158369,
+        201193,
+        150679,
+        1710,
+        115197
+      ],
+      "generated": [
+        165896,
+        160868,
+        247539,
+        184218,
+        148857,
+        1710,
+        727,
+        884,
+        2784,
+        11,
+        292,
+        1590,
+        460,
+        264,
+        478,
+        292,
+        760,
+        1970,
+        369,
+        427,
+        5108,
+        7840,
+        13,
+        43311,
+        279,
+        1970,
+        25,
+        427,
+        5108,
+        7840,
+        13,
+        271
+      ]
+    }
+  },
+  "trials": [
+    {
+      "arm": "stock",
+      "distinct_sequences_including_warmup": [
+        1,
+        1
+      ],
+      "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+      "sampled_process_peak_bytes": 75436654592,
+      "launch_to_ready_ms": 8247.141213,
+      "records": [
+        {
+          "cycle": 0,
+          "case": 0,
+          "prefill_to_first_ms": 93.235728,
+          "decode_ms": 192.800603,
+          "last_to_done_ms": 0.002275,
+          "total_to_done_ms": 286.038606
+        },
+        {
+          "cycle": 0,
+          "case": 1,
+          "prefill_to_first_ms": 746.316732,
+          "decode_ms": 195.067685,
+          "last_to_done_ms": 0.002585,
+          "total_to_done_ms": 941.387002
+        },
+        {
+          "cycle": 1,
+          "case": 0,
+          "prefill_to_first_ms": 92.441815,
+          "decode_ms": 190.255649,
+          "last_to_done_ms": 0.003086,
+          "total_to_done_ms": 282.70055
+        },
+        {
+          "cycle": 1,
+          "case": 1,
+          "prefill_to_first_ms": 746.043178,
+          "decode_ms": 195.04408,
+          "last_to_done_ms": 0.002044,
+          "total_to_done_ms": 941.089302
+        },
+        {
+          "cycle": 2,
+          "case": 0,
+          "prefill_to_first_ms": 92.47073,
+          "decode_ms": 190.267661,
+          "last_to_done_ms": 0.001874,
+          "total_to_done_ms": 282.740265
+        },
+        {
+          "cycle": 2,
+          "case": 1,
+          "prefill_to_first_ms": 746.123359,
+          "decode_ms": 195.000799,
+          "last_to_done_ms": 0.001983,
+          "total_to_done_ms": 941.126141
+        },
+        {
+          "cycle": 3,
+          "case": 0,
+          "prefill_to_first_ms": 92.436876,
+          "decode_ms": 190.151904,
+          "last_to_done_ms": 0.002064,
+          "total_to_done_ms": 282.590844
+        },
+        {
+          "cycle": 3,
+          "case": 1,
+          "prefill_to_first_ms": 745.818636,
+          "decode_ms": 194.936528,
+          "last_to_done_ms": 0.001804,
+          "total_to_done_ms": 940.756968
+        }
+      ]
+    },
+    {
+      "arm": "exp4",
+      "distinct_sequences_including_warmup": [
+        1,
+        1
+      ],
+      "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+      "sampled_process_peak_bytes": 73524051968,
+      "launch_to_ready_ms": 9284.789512,
+      "records": [
+        {
+          "cycle": 0,
+          "case": 0,
+          "prefill_to_first_ms": 96.601825,
+          "decode_ms": 199.467897,
+          "last_to_done_ms": 0.000661,
+          "total_to_done_ms": 296.070383
+        },
+        {
+          "cycle": 0,
+          "case": 1,
+          "prefill_to_first_ms": 773.246215,
+          "decode_ms": 201.635812,
+          "last_to_done_ms": 0.000671,
+          "total_to_done_ms": 974.882698
+        },
+        {
+          "cycle": 1,
+          "case": 0,
+          "prefill_to_first_ms": 95.899195,
+          "decode_ms": 196.919937,
+          "last_to_done_ms": 0.000431,
+          "total_to_done_ms": 292.819563
+        },
+        {
+          "cycle": 1,
+          "case": 1,
+          "prefill_to_first_ms": 772.88134,
+          "decode_ms": 201.674254,
+          "last_to_done_ms": 0.000591,
+          "total_to_done_ms": 974.556185
+        },
+        {
+          "cycle": 2,
+          "case": 0,
+          "prefill_to_first_ms": 95.88053,
+          "decode_ms": 196.991281,
+          "last_to_done_ms": 0.000621,
+          "total_to_done_ms": 292.872432
+        },
+        {
+          "cycle": 2,
+          "case": 1,
+          "prefill_to_first_ms": 773.624497,
+          "decode_ms": 201.69325,
+          "last_to_done_ms": 0.000611,
+          "total_to_done_ms": 975.318358
+        },
+        {
+          "cycle": 3,
+          "case": 0,
+          "prefill_to_first_ms": 95.923841,
+          "decode_ms": 196.919867,
+          "last_to_done_ms": 0.000421,
+          "total_to_done_ms": 292.844129
+        },
+        {
+          "cycle": 3,
+          "case": 1,
+          "prefill_to_first_ms": 773.550377,
+          "decode_ms": 201.767068,
+          "last_to_done_ms": 0.000421,
+          "total_to_done_ms": 975.317866
+        }
+      ]
+    },
+    {
+      "arm": "exp4",
+      "distinct_sequences_including_warmup": [
+        1,
+        1
+      ],
+      "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+      "sampled_process_peak_bytes": 73524051968,
+      "launch_to_ready_ms": 9265.841083,
+      "records": [
+        {
+          "cycle": 0,
+          "case": 0,
+          "prefill_to_first_ms": 96.617284,
+          "decode_ms": 199.594706,
+          "last_to_done_ms": 0.001943,
+          "total_to_done_ms": 296.213933
+        },
+        {
+          "cycle": 0,
+          "case": 1,
+          "prefill_to_first_ms": 773.869357,
+          "decode_ms": 201.79945,
+          "last_to_done_ms": 0.002013,
+          "total_to_done_ms": 975.67082
+        },
+        {
+          "cycle": 1,
+          "case": 0,
+          "prefill_to_first_ms": 95.994594,
+          "decode_ms": 197.028952,
+          "last_to_done_ms": 0.002104,
+          "total_to_done_ms": 293.02565
+        },
+        {
+          "cycle": 1,
+          "case": 1,
+          "prefill_to_first_ms": 774.123354,
+          "decode_ms": 201.876625,
+          "last_to_done_ms": 0.003777,
+          "total_to_done_ms": 976.003756
+        },
+        {
+          "cycle": 2,
+          "case": 0,
+          "prefill_to_first_ms": 96.059075,
+          "decode_ms": 197.027489,
+          "last_to_done_ms": 0.002234,
+          "total_to_done_ms": 293.088798
+        },
+        {
+          "cycle": 2,
+          "case": 1,
+          "prefill_to_first_ms": 773.982469,
+          "decode_ms": 201.72008,
+          "last_to_done_ms": 0.002255,
+          "total_to_done_ms": 975.704804
+        },
+        {
+          "cycle": 3,
+          "case": 0,
+          "prefill_to_first_ms": 95.915957,
+          "decode_ms": 196.928713,
+          "last_to_done_ms": 0.002285,
+          "total_to_done_ms": 292.846955
+        },
+        {
+          "cycle": 3,
+          "case": 1,
+          "prefill_to_first_ms": 773.819804,
+          "decode_ms": 201.665207,
+          "last_to_done_ms": 0.002194,
+          "total_to_done_ms": 975.487205
+        }
+      ]
+    },
+    {
+      "arm": "stock",
+      "distinct_sequences_including_warmup": [
+        1,
+        1
+      ],
+      "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+      "sampled_process_peak_bytes": 75436654592,
+      "launch_to_ready_ms": 8259.811205,
+      "records": [
+        {
+          "cycle": 0,
+          "case": 0,
+          "prefill_to_first_ms": 93.116995,
+          "decode_ms": 192.807917,
+          "last_to_done_ms": 0.002294,
+          "total_to_done_ms": 285.927206
+        },
+        {
+          "cycle": 0,
+          "case": 1,
+          "prefill_to_first_ms": 746.218067,
+          "decode_ms": 195.017922,
+          "last_to_done_ms": 0.000741,
+          "total_to_done_ms": 941.23673
+        },
+        {
+          "cycle": 1,
+          "case": 0,
+          "prefill_to_first_ms": 92.490156,
+          "decode_ms": 190.293059,
+          "last_to_done_ms": 0.002064,
+          "total_to_done_ms": 282.785279
+        },
+        {
+          "cycle": 1,
+          "case": 1,
+          "prefill_to_first_ms": 745.96946,
+          "decode_ms": 195.007892,
+          "last_to_done_ms": 0.002074,
+          "total_to_done_ms": 940.979426
+        },
+        {
+          "cycle": 2,
+          "case": 0,
+          "prefill_to_first_ms": 92.423952,
+          "decode_ms": 190.185828,
+          "last_to_done_ms": 0.002365,
+          "total_to_done_ms": 282.612145
+        },
+        {
+          "cycle": 2,
+          "case": 1,
+          "prefill_to_first_ms": 745.947418,
+          "decode_ms": 194.987334,
+          "last_to_done_ms": 0.002465,
+          "total_to_done_ms": 940.937217
+        },
+        {
+          "cycle": 3,
+          "case": 0,
+          "prefill_to_first_ms": 92.435704,
+          "decode_ms": 190.135493,
+          "last_to_done_ms": 0.002104,
+          "total_to_done_ms": 282.573301
+        },
+        {
+          "cycle": 3,
+          "case": 1,
+          "prefill_to_first_ms": 745.957247,
+          "decode_ms": 194.97979,
+          "last_to_done_ms": 0.002174,
+          "total_to_done_ms": 940.939211
+        }
+      ]
+    }
+  ]
+}
