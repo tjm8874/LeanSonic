@@ -7019,7 +7019,12 @@ impl Inkling2GpuEngine {
 
             let paused = pause_left > 0;
             pause_left = pause_left.saturating_sub(1);
-            let step_t0 = (spilled && has_neural && pause_enabled).then(Instant::now);
+            // Cost pause: time the rounds where a verify can lose to solo decode, i.e. a neural
+            // drafter on spilled layers, or the n-gram Suffix drafter on resident layers (no
+            // neural drafter: auto released it, or none is loaded). Measured on the 16 GB pack at
+            // 24/24, untimed Suffix rounds ran at 1.4–1.9 tok/step on prose / chat, 11% under solo.
+            // (Spilled runs without a neural drafter only copy >= 8-token repeats: unchanged.)
+            let step_t0 = (pause_enabled && (has_neural == spilled)).then(Instant::now);
             let copied = if max_draft == 0 || paused {
                 Vec::new()
             } else {
@@ -7113,6 +7118,7 @@ impl Inkling2GpuEngine {
                 }
             }
             self.spec_accepted_total += accepted;
+            let mut slower_than_solo = false;
             if let Some(t0) = step_t0 {
                 let ns_per_tok = (t0.elapsed().as_nanos() as f64) / ((accepted + 1) as f64);
                 spec_ns_ema = if spec_ns_ema == 0.0 {
@@ -7123,11 +7129,15 @@ impl Inkling2GpuEngine {
                 if solo_ns_ema > 0.0 && spec_ns_ema > solo_ns_ema * 1.03 {
                     pause_left = pause_left.max(pause_len);
                     pause_len = (pause_len * 2).min(64);
+                    slower_than_solo = true;
                 }
             }
             if accepted > 0 {
                 zero_streak = 0;
-                pause_len = 8;
+                // An accepted draft resets the pause only when drafting is not losing to solo.
+                if !slower_than_solo {
+                    pause_len = 8;
+                }
             } else if pause_enabled {
                 zero_streak += 1;
                 if zero_streak >= pause_after {
