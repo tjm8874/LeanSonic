@@ -75,3 +75,18 @@ The same 16-token Japanese prompt and 32 continuation inputs exercised the targe
 | Verify 8 | 26.183 | 26.034 |
 
 At width two, two serial palette calls cost about 12.694 ms at the measured median. A verify call cost 12.465 ms, leaving only 0.229 ms for other work even if both target predictions can be used. The stock verify call exceeded two stock serial calls. Actual speculative throughput additionally depends on the drafter, acceptance and state management. Reproduce with the same environment as the teacher example, copying [q38_verify_cost.rs](q38_verify_cost.rs) into the core examples directory and passing the checkpoint and fixture IDs. [All per-call timings and fixed IDs](verify-cost.json)
+
+## Full greedy and speculative requests after main 49dade3
+
+Using the same PRO 5000 72 GB and direct Q4 model, EXP4 freed room for the MTP MoE in VRAM. With stock Z24 the MTP MoE was pinned. Each resident process ran all four held-out prompts through warmup and three timed cycles, requesting 128 tokens with stop IDs disabled and context 256. Launch order was stock K0, EXP4 K1, stock K1, EXP4 K0, EXP4 K1, stock K0. Each generation starts with fresh recurrent and KV state. The timer covers the native library call and excludes model loading. Decode throughput counts the 127 inter-token intervals using total request time minus the library's measured prompt phase.
+
+| Input | Stock greedy | EXP4 greedy | Stock K1 | EXP4 K1 | K1 accepted drafts |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| English | 161.18 | 155.70 | 109.15 | 144.58 | 24.3% |
+| Japanese | 160.93 | 155.46 | 141.99 | 183.45 | 56.1% |
+| Code | 161.63 | 156.11 | 157.49 | 200.82 | 72.0% |
+| Arithmetic | 161.16 | 155.68 | 152.80 | 195.85 | 66.2% |
+
+EXP4 K1 beat stock greedy on the three inputs whose full outputs agreed. Median total request times (stock greedy → EXP4 K1) were 850 → 769 ms in Japanese, 803 → 652 ms on code, and 835 → 708 ms in arithmetic. The English sequence reached its first configured EOS at zero-based index 64 in both modes. With stopping disabled, K1 returned token 248045 at index 80, versus 271 for greedy. Ten of 128 English output positions differed. Within either decoding policy the palette and raw storage produced identical IDs. This English long-run timing includes unlike continuations.
+
+To reproduce on the tested branch, copy [spec_requests.rs](spec_requests.rs) into the core crate's examples. Build stock and with `--features q38-exponent-palette`, supplying the matching target cubin and an MTP cubin compiled from `kernels/qwen38_mtp_sm120.cu` through `LEANSONIC_QWEN38_MTP_CUBIN_PATH`. Run each binary with `MODEL HELDOUT_IDS K` in the order above. The four held-out prompts are the last four lines of [route-fixtures.ids](../../qwen38-engine-comparison/routing/route-fixtures.ids). [Every request and acceptance count](spec-timings.json) · [All input and output IDs](spec-regression.json).
