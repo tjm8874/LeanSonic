@@ -235,6 +235,58 @@ enum SwitchMlpTier {
     MmapCompact { layer_idx: usize },
 }
 
+struct PleParameter {
+    key: String,
+    dictionary: bool,
+}
+
+impl PleParameter {
+    fn open(st: &ShardedSafeTensors, key: String) -> Result<Self, String> {
+        let packed = format!("{key}.q38dict1");
+        let rows = Q38_PLE_SHARD_ROWS as usize;
+        match (st.get(&key), st.get(&packed)) {
+            (Some(t), None)
+                if t.dtype == "BF16" && t.shape == [rows, 5] && t.data.len() == rows * 10 =>
+            {
+                Ok(Self {
+                    key,
+                    dictionary: false,
+                })
+            }
+            (None, Some(t)) if t.dtype == "U8" && t.shape == [t.data.len()] => {
+                crate::qwen38_pack::Frame::open(t.data, rows * 5)
+                    .map_err(|err| format!("{packed}: {err}"))?;
+                Ok(Self {
+                    key: packed,
+                    dictionary: true,
+                })
+            }
+            _ => Err(format!(
+                "missing, ambiguous or malformed Engram parameter {key}"
+            )),
+        }
+    }
+
+    fn row(&self, st: &ShardedSafeTensors, row: usize) -> Result<[u16; 5], String> {
+        let t = st
+            .get(&self.key)
+            .ok_or_else(|| format!("missing {}", self.key))?;
+        if self.dictionary {
+            return crate::qwen38_pack::Frame::open(t.data, Q38_PLE_SHARD_ROWS as usize * 5)
+                .and_then(|f| f.row5(row))
+                .map_err(|err| format!("{} row {row}: {err}", self.key));
+        }
+        let bytes = t
+            .data
+            .chunks_exact(10)
+            .nth(row)
+            .ok_or_else(|| format!("invalid {} row {row}", self.key))?;
+        Ok(std::array::from_fn(|i| {
+            u16::from_le_bytes([bytes[2 * i], bytes[2 * i + 1]])
+        }))
+    }
+}
+
 struct PleGpu {
     kv_proj: Q4LinearGpu,
     norm_key: DeviceBuf,
@@ -245,7 +297,7 @@ struct PleGpu {
     multipliers: [i64; 3],
     head_sizes: [i64; 16],
     head_offsets: [i64; 16],
-    shard_keys: Vec<(String, String, String)>,
+    shard_keys: Vec<(String, PleParameter, PleParameter)>,
 }
 
 struct Qwen38LayerGpu {
@@ -643,8 +695,8 @@ impl Qwen38GpuEngine {
                     let _ = st.require(&format!("{sp}.weight"), "U32", &[2_500_012, 20]);
                     shard_keys.push((
                         format!("{sp}.weight"),
-                        format!("{sp}.scales"),
-                        format!("{sp}.biases"),
+                        PleParameter::open(&st, format!("{sp}.scales"))?,
+                        PleParameter::open(&st, format!("{sp}.biases"))?,
                     ));
                 }
                 Some(PleGpu {
@@ -1124,23 +1176,14 @@ impl Qwen38GpuEngine {
                 .sharded_mmap
                 .get(wk)
                 .ok_or_else(|| format!("missing PLE shard {wk}"))?;
-            let sc_tv = self
-                .sharded_mmap
-                .get(sck)
-                .ok_or_else(|| format!("missing PLE shard {sck}"))?;
-            let bi_tv = self
-                .sharded_mmap
-                .get(bik)
-                .ok_or_else(|| format!("missing PLE shard {bik}"))?;
-
             let w_row = &w_tv.data[row_idx * 80..(row_idx + 1) * 80];
-            let sc_row = &sc_tv.data[row_idx * 10..(row_idx + 1) * 10];
-            let bi_row = &bi_tv.data[row_idx * 10..(row_idx + 1) * 10];
+            let scales = sck.row(&self.sharded_mmap, row_idx)?;
+            let biases = bik.row(&self.sharded_mmap, row_idx)?;
             let out_h = &mut dst_f32[h * 160..(h + 1) * 160];
 
             for g in 0..5usize {
-                let sc = bf16_to_f32(u16::from_le_bytes([sc_row[2 * g], sc_row[2 * g + 1]]));
-                let bi = bf16_to_f32(u16::from_le_bytes([bi_row[2 * g], bi_row[2 * g + 1]]));
+                let sc = bf16_to_f32(scales[g]);
+                let bi = bf16_to_f32(biases[g]);
                 for wi in 0..4usize {
                     let off = (g * 4 + wi) * 4;
                     let word = u32::from_le_bytes(w_row[off..off + 4].try_into().unwrap());
