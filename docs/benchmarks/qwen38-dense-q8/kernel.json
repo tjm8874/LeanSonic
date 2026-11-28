@@ -1,0 +1,189 @@
+{
+  "kernel": "q38_dense_q8_gemv",
+  "kernel_commit": "3e2a53e",
+  "cubin_sha256": "8dc3adcdfce46f8a970ce360f214967adff6629e5234da381effe34e703c4717",
+  "devices_with_identical_results": [
+    "RTX PRO 4500 Blackwell",
+    "RTX 5070 Ti",
+    "RTX 5060 Ti"
+  ],
+  "cases": [
+    {
+      "rows": 9,
+      "cols": 32,
+      "batch": 1,
+      "max_abs_err": 0.0
+    },
+    {
+      "rows": 9,
+      "cols": 160,
+      "batch": 1,
+      "max_abs_err": 0.0
+    },
+    {
+      "rows": 9,
+      "cols": 2560,
+      "batch": 1,
+      "max_abs_err": 1.90734863e-06
+    },
+    {
+      "rows": 9,
+      "cols": 10240,
+      "batch": 1,
+      "max_abs_err": 3.81469727e-06
+    },
+    {
+      "rows": 9,
+      "cols": 32,
+      "batch": 2,
+      "max_abs_err": 0.0
+    },
+    {
+      "rows": 9,
+      "cols": 160,
+      "batch": 2,
+      "max_abs_err": 0.0
+    },
+    {
+      "rows": 9,
+      "cols": 2560,
+      "batch": 2,
+      "max_abs_err": 1.90734863e-06
+    },
+    {
+      "rows": 9,
+      "cols": 10240,
+      "batch": 2,
+      "max_abs_err": 3.81469727e-06
+    },
+    {
+      "rows": 9,
+      "cols": 32,
+      "batch": 3,
+      "max_abs_err": 0.0
+    },
+    {
+      "rows": 9,
+      "cols": 160,
+      "batch": 3,
+      "max_abs_err": 0.0
+    },
+    {
+      "rows": 9,
+      "cols": 2560,
+      "batch": 3,
+      "max_abs_err": 1.90734863e-06
+    },
+    {
+      "rows": 9,
+      "cols": 10240,
+      "batch": 3,
+      "max_abs_err": 3.81469727e-06
+    },
+    {
+      "rows": 9,
+      "cols": 32,
+      "batch": 4,
+      "max_abs_err": 0.0
+    },
+    {
+      "rows": 9,
+      "cols": 160,
+      "batch": 4,
+      "max_abs_err": 0.0
+    },
+    {
+      "rows": 9,
+      "cols": 2560,
+      "batch": 4,
+      "max_abs_err": 1.90734863e-06
+    },
+    {
+      "rows": 9,
+      "cols": 10240,
+      "batch": 4,
+      "max_abs_err": 1.71661377e-05
+    },
+    {
+      "rows": 9,
+      "cols": 32,
+      "batch": 8,
+      "max_abs_err": 0.0
+    },
+    {
+      "rows": 9,
+      "cols": 160,
+      "batch": 8,
+      "max_abs_err": 0.0
+    },
+    {
+      "rows": 9,
+      "cols": 2560,
+      "batch": 8,
+      "max_abs_err": 3.81469727e-06
+    },
+    {
+      "rows": 9,
+      "cols": 10240,
+      "batch": 8,
+      "max_abs_err": 1.71661377e-05
+    },
+    {
+      "rows": 9,
+      "cols": 32,
+      "batch": 32,
+      "max_abs_err": 0.0
+    },
+    {
+      "rows": 9,
+      "cols": 160,
+      "batch": 32,
+      "max_abs_err": 0.0
+    },
+    {
+      "rows": 9,
+      "cols": 2560,
+      "batch": 32,
+      "max_abs_err": 5.7220459e-06
+    },
+    {
+      "rows": 9,
+      "cols": 10240,
+      "batch": 32,
+      "max_abs_err": 1.71661377e-05
+    },
+    {
+      "rows": 9,
+      "cols": 32,
+      "batch": 64,
+      "max_abs_err": 0.0
+    },
+    {
+      "rows": 9,
+      "cols": 160,
+      "batch": 64,
+      "max_abs_err": 0.0
+    },
+    {
+      "rows": 9,
+      "cols": 2560,
+      "batch": 64,
+      "max_abs_err": 7.62939453e-06
+    },
+    {
+      "rows": 9,
+      "cols": 10240,
+      "batch": 64,
+      "max_abs_err": 1.71661377e-05
+    }
+  ],
+  "sanitizer_device": "RTX PRO 4500 Blackwell",
+  "green_summary": [
+    "========= ERROR SUMMARY: 0 errors"
+  ],
+  "red_summary": [
+    "========= Invalid __global__ write of size 4 bytes",
+    "========= ERROR SUMMARY: 2 errors"
+  ],
+  "red_exit": 77
+}
