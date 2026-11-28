@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use crate::cuda_ffi::{
     check_cu, compile_cuda_to_ptx_nvrtc, CUdeviceptr, CUfunction, CUmodule, CUstream,
-    CudaContextHandle, DeviceBuf,
+    CudaContextHandle, DeviceBuf, PinnedHostBuf,
 };
 use crate::inkling2_gpu::{repack_bf16_to_planar_q8_64, PlanarQ8Gpu, D, PADDED_VOCAB, VOCAB};
 use crate::safetensors::MappedSafeTensors;
@@ -151,7 +151,7 @@ struct Df2Layer {
     base_f: DeviceBuf,
     conv_a: PlanarQ8Gpu,
     conv_f: PlanarQ8Gpu,
-    wo: PlanarQ8Gpu,
+    wo: Df2Weight,
     gu: Df2Weight,
     down: Df2Weight,
 }
@@ -203,6 +203,7 @@ impl Q8View {
 /// Split-K slices of the drafter GEMMs (`K = 2304`: conv 4, qkv / gate-up 2; `wo` 4, `down` 4,
 /// context `fc` 6).
 const DF2_SK_CONV: usize = 4;
+const DF2_SK_SEL: usize = 4;
 const DF2_SK_QKV: usize = 2;
 const DF2_SK_GU: usize = 2;
 const DF2_SK_WO: usize = 4;
@@ -231,8 +232,6 @@ struct Df2Scratch {
     part: DeviceBuf,
     cand: DeviceBuf,
     tail: DeviceBuf,
-    ids: DeviceBuf,
-    conf: DeviceBuf,
     xq: DeviceBuf,
     xs: DeviceBuf,
 }
@@ -253,12 +252,10 @@ impl Df2Scratch {
                 * rows)?,
             mask_row: f(D)?,
             logits: f(rows * VOCAB)?,
-            g: f(rows * DF2_RANK)?,
+            g: f(DF2_SK_SEL * rows * DF2_RANK)?,
             part: f(rows * DF2_CHUNKS * 34)?,
             cand: f(rows * 32)?,
             tail: f(rows * 2)?,
-            ids: f(rows)?,
-            conf: f(rows)?,
             xq: DeviceBuf::alloc_zeroed(ctx, rows * DF2_TAPS * D)?,
             xs: f(rows * DF2_TAPS * D / 64)?,
         })
@@ -276,9 +273,10 @@ pub struct Dflash2DrafterGpu {
     mask_ready: bool,
     /// K norms of all layers (`[5, 128]` BF16).
     k_norm_all: DeviceBuf,
-    /// FP32 K / V rings of all layers (`[5, DF2_RING, 1024]`).
+    /// K / V rings of all layers (`[n_seqs * 5, DF2_RING, 1024]`: FP32 or BF16 per `kv_bf16`).
     k_ring_all: DeviceBuf,
     v_ring_all: DeviceBuf,
+    kv_bf16: bool,
     /// Per-sequence `(ctx_end, lo)` of the engine's sequences (`select_seq`); the selected
     /// sequence's live values are `ctx_end` / `lo`, its rings `cur * DF2_LAYERS` layers in.
     seq_state: Vec<(usize, usize)>,
@@ -294,6 +292,9 @@ pub struct Dflash2DrafterGpu {
     succ: DeviceBuf,
     inv_freq: DeviceBuf,
     scr: Df2Scratch,
+    /// Device-mapped 64-byte pinned host buffer (`0..32`: `ids[8]`, `32..64`: `conf[8]`) written
+    /// directly by `df2_select` (`0` synchronous `cuMemcpyDtoH` calls).
+    pinned_out: PinnedHostBuf,
     /// Next context position (= the anchor position of the next draft).
     pub ctx_end: usize,
     /// Earliest committed position still valid in the rings.
@@ -336,10 +337,20 @@ pub fn find_dflash2(model_dir: &Path) -> Option<std::path::PathBuf> {
         .map(std::path::PathBuf::from)
         .map(|p| vec![p.join("model.safetensors"), p])
         .unwrap_or_else(|| {
-            vec![
+            let mut v = vec![
                 model_dir.join("dflash2").join("model.safetensors"),
                 model_dir.join("dflash2.safetensors"),
-            ]
+            ];
+            if matches!(
+                model_dir.file_name().and_then(|s| s.to_str()),
+                Some("16g" | "32g")
+            ) {
+                if let Some(parent) = model_dir.parent() {
+                    v.push(parent.join("dflash2").join("model.safetensors"));
+                    v.push(parent.join("dflash2.safetensors"));
+                }
+            }
+            v
         });
     candidates.into_iter().find(|p| p.is_file())
 }
@@ -367,10 +378,27 @@ impl Dflash2DrafterGpu {
         let raw = |name: &str, shape: &[usize]| -> Result<DeviceBuf, String> {
             DeviceBuf::from_host_bytes(ctx, st.require(name, "BF16", shape).data)
         };
-        let mlp_q4 = match std::env::var("LEANSONIC_DF2_MLP").as_deref() {
-            Ok("q8") => false,
-            Ok("q4") | Err(_) => true,
-            Ok(v) => return Err(format!("LEANSONIC_DF2_MLP must be q4 or q8, got {v}")),
+        let (_, total_vram) = ctx.mem_info()?;
+        let (mlp_q4, wo_q4) = match std::env::var("LEANSONIC_DF2_MLP").as_deref() {
+            Ok("q8") => (false, false),
+            Ok("q4") => (true, false),
+            Ok("q4_wo") => (true, true),
+            Ok("auto") | Err(_) => (true, total_vram < (24usize << 30)),
+            Ok(v) => {
+                return Err(format!(
+                    "LEANSONIC_DF2_MLP must be auto, q4, q4_wo or q8, got {v}"
+                ))
+            }
+        };
+        let kv_bf16 = match std::env::var("LEANSONIC_DF2_KV").as_deref() {
+            Ok("fp32") => false,
+            Ok("bf16") => true,
+            Ok("auto") | Err(_) => total_vram < (24usize << 30) || n_seqs > 1,
+            Ok(v) => {
+                return Err(format!(
+                    "LEANSONIC_DF2_KV must be auto, fp32 or bf16, got {v}"
+                ))
+            }
         };
         let mut layers = Vec::with_capacity(DF2_LAYERS);
         let mut qkv_names = Vec::with_capacity(3 * DF2_LAYERS);
@@ -412,26 +440,29 @@ impl Dflash2DrafterGpu {
                     &[DF2_DYN],
                     D,
                 )?,
-                wo: q8(ctx, &st, &[&p("self_attn.o_proj.weight")], &[D], DF2_Q)?,
-                gu: Self::mlp_weight(
+                wo: Self::weight_bf16(
                     ctx,
-                    fns,
-                    mlp_q4,
-                    q8(
-                        ctx,
-                        &st,
-                        &[&p("mlp.gate_proj.weight"), &p("mlp.up_proj.weight")],
-                        &[DF2_FF, DF2_FF],
-                        D,
-                    )?,
-                    2 * DF2_FF,
+                    &st,
+                    wo_q4,
+                    &[&p("self_attn.o_proj.weight")],
+                    &[D],
+                    DF2_Q,
                 )?,
-                down: Self::mlp_weight(
+                gu: Self::weight_bf16(
                     ctx,
-                    fns,
+                    &st,
                     mlp_q4,
-                    q8(ctx, &st, &[&p("mlp.down_proj.weight")], &[D], DF2_FF)?,
+                    &[&p("mlp.gate_proj.weight"), &p("mlp.up_proj.weight")],
+                    &[DF2_FF, DF2_FF],
                     D,
+                )?,
+                down: Self::weight_bf16(
+                    ctx,
+                    &st,
+                    mlp_q4,
+                    &[&p("mlp.down_proj.weight")],
+                    &[D],
+                    DF2_FF,
                 )?,
             });
         }
@@ -449,7 +480,8 @@ impl Dflash2DrafterGpu {
             .ok()
             .and_then(|s| s.parse::<f32>().ok())
             .unwrap_or(0.2);
-        let ring = n_seqs * DF2_LAYERS * DF2_RING * DF2_KV * 4;
+        let elem_bytes = if kv_bf16 { 2 } else { 4 };
+        let ring = n_seqs * DF2_LAYERS * DF2_RING * DF2_KV * elem_bytes;
         let head_q4 = match std::env::var("LEANSONIC_DF2_HEAD").as_deref() {
             Ok("q8") => None,
             Ok("q4") | Err(_) => Some(Self::build_head_q4(ctx, fns, unembed_q8)?),
@@ -464,6 +496,7 @@ impl Dflash2DrafterGpu {
             k_norm_all: DeviceBuf::from_host_bytes(ctx, &k_norms)?,
             k_ring_all: DeviceBuf::alloc_zeroed(ctx, ring)?,
             v_ring_all: DeviceBuf::alloc_zeroed(ctx, ring)?,
+            kv_bf16,
             seq_state: vec![(0, 0); n_seqs],
             cur: 0,
             fc: q8(ctx, &st, &["fc.weight"], &[D], DF2_TAPS * D)?,
@@ -486,6 +519,7 @@ impl Dflash2DrafterGpu {
             )?,
             inv_freq: DeviceBuf::from_host_bytes(ctx, &inv_freq)?,
             scr: Df2Scratch::alloc(ctx)?,
+            pinned_out: PinnedHostBuf::alloc_zeroed(ctx, 64)?,
             layers,
             ctx_end: 0,
             lo: 0,
@@ -550,19 +584,59 @@ impl Dflash2DrafterGpu {
         Ok((m.codes, m.scales))
     }
 
-    /// An MLP matrix: Q4 when `q4` (the Q8_64 upload is released), else Q8_64.
-    fn mlp_weight(
+    /// Quantizes BF16 safetensors rows directly into [`Df2Weight::Q4`] (single-rounding, avoiding
+    /// intermediate Q8_64 double-rounding and temporary GPU allocations) when `use_q4` is true,
+    /// else planar Q8_64.
+    fn weight_bf16(
         ctx: &Arc<CudaContextHandle>,
-        fns: Dflash2KernelFns,
-        q4: bool,
-        w: PlanarQ8Gpu,
-        rows: usize,
+        st: &MappedSafeTensors,
+        use_q4: bool,
+        names: &[&str],
+        rows_per: &[usize],
+        cols: usize,
     ) -> Result<Df2Weight, String> {
-        if q4 {
-            Ok(Df2Weight::Q4(Self::q4_from_q8(ctx, fns, &w, rows, rows)?))
-        } else {
-            Ok(Df2Weight::Q8(w, rows))
+        let total_rows: usize = rows_per.iter().sum();
+        if !use_q4 {
+            return Ok(Df2Weight::Q8(
+                q8(ctx, st, names, rows_per, cols)?,
+                total_rows,
+            ));
         }
+        debug_assert!(cols.is_multiple_of(64));
+        let mut codes = Vec::with_capacity(total_rows * cols / 2);
+        let mut scales = Vec::with_capacity(total_rows * (cols / 64) * 4);
+        for (name, &r_cnt) in names.iter().zip(rows_per) {
+            let src = st.require(name, "BF16", &[r_cnt, cols]).as_u16_slice();
+            for row in src.chunks_exact(cols) {
+                for grp in row.chunks_exact(64) {
+                    let mut vals = [0.0f32; 64];
+                    let mut amax = 0.0f32;
+                    for (i, &u) in grp.iter().enumerate() {
+                        let v = bf16_to_f32(u);
+                        vals[i] = v;
+                        amax = amax.max(v.abs());
+                    }
+                    let sc = amax * (1.0 / 7.0);
+                    let inv = if amax > 0.0 { 7.0 / amax } else { 0.0 };
+                    scales.extend_from_slice(&sc.to_le_bytes());
+                    for w8 in vals.chunks_exact(8) {
+                        for b in 0..4 {
+                            let n0 =
+                                ((w8[b] * inv).round_ties_even() as i8).clamp(-7, 7) as u8 & 0x0F;
+                            let n1 = ((w8[b + 4] * inv).round_ties_even() as i8).clamp(-7, 7) as u8
+                                & 0x0F;
+                            codes.push(n0 | (n1 << 4));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(Df2Weight::Q4(Q4Mat {
+            codes: DeviceBuf::from_host_bytes(ctx, &codes)?,
+            scales: DeviceBuf::from_host_bytes(ctx, &scales)?,
+            rows: total_rows,
+            cols,
+        }))
     }
 
     /// Split-K GEMM of the eight block rows over an MLP matrix into `out`.
@@ -637,7 +711,8 @@ impl Dflash2DrafterGpu {
 
     /// Byte offset of the selected sequence's layer `li` ring.
     fn ring_layer(&self, li: usize) -> u64 {
-        ((self.cur * DF2_LAYERS + li) * DF2_RING * DF2_KV * 4) as u64
+        let elem_bytes = if self.kv_bf16 { 2 } else { 4 };
+        ((self.cur * DF2_LAYERS + li) * DF2_RING * DF2_KV * elem_bytes) as u64
     }
 
     /// Selects the sequence whose context the next commit / draft uses.
@@ -831,7 +906,8 @@ impl Dflash2DrafterGpu {
         let (mut p0, mut cap, mut rl) = (pos0 as i32, DF2_RING as i32, (DF2_RING * DF2_KV) as i64);
         let mut kr = self.k_ring_all.ptr + self.ring_layer(li);
         let mut vr = self.v_ring_all.ptr + self.ring_layer(li);
-        let mut a = args![pqkv, ns, ss, rs, kc, lc, pq, pqn, pkn, pf, p0, cap, rl, kr, vr];
+        let mut kb = self.kv_bf16 as i32;
+        let mut a = args![pqkv, ns, ss, rs, kc, lc, pq, pqn, pkn, pf, p0, cap, rl, kr, vr, kb];
         let gx = if with_q { 40 } else { 8 };
         self.launch(
             stream,
@@ -966,8 +1042,8 @@ impl Dflash2DrafterGpu {
                 let mut vr = self.v_ring_all.ptr + self.ring_layer(li);
                 let (mut plo, mut phi, mut cap) =
                     (lo as i32, (pos + DF2_BLOCK) as i32, DF2_RING as i32);
-                let (mut pxq, mut pxs) = (s.xq.ptr, s.xs.ptr);
-                let mut a = args![pq, kr, vr, plo, phi, cap, pxq, pxs];
+                let (mut pxq, mut pxs, mut kb) = (s.xq.ptr, s.xs.ptr, self.kv_bf16 as i32);
+                let mut a = args![pq, kr, vr, plo, phi, cap, pxq, pxs, kb];
                 self.launch(
                     stream,
                     self.fns.m.attn_q8,
@@ -976,7 +1052,7 @@ impl Dflash2DrafterGpu {
                     &mut a,
                 )?;
             }
-            self.gemm_sk(stream, Q8View::of(&l.wo, D), DF2_SK_WO, s.skp.ptr)?;
+            self.gemm_sk_w(stream, &l.wo, DF2_SK_WO, s.skp.ptr)?;
             self.conv2_post(stream, DF2_SK_WO, &l.base_a)?;
             // MLP sublayer.
             self.norm_dyn(stream, &l.post_norm, &l.conv_f)?;
@@ -1015,12 +1091,12 @@ impl Dflash2DrafterGpu {
                 VOCAB,
             )?;
         }
-        self.gemm(
+        // 64-CTA split-K `sel_h` projection (replaces 16-CTA 0.14-wave GEMM: 32.1 us -> ~3 us!).
+        self.gemm_sk(
             stream,
             Q8View::of(&self.sel_h, DF2_RANK),
-            n,
+            DF2_SK_SEL,
             s.g.ptr,
-            DF2_RANK,
         )?;
         {
             let (mut pl, mut v, mut cap, mut pp) =
@@ -1030,45 +1106,34 @@ impl Dflash2DrafterGpu {
             self.launch(stream, self.fns.m.top16_part, grid, 256, &mut a)?;
             let (mut pp, mut pc, mut pt) = (s.part.ptr, s.cand.ptr, s.tail.ptr);
             let mut a = args![pp, pc, pt];
-            self.launch(
-                stream,
-                self.fns.m.top16_merge,
-                (n as u32, 1, 1),
-                256,
-                &mut a,
-            )?;
+            self.launch(stream, self.fns.m.top16_merge, (n as u32, 1, 1), 32, &mut a)?;
         }
         {
             let (mut an, mut pc, mut pt, mut pg) =
                 (next_tok as i32, s.cand.ptr, s.tail.ptr, s.g.ptr);
+            let (mut gs, mut gss) = (DF2_SK_SEL as i32, (DF2_BLOCK * DF2_RANK) as i32);
             let (mut pp, mut ps, mut nn, mut cap) =
                 (self.pred.ptr, self.succ.ptr, n as i32, DF2_SOFTCAP);
-            let (mut pi, mut pcf) = (s.ids.ptr, s.conf.ptr);
-            let mut a = args![an, pc, pt, pg, pp, ps, nn, cap, pi, pcf];
+            let (mut pi, mut pcf) = (self.pinned_out.dev_ptr, self.pinned_out.dev_ptr + 32);
+            let mut a = args![an, pc, pt, pg, gs, gss, pp, ps, nn, cap, pi, pcf];
             self.launch(stream, self.fns.m.select, (1, 1, 1), 512, &mut a)?;
         }
         self.ctx.sync_stream(stream)?;
-        let mut ids = [0i32; DF2_BLOCK];
-        let mut conf = [0f32; DF2_BLOCK];
-        unsafe {
-            check_cu(
-                (self.ctx.api.cuMemcpyDtoH_v2)(ids.as_mut_ptr().cast(), s.ids.ptr, n * 4),
-                "DtoH(df2 ids)",
-            )?;
-            check_cu(
-                (self.ctx.api.cuMemcpyDtoH_v2)(conf.as_mut_ptr().cast(), s.conf.ptr, n * 4),
-                "DtoH(df2 conf)",
-            )?;
-        }
         self.mask_ready = true;
         let mut out = Vec::with_capacity(n);
         let mut cum = 1.0f32;
-        for i in 0..n {
-            cum *= conf[i];
-            if cum < self.tau || !(0..VOCAB as i32).contains(&ids[i]) {
-                break;
+        unsafe {
+            let ids_ptr = self.pinned_out.host_ptr.cast::<i32>();
+            let conf_ptr = self.pinned_out.host_ptr.add(32).cast::<f32>();
+            for i in 0..n {
+                let id = core::ptr::read_volatile(ids_ptr.add(i));
+                let cf = core::ptr::read_volatile(conf_ptr.add(i));
+                cum *= cf;
+                if cum < self.tau || !(0..VOCAB as i32).contains(&id) {
+                    break;
+                }
+                out.push(id as u32);
             }
-            out.push(ids[i] as u32);
         }
         Ok(out)
     }
