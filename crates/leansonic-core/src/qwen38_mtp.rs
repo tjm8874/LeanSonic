@@ -1014,6 +1014,11 @@ mod tests {
             mtp_s += t1.elapsed().as_secs_f64();
             drafts[i + 2] = Some(draft);
         }
+        if std::env::var_os("LEANSONIC_MTP_REPLAY_IDS").is_some() {
+            eprintln!("target_ids={toks:?}");
+            let predicted: Vec<u32> = drafts.iter().flatten().copied().collect();
+            eprintln!("draft_ids={predicted:?}");
+        }
         eprintln!(
             "MTP greedy acceptance: {hits}/{tries} = {:.1}% (next_pos={next_pos})",
             100.0 * hits as f64 / tries.max(1) as f64
