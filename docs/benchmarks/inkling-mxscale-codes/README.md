@@ -48,6 +48,19 @@ Five mirrored cycles for each row on a Ryzen 9 9900X, 80 fresh processes total. 
 
 To repeat the CPU experiment, use fresh checkouts of 47237bb and this version. Append [hook.rs](device-load/hook.rs) to crates/leansonic-core/src/inkling2_gpu.rs in both checkouts to expose the private production method to the timing binary. Copy [bench.rs](device-load/bench.rs) to crates/leansonic-core/examples/time_device_indices.rs, then build the release example. Run `time_device_indices mx NEW_FRAME SCALE_RANS RAW_CODE_COUNT time` or `time_device_indices plain OLD_FRAME SCALE_RANS RAW_CODE_COUNT time`. For independent parity use `dump` in place of `time`, hash stdout and compare with [oracle.py](device-load/oracle.py) on the uncompressed weight bytes. The oracle reads the original byte-frequency table from the companion .rans file.
 
+## Full-engine initialization on RTX 5070 Ti
+
+An Intel Core i5-14400 loaded the complete model in fresh processes on the same RTX 5070 Ti. Each file was read before every launch to warm the filesystem page cache. The measured interval is the engine's reported model initialization, including creation of the GPU layout, at 0.01 s resolution. All 24 layers were resident. Each completed cycle contains four processes, ordered A/B/B/A and reversed in the next cycle. Every process checked all 33 IDs for each of the eight forced and eight greedy requests. All arms reproduced their corresponding traces.
+
+| Paired experiment | Baseline → candidate | Complete cycles | Mean, seconds | Candidate/baseline 95% interval |
+| --- | --- | ---: | ---: | ---: |
+| Original loader on both arms | Seven-bit parent → Conditioned codes | 5 | 14.885 → 16.036 | 1.0036–1.2120 |
+| Conditioned codes on both arms | Original loader → Fused loader | 3 | 14.957 → 13.828 | pending five cycles |
+
+The first comparison isolates the storage-format cost and the second isolates the CPU packing change. Their absolute times come from separate cohorts. Intervals resample complete mirrored cycles. Every completed leg was retained. [Individual initialization times, device and matched token histories](device-load/startup.json).
+
+To reproduce, use the phase-timing harness below with one fresh process per leg and the same seven-bit model weights, context and flags. Warm the page cache by reading the safetensors shard and tokenizer before each launch. Parse the seconds from the final GPU initialization log. For the original loader use the combined rank and conditioned-code readers at 47237bb. For the fused loader add 3cf30b6.
+
 ## Reproduce
 
 Use publisher revision b85c3cfa and the [four-bank prefix parent](https://github.com/tjm8874/LeanSonic/tree/588e3cd/docs/benchmarks/inkling-nvfp4-scale-split/four-banks/quartiles/cost-fit) or the [seven-bit parent](https://github.com/tjm8874/LeanSonic/tree/4d3bd11/docs/benchmarks/inkling-lossless-rank/measured-widths). The prefix variant works directly with this branch based on aa4d429. To run the rank variant, also apply the rank reader from #231. The two Python tools require Python 3.11 or newer and new output directories. From the repository root:

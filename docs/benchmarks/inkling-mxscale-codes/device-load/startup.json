@@ -1,0 +1,243 @@
+{
+  "410": {
+    "arms": [
+      "parent",
+      "combined"
+    ],
+    "cycles": 5,
+    "mean_seconds": {
+      "parent": 14.885,
+      "combined": 16.036
+    },
+    "trial_over_base": 1.0773261672824992,
+    "paired_bootstrap_95": [
+      1.0035990764633982,
+      1.2119931316866994
+    ],
+    "hardware": [
+      "Intel(R) Core(TM) i5-14400",
+      "NVIDIA GeForce RTX 5070 Ti, 595.99.02, 300.00 W"
+    ],
+    "tokens": {
+      "forced": "145026 220 39446 220 19 154978 152792 189134 149860 185136 198 84375 149859 23033 220 137294 196997 13 1157 63 150406 903 25 196997 30841 57335 12 1339 903 63 196976 196997 2512",
+      "greedy": "145026 220 39446 220 19 154978 152792 189134 149860 185136 198 84375 149859 23033 220 137294 196997 13 1157 63 150406 903 25 196997 30841 57335 12 1339 903 63 196976 63 1704"
+    },
+    "samples": [
+      {
+        "cycle": 1,
+        "leg": 0,
+        "arm": "parent",
+        "seconds": 15.75
+      },
+      {
+        "cycle": 1,
+        "leg": 1,
+        "arm": "combined",
+        "seconds": 26.19
+      },
+      {
+        "cycle": 1,
+        "leg": 2,
+        "arm": "combined",
+        "seconds": 14.97
+      },
+      {
+        "cycle": 1,
+        "leg": 3,
+        "arm": "parent",
+        "seconds": 14.97
+      },
+      {
+        "cycle": 2,
+        "leg": 0,
+        "arm": "combined",
+        "seconds": 15.08
+      },
+      {
+        "cycle": 2,
+        "leg": 1,
+        "arm": "parent",
+        "seconds": 14.86
+      },
+      {
+        "cycle": 2,
+        "leg": 2,
+        "arm": "parent",
+        "seconds": 14.77
+      },
+      {
+        "cycle": 2,
+        "leg": 3,
+        "arm": "combined",
+        "seconds": 14.94
+      },
+      {
+        "cycle": 3,
+        "leg": 0,
+        "arm": "parent",
+        "seconds": 14.52
+      },
+      {
+        "cycle": 3,
+        "leg": 1,
+        "arm": "combined",
+        "seconds": 14.68
+      },
+      {
+        "cycle": 3,
+        "leg": 2,
+        "arm": "combined",
+        "seconds": 14.64
+      },
+      {
+        "cycle": 3,
+        "leg": 3,
+        "arm": "parent",
+        "seconds": 14.9
+      },
+      {
+        "cycle": 4,
+        "leg": 0,
+        "arm": "combined",
+        "seconds": 14.92
+      },
+      {
+        "cycle": 4,
+        "leg": 1,
+        "arm": "parent",
+        "seconds": 14.77
+      },
+      {
+        "cycle": 4,
+        "leg": 2,
+        "arm": "parent",
+        "seconds": 14.6
+      },
+      {
+        "cycle": 4,
+        "leg": 3,
+        "arm": "combined",
+        "seconds": 14.89
+      },
+      {
+        "cycle": 5,
+        "leg": 0,
+        "arm": "parent",
+        "seconds": 14.8
+      },
+      {
+        "cycle": 5,
+        "leg": 1,
+        "arm": "combined",
+        "seconds": 14.93
+      },
+      {
+        "cycle": 5,
+        "leg": 2,
+        "arm": "combined",
+        "seconds": 15.12
+      },
+      {
+        "cycle": 5,
+        "leg": 3,
+        "arm": "parent",
+        "seconds": 14.91
+      }
+    ]
+  },
+  "414": {
+    "arms": [
+      "base",
+      "trial"
+    ],
+    "cycles": 3,
+    "mean_seconds": {
+      "base": 14.956666666666667,
+      "trial": 13.828333333333333
+    },
+    "trial_over_base": 0.9245598395364385,
+    "paired_bootstrap_95": null,
+    "hardware": [
+      "Intel(R) Core(TM) i5-14400",
+      "NVIDIA GeForce RTX 5070 Ti, 595.99.02, 300.00 W"
+    ],
+    "tokens": {
+      "forced": "145026 220 39446 220 19 154978 152792 189134 149860 185136 198 84375 149859 23033 220 137294 196997 13 1157 63 150406 903 25 196997 30841 57335 12 1339 903 63 196976 196997 2512",
+      "greedy": "145026 220 39446 220 19 154978 152792 189134 149860 185136 198 84375 149859 23033 220 137294 196997 13 1157 63 150406 903 25 196997 30841 57335 12 1339 903 63 196976 63 1704"
+    },
+    "samples": [
+      {
+        "cycle": 1,
+        "leg": 0,
+        "arm": "base",
+        "seconds": 15.1
+      },
+      {
+        "cycle": 1,
+        "leg": 1,
+        "arm": "trial",
+        "seconds": 13.62
+      },
+      {
+        "cycle": 1,
+        "leg": 2,
+        "arm": "trial",
+        "seconds": 14.11
+      },
+      {
+        "cycle": 1,
+        "leg": 3,
+        "arm": "base",
+        "seconds": 14.82
+      },
+      {
+        "cycle": 2,
+        "leg": 0,
+        "arm": "trial",
+        "seconds": 13.74
+      },
+      {
+        "cycle": 2,
+        "leg": 1,
+        "arm": "base",
+        "seconds": 15.04
+      },
+      {
+        "cycle": 2,
+        "leg": 2,
+        "arm": "base",
+        "seconds": 14.72
+      },
+      {
+        "cycle": 2,
+        "leg": 3,
+        "arm": "trial",
+        "seconds": 13.86
+      },
+      {
+        "cycle": 3,
+        "leg": 0,
+        "arm": "base",
+        "seconds": 14.97
+      },
+      {
+        "cycle": 3,
+        "leg": 1,
+        "arm": "trial",
+        "seconds": 13.81
+      },
+      {
+        "cycle": 3,
+        "leg": 2,
+        "arm": "trial",
+        "seconds": 13.83
+      },
+      {
+        "cycle": 3,
+        "leg": 3,
+        "arm": "base",
+        "seconds": 15.09
+      }
+    ]
+  }
+}
