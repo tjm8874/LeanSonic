@@ -2611,6 +2611,18 @@ impl Inkling2GpuEngine {
             None
         };
 
+        // Multi-sequence verify rounds record every conv input row (`N_SLOT x 64` rows,
+        // 82 MB). Allocate it before expert placement so the plan (and the spilled-layer
+        // prefetch buffer, which takes all but 48 MiB of what is left) leaves room for it:
+        // allocated lazily, the first C = 8 round on a 16 GB card failed in cuMemAlloc.
+        let d_ms_xrec = if n_seqs > 1 {
+            Some(DeviceBuf::alloc_zeroed(
+                &ctx,
+                N_SLOT * CONV_XREC_SLOT_FLOATS * 4,
+            )?)
+        } else {
+            None
+        };
         let mut eng = Self {
             d_token_in: DeviceBuf::alloc_zeroed(&ctx, 4)?,
             d_prefill_tokens: DeviceBuf::alloc_zeroed(&ctx, max_ctx * 4)?,
@@ -2692,7 +2704,7 @@ impl Inkling2GpuEngine {
             ms_rows: std::cell::Cell::new(0),
             d_ms_j,
             d_ms_runs,
-            d_ms_xrec: None,
+            d_ms_xrec,
             ms_xrec: std::cell::Cell::new(0),
             ms_verify_runs: Vec::new(),
             draft_streams: Vec::new(),
