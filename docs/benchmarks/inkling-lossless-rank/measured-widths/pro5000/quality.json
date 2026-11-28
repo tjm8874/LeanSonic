@@ -1,0 +1,74 @@
+{
+  "test": {
+    "seven_bit": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.083731056644495,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.007748134459063128,
+      "median_kld": 0.003487042737626023,
+      "p99_kld": 0.06828254024125002,
+      "max_kld": 1.4620403544509677,
+      "start_chunk": 0,
+      "max_kld_chunk": 36,
+      "max_kld_position": 319,
+      "ref_floor_targets": 14,
+      "top1_matches": 24537,
+      "top1_agreement": 0.9622352941176471
+    },
+    "native": {
+      "chunks": 100,
+      "context": 512,
+      "rows": 25500,
+      "ppl": 7.098681492337541,
+      "ref_ppl": 7.064408191101908,
+      "mean_kld": 0.010901443731029536,
+      "median_kld": 0.00489509023798404,
+      "p99_kld": 0.09220722878942193,
+      "max_kld": 7.372331104666152,
+      "start_chunk": 0,
+      "max_kld_chunk": 2,
+      "max_kld_position": 478,
+      "ref_floor_targets": 14,
+      "top1_matches": 24366,
+      "top1_agreement": 0.9555294117647058
+    },
+    "seven_rows_sha256": "0c3988db54e5ddfc5e86d83b8df3d91ecdb6b4663c8e219ba2351eed27da118b",
+    "native_rows_sha256": "f2caf2795a893eb6fc346e5a473e54590f3b5d3c34072623f50718e02d18b494",
+    "native_cross_card_different_top1": 1354,
+    "native_cross_card_identical_fingerprints": 0,
+    "pro5000_worst": {
+      "pro4500_native": [
+        "2",
+        "478",
+        "44259",
+        "44259",
+        "0.025777095679",
+        "0.001556396484",
+        "true",
+        "9454507f8920945c"
+      ],
+      "pro5000_native": [
+        "2",
+        "478",
+        "44259",
+        "39618",
+        "7.372331104666",
+        "7.455909729004",
+        "false",
+        "7adea866c7354198"
+      ],
+      "seven_bit": [
+        "2",
+        "478",
+        "44259",
+        "44259",
+        "0.032422511020",
+        "0.000860214233",
+        "true",
+        "2bab5882940f53ca"
+      ]
+    }
+  }
+}
