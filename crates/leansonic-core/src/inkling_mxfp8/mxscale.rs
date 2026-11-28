@@ -87,6 +87,59 @@ impl scale_context::ScaleDecoder for BlockScales {
 }
 
 impl<'a> Matrix<'a> {
+    /// Decode an independent byte-rANS or scale-conditioned MXFP8 matrix
+    /// straight into the device's two-indices-per-byte representation.
+    pub(crate) fn write_mxfp8_indices(
+        mut self,
+        index: &[u8; 256],
+        packed: &mut [u8],
+    ) -> Result<(), String> {
+        if packed.len().checked_mul(2) != Some(self.count) {
+            return Err("invalid MXFP8 device index extent".into());
+        }
+        // For these two formats the emitted byte is independent of the next
+        // table selection. Return the device index directly from the rANS LUT.
+        for table in &mut self.lookup {
+            for entry in table {
+                let symbol = (*entry >> 24) as usize;
+                *entry = (*entry & 0x00ff_ffff) | (u32::from(index[symbol]) << 24);
+            }
+        }
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(24));
+        let group = self.frames.len().div_ceil(threads);
+        let matrix = &self;
+        std::thread::scope(|scope| {
+            let mut workers = Vec::new();
+            for (part, (frames, output)) in self
+                .frames
+                .chunks(group)
+                .zip(packed.chunks_mut(group * (TILE / 2)))
+                .enumerate()
+            {
+                workers.push(scope.spawn(move || {
+                    let mut scratch = vec![MaybeUninit::uninit(); TILE];
+                    for (i, (frame, target)) in
+                        frames.iter().zip(output.chunks_mut(TILE / 2)).enumerate()
+                    {
+                        let slots = &mut scratch[..target.len() * 2];
+                        matrix.decode_tile((part * group + i) * TILE, frame, slots)?;
+                        for (dst, pair) in target.iter_mut().zip(slots.as_chunks::<2>().0) {
+                            // Successful decode_tile initialized both indices.
+                            *dst = unsafe { pair[0].assume_init() | (pair[1].assume_init() << 4) };
+                        }
+                    }
+                    Ok::<_, String>(())
+                }));
+            }
+            for worker in workers {
+                worker
+                    .join()
+                    .map_err(|_| "MXFP8 index decoder thread panicked")??;
+            }
+            Ok(())
+        })
+    }
+
     pub(crate) fn parse_mxscale(
         data: &'a [u8],
         count: usize,

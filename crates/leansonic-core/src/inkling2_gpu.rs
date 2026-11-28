@@ -1530,18 +1530,8 @@ impl<'a> ExpertMatrix<'a> {
             }
         }
         result.resize(16, 0);
-        matrix.for_each_chunk(|_, tile| {
-            let (pairs, tail) = tile.as_chunks::<2>();
-            if !tail.is_empty() {
-                return Err("unaligned MXFP8 device codebook tile".into());
-            }
-            result.extend(
-                pairs
-                    .iter()
-                    .map(|&[a, b]| index[a as usize] | (index[b as usize] << 4)),
-            );
-            Ok(())
-        })?;
+        result.resize(16 + count / 2, 0);
+        matrix.write_mxfp8_indices(&index, &mut result[16..])?;
         Ok(result)
     }
 

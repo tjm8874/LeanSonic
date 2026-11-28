@@ -33,6 +33,21 @@ Each row uses one fresh process, seven warm requests, 1,024 fixed input tokens a
 
 Five mirrored cycles on a Ryzen 9 9900X measured the layer 20 weights in ordinary host memory. File reads precede the timer. The conditioned arm includes decoding its companion scales. The gate/up plane rose from 226.79 to 267.29 ms (+17.9%, paired 95% time-ratio interval 1.121–1.272). The down plane rose from 105.25 to 120.32 ms (+14.3%, interval 1.072–1.197). These times measure two individual planes. End-to-end GPU model startup has separate costs. [All 40 process samples](cpu-times.json) and [timer](time.rs).
 
+## Packing the device codebook at load time
+
+The direct-U4 loader now returns nibble indices from the rANS lookup tables and packs them on the same worker that decoded each tile. Each worker reuses its tile buffer. This removes the serial pass that remapped and packed all decoded weights. The eight physical tensors were compared with an independent NumPy packing of their original codes. Every device byte matched for the plain and scale-conditioned files, with both the original and revised loaders (32 independent decoder/oracle comparisons).
+
+| Layer 20 tensor and file format | Original device packing, ms | Revised device packing, ms | 95% paired time ratio |
+| --- | ---: | ---: | ---: |
+| Gate/up, conditioned | 253.92 | 170.91 | 0.655–0.686 |
+| Down, conditioned | 128.93 | 93.53 | 0.702–0.759 |
+| Gate/up, plain | 221.56 | 139.85 | 0.610–0.660 |
+| Down, plain | 113.30 | 71.47 | 0.617–0.643 |
+
+Five mirrored cycles for each row on a Ryzen 9 9900X, 80 fresh processes total. Times cover production construction of the complete resident layout in host memory, including the conditioned file's companion scale decode. File reads occur before the timer. The full-corpus GPU scores above were collected with the original direct-U4 packing loop and establish a baseline for the revised loader. [Every process and all physical device hashes](device-load/samples.json).
+
+To repeat the CPU experiment, use fresh checkouts of 47237bb and this version. Append [hook.rs](device-load/hook.rs) to crates/leansonic-core/src/inkling2_gpu.rs in both checkouts to expose the private production method to the timing binary. Copy [bench.rs](device-load/bench.rs) to crates/leansonic-core/examples/time_device_indices.rs, then build the release example. Run `time_device_indices mx NEW_FRAME SCALE_RANS RAW_CODE_COUNT time` or `time_device_indices plain OLD_FRAME SCALE_RANS RAW_CODE_COUNT time`. For independent parity use `dump` in place of `time`, hash stdout and compare with [oracle.py](device-load/oracle.py) on the uncompressed weight bytes. The oracle reads the original byte-frequency table from the companion .rans file.
+
 ## Reproduce
 
 Use publisher revision b85c3cfa and the [four-bank prefix parent](https://github.com/tjm8874/LeanSonic/tree/588e3cd/docs/benchmarks/inkling-nvfp4-scale-split/four-banks/quartiles/cost-fit) or the [seven-bit parent](https://github.com/tjm8874/LeanSonic/tree/4d3bd11/docs/benchmarks/inkling-lossless-rank/measured-widths). The prefix variant works directly with this branch based on aa4d429. To run the rank variant, also apply the rank reader from #231. The two Python tools require Python 3.11 or newer and new output directories. From the repository root:
