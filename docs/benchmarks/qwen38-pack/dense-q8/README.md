@@ -37,3 +37,5 @@ A standalone distribution can store the same values in the existing BF16 slots. 
 python3 "$d/restore_norms.py" "$Q8" "$OFFICIAL_BF16" "$Q8_OFFICIAL_NORMS"
 python3 "$d/packed_teacher.py" "$Q8_OFFICIAL_NORMS" "$FIXTURES" "$OUTPUT"
 ```
+
+Reloading the physical seventeen-shard replacement through the upstream packed teacher gave the same full-vocabulary FP32 logits as the mixed-source simulation at every original (49) and new (233) position. The independent 494-position set scored mean/worst KL 0.02345/0.25815, 461/494 top-1 matches and PPL 11.3706 (BF16 11.3821). [Stored checkpoint results and common public-engine protocol](official-norms-packed.json)
