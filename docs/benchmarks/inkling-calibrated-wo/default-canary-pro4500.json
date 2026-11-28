@@ -1,0 +1,56 @@
+{
+  "current": {
+    "canary_pass": true,
+    "passed": 2,
+    "total": 2,
+    "cases": [
+      {
+        "id": "short_tokyo",
+        "input_tokens": 27,
+        "expected": "Tokyo",
+        "answer": "Tokyo",
+        "nonfinite_logits": 0,
+        "spec7_0ulp": true,
+        "elapsed_ms": 462.03,
+        "pass": true
+      },
+      {
+        "id": "needle_16k_50",
+        "input_tokens": 16384,
+        "expected": "RAVEN-731",
+        "answer": "RAVEN-731",
+        "nonfinite_logits": 0,
+        "spec7_0ulp": null,
+        "elapsed_ms": 3242.68,
+        "pass": true
+      }
+    ]
+  },
+  "fitted": {
+    "canary_pass": true,
+    "passed": 2,
+    "total": 2,
+    "cases": [
+      {
+        "id": "short_tokyo",
+        "input_tokens": 27,
+        "expected": "Tokyo",
+        "answer": "Tokyo",
+        "nonfinite_logits": 0,
+        "spec7_0ulp": null,
+        "elapsed_ms": 271.37,
+        "pass": true
+      },
+      {
+        "id": "needle_16k_50",
+        "input_tokens": 16384,
+        "expected": "RAVEN-731",
+        "answer": "RAVEN-731",
+        "nonfinite_logits": 0,
+        "spec7_0ulp": null,
+        "elapsed_ms": 3135.01,
+        "pass": true
+      }
+    ]
+  }
+}

@@ -67,6 +67,11 @@ Fresh release CLI processes ran the bench-matrix short workload on the original 
 
 | GPU | Complete cycles of five | Official decode tok/s | Fitted decode tok/s |
 | --- | ---: | ---: | ---: |
-| RTX PRO 4500 | 4 | 168.6 | 168.8 |
+| RTX PRO 4500 | 5 | 169.2 | 169.4 |
+| RTX PRO 5000 | 3 | 220.9 | 220.9 |
 
 A [128-column calibration comparison](paired-groups.md) tested whether a lower projection-error estimate translated to lower end-to-end divergence.
+
+On NVIDIA RTX PRO 4500 Blackwell, the paired fitted/current decode speed ratio was 1.000318, with a 95% whole-cycle interval from 0.999684 to 1.000885.
+
+The default canary passed both cases for both packs on PRO 4500: Tokyo on the short prompt and RAVEN-731 in a 16,384-token context. There were zero nonfinite logits. The stock directory also supplied its DSpark file, while the fitted distribution contained only the target and tokenizer, so the original short speculative identity check ran only for the stock arm. A separate long-canary run attaches that same DSpark checkpoint to both packs. [Per-case output and coverage](default-canary-pro4500.json).
