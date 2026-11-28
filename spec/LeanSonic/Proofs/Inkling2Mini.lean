@@ -2622,11 +2622,11 @@ def kDf2Select : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
-/-- DFlash 2: Q8_64 -> Q4 requantization of the draft head copy (`20` regs, `0` B SMEM). -/
+/-- DFlash 2: Q8_64 -> Q4 requantization (draft head and MLP copies, `19` regs, `0` B SMEM). -/
 def kDf2Q8ToQ4 : KernelResourceSpec :=
   { name := "df2_q8_to_q4"
     threadsPerCta := 32
-    rawRegsPerThread := 20
+    rawRegsPerThread := 19
     userSmemPerCtaBytes := 0
     smemAlignPadBytes := 0
     ctasPerSm := 16
@@ -2648,6 +2648,19 @@ def kDf2Q4Head : KernelResourceSpec :=
     hasStackSpill := false
     hasHotLoopLibmCall := false }
 
+/-- DFlash 2: Split-K GEMM of the eight block rows over Q4 MLP weights (`64` regs, `17408` B SMEM). -/
+def kDf2GemmSkQ4 : KernelResourceSpec :=
+  { name := "df2_gemm_sk_q4"
+    threadsPerCta := 256
+    rawRegsPerThread := 64
+    userSmemPerCtaBytes := 17408
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
 def dflash2DrafterKernelSuite : List KernelResourceSpec :=
   [ kDf2BlockInit
   , kDf2NormQuant8
@@ -2663,7 +2676,8 @@ def dflash2DrafterKernelSuite : List KernelResourceSpec :=
   , kDf2Top16Merge
   , kDf2Select
   , kDf2Q8ToQ4
-  , kDf2Q4Head ]
+  , kDf2Q4Head
+  , kDf2GemmSkQ4 ]
 
 theorem dflash2_drafter_kernels_all_valid :
     (dflash2DrafterKernelSuite.all checkSm120Kernel) = true := by decide
