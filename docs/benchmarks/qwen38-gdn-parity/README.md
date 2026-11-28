@@ -39,17 +39,17 @@ Compare both complete TSV files using the release checkpoint's EOS IDs. The repo
 python3 "$d/compare_requests.py" requests-control.tsv requests-candidate.tsv --stop-id 248046 --stop-id 248044
 ```
 
-## Fixed-length generation after the rounding change
+## Fixed-length generation with the GDN change alone
 
 Using NVCC 13.0.88 and driver 595.99.02, both the RTX 5070 Ti and 5060 Ti reproduced the synthetic result (78/110 failing field comparisons on control, 0/110 after the change). The exact-match test exited with status 1 for control and 0 for the candidate on the 5060 Ti. The [5070 Ti control](5070ti-control.tsv) and [candidate](5070ti-fixed.tsv) give counts per array.
 
-On the PRO 5000 72 GB, 12/16 speculative requests matched greedy across all 128 token IDs on control; all 16/16 matched with this patch. On the 5070 Ti the counts were 6/8 and 8/8, respectively (one cycle). Every control stream already matched its greedy result through the first EOS or the 128-token limit. For the English reproducer, the original greedy and K=1/K=2 streams diverged at zero-based output index 80, following EOS at index 64. The candidate changed the **greedy** continuation at 80 to match the previous speculative result. The speculative streams retained all 128 original IDs. Rounding a batched prefill state can change later greedy outputs even though the scalar kernel passes the fixed-input reference test. All twelve request hashes for each arm agreed across both GPUs. The other three prompts preserved every ID under the change.
+On the PRO 5000 72 GB, 12/16 speculative requests matched greedy across all 128 token IDs on control; all 16/16 matched with the GDN change alone. On the 5070 Ti the counts were 6/8 and 8/8, respectively (one cycle). Every control stream already matched its greedy result through the first EOS or the 128-token limit. For the English reproducer, the original greedy and K=1/K=2 streams diverged at zero-based output index 80, following EOS at index 64. The candidate changed the **greedy** continuation at 80 to match the previous speculative result. The speculative streams retained all 128 original IDs. Rounding a batched prefill state can change later greedy outputs even though the scalar kernel passes the fixed-input reference test. All twelve request hashes for each arm agreed across both GPUs. The other three prompts preserved every ID under the change.
 
 [PRO 5000 timings, output hashes and comparisons](pro5000-requests.json) · [RTX 5070 Ti measurements](5070ti-requests.json)
 
 On 494 extended teacher positions the PRO 5000 returned identical FP32 vocabulary logits and 16/16 eight-token native continuations before and after the change. [Native exact gate](stock-fixed.json) · [Official BF16 comparison](bf16-fixed.json)
 
-The extended sand-weighing prompt (second line of the extended fixture) still diverges at output index 70 with K=2 before EOS, while the patch fixes K=1 on that input. Compare a forced history with forced_replay.rs by building the file as a leansonic-core example. It accepts MODEL, a prompt-ID text file and a space-separated 128-ID greedy reference. Each row gives verification width, rows committed per sweep, and any (index, observed ID, reference ID) differences. Running this with fixed inputs separates differences due to verification width from a change of token history in free generation.
+The extended sand-weighing prompt (second line of the extended fixture) with the GDN-only cubin diverges at output index 70 with K=2 before EOS, while the patch fixes K=1 on that input. Compare a forced history with forced_replay.rs by building the file as a leansonic-core example. It accepts MODEL, a prompt-ID text file and a space-separated 128-ID greedy reference. Each row gives verification width, rows committed per sweep, and any (index, observed ID, reference ID) differences. Running this with fixed inputs separates differences due to verification width from a change of token history in free generation.
 
 Fixed-history replay on the PRO 4500 32 GB matched the 128-ID greedy reference for widths 1 and 2, including verifying two rows and committing only the first. Widths 3 and 4 reproduced the index-70 mismatch both with full acceptance and with one or two rows committed. When every row was accepted the probe performed no rollback, so a rejected draft is unnecessary to reproduce this error. [Exact prompt](extended-sand/prompt.ids) · [Greedy token history](extended-sand/greedy.ids) · [Ten width/commit combinations](extended-sand/results.tsv)
 
@@ -62,4 +62,23 @@ On the RTX 5060 Ti, the synthetic test of eight widths (1 to 64) and both inject
 ```sh
 python3 "$d/hc_parity.py" /tmp/q38-control.cubin /tmp/q38-control.cubin
 python3 "$d/hc_parity.py" /tmp/q38-control.cubin /tmp/q38-candidate.cubin --require-exact
+```
+
+## Generation with both arithmetic fixes
+
+The production engine on the RTX PRO 5000 72 GB generated 128 tokens for each of 20 prompts (four original and sixteen additional English, Japanese, Python and arithmetic prompts). With the CUDA changes at `62fcedc`, every K=1 and K=2 output matched its same-run target-only greedy sequence, for **40/40** complete comparisons covering 5,120 speculative tokens. This includes the pre-EOS mismatch in the sand question. The 494 forced-token full-vocabulary FP32 rows and all sixteen 8-token native canaries also matched the stock native baseline. Against the official BF16 reference, mean/worst KL were 0.269670/2.499328, 406/494 top-1 predictions agreed and PPL was 15.9460 (BF16 11.3821).
+
+[Input IDs](hc-width/all.ids) · [All 60 requests with token IDs and timings](hc-width/generation.tsv) · [Stock native comparison](hc-width/native.json) · [Official BF16 comparison](hc-width/bf16.json) · [Pre-fix layer-level trace summary](hc-width/trace-before.json)
+
+To reproduce the 20-prompt comparison, run the example above with `hc-width/all.ids` and one cycle. For the layer trace, apply the diagnostic instrumentation in a fresh checkout, copy the tracing example, and run on an unused output directory. Use the same prompt and forced history for each cubin. The unconditional readback synchronizations are for diagnosis and do not measure inference speed.
+
+```sh
+d=docs/benchmarks/qwen38-gdn-parity
+git apply "$d/hc-width/instrument.patch"
+mkdir -p crates/leansonic-core/examples
+cp "$d/hc-width/forced-ops.rs" crates/leansonic-core/examples/forced_ops.rs
+cargo build --release -p leansonic-core --example forced_ops
+mkdir "$TRACE_OUT"
+LEANSONIC_QWEN38_CUBIN_PATH="$TARGET_CUBIN" target/release/examples/forced_ops "$MODEL" "$d/extended-sand/prompt.ids" "$d/extended-sand/greedy.ids" "$TRACE_OUT"
+python3 "$d/hc-width/read-forced-ops.py" "$TRACE_OUT"
 ```
