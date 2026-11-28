@@ -487,13 +487,29 @@ def kQ38GdnConvSiluCkptB8 : KernelResourceSpec :=
     clusterCtas := 1, minRequiredL1KiB := 120, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38GdnRecurrentStepCkptB8 : KernelResourceSpec :=
-  { name := "q38_gdn_recurrent_step_ckpt_b8", threadsPerCta := 128, rawRegsPerThread := 36,
-    userSmemPerCtaBytes := 1052, smemAlignPadBytes := 0, ctasPerSm := 12,
+  { name := "q38_gdn_recurrent_step_ckpt_b8", threadsPerCta := 128, rawRegsPerThread := 168,
+    userSmemPerCtaBytes := 34076, smemAlignPadBytes := 0, ctasPerSm := 1,
+    clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
+
+def kQ38Q4GemvB2 : KernelResourceSpec :=
+  { name := "q38_q4_gemv_b2", threadsPerCta := 256, rawRegsPerThread := 60,
+    userSmemPerCtaBytes := 27648, smemAlignPadBytes := 0, ctasPerSm := 2,
+    clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
+
+def kQ38HcDownInj10kB2 : KernelResourceSpec :=
+  { name := "q38_hc_down_inj_10k_b2", threadsPerCta := 256, rawRegsPerThread := 62,
+    userSmemPerCtaBytes := 46144, smemAlignPadBytes := 0, ctasPerSm := 1,
+    clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
+
+def kQ38HcUpMix4B2 : KernelResourceSpec :=
+  { name := "q38_hc_up_mix4_b2", threadsPerCta := 256, rawRegsPerThread := 44,
+    userSmemPerCtaBytes := 2880, smemAlignPadBytes := 0, ctasPerSm := 5,
     clusterCtas := 1, minRequiredL1KiB := 96, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def v100Qwen38VerifyKernelSuite : List KernelResourceSpec :=
   [ kQ38Q4Gemv2560B2, kQ38Q4Gemv2560B4, kQ38MoeUpSwiglu11Z24Bn, kQ38MoeDownCombine11Z24Bn
-  , kQ38PleInjectCkptB8, kQ38GdnConvSiluCkptB8, kQ38GdnRecurrentStepCkptB8 ]
+  , kQ38PleInjectCkptB8, kQ38GdnConvSiluCkptB8, kQ38GdnRecurrentStepCkptB8
+  , kQ38Q4GemvB2, kQ38HcDownInj10kB2, kQ38HcUpMix4B2 ]
 
 /-- `RTX PRO 5000 Blackwell 72GB` (`73,415` MiB) running `106 GB` `Qwen3.8-Flash-Next`:
     `48/48` `Z24` `switch_mlp` layers (`68,400` MiB) + `3,206` MiB non-expert weights (`embed` in Pinned Host)
