@@ -3466,3 +3466,27 @@ extern "C" __global__ void q38_add_pos(int32_t* pos_ptr, int32_t delta) {
     }
     pdl_trigger();
 }
+
+// BF16 value/output projection quality probe. A warp scores one row of one token.
+extern "C" __global__ void q38_probe_bf16_projection(
+    const uint32_t* weights, const float2* input, float* output,
+    int rows, int cols, int output_stride) {
+    const int row = blockIdx.x * 8 + (threadIdx.x >> 5);
+    const int lane = threadIdx.x & 31;
+    pdl_wait();
+    if (row < rows) {
+        const int pairs = cols / 2;
+        const uint32_t* w = weights + static_cast<size_t>(row) * pairs;
+        const float2* x = input + static_cast<size_t>(blockIdx.y) * pairs;
+        float a = 0.0f, b = 0.0f;
+        for (int i = lane; i < pairs; i += 32) {
+            const uint32_t packed = w[i];
+            const float2 v = x[i];
+            a = fmaf(bf16_to_f32(static_cast<uint16_t>(packed)), v.x, a);
+            b = fmaf(bf16_to_f32(static_cast<uint16_t>(packed >> 16)), v.y, b);
+        }
+        const float dot = warp_sum(a + b);
+        if (lane == 0) output[static_cast<size_t>(blockIdx.y) * output_stride + row] = dot;
+    }
+    pdl_trigger();
+}

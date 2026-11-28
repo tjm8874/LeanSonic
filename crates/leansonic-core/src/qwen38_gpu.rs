@@ -453,6 +453,8 @@ enum AttentionBranchGpu {
     },
     Qsa {
         qkv_idx: Q4LinearGpu,
+        probe_v: Option<DeviceBuf>,
+        probe_o: Option<DeviceBuf>,
         o_proj: Q4LinearGpu,
         q_norm_w: DeviceBuf,
         k_norm_w: DeviceBuf,
@@ -574,6 +576,7 @@ struct Qwen38KernelFns {
     _module: CUmodule,
     embed_init_hc4: CUfunction,
     q4_gemv: CUfunction,
+    probe_bf16_projection: CUfunction,
     q4_gemv_2560: CUfunction,
     q4_gemv_10k: CUfunction,
     ple_inject: CUfunction,
@@ -835,6 +838,7 @@ fn load_kernel_fns(
         _module: module,
         embed_init_hc4: get_fn(embedding_kernel.unwrap_or("q38_embed_init_hc4"))?,
         q4_gemv: get_fn("q38_q4_gemv")?,
+        probe_bf16_projection: get_fn("q38_probe_bf16_projection")?,
         q4_gemv_2560: get_fn("q38_q4_gemv_2560")?,
         q4_gemv_10k: get_fn("q38_q4_gemv_10k")?,
         ple_inject: get_fn("q38_ple_inject")?,
@@ -1263,9 +1267,27 @@ impl Qwen38GpuEngine {
                 let v_cache_fp16 = DeviceBuf::alloc_zeroed(&ctx, kv_cap * 512 * 2)?;
                 let idx_raw_k_cache = DeviceBuf::alloc_zeroed(&ctx, kv_cap * 128 * 4)?;
                 let idx_block_k_cache = DeviceBuf::alloc_zeroed(&ctx, init_blocks * 128 * 4)?;
+                let probe =
+                    |proj: &str, rows: usize, cols: usize| -> Result<Option<DeviceBuf>, String> {
+                        let key = format!("{sp}.{proj}.probe_bf16");
+                        let Some(t) = st.get(&key) else {
+                            return Ok(None);
+                        };
+                        if t.dtype != "BF16"
+                            || t.shape != [rows, cols]
+                            || t.data.len() != rows * cols * 2
+                        {
+                            return Err(format!("invalid projection probe {key}"));
+                        }
+                        Ok(Some(DeviceBuf::from_host_bytes(&ctx, t.data)?))
+                    };
+                let probe_v = probe("v_proj", 512, Q38_D)?;
+                let probe_o = probe("o_proj", Q38_D, 6144)?;
                 AttentionBranchGpu::Qsa {
                     qkv_idx,
                     o_proj,
+                    probe_v,
+                    probe_o,
                     q_norm_w,
                     k_norm_w,
                     idx_q_norm_w,
@@ -2334,6 +2356,30 @@ impl Qwen38GpuEngine {
         Ok(slot_ptr.cast_const())
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn probe_projection(
+        &self,
+        stream: CUstream,
+        w: &DeviceBuf,
+        mut input: CUdeviceptr,
+        mut output: CUdeviceptr,
+        mut rows: i32,
+        mut cols: i32,
+        mut stride: i32,
+        batch: usize,
+    ) -> Result<(), String> {
+        let mut wp = w.ptr;
+        let mut args = kargs![wp, input, output, rows, cols, stride];
+        self.launch_kern(
+            stream,
+            self.fns.probe_bf16_projection,
+            ((rows as u32).div_ceil(8), batch as u32),
+            256,
+            &mut args,
+            "q38_probe_bf16_projection",
+        )
+    }
+
     fn launch_q4_gemv(
         &self,
         stream: CUstream,
@@ -2695,6 +2741,8 @@ impl Qwen38GpuEngine {
                 AttentionBranchGpu::Qsa {
                     qkv_idx,
                     o_proj,
+                    probe_v,
+                    probe_o,
                     q_norm_w,
                     k_norm_w,
                     idx_q_norm_w,
@@ -2705,6 +2753,18 @@ impl Qwen38GpuEngine {
                     idx_block_k_cache,
                 } => {
                     self.launch_q4_gemv(stream, qkv_idx, self.d_mixed.ptr, self.d_qsa_proj.ptr, 0)?;
+                    if let Some(w) = probe_v {
+                        self.probe_projection(
+                            stream,
+                            w,
+                            self.d_mixed.ptr,
+                            self.d_qsa_proj.ptr + 12800 * 4,
+                            512,
+                            2560,
+                            13952,
+                            1,
+                        )?;
+                    }
                     let (mut qp, mut qnw, mut knw, mut iqnw, mut iknw, mut invf, mut pos_p) = (
                         self.d_qsa_proj.ptr,
                         q_norm_w.ptr,
@@ -2772,13 +2832,26 @@ impl Qwen38GpuEngine {
                         &mut p_attn,
                         "q38_qsa_attn",
                     )?;
-                    self.launch_q4_gemv(
-                        stream,
-                        o_proj,
-                        self.d_attn_out.ptr,
-                        self.d_branch_out.ptr,
-                        0,
-                    )?;
+                    if let Some(w) = probe_o {
+                        self.probe_projection(
+                            stream,
+                            w,
+                            self.d_attn_out.ptr,
+                            self.d_branch_out.ptr,
+                            2560,
+                            6144,
+                            2560,
+                            1,
+                        )?;
+                    } else {
+                        self.launch_q4_gemv(
+                            stream,
+                            o_proj,
+                            self.d_attn_out.ptr,
+                            self.d_branch_out.ptr,
+                            0,
+                        )?;
+                    }
                 }
             }
 
@@ -3218,6 +3291,8 @@ impl Qwen38GpuEngine {
                 AttentionBranchGpu::Qsa {
                     qkv_idx,
                     o_proj,
+                    probe_v,
+                    probe_o,
                     q_norm_w,
                     k_norm_w,
                     idx_q_norm_w,
@@ -3236,6 +3311,18 @@ impl Qwen38GpuEngine {
                         b_count,
                         0,
                     )?;
+                    if let Some(w) = probe_v {
+                        self.probe_projection(
+                            stream,
+                            w,
+                            bb.d_b_mixed.ptr,
+                            bb.d_b_gdn_in.ptr + 12800 * 4,
+                            512,
+                            2560,
+                            13952,
+                            b_count,
+                        )?;
+                    }
                     let (mut qp, mut qnw, mut knw, mut iqnw, mut invf, mut pos_p) = (
                         bb.d_b_gdn_in.ptr,
                         q_norm_w.ptr,
@@ -3311,14 +3398,27 @@ impl Qwen38GpuEngine {
                         &mut p_attn,
                         "q38_qsa_attn_batch",
                     )?;
-                    self.launch_q4_gemm_b8(
-                        stream,
-                        o_proj,
-                        bb.d_b_gdn_out.ptr,
-                        bb.d_b_branch_out.ptr,
-                        b_count,
-                        0,
-                    )?;
+                    if let Some(w) = probe_o {
+                        self.probe_projection(
+                            stream,
+                            w,
+                            bb.d_b_gdn_out.ptr,
+                            bb.d_b_branch_out.ptr,
+                            2560,
+                            6144,
+                            2560,
+                            b_count,
+                        )?;
+                    } else {
+                        self.launch_q4_gemm_b8(
+                            stream,
+                            o_proj,
+                            bb.d_b_gdn_out.ptr,
+                            bb.d_b_branch_out.ptr,
+                            b_count,
+                            0,
+                        )?;
+                    }
                 }
             }
 
