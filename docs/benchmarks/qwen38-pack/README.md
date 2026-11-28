@@ -58,3 +58,24 @@ The independent `weight_blocks.py` experiment samples three 256 KiB windows per 
 # Requires the Python zstandard package (tested with 0.25.0).
 python3 docs/benchmarks/qwen38-pack/weight_blocks.py "$MODEL" > weight-blocks.jsonl
 ```
+
+### Does parallel decompression help load the experts?
+
+On the Ryzen 9 9900X host we compared warm reads of the three expert Q4 projections in each of layers 0, 23 and 47. Each projection was 400 MiB. The native reader uses one contiguous raw read per worker or decompresses independently indexed 256 KiB blocks directly into the destination buffer. Timing includes worker startup and excludes allocation of the output buffer, packing, checksum calculation and the final byte comparison. Each arm completed a warmup and four alternating timed reads. Every output matched its source in full.
+
+| CPU threads | Raw projection (ms) | Packed projection (ms) |
+| ---: | ---: | ---: |
+| 1 | 41.56 | 228.80 |
+| 2 | 30.21 | 118.21 |
+| 4 | 25.72 | 61.32 |
+| 8 | 25.34 | 34.76 |
+
+The table gives the median of nine per-projection medians. The [per-run samples](block-read-results.json) include physical plane sizes with their index. Parallel workers reduced decompression latency, but raw reads were faster at every matched thread count. Keep the blocked Q4 weights as a distribution experiment. GPU expert residency, PCIe traffic, cold I/O and token latency need separate measurements.
+
+On Linux with a recent C++ compiler, libzstd development files and the Python zstandard package, run the following commands from the repository root. The scratch directory must have room for one packed projection.
+
+```sh
+d=docs/benchmarks/qwen38-pack
+c++ -std=c++17 -O3 -pthread "$d/block_read.cpp" -lzstd -o /tmp/q38-block-read
+python3 "$d/bench_weight_reads.py" "$MODEL" /tmp/q38-block-read "$SCRATCH" > block-read.jsonl
+```
