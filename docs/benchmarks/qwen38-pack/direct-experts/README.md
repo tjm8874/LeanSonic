@@ -27,6 +27,12 @@ At 128 prompt / 32 output tokens the parallel run reached 493.00 prompt tok/s an
 
 The PRO 4500 independently matched the uncompressed expert control at every one of the 65 held-out positions and all four canaries with the serial decoder. Its native CLI on the 16-position common reference reported mean / worst BF16 KL 0.304394 / 1.440301, top-1 13/16 and PPL 13.0983 (reference 8.4605). [Per-launch metrics and exact comparisons](parallel-and-tiers.json)
 
+## Four-card and upstream integration checks
+
+On the 16 GB RTX 5070 Ti and RTX 5060 Ti, the engine loaded 8/48 layers in VRAM and 40/48 pinned. Both cards' test runs used a secondary-host layout with the existing Engram-only shards and additional routed expert frames. All 288 new frames matched the hashes of the physical 105,964,828,539-byte package on the primary host. Each 16 GB run reproduced all 49 full-vocabulary distributions and the four eight-token continuations of its same-card Engram-only control. The additional on-disk test layout retains the original tensors and is excluded from distribution-size claims.
+
+After integrating main `49dade3`, four builds (direct expert dictionaries and EXP4 on PRO 5000, fixed and online mixed placement on PRO 4500) independently reproduced the 65-position held-out Q4 logit hash and four continuations. For each build, the eight verification widths returned the same 424 next-token predictions as the serial oracle on the original fixtures. The new mixed and palette small-batch up/down kernels passed their tested exact-size Compute Sanitizer cases with 65,536 bytes of padding. Full-generation equivalence also depends on the verify/rollback loop; the [separate 128-token experiment](https://github.com/tjm8874/LeanSonic/blob/85b5516/docs/benchmarks/qwen38-pack/exponent-palette/README.md#full-greedy-and-speculative-requests-after-main-49dade3) found a difference beyond EOS. [Device logs, hashes, verify predictions and sanitizer output](four-card-validation.json)
+
 ## Reproduction
 
 From the repository root, point `ORIGINAL_MLX_Q4` at the original checkpoint and `NEW_DIRECT_DIR` at a fresh output directory. Build the frame codec, repack, then compare the saved bytes.
