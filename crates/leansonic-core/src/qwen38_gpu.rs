@@ -617,6 +617,16 @@ struct Qwen38KernelFns {
     moe_combine11_batch: CUfunction,
     argmax_fast_batch: CUfunction,
     add_pos: CUfunction,
+    q4_gemv_2560_b2: CUfunction,
+    q4_gemv_2560_b4: CUfunction,
+    moe_up_swiglu11_z24_bn: CUfunction,
+    moe_down_combine11_z24_bn: CUfunction,
+    ple_inject_ckpt_b8: CUfunction,
+    gdn_conv_silu_ckpt_b8: CUfunction,
+    gdn_recurrent_step_ckpt_b8: CUfunction,
+    q4_gemv_b2: CUfunction,
+    hc_down_inj_10k_b2: CUfunction,
+    hc_up_mix4_b2: CUfunction,
 }
 
 unsafe impl Send for Qwen38KernelFns {}
@@ -700,6 +710,72 @@ pub struct Qwen38RecurrentSnapshot {
     pub saved_prev1: i64,
 }
 
+enum VerifyCkptSlab {
+    Vram(DeviceBuf),
+    HostMapped(PinnedHostBuf),
+}
+
+impl VerifyCkptSlab {
+    fn alloc(ctx: &Arc<CudaContextHandle>, byte_len: usize) -> Result<Self, String> {
+        let reserve = 96 * 1024 * 1024;
+        if let Ok((free_vram, _)) = ctx.mem_info() {
+            if free_vram > byte_len.saturating_add(reserve) {
+                if let Ok(buf) = DeviceBuf::alloc_uninit(ctx, byte_len) {
+                    return Ok(Self::Vram(buf));
+                }
+            }
+        }
+        Ok(Self::HostMapped(PinnedHostBuf::alloc_uninit(
+            ctx, byte_len,
+        )?))
+    }
+
+    #[inline]
+    fn dev_ptr(&self) -> CUdeviceptr {
+        match self {
+            Self::Vram(b) => b.ptr,
+            Self::HostMapped(b) => b.dev_ptr,
+        }
+    }
+
+    unsafe fn copy_row_to_dev_async(
+        &self,
+        ctx: &CudaContextHandle,
+        dst_ptr: CUdeviceptr,
+        row_idx: usize,
+        row_bytes: usize,
+        stream: CUstream,
+        op_name: &str,
+    ) -> Result<(), String> {
+        let off = row_idx * row_bytes;
+        match self {
+            Self::Vram(b) => check_cu(
+                (ctx.api.cuMemcpyDtoDAsync_v2)(dst_ptr, b.ptr + (off as u64), row_bytes, stream),
+                op_name,
+            ),
+            Self::HostMapped(b) => check_cu(
+                (ctx.api.cuMemcpyHtoDAsync_v2)(
+                    dst_ptr,
+                    b.host_ptr.add(off).cast(),
+                    row_bytes,
+                    stream,
+                ),
+                op_name,
+            ),
+        }
+    }
+}
+
+struct Qwen38VerifyRowCkpt {
+    cap_rows: usize,
+    ple_hist9_rows: VerifyCkptSlab,
+    gdn_conv_rows: Vec<VerifyCkptSlab>,
+    gdn_state_rows: Vec<VerifyCkptSlab>,
+    last_pos0: usize,
+    last_b_count: usize,
+    ple_tails_after_row: [(i64, i64); Q38_MAX_VERIFY_BATCH],
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum BatchLogitMode {
     NoLogits,
@@ -759,6 +835,7 @@ pub struct Qwen38GpuEngine {
     d_moe_act11: DeviceBuf,
     d_logits: DeviceBuf,
     batch_bufs: Option<Qwen38BatchBuffers>,
+    verify_ckpt: Option<Qwen38VerifyRowCkpt>,
     host_pos: usize,
     decode_graph: Option<CapturedGraphExec>,
     prefill_graph: Option<CapturedGraphExec>,
@@ -874,6 +951,16 @@ fn load_kernel_fns(ctx: &Arc<CudaContextHandle>) -> Result<Qwen38KernelFns, Stri
         moe_combine11_batch: get_fn("q38_moe_combine11_batch")?,
         argmax_fast_batch: get_fn("q38_argmax_fast_batch")?,
         add_pos: get_fn("q38_add_pos")?,
+        q4_gemv_2560_b2: get_fn("q38_q4_gemv_2560_b2")?,
+        q4_gemv_2560_b4: get_fn("q38_q4_gemv_2560_b4")?,
+        moe_up_swiglu11_z24_bn: get_fn("q38_moe_up_swiglu11_z24_bn")?,
+        moe_down_combine11_z24_bn: get_fn("q38_moe_down_combine11_z24_bn")?,
+        ple_inject_ckpt_b8: get_fn("q38_ple_inject_ckpt_b8")?,
+        gdn_conv_silu_ckpt_b8: get_fn("q38_gdn_conv_silu_ckpt_b8")?,
+        gdn_recurrent_step_ckpt_b8: get_fn("q38_gdn_recurrent_step_ckpt_b8")?,
+        q4_gemv_b2: get_fn("q38_q4_gemv_b2")?,
+        hc_down_inj_10k_b2: get_fn("q38_hc_down_inj_10k_b2")?,
+        hc_up_mix4_b2: get_fn("q38_hc_up_mix4_b2")?,
     })
 }
 
@@ -1574,6 +1661,7 @@ impl Qwen38GpuEngine {
             d_moe_act11,
             d_logits,
             batch_bufs: None,
+            verify_ckpt: None,
             host_pos: 0,
             decode_graph: None,
             prefill_graph: None,
@@ -2097,8 +2185,127 @@ impl Qwen38GpuEngine {
         Ok(())
     }
 
+    fn ensure_verify_row_ckpt(&mut self, needed_rows: usize) -> Result<(), String> {
+        if needed_rows == 0 {
+            return Ok(());
+        }
+        let cur_cap = self.verify_ckpt.as_ref().map(|c| c.cap_rows).unwrap_or(0);
+        if cur_cap >= needed_rows {
+            return Ok(());
+        }
+        self.ctx.sync_compute()?;
+        self.verify_ckpt = None;
+        let ple_hist9_rows = VerifyCkptSlab::alloc(&self.ctx, needed_rows * 9 * Q38_HC_D * 4)?;
+        let mut gdn_conv_rows = Vec::with_capacity(36);
+        let mut gdn_state_rows = Vec::with_capacity(36);
+        for l in &self.layers {
+            if let AttentionBranchGpu::Gdn {
+                conv_hist3,
+                state_f32,
+                ..
+            } = &l.attn
+            {
+                gdn_conv_rows.push(VerifyCkptSlab::alloc(
+                    &self.ctx,
+                    needed_rows * conv_hist3.byte_len,
+                )?);
+                gdn_state_rows.push(VerifyCkptSlab::alloc(
+                    &self.ctx,
+                    needed_rows * state_f32.byte_len,
+                )?);
+            }
+        }
+        self.verify_ckpt = Some(Qwen38VerifyRowCkpt {
+            cap_rows: needed_rows,
+            ple_hist9_rows,
+            gdn_conv_rows,
+            gdn_state_rows,
+            last_pos0: 0,
+            last_b_count: 0,
+            ple_tails_after_row: [(Q38_PLE_EOS_ID, Q38_PLE_EOS_ID); Q38_MAX_VERIFY_BATCH],
+        });
+        Ok(())
+    }
+
+    /// Commits or rolls back the engine after `forward_verify_tokens(&cand)` (`B = cand.len()`, `0 <= accepted_row < B`):
+    /// - Sets `self.d_hc` to `d_b_hc[accepted_row]` (`[4, 2560]` HC state right after `cand[accepted_row]`).
+    /// - If `accepted_row + 1 == B` (all draft tokens accepted), recurrent states & `host_pos` are already at `pos0 + B` (`< 5 µs`!).
+    /// - If `accepted_row + 1 < B`, restores `ple.hist9`, `36` GDN `(conv_hist3, state_f32)`, `(ple_prev2, ple_prev1)`,
+    ///   and `(host_pos, d_pos) = pos0 + accepted_row + 1` in `~0.09 ms` `DtoDAsync` — ZERO pre-snapshot & ZERO mismatch re-forward!
+    pub fn commit_or_rollback_verify_row(&mut self, accepted_row: usize) -> Result<(), String> {
+        self.ctx.bind_current()?;
+        self.copy_batch_hc_row_to_main(accepted_row)?;
+        let Some(ckpt) = self.verify_ckpt.as_ref() else {
+            return Ok(());
+        };
+        if ckpt.last_b_count == 0 {
+            return Err("commit_or_rollback_verify_row called before forward_verify_tokens".into());
+        }
+        if accepted_row >= ckpt.last_b_count {
+            return Err(format!(
+                "accepted_row {accepted_row} out of range for verify batch {}",
+                ckpt.last_b_count
+            ));
+        }
+        if accepted_row + 1 == ckpt.last_b_count {
+            return Ok(());
+        }
+
+        let new_pos = ckpt.last_pos0 + accepted_row + 1;
+        let (p2, p1) = ckpt.ple_tails_after_row[accepted_row];
+        let stream = self.ctx.compute_stream;
+        let ple_row_bytes = 9 * Q38_HC_D * 4;
+        let mut gdn_idx = 0usize;
+        unsafe {
+            for l in &self.layers {
+                if let Some(ple) = &l.ple {
+                    ckpt.ple_hist9_rows.copy_row_to_dev_async(
+                        &self.ctx,
+                        ple.hist9.ptr,
+                        accepted_row,
+                        ple_row_bytes,
+                        stream,
+                        "rollback verify ple.hist9",
+                    )?;
+                }
+                if let AttentionBranchGpu::Gdn {
+                    conv_hist3,
+                    state_f32,
+                    ..
+                } = &l.attn
+                {
+                    let c_bytes = conv_hist3.byte_len;
+                    let s_bytes = state_f32.byte_len;
+                    ckpt.gdn_conv_rows[gdn_idx].copy_row_to_dev_async(
+                        &self.ctx,
+                        conv_hist3.ptr,
+                        accepted_row,
+                        c_bytes,
+                        stream,
+                        "rollback verify gdn.conv_hist3",
+                    )?;
+                    ckpt.gdn_state_rows[gdn_idx].copy_row_to_dev_async(
+                        &self.ctx,
+                        state_f32.ptr,
+                        accepted_row,
+                        s_bytes,
+                        stream,
+                        "rollback verify gdn.state_f32",
+                    )?;
+                    gdn_idx += 1;
+                }
+            }
+        }
+        self.host_pos = new_pos;
+        self.ple_prev2 = p2;
+        self.ple_prev1 = p1;
+        let pos_i32 = new_pos as i32;
+        self.d_pos.copy_from_host_bytes(&pos_i32.to_le_bytes())
+    }
+
     /// `0-ULP` multi-row target verification (`1 <= tokens.len() <= Q38_MAX_VERIFY_BATCH`):
-    /// Evaluates all `B` tokens in ONE 48-layer weight sweep and returns the `B` greedy argmax IDs!
+    /// Evaluates all `B` tokens in ONE 48-layer weight sweep (recording per-row GDN/PLE checkpoints on the fly)
+    /// and returns the `B` greedy argmax IDs! Pair with `commit_or_rollback_verify_row(accepted_row)`.
     pub fn forward_verify_tokens(&mut self, tokens: &[u32]) -> Result<Vec<u32>, String> {
         if tokens.is_empty() || tokens.len() > Q38_MAX_VERIFY_BATCH {
             return Err(format!(
@@ -2116,6 +2323,9 @@ impl Qwen38GpuEngine {
             return Ok(out);
         }
         self.ensure_batch_buffers()?;
+        if tokens.len() >= 2 {
+            self.ensure_verify_row_ckpt(tokens.len() - 1)?;
+        }
         self.forward_batch_chunk(tokens, BatchLogitMode::AllVerifyLogits)
     }
 
@@ -3007,10 +3217,49 @@ impl Qwen38GpuEngine {
         b_count: usize,
         post_mode: i32,
     ) -> Result<(), String> {
+        if b_count == 1 {
+            return self.launch_q4_gemv(stream, lin, x_batch_ptr, y_batch_ptr, post_mode);
+        }
         let (mut w_p, mut sc_p, mut bi_p, mut x_p, mut y_p) =
             (lin.w.ptr, lin.sc.ptr, lin.bi.ptr, x_batch_ptr, y_batch_ptr);
         let (mut rows, mut cols, mut bc, mut mode) =
             (lin.rows, lin.cols, b_count as i32, post_mode);
+        if cols == (Q38_D as i32) && b_count == 2 {
+            let grid_x = (rows as u32).div_ceil(32);
+            let mut p = kargs![w_p, sc_p, bi_p, x_p, y_p, rows, bc, mode];
+            return self.launch_kern(
+                stream,
+                self.fns.q4_gemv_2560_b2,
+                (grid_x, 1),
+                512,
+                &mut p,
+                "q38_q4_gemv_2560_b2",
+            );
+        }
+        if cols == (Q38_D as i32) && b_count <= 4 {
+            let grid_x = (rows as u32).div_ceil(32);
+            let mut p = kargs![w_p, sc_p, bi_p, x_p, y_p, rows, bc, mode];
+            return self.launch_kern(
+                stream,
+                self.fns.q4_gemv_2560_b4,
+                (grid_x, 1),
+                512,
+                &mut p,
+                "q38_q4_gemv_2560_b4",
+            );
+        }
+        if b_count == 2 {
+            let grid_x = (rows as u32).div_ceil(8);
+            let mut p = kargs![w_p, sc_p, bi_p, x_p, y_p, rows, cols, mode];
+            return self.launch_kern(
+                stream,
+                self.fns.q4_gemv_b2,
+                (grid_x, 1),
+                256,
+                &mut p,
+                "q38_q4_gemv_b2",
+            );
+        }
         let grid_x = (rows as u32).div_ceil(32);
         let grid_y = (b_count as u32).div_ceil(8);
         let mut p = kargs![w_p, sc_p, bi_p, x_p, y_p, rows, cols, bc, mode];
@@ -3052,6 +3301,54 @@ impl Qwen38GpuEngine {
             (0u64, 0u64, 0u64, 0i32)
         };
         let (mut low_p, mut inj4_p) = (bb.d_b_hc_low.ptr, bb.d_b_hc_inj4.ptr);
+        if b_count == 1 {
+            let grid_di = if has_inj == 1 { 81u32 } else { 80u32 };
+            let mut p_di =
+                kargs![dw_p, dsc_p, dbi_p, iw_p, isc_p, ibi_p, normed, low_p, inj4_p, has_inj];
+            self.launch_kern(
+                stream,
+                self.fns.hc_down_inj_10k,
+                (grid_di, 1),
+                256,
+                &mut p_di,
+                "q38_hc_down_inj_10k",
+            )?;
+            let (mut uw_p, mut usc_p, mut ubi_p, mut mixed) =
+                (hc.up.w.ptr, hc.up.sc.ptr, hc.up.bi.ptr, bb.d_b_mixed.ptr);
+            let mut p_um = kargs![uw_p, usc_p, ubi_p, low_p, normed, mixed];
+            return self.launch_kern(
+                stream,
+                self.fns.hc_up_mix4,
+                (320, 1),
+                256,
+                &mut p_um,
+                "q38_hc_up_mix4",
+            );
+        }
+        if b_count == 2 {
+            let grid_di = if has_inj == 1 { 81u32 } else { 80u32 };
+            let mut p_di =
+                kargs![dw_p, dsc_p, dbi_p, iw_p, isc_p, ibi_p, normed, low_p, inj4_p, has_inj];
+            self.launch_kern(
+                stream,
+                self.fns.hc_down_inj_10k_b2,
+                (grid_di, 1),
+                256,
+                &mut p_di,
+                "q38_hc_down_inj_10k_b2",
+            )?;
+            let (mut uw_p, mut usc_p, mut ubi_p, mut mixed) =
+                (hc.up.w.ptr, hc.up.sc.ptr, hc.up.bi.ptr, bb.d_b_mixed.ptr);
+            let mut p_um = kargs![uw_p, usc_p, ubi_p, low_p, normed, mixed];
+            return self.launch_kern(
+                stream,
+                self.fns.hc_up_mix4_b2,
+                (320, 1),
+                256,
+                &mut p_um,
+                "q38_hc_up_mix4_b2",
+            );
+        }
         let grid_di = if has_inj == 1 { 41u32 } else { 40u32 };
         let grid_b4 = b_u32.div_ceil(4);
         let mut p_di =
@@ -3102,10 +3399,12 @@ impl Qwen38GpuEngine {
         &self,
         stream: CUstream,
         bb: &Qwen38BatchBuffers,
+        ckpt: Option<&Qwen38VerifyRowCkpt>,
         b_count: usize,
     ) -> Result<(), String> {
         let b_u32 = b_count as u32;
         let mut bc = b_count as i32;
+        let is_small_verify = b_count <= Q38_MAX_VERIFY_BATCH;
         {
             let (mut ew, mut esc, mut ebi, mut tin, mut dhc) = (
                 self.embed.w.dev_ptr,
@@ -3125,6 +3424,7 @@ impl Qwen38GpuEngine {
             )?;
         }
 
+        let mut gdn_idx = 0usize;
         for l_idx in 0..Q38_LAYERS {
             let layer = &self.layers[l_idx];
             if let Some(ple) = &layer.ple {
@@ -3145,15 +3445,31 @@ impl Qwen38GpuEngine {
                     ple.hist9.ptr,
                     self.d_pos.ptr,
                 );
-                let mut p_ple = kargs![hc_io, kv_b, nk, nq, nc, cw, h9, pos_p, bc];
-                self.launch_kern(
-                    stream,
-                    self.fns.ple_inject_seq_b,
-                    (4, 1),
-                    256,
-                    &mut p_ple,
-                    "q38_ple_inject_seq_b",
-                )?;
+                if is_small_verify {
+                    let mut p_ckpt: CUdeviceptr = ckpt
+                        .filter(|_| b_count >= 2)
+                        .map(|c| c.ple_hist9_rows.dev_ptr())
+                        .unwrap_or(0);
+                    let mut p_ple = kargs![hc_io, kv_b, nk, nq, nc, cw, h9, p_ckpt, pos_p, bc];
+                    self.launch_kern(
+                        stream,
+                        self.fns.ple_inject_ckpt_b8,
+                        (4, 1),
+                        256,
+                        &mut p_ple,
+                        "q38_ple_inject_ckpt_b8",
+                    )?;
+                } else {
+                    let mut p_ple = kargs![hc_io, kv_b, nk, nq, nc, cw, h9, pos_p, bc];
+                    self.launch_kern(
+                        stream,
+                        self.fns.ple_inject_seq_b,
+                        (4, 1),
+                        256,
+                        &mut p_ple,
+                        "q38_ple_inject_seq_b",
+                    )?;
+                }
             }
 
             self.launch_hc_pre_batch(stream, &layer.attn_hc, bb, b_count)?;
@@ -3183,16 +3499,6 @@ impl Qwen38GpuEngine {
                         conv_hist3.ptr,
                         bb.d_b_qkv_conv.ptr,
                     );
-                    let mut p_conv = kargs![gin, cw, ch3, qkv_c, bc];
-                    self.launch_kern(
-                        stream,
-                        self.fns.gdn_conv_silu_seq_b,
-                        (40, 1),
-                        256,
-                        &mut p_conv,
-                        "q38_gdn_conv_silu_seq_b",
-                    )?;
-
                     let (mut al, mut dtb, mut nw, mut sig_gate, mut st_p, mut gout) = (
                         a_log.ptr,
                         dt_bias.ptr,
@@ -3201,15 +3507,56 @@ impl Qwen38GpuEngine {
                         state_f32.ptr,
                         bb.d_b_gdn_out.ptr,
                     );
-                    let mut p_rec = kargs![qkv_c, gin, al, dtb, nw, sig_gate, bc, st_p, gout];
-                    self.launch_kern(
-                        stream,
-                        self.fns.gdn_recurrent_step_seq_b,
-                        (48, 1),
-                        128,
-                        &mut p_rec,
-                        "q38_gdn_recurrent_step_seq_b",
-                    )?;
+                    if is_small_verify {
+                        let (mut c_ckpt, mut s_ckpt) = ckpt
+                            .filter(|_| b_count >= 2)
+                            .map(|c| {
+                                (
+                                    c.gdn_conv_rows[gdn_idx].dev_ptr(),
+                                    c.gdn_state_rows[gdn_idx].dev_ptr(),
+                                )
+                            })
+                            .unwrap_or((0, 0));
+                        let mut p_conv = kargs![gin, cw, ch3, c_ckpt, qkv_c, bc];
+                        self.launch_kern(
+                            stream,
+                            self.fns.gdn_conv_silu_ckpt_b8,
+                            (40, 1),
+                            256,
+                            &mut p_conv,
+                            "q38_gdn_conv_silu_ckpt_b8",
+                        )?;
+                        let mut p_rec =
+                            kargs![qkv_c, gin, al, dtb, nw, sig_gate, bc, st_p, s_ckpt, gout];
+                        self.launch_kern(
+                            stream,
+                            self.fns.gdn_recurrent_step_ckpt_b8,
+                            (48, 1),
+                            128,
+                            &mut p_rec,
+                            "q38_gdn_recurrent_step_ckpt_b8",
+                        )?;
+                    } else {
+                        let mut p_conv = kargs![gin, cw, ch3, qkv_c, bc];
+                        self.launch_kern(
+                            stream,
+                            self.fns.gdn_conv_silu_seq_b,
+                            (40, 1),
+                            256,
+                            &mut p_conv,
+                            "q38_gdn_conv_silu_seq_b",
+                        )?;
+                        let mut p_rec = kargs![qkv_c, gin, al, dtb, nw, sig_gate, bc, st_p, gout];
+                        self.launch_kern(
+                            stream,
+                            self.fns.gdn_recurrent_step_seq_b,
+                            (48, 1),
+                            128,
+                            &mut p_rec,
+                            "q38_gdn_recurrent_step_seq_b",
+                        )?;
+                    }
+                    gdn_idx += 1;
                     self.launch_q4_gemm_b8(
                         stream,
                         out_proj,
@@ -3231,7 +3578,6 @@ impl Qwen38GpuEngine {
                     idx_raw_k_cache,
                     idx_block_k_cache,
                 } => {
-                    // Reuse `bb.d_b_gdn_in` (`64 * 16,480` f32) as `qsa_proj_batch` (`64 * 13,952` f32).
                     self.launch_q4_gemm_b8(
                         stream,
                         qkv_idx,
@@ -3304,7 +3650,6 @@ impl Qwen38GpuEngine {
                         )?;
                     }
 
-                    // Reuse `bb.d_b_gdn_out` (`64 * 6,144` f32) as `attn_out_batch` (`64 * 6,144` f32).
                     let mut aout = bb.d_b_gdn_out.ptr;
                     let mut p_attn = kargs![qrot, qgate, kc, vc, mask_b, pos_p, mstride, aout];
                     self.launch_kern(
@@ -3329,14 +3674,24 @@ impl Qwen38GpuEngine {
             self.launch_hc_post_batch(stream, bb, b_count)?;
             self.launch_hc_pre_batch(stream, &layer.mlp_hc, bb, b_count)?;
 
-            {
-                let (mut rw, mut mx, mut rlog, mut sids, mut swts) = (
-                    layer.router_bf16.ptr,
-                    bb.d_b_mixed.ptr,
-                    bb.d_b_router_logits.ptr,
-                    bb.d_b_sel_ids10.ptr,
-                    bb.d_b_sel_wts11.ptr,
-                );
+            let (mut rw, mut mx, mut rlog, mut sids, mut swts) = (
+                layer.router_bf16.ptr,
+                bb.d_b_mixed.ptr,
+                bb.d_b_router_logits.ptr,
+                bb.d_b_sel_ids10.ptr,
+                bb.d_b_sel_wts11.ptr,
+            );
+            if b_count == 1 {
+                let mut p_rt = kargs![rw, mx, rlog];
+                self.launch_kern(
+                    stream,
+                    self.fns.bf16_router_512,
+                    (64, 1),
+                    256,
+                    &mut p_rt,
+                    "q38_bf16_router_512",
+                )?;
+            } else {
                 let mut p_rt = kargs![rw, mx, rlog, bc];
                 self.launch_kern(
                     stream,
@@ -3346,27 +3701,16 @@ impl Qwen38GpuEngine {
                     &mut p_rt,
                     "q38_bf16_router_512_b4",
                 )?;
-                let mut p_tk = kargs![rlog, sids, swts];
-                self.launch_kern(
-                    stream,
-                    self.fns.softmax_topk10_batch,
-                    (1, b_u32),
-                    256,
-                    &mut p_tk,
-                    "q38_softmax_topk10_batch",
-                )?;
-
-                let (mut eoff, mut epairs) = (bb.d_b_exp_offsets.ptr, bb.d_b_exp_pairs.ptr);
-                let mut p_plan = kargs![sids, bc, eoff, epairs];
-                self.launch_kern(
-                    stream,
-                    self.fns.moe_build_plan_b64,
-                    (1, 1),
-                    512,
-                    &mut p_plan,
-                    "q38_moe_build_plan_b64",
-                )?;
             }
+            let mut p_tk = kargs![rlog, sids, swts];
+            self.launch_kern(
+                stream,
+                self.fns.softmax_topk10_batch,
+                (1, b_u32),
+                256,
+                &mut p_tk,
+                "q38_softmax_topk10_batch",
+            )?;
 
             let (base_ptr, z24_bases) = match &layer.switch_mlp {
                 SwitchMlpTier::Vram { buf, z24: Some(b) } => (buf.ptr, *b),
@@ -3401,51 +3745,85 @@ impl Qwen38GpuEngine {
                 layer.sh_down.sc.ptr,
                 layer.sh_down.bi.ptr,
             );
-            let (mut mx, mut eoff, mut epairs, mut swts, mut act11, mut dpart, mut mout) = (
-                bb.d_b_mixed.ptr,
-                bb.d_b_exp_offsets.ptr,
-                bb.d_b_exp_pairs.ptr,
-                bb.d_b_sel_wts11.ptr,
-                bb.d_b_moe_act11.ptr,
-                bb.d_b_down_part.ptr,
-                bb.d_b_branch_out.ptr,
-            );
+            let (mut act11, mut mout) = (bb.d_b_moe_act11.ptr, bb.d_b_branch_out.ptr);
 
-            let mut p_up = kargs![
-                gw_p, glo_p, ghi_p, uw_p, ulo_p, uhi_p, up_bases, sh_gu_w, sh_gu_sc, sh_gu_bi, mx,
-                eoff, epairs, bc, swts, act11
-            ];
-            self.launch_kern(
-                stream,
-                self.fns.moe_up_grouped_z24,
-                (80, 513),
-                512,
-                &mut p_up,
-                "q38_moe_up_grouped_z24",
-            )?;
+            if is_small_verify {
+                let mut p_up = kargs![
+                    gw_p, glo_p, ghi_p, uw_p, ulo_p, uhi_p, up_bases, sh_gu_w, sh_gu_sc, sh_gu_bi,
+                    mx, sids, swts, act11
+                ];
+                self.launch_kern(
+                    stream,
+                    self.fns.moe_up_swiglu11_z24_bn,
+                    (160, 11 * b_u32),
+                    256,
+                    &mut p_up,
+                    "q38_moe_up_swiglu11_z24_bn",
+                )?;
 
-            let mut p_dn = kargs![
-                dw_p, dlo_p, dhi_p, dn_bases, sh_dw, sh_dsc, sh_dbi, act11, eoff, epairs, swts, bc,
-                dpart
-            ];
-            self.launch_kern(
-                stream,
-                self.fns.moe_down_grouped_z24,
-                (40, 513),
-                256,
-                &mut p_dn,
-                "q38_moe_down_grouped_z24",
-            )?;
+                let mut p_dn = kargs![
+                    dw_p, dlo_p, dhi_p, dn_bases, sh_dw, sh_dsc, sh_dbi, act11, sids, swts, mout
+                ];
+                self.launch_kern(
+                    stream,
+                    self.fns.moe_down_combine11_z24_bn,
+                    (80, b_u32),
+                    256,
+                    &mut p_dn,
+                    "q38_moe_down_combine11_z24_bn",
+                )?;
+            } else {
+                let (mut eoff, mut epairs, mut dpart) = (
+                    bb.d_b_exp_offsets.ptr,
+                    bb.d_b_exp_pairs.ptr,
+                    bb.d_b_down_part.ptr,
+                );
+                let mut p_plan = kargs![sids, bc, eoff, epairs];
+                self.launch_kern(
+                    stream,
+                    self.fns.moe_build_plan_b64,
+                    (1, 1),
+                    512,
+                    &mut p_plan,
+                    "q38_moe_build_plan_b64",
+                )?;
 
-            let mut p_cmb = kargs![dpart, mout];
-            self.launch_kern(
-                stream,
-                self.fns.moe_combine11_batch,
-                (10, b_u32),
-                256,
-                &mut p_cmb,
-                "q38_moe_combine11_batch",
-            )?;
+                let mut p_up = kargs![
+                    gw_p, glo_p, ghi_p, uw_p, ulo_p, uhi_p, up_bases, sh_gu_w, sh_gu_sc, sh_gu_bi,
+                    mx, eoff, epairs, bc, swts, act11
+                ];
+                self.launch_kern(
+                    stream,
+                    self.fns.moe_up_grouped_z24,
+                    (80, 513),
+                    512,
+                    &mut p_up,
+                    "q38_moe_up_grouped_z24",
+                )?;
+
+                let mut p_dn = kargs![
+                    dw_p, dlo_p, dhi_p, dn_bases, sh_dw, sh_dsc, sh_dbi, act11, eoff, epairs, swts,
+                    bc, dpart
+                ];
+                self.launch_kern(
+                    stream,
+                    self.fns.moe_down_grouped_z24,
+                    (40, 513),
+                    256,
+                    &mut p_dn,
+                    "q38_moe_down_grouped_z24",
+                )?;
+
+                let mut p_cmb = kargs![dpart, mout];
+                self.launch_kern(
+                    stream,
+                    self.fns.moe_combine11_batch,
+                    (10, b_u32),
+                    256,
+                    &mut p_cmb,
+                    "q38_moe_combine11_batch",
+                )?;
+            }
 
             self.launch_hc_post_batch(stream, bb, b_count)?;
         }
@@ -3459,14 +3837,26 @@ impl Qwen38GpuEngine {
     ) -> Result<Vec<u32>, String> {
         let b_count = tokens.len();
         assert!((1..=Q38_MAX_BATCH).contains(&b_count));
+        let pos0 = self.host_pos;
 
         // Decode `b_count` PLE rows into slots `0..b_count` of `ple_stage_ring` (syncing first if previous chunk was async).
         self.ctx.sync_compute()?;
+        let mut tails = [(Q38_PLE_EOS_ID, Q38_PLE_EOS_ID); Q38_MAX_VERIFY_BATCH];
         for (idx, &tok) in tokens.iter().enumerate() {
             let _ = self.decode_ple_into_ring_slot(tok, idx)?;
+            if idx < Q38_MAX_VERIFY_BATCH {
+                tails[idx] = (self.ple_prev2, self.ple_prev1);
+            }
             let tok_ptr = unsafe { self.tok_stage_ring.host_ptr.add(idx * 4) };
             unsafe {
                 core::ptr::copy_nonoverlapping((tok as i32).to_le_bytes().as_ptr(), tok_ptr, 4);
+            }
+        }
+        if mode == BatchLogitMode::AllVerifyLogits {
+            if let Some(ckpt) = self.verify_ckpt.as_mut() {
+                ckpt.last_pos0 = pos0;
+                ckpt.last_b_count = b_count;
+                ckpt.ple_tails_after_row = tails;
             }
         }
 
@@ -3493,7 +3883,12 @@ impl Qwen38GpuEngine {
             )?;
         }
 
-        self.enqueue_batch_48_layers(stream, bb, b_count)?;
+        let ckpt_ref = if mode == BatchLogitMode::AllVerifyLogits {
+            self.verify_ckpt.as_ref()
+        } else {
+            None
+        };
+        self.enqueue_batch_48_layers(stream, bb, ckpt_ref, b_count)?;
 
         let mut out_ids = Vec::new();
         match mode {
@@ -4737,6 +5132,202 @@ mod tests {
                         1024,
                         &mut kargs![plogb, poutt, pposb, bc],
                     )?;
+
+                    // Fast Multi-Row Speculative Verify & `O(1)` Per-Row Checkpoint Kernels (`B <= 8`)
+                    {
+                        let rows = 19usize;
+                        let w = noise(ctx, rng, (rows - s) * 80 * 16)?;
+                        let sc = noise(ctx, rng, rows * 40 * 4)?;
+                        let bi = noise(ctx, rng, rows * 40 * 4)?;
+                        let xb2 = floats(ctx, rng, 2 * d)?;
+                        let yb2 = zeros(ctx, 2 * rows * 4)?;
+                        let xb4 = floats(ctx, rng, 4 * d)?;
+                        let yb4 = zeros(ctx, 4 * rows * 4)?;
+                        let (mut pw, mut psc, mut pbi) = (w.ptr, sc.ptr, bi.ptr);
+                        let (mut px2, mut py2, mut px4, mut py4) =
+                            (xb2.ptr, yb2.ptr, xb4.ptr, yb4.ptr);
+                        let (mut r_i, mut b2_i, mut b4_i, mut md) = (rows as i32, 2i32, 4i32, 0i32);
+                        run(
+                            ctx,
+                            m,
+                            "q38_q4_gemv_2560_b2",
+                            (1, 1),
+                            512,
+                            &mut kargs![pw, psc, pbi, px2, py2, r_i, b2_i, md],
+                        )?;
+                        run(
+                            ctx,
+                            m,
+                            "q38_q4_gemv_2560_b4",
+                            (1, 1),
+                            512,
+                            &mut kargs![pw, psc, pbi, px4, py4, r_i, b4_i, md],
+                        )?;
+                        let cols_6k = 6144usize;
+                        let w6 = noise(ctx, rng, (rows - s) * 192 * 16)?;
+                        let sc6 = noise(ctx, rng, rows * 96 * 4)?;
+                        let bi6 = noise(ctx, rng, rows * 96 * 4)?;
+                        let x6_b2 = floats(ctx, rng, 2 * cols_6k)?;
+                        let y6_b2 = zeros(ctx, 2 * rows * 4)?;
+                        let (mut pw6, mut psc6, mut pbi6, mut px6, mut py6) =
+                            (w6.ptr, sc6.ptr, bi6.ptr, x6_b2.ptr, y6_b2.ptr);
+                        let mut c6_i = cols_6k as i32;
+                        run(
+                            ctx,
+                            m,
+                            "q38_q4_gemv_b2",
+                            (3, 1),
+                            256,
+                            &mut kargs![pw6, psc6, pbi6, px6, py6, r_i, c6_i, md],
+                        )?;
+
+                        let dw = noise(ctx, rng, 320 * 320 * 16)?;
+                        let dsc = noise(ctx, rng, 320 * 160 * 4)?;
+                        let dbi = noise(ctx, rng, 320 * 160 * 4)?;
+                        let iw = noise(ctx, rng, (4 - s) * 320 * 16)?;
+                        let isc = noise(ctx, rng, 4 * 160 * 4)?;
+                        let ibi = noise(ctx, rng, 4 * 160 * 4)?;
+                        let n_b2 = floats(ctx, rng, 2 * hcd)?;
+                        let low_b2 = zeros(ctx, 2 * 320 * 4)?;
+                        let inj_b2 = zeros(ctx, 2 * 4 * 4)?;
+                        let (mut pdw, mut pds, mut pdb) = (dw.ptr, dsc.ptr, dbi.ptr);
+                        let (mut piw, mut pis, mut pib) = (iw.ptr, isc.ptr, ibi.ptr);
+                        let (mut pnb2, mut plb2, mut pib2) = (n_b2.ptr, low_b2.ptr, inj_b2.ptr);
+                        let mut hi1 = 1i32;
+                        run(
+                            ctx,
+                            m,
+                            "q38_hc_down_inj_10k_b2",
+                            (81, 1),
+                            256,
+                            &mut kargs![pdw, pds, pdb, piw, pis, pib, pnb2, plb2, pib2, hi1],
+                        )?;
+
+                        let uw = noise(ctx, rng, (hcd - s) * 10 * 16)?;
+                        let usc = noise(ctx, rng, hcd * 5 * 4)?;
+                        let ubi = noise(ctx, rng, hcd * 5 * 4)?;
+                        let mix_b2 = zeros(ctx, 2 * d * 4)?;
+                        let (mut puw, mut pus, mut pub_, mut pmxb2) =
+                            (uw.ptr, usc.ptr, ubi.ptr, mix_b2.ptr);
+                        run(
+                            ctx,
+                            m,
+                            "q38_hc_up_mix4_b2",
+                            (320, 1),
+                            256,
+                            &mut kargs![puw, pus, pub_, plb2, pnb2, pmxb2],
+                        )?;
+                    }
+                    {
+                        let gw = noise(ctx, rng, (Q38_EXP * 640 - s) * 80 * 16)?;
+                        let uw = noise(ctx, rng, Q38_EXP * 640 * 80 * 16)?;
+                        let glo = noise(ctx, rng, Q38_EXP * 640 * 40 * 4)?;
+                        let ghi = noise(ctx, rng, Q38_EXP * 640 * 20 * 4)?;
+                        let ulo = noise(ctx, rng, Q38_EXP * 640 * 40 * 4)?;
+                        let uhi = noise(ctx, rng, Q38_EXP * 640 * 20 * 4)?;
+                        let (mut pgw, mut pglo, mut pghi, mut puw, mut pulo, mut puhi) =
+                            (gw.ptr, glo.ptr, ghi.ptr, uw.ptr, ulo.ptr, uhi.ptr);
+                        let (mut psw, mut pss, mut psb, mut pactb) =
+                            (sh_gu.ptr, sh_sc.ptr, sh_bi.ptr, act_b.ptr);
+                        let mut up_bases = 0x76727672u32;
+                        run(
+                            ctx,
+                            m,
+                            "q38_moe_up_swiglu11_z24_bn",
+                            (160, (11 * b_cnt) as u32),
+                            256,
+                            &mut kargs![
+                                pgw, pglo, pghi, puw, pulo, puhi, up_bases, psw, pss, psb, pxb,
+                                ps511, pswts, pactb
+                            ],
+                        )?;
+                    }
+                    {
+                        let dw = noise(ctx, rng, (Q38_EXP * d - s) * 20 * 16)?;
+                        let dlo = noise(ctx, rng, Q38_EXP * d * 10 * 4)?;
+                        let dhi = noise(ctx, rng, Q38_EXP * d * 5 * 4)?;
+                        let sh_d = noise(ctx, rng, d * 20 * 16)?;
+                        let (sh_dsc, sh_dbi) =
+                            (noise(ctx, rng, d * 10 * 4)?, noise(ctx, rng, d * 10 * 4)?);
+                        let mout_b = zeros(ctx, (b_cnt * d - s) * 4)?;
+                        let (mut pdw, mut pdlo, mut pdhi, mut phd, mut phds, mut phdb) =
+                            (dw.ptr, dlo.ptr, dhi.ptr, sh_d.ptr, sh_dsc.ptr, sh_dbi.ptr);
+                        let (mut pactb, mut pmout) = (act_b.ptr, mout_b.ptr);
+                        let mut dn_bases = 0x7672u32;
+                        run(
+                            ctx,
+                            m,
+                            "q38_moe_down_combine11_z24_bn",
+                            (80, b_cnt as u32),
+                            256,
+                            &mut kargs![
+                                pdw, pdlo, pdhi, dn_bases, phd, phds, phdb, pactb, ps511, pswts,
+                                pmout
+                            ],
+                        )?;
+                    }
+                    {
+                        let hc_ple = floats(ctx, rng, 3 * hcd)?;
+                        let kv_ple = floats(ctx, rng, 3 * (hcd + d))?;
+                        let (nk, nq, nc) = (
+                            floats(ctx, rng, hcd)?,
+                            floats(ctx, rng, hcd)?,
+                            floats(ctx, rng, hcd)?,
+                        );
+                        let cw4 = floats(ctx, rng, hcd * 4)?;
+                        let h9 = floats(ctx, rng, 9 * hcd)?;
+                        let ckpt_ple = zeros(ctx, (2 * 9 * hcd - s) * 4)?;
+                        let pos_p = ints(ctx, &[5])?;
+                        let mut b3 = 3i32;
+                        let (mut phc, mut pkv, mut pnk, mut pnq, mut pnc, mut pcw, mut ph9) = (
+                            hc_ple.ptr, kv_ple.ptr, nk.ptr, nq.ptr, nc.ptr, cw4.ptr, h9.ptr,
+                        );
+                        let (mut pck, mut ppos) = (ckpt_ple.ptr, pos_p.ptr);
+                        run(
+                            ctx,
+                            m,
+                            "q38_ple_inject_ckpt_b8",
+                            (4, 1),
+                            256,
+                            &mut kargs![phc, pkv, pnk, pnq, pnc, pcw, ph9, pck, ppos, b3],
+                        )?;
+                    }
+                    {
+                        let gin = floats(ctx, rng, 3 * 16_480)?;
+                        let cw4 = floats(ctx, rng, hcd * 4)?;
+                        let ch3 = floats(ctx, rng, hcd * 3)?;
+                        let c_ckpt = zeros(ctx, (2 * hcd * 3 - s) * 4)?;
+                        let qkvc = zeros(ctx, 3 * hcd * 4)?;
+                        let (al, dtb, nw) = (
+                            floats(ctx, rng, 48)?,
+                            floats(ctx, rng, 48)?,
+                            floats(ctx, rng, 128)?,
+                        );
+                        let st = floats(ctx, rng, 48 * 128 * 128)?;
+                        let s_ckpt = zeros(ctx, (2 * 48 * 128 * 128 - s) * 4)?;
+                        let gout = zeros(ctx, 3 * 6144 * 4)?;
+                        let (mut b3, mut sig) = (3i32, 0i32);
+                        let (mut pgin, mut pcw, mut pch3, mut pcck, mut pqkvc) =
+                            (gin.ptr, cw4.ptr, ch3.ptr, c_ckpt.ptr, qkvc.ptr);
+                        let (mut pal, mut pdt, mut pnw, mut pst, mut psck, mut pgout) =
+                            (al.ptr, dtb.ptr, nw.ptr, st.ptr, s_ckpt.ptr, gout.ptr);
+                        run(
+                            ctx,
+                            m,
+                            "q38_gdn_conv_silu_ckpt_b8",
+                            (40, 1),
+                            256,
+                            &mut kargs![pgin, pcw, pch3, pcck, pqkvc, b3],
+                        )?;
+                        run(
+                            ctx,
+                            m,
+                            "q38_gdn_recurrent_step_ckpt_b8",
+                            (48, 1),
+                            128,
+                            &mut kargs![pqkvc, pgin, pal, pdt, pnw, sig, b3, pst, psck, pgout],
+                        )?;
+                    }
                 }
             }
             Ok(())
@@ -4754,6 +5345,90 @@ mod tests {
             let _ = cases(true);
             Ok(())
         }
+    }
+
+    #[test]
+    #[ignore = "requires Qwen3.8 checkpoint (`LEANSONIC_Q38_MODEL`) and CUDA device"]
+    fn verify_batch_cost_and_ckpt_0ulp() -> Result<(), String> {
+        use super::*;
+        let dir = std::env::var("LEANSONIC_Q38_MODEL")
+            .map_err(|_| "set LEANSONIC_Q38_MODEL".to_string())?;
+        let prompt: Vec<u32> = (0..32).map(|i| ((i * 7 + 100) % 50_000) as u32).collect();
+        let mut eng = Qwen38GpuEngine::load_from_dir_with_opts(&dir, 2048, true)?;
+
+        // 1. Greedy ground truth (24 tokens)
+        eng.reset()?;
+        let (first, _) = eng.prefill_tokens(&prompt)?;
+        let mut ref_ids = vec![first];
+        let mut cur = first;
+        for _ in 1..24 {
+            cur = eng.forward_greedy_token(cur)?;
+            ref_ids.push(cur);
+        }
+
+        // 2. Simulated speculative verify (`B = 4` with alternating deliberate mismatches at `acc = 0, 1, 2, 3`)
+        eng.reset()?;
+        let (first2, _) = eng.prefill_tokens(&prompt)?;
+        assert_eq!(first2, first);
+        let mut sim_ids = vec![first2];
+        let mut step = 0usize;
+        let mut cur2 = first2;
+        while sim_ids.len() < 24 {
+            let target_acc = step % 4; // 0, 1, 2, 3 accepted drafts!
+            let mut cand = vec![cur2];
+            for k in 0..3usize {
+                let true_tok = if sim_ids.len() + k < ref_ids.len() {
+                    ref_ids[sim_ids.len() + k]
+                } else {
+                    1
+                };
+                cand.push(if k < target_acc {
+                    true_tok
+                } else {
+                    true_tok ^ 12345
+                });
+            }
+            let v_out = eng.forward_verify_tokens(&cand)?;
+            let mut acc = 0usize;
+            while acc < 3 && v_out[acc] == cand[acc + 1] {
+                acc += 1;
+            }
+            for &d in &cand[1..=acc] {
+                if sim_ids.len() < 24 {
+                    sim_ids.push(d);
+                }
+            }
+            let bonus = v_out[acc];
+            if sim_ids.len() < 24 {
+                sim_ids.push(bonus);
+            }
+            eng.commit_or_rollback_verify_row(acc)?;
+            cur2 = bonus;
+            step += 1;
+        }
+        assert_eq!(
+            sim_ids, ref_ids,
+            "O(1) verify row checkpoint diverged from solo greedy!"
+        );
+        eprintln!("[PASS] 0-ULP O(1) commit_or_rollback_verify_row matched 24/24 greedy tokens across acc=0,1,2,3!");
+
+        // 3. Measure steady-state `forward_verify_tokens` latency for `B = 1, 2, 3, 4, 8`
+        for &b in &[1usize, 2, 3, 4, 8] {
+            eng.reset()?;
+            let _ = eng.prefill_tokens(&prompt)?;
+            let dummy: Vec<u32> = (0..b).map(|i| (1000 + i * 13) as u32).collect();
+            for _ in 0..3 {
+                let _ = eng.forward_verify_tokens(&dummy)?;
+            }
+            let iters = 16usize;
+            let t0 = Instant::now();
+            for _ in 0..iters {
+                let _ = eng.forward_verify_tokens(&dummy)?;
+            }
+            let avg_ms = t0.elapsed().as_secs_f64() * 1000.0 / (iters as f64);
+            eprintln!("forward_verify_tokens B={b}: {avg_ms:.2} ms");
+        }
+        Ok(())
     }
 }
 
