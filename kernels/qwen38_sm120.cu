@@ -4455,14 +4455,16 @@ extern "C" __global__ void q38_hc_q8_up_mix(
 // Same grid and argument order as the scalar/batched Q4 embedding. The unused
 // bias pointer allows a typed loader to choose the entry when it loads the table.
 extern "C" __global__ void q38_embed_q8_hc4(
-    const int8_t* weights, const uint16_t* scales, const void*,
+    const uint32_t* weights, const uint16_t* scales, const void*,
     const int32_t* tokens, float* out) {
     const int d = blockIdx.x * blockDim.x + threadIdx.x;
     const int b = blockIdx.y;
     pdl_wait();
     if (d < kD) {
         const size_t offset = static_cast<size_t>(tokens[b]) * kD + d;
-        const float value = static_cast<float>(weights[offset]) * bf16_to_f32(scales[offset / 32]);
+        const uint32_t word = weights[offset / 4];
+        const int code = static_cast<int8_t>(word >> (8 * (d & 3)));
+        const float value = static_cast<float>(code) * bf16_to_f32(scales[offset / 32]);
         uint16_t rounded;
         asm("cvt.rn.bf16.f32 %0, %1;" : "=h"(rounded) : "f"(value));
         #pragma unroll
