@@ -1,0 +1,9 @@
+{
+  "verified_plain_tensors": 3203,
+  "verified_frames": 544,
+  "raw_parameter_bytes": 21499525120,
+  "frame_bytes": 14231233170,
+  "verified_shards": 22,
+  "source_distribution_bytes": 113233127335,
+  "direct_distribution_bytes": 105964828539
+}
