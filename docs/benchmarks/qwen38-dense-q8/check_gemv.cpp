@@ -35,7 +35,7 @@ template<class T> static CUdeviceptr upload(const std::vector<T>& data) {
     return p;
 }
 
-static void exercise(CUfunction fn, int rows, int cols, int batch, bool red, bool staged = false) {
+static void exercise(CUfunction fn, int rows, int cols, int batch, bool red, bool staged = false, bool tiled = false) {
     std::vector<int8_t> weights(size_t(rows) * cols);
     std::vector<uint16_t> scales(weights.size() / 32);
     std::vector<float> inputs(size_t(batch) * cols);
@@ -44,9 +44,9 @@ static void exercise(CUfunction fn, int rows, int cols, int batch, bool red, boo
     for (size_t i = 0; i < inputs.size(); ++i) inputs[i] = (int((i * 17 + i / 37) % 37) - 18) / 16.0f;
     std::vector<float> outputs(size_t(batch) * rows - (red ? 1 : 0), NAN);
     auto w = upload(weights), s = upload(scales), x = upload(inputs), y = upload(outputs);
-    void* args[] = {&w, &s, &x, &y, &rows, &cols};
+    void* args[] = {&w, &s, &x, &y, &rows, &cols, &batch};
     unsigned scratch = staged ? (cols / 32) * 9 * 16 : 0;
-    check(cuLaunchKernel(fn, (rows + 7) / 8, batch, 1, 256, 1, 1, scratch, nullptr, args, nullptr));
+    check(cuLaunchKernel(fn, (rows + 7) / 8, tiled ? (batch + 3) / 4 : batch, 1, 256, 1, 1, scratch, nullptr, args, nullptr));
     CUresult result = cuCtxSynchronize();
     if (red) return; // memcheck owns the one-float-short fault and its exit code.
     check(result);
@@ -191,6 +191,14 @@ int main(int argc, char** argv) {
     check(cuCtxSetCurrent(context));
     CUmodule module;
     check(cuModuleLoad(&module, argv[1]));
+    if (!std::strcmp(argv[2], "tile-green") || !std::strcmp(argv[2], "tile-red")) {
+        CUfunction fn;
+        check(cuModuleGetFunction(&fn, module, "q38_dense_q8_gemm_b4"));
+        if (!std::strcmp(argv[2], "tile-red")) exercise(fn, 9, 160, 5, true, false, true);
+        else for (int batch : {1,2,3,4,5,7,8,17,32,64})
+            for (int cols : {32,160,2560,10240}) exercise(fn, 9, cols, batch, false, false, true);
+        return 0;
+    }
     if (!std::strcmp(argv[2], "embed-green") || !std::strcmp(argv[2], "embed-red")) {
         bool red=!std::strcmp(argv[2], "embed-red");
         check_embedding(module,red,1);

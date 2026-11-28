@@ -10,14 +10,15 @@ private def launch (name : String) (threads regs shared ctas l1 : Nat) : KernelR
     clusterCtas := 1, minRequiredL1KiB := l1, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kernels : List KernelResourceSpec := [
-  launch "q38_dense_q8_gemv" 256 38 0 6 120,
-  launch "q38_hc_q8_down_inject" 256 38 0 6 120,
-  launch "q38_hc_q8_up_mix" 256 40 0 6 120,
+  launch "q38_dense_q8_gemm_b4" 256 40 0 6 120,
+  launch "q38_dense_q8_gemv" 256 40 0 6 120,
+  launch "q38_hc_q8_down_inject" 256 39 0 6 120,
+  launch "q38_hc_q8_up_mix" 256 42 0 5 120,
   launch "q38_embed_q8_hc4" 256 14 0 6 120,
   -- Dynamic shared memory for the largest supported shared-expert width, 2,560.
   launch "q38_shared_q8_projection" 256 40 11520 5 64,
-  launch "q38_moe_up_swiglu11" 256 48 11552 5 64,
-  launch "q38_moe_up_swiglu11_z24" 256 48 11552 5 64,
+  launch "q38_moe_up_swiglu11" 256 46 11552 5 64,
+  launch "q38_moe_up_swiglu11_z24" 256 46 11552 5 64,
   launch "q38_moe_up_swiglu11_z24_bn" 256 48 11552 5 64,
   launch "q38_moe_down_combine11" 256 40 31680 2 64,
   launch "q38_moe_down_combine11_z24" 256 64 31680 2 64,
@@ -43,5 +44,10 @@ theorem shared_stage_bounds (group : Fin 80) (vector : Fin 8) :
   have := group.isLt
   have := vector.isLt
   omega
+
+/-- The four-token grid visits every valid token exactly once, including a short tail. -/
+theorem token_tile_coordinates (token batch : Nat) (h : token < batch) :
+    token / 4 < (batch + 3) / 4 ∧ token % 4 < 4 ∧
+    token / 4 * 4 + token % 4 = token := by omega
 
 end LeanSonic.Proofs.Qwen38DenseQ8
