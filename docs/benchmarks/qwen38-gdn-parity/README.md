@@ -32,3 +32,9 @@ done
 ```
 
 The request columns give cycle, zero-based case, draft depth (0 is greedy), prompt seconds, total seconds, accepted drafts, total drafts and output IDs.
+
+Compare both complete TSV files using the release checkpoint's EOS IDs. The report distinguishes full-stream differences, agreement through the first EOS (inclusive), unchanged greedy control and within-arm repeatability.
+
+```sh
+python3 "$d/compare_requests.py" requests-control.tsv requests-candidate.tsv --stop-id 248046 --stop-id 248044
+```
