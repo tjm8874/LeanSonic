@@ -51,3 +51,16 @@ python3 "$d/pack_q6.py" "$Q8_OFFICIAL_NORMS" "$OFFICIAL_BF16" "$Q6"
 python3 "$d/audit.py" "$Q8_OFFICIAL_NORMS" "$OFFICIAL_BF16" "$Q6"
 python3 "$d/packed_teacher.py" "$Q6" "$FIXTURES" "$OUTPUT"
 ```
+
+Using the upstream PyTorch teacher to read each complete package on an RTX PRO 5000 72GB, the 1.22 GB reduction has a measurable quality cost. Both runs used the same official residual norms, fixed input IDs, BF16 reference logits, and eight-token greedy continuations. Each KL uses all 248,320 vocabulary entries. PPL uses the supplied next tokens.
+
+| Positions | Precision | Mean KL | Worst KL | Top-1 vs BF16 | PPL |
+|---|---|---:|---:|---:|---:|
+| 49 | Q8 | 0.02296 | 0.18979 | 46/49 | 28.7123 |
+| 49 | Q6 | 0.03150 | 0.38954 | 44/49 | 28.3928 |
+| 233 | Q8 | 0.02989 | 0.42574 | 216/233 | 18.3350 |
+| 233 | Q6 | 0.03862 | 0.30087 | 209/233 | 18.5011 |
+| 494 | Q8 | 0.02345 | 0.25815 | 461/494 | 11.3706 |
+| 494 | Q6 | 0.03090 | 0.33570 | 456/494 | 11.5541 |
+
+The shorter 233-position set shows the trade-off particularly clearly. Q6 improves the single worst KL, while Q8 stays closer to BF16 on 163 of 233 positions. In the independent 494-position set Q8 has lower mean KL on all 16 prompts. The physical Q6 pack reproduced the simulated Q6 full logits and greedy canaries exactly on both the 49- and 233-position sets. [Scores and output hashes](q6-packed-quality.json) · [Per-position data](q6-worst-rows.json.gz). Each row in the per-position file contains the position, Q8 KL, Q6 KL, Q8 top-1 agreement and Q6 top-1 agreement. Native Rust/CUDA measurements are tracked separately in issue #272.
