@@ -655,6 +655,7 @@ impl DsparkDrafterGpu {
         let fold_q8 = PlanarQ8Gpu {
             codes: DeviceBuf::from_host_bytes(ctx, &fold_codes)?,
             scales64: DeviceBuf::from_host_bytes(ctx, &fold_scales)?,
+            q16: None,
             cols: R_MARKOV as i32,
         };
         Ok((fold_q8, d_fold_b))

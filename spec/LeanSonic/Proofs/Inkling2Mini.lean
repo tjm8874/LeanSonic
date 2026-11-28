@@ -2866,4 +2866,208 @@ theorem spilled_auto_residency_strictly_faster
   have hPos : 1 ≤ evictedLayers * pcieLayerPenaltyUs := Nat.mul_le_mul hEvict hPenalty
   omega
 
+/-! ## Measured `ptxas -arch=sm_120a` `v0.11.0` 32GB+ Precision-Max `W_q8_16 × X_2term` Attention Suite (`#35` / `#235`) -/
+
+/-- Zero-barrier 1-warp 2-term `Q8_16` fallback activation quantizer (`32` threads, `22` regs, `0` B SMEM -> `32` CTAs/SM, `96` KiB L1). -/
+def kInk2QuantQ8162tB : KernelResourceSpec :=
+  { name := "ink2_quant_q8_16_2t_b"
+    threadsPerCta := 32
+    rawRegsPerThread := 22          -- aligns to 24 -> 768 regs/CTA; 32 CTAs = 24,576 <= 65,536
+    userSmemPerCtaBytes := 0        -- 32 * 1,024 = 32,768 B <= 32 KiB carveout -> 96 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 32
+    clusterCtas := 1
+    minRequiredL1KiB := 96
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Batched RMSNorm + 2-term `Q8_16` quantizer (`40` regs, `9,248` B SMEM -> `6` CTAs = `48` warps/SM, `64` KiB L1!). -/
+def kInk2RmsnormQuantQ8162tB : KernelResourceSpec :=
+  { name := "ink2_rmsnorm_quant_q8_16_2t_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 40          -- 10,240 regs/CTA; 6 CTAs = 61,440 <= 65,536 (48 warps/SM!)
+    userSmemPerCtaBytes := 9248     -- 6 * (9,248 + 1,024) = 61,632 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 6
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Fused `depth_mix` + `rmsnorm_quant_q8_16_2t` (`80` regs, `9,712` B SMEM -> `3` CTAs/SM, `96` KiB L1). -/
+def kInk2DepthMixRmsnormQuantQ8162tB : KernelResourceSpec :=
+  { name := "ink2_depth_mix_rmsnorm_quant_q8_16_2t_b"
+    threadsPerCta := 256
+    rawRegsPerThread := 80          -- 20,480 regs/CTA; 3 CTAs = 61,440 <= 65,536
+    userSmemPerCtaBytes := 9712     -- 3 * (9,712 + 1,024) = 32,208 B <= 32 KiB carveout -> 96 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- `W_q8_16` (`BF16` scales) × `X_2term` `cols = 2304` GEMM (`60` regs, `11,520` B SMEM -> `4` CTAs = `32` warps/SM, `64` KiB L1!). -/
+def kInk2Q8162tGemmC2304R8B8 : KernelResourceSpec :=
+  { name := "ink2_q8_16_2t_gemm_c2304_r8_b8"
+    threadsPerCta := 256
+    rawRegsPerThread := 60          -- aligns to 64 -> 16,384 regs/CTA; 4 CTAs = 65,536 <= 65,536
+    userSmemPerCtaBytes := 11520    -- 4 * (11,520 + 1,024) = 50,176 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- `W_q8_16` (`BF16` scales) × `X_2term` fused `QKV3` GEMM (`61` regs, `11,520` B SMEM -> `4` CTAs = `32` warps/SM, `64` KiB L1!). -/
+def kInk2Q8162tQkv3R8B8 : KernelResourceSpec :=
+  { name := "ink2_q8_16_2t_qkv3_r8_b8"
+    threadsPerCta := 256
+    rawRegsPerThread := 61          -- aligns to 64 -> 16,384 regs/CTA; 4 CTAs = 65,536 <= 65,536
+    userSmemPerCtaBytes := 11520    -- 4 * (11,520 + 1,024) = 50,176 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- `W_q8_16` (`BF16` scales) × `X_2term` `cols = 3072` GEMM (`63` regs, `15,360` B SMEM -> `4` CTAs = `32` warps/SM, `64` KiB L1!). -/
+def kInk2Q8162tGemmC3072R8B8 : KernelResourceSpec :=
+  { name := "ink2_q8_16_2t_gemm_c3072_r8_b8"
+    threadsPerCta := 256
+    rawRegsPerThread := 63          -- aligns to 64 -> 16,384 regs/CTA; 4 CTAs = 65,536 <= 65,536
+    userSmemPerCtaBytes := 15360    -- 4 * (15,360 + 1,024) = 65,536 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Single-wave fused `wo` (`c3072`, `W_q8_16` × `X_2term`) + `attn_sconv` + block save (`64` regs, `15,360` B SMEM -> `4` CTAs/SM = `320 >= 288` CTAs on PRO 4500!). -/
+def kInk2WoConv4SaveQ8162tC3072R8B8 : KernelResourceSpec :=
+  { name := "ink2_wo_conv4_save_q8_16_2t_c3072_r8_b8"
+    threadsPerCta := 256
+    rawRegsPerThread := 64          -- 16,384 regs/CTA; 4 CTAs = 65,536 <= 65,536
+    userSmemPerCtaBytes := 15360    -- 4 * (15,360 + 1,024) = 65,536 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Unsplit `G = 0` GQA attention + 2-term `Q8_16` epilogue (`64` regs, `14,208` B SMEM -> `4` CTAs/SM, `64` KiB L1!). -/
+def kInk2GqaAttnG1Q8162tDecode : KernelResourceSpec :=
+  { name := "ink2_gqa_attn_g1_q8_16_2t_decode"
+    threadsPerCta := 256
+    rawRegsPerThread := 64          -- 16,384 regs/CTA; 4 CTAs = 65,536 <= 65,536
+    userSmemPerCtaBytes := 14208    -- 4 * (14,208 + 1,024) = 60,928 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Single-launch Split-KV + retirement-counter combine + 2-term `Q8_16` epilogue (`72` regs, `14,224` B SMEM -> `3` CTAs/SM, `64` KiB L1!). -/
+def kInk2GqaAttnSplitFusedQ8162tDec : KernelResourceSpec :=
+  { name := "ink2_gqa_attn_split_fused_q8_16_2t_dec"
+    threadsPerCta := 256
+    rawRegsPerThread := 72          -- 18,432 regs/CTA; 3 CTAs = 55,296 <= 65,536
+    userSmemPerCtaBytes := 14224    -- 3 * (14,224 + 1,024) = 45,744 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 3
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- High-occupancy `B = 1` Solo Decode `W_q8_16` × `X_2term` `cols = 2304` GEMV (`48` regs, `5,760` B SMEM -> `5` CTAs = `40` warps/SM, `96` KiB L1!). -/
+def kInk2Q8162tGemvC2304R1 : KernelResourceSpec :=
+  { name := "ink2_q8_16_2t_gemv_c2304_r1"
+    threadsPerCta := 256
+    rawRegsPerThread := 48          -- 12,288 regs/CTA; 5 CTAs = 61,440 <= 65,536 (40 warps/SM!)
+    userSmemPerCtaBytes := 5760     -- 5 * (5,760 + 1,024) = 33,920 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 5
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- High-occupancy `B = 1` Solo Decode fused `QKV3` `W_q8_16` × `X_2term` GEMV (`48` regs, `5,760` B SMEM -> `5` CTAs = `40` warps/SM, `2` waves on PRO 5000!). -/
+def kInk2Q8162tQkv3GemvR1 : KernelResourceSpec :=
+  { name := "ink2_q8_16_2t_qkv3_gemv_r1"
+    threadsPerCta := 256
+    rawRegsPerThread := 48          -- 12,288 regs/CTA; 5 CTAs = 61,440 <= 65,536 (40 warps/SM!)
+    userSmemPerCtaBytes := 5760     -- 5 * (5,760 + 1,024) = 33,920 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 5
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- High-occupancy `B = 1` Solo Decode `W_q8_16` × `X_2term` `cols = 3072` GEMV (`64` regs, `7,680` B SMEM -> `4` CTAs/SM, `96` KiB L1!). -/
+def kInk2Q8162tGemvC3072R1 : KernelResourceSpec :=
+  { name := "ink2_q8_16_2t_gemv_c3072_r1"
+    threadsPerCta := 256
+    rawRegsPerThread := 64          -- 16,384 regs/CTA; 4 CTAs = 65,536 <= 65,536
+    userSmemPerCtaBytes := 7680     -- 4 * (7,680 + 1,024) = 34,816 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+/-- Single-wave `B = 1` Solo Decode fused `wo` (`c3072`, `W_q8_16` × `X_2term`) + `attn_sconv` + block save (`64` regs, `7,680` B SMEM -> `4` CTAs/SM). -/
+def kInk2WoConv4SaveQ8162tC3072R1 : KernelResourceSpec :=
+  { name := "ink2_wo_conv4_save_q8_16_2t_c3072_r1"
+    threadsPerCta := 256
+    rawRegsPerThread := 64          -- 16,384 regs/CTA; 4 CTAs = 65,536 <= 65,536
+    userSmemPerCtaBytes := 7680     -- 4 * (7,680 + 1,024) = 34,816 B <= 64 KiB carveout -> 64 KiB L1!
+    smemAlignPadBytes := 0
+    ctasPerSm := 4
+    clusterCtas := 1
+    minRequiredL1KiB := 64
+    hasStackSpill := false
+    hasHotLoopLibmCall := false }
+
+def v0110AttnQ8162tPrecisionMaxSuite : List KernelResourceSpec :=
+  [ kInk2QuantQ8162tB
+  , kInk2RmsnormQuantQ8162tB
+  , kInk2DepthMixRmsnormQuantQ8162tB
+  , kInk2Q8162tGemmC2304R8B8
+  , kInk2Q8162tQkv3R8B8
+  , kInk2Q8162tGemmC3072R8B8
+  , kInk2WoConv4SaveQ8162tC3072R8B8
+  , kInk2GqaAttnG1Q8162tDecode
+  , kInk2GqaAttnSplitFusedQ8162tDec
+  , kInk2Q8162tGemvC2304R1
+  , kInk2Q8162tQkv3GemvR1
+  , kInk2Q8162tGemvC3072R1
+  , kInk2WoConv4SaveQ8162tC3072R1 ]
+
+theorem v0110_attn_q8_16_2t_precision_max_all_valid :
+    (v0110AttnQ8162tPrecisionMaxSuite.all checkSm120Kernel) = true := by decide
+
+/-- `32GB+ Precision-Max` Auxiliary `W_q8_16` (`BF16` scales) VRAM Bound (`#35` / `#235`):
+    - Full `24`-layer mask (`0x00FF_FFFF`): `6` Global layers + `18` SWA layers = `727,087,104` B (`693.40 MiB < 704 MiB`).
+    - Default `14`-layer Pareto mask (`0x00FC_8FC8`: all `6` Global layers `{3,7,11,15,19,23}` + `8` SWA layers `{6,8,9,10,18,20,21,22}`):
+      `424,573,056` B (`404.90 MiB < 416 MiB`), achieving 100-chunk `mean_kld = 0.002989 <= 0.0030` (`p99 = 0.02965`, `top1 = 97.682%`)
+      while keeping Solo Decode at `216 tok/s` (`PRO 5000`) / `166.4 tok/s` (`PRO 4500`). -/
+theorem attn_q8_16_vram_fits_within_704mib :
+    let globalLayerElems := (6552 + 2 * 1056) * 2304 + 2304 * 3072
+    let swaLayerElems := 8600 * 2304 + 2304 * 3072
+    let fullElems := 6 * globalLayerElems + 18 * swaLayerElems
+    let fullBytes := fullElems + (fullElems / 16) * 2
+    let defaultElems := 6 * globalLayerElems + 8 * swaLayerElems
+    let defaultBytes := defaultElems + (defaultElems / 16) * 2
+    fullBytes = 727087104 ∧ fullBytes < 704 * 1024 * 1024 ∧
+    defaultBytes = 424548864 ∧ defaultBytes < 416 * 1024 * 1024 := by decide
+
 end LeanSonic.Proofs

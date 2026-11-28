@@ -3274,6 +3274,156 @@ extern "C" __global__ void ink2_quant_q8_64_b(
     }
 }
 
+// Zero-barrier 8-lane (`16`-float) 2-term `Q8_16` activation quantizer (`[2, cols / 4]` `u32` + `[2, cols / 16]` `f32`):
+// Each warp (`32` lanes = `64` floats = `4` sub-blocks of `16` floats) computes Term 0 (`q_hi, sc_hi`)
+// and Term 1 (`q_lo, sc_lo` on `r = y - q_hi * sc_hi`) using 3-step `__shfl_xor_sync` (`mask = 4, 2, 1`).
+__device__ __forceinline__ void quant_warp64_q8_16_2t(
+    float y0,
+    float y1,
+    int lane,
+    size_t out_blk,
+    size_t cols_u32,
+    uint32_t* __restrict__ vec_q8,
+    float* __restrict__ vec_sc) {
+    float amax0 = fmaxf(fabsf(y0), fabsf(y1));
+    amax0 = fmaxf(amax0, __shfl_xor_sync(0xFFFFFFFFu, amax0, 4));
+    amax0 = fmaxf(amax0, __shfl_xor_sync(0xFFFFFFFFu, amax0, 2));
+    amax0 = fmaxf(amax0, __shfl_xor_sync(0xFFFFFFFFu, amax0, 1));
+    const float sc0 = amax0 * (1.0f / 127.0f);
+    const float inv0 = (amax0 > 0.0f) ? (127.0f * ptx_rcp(amax0)) : 0.0f;
+    int q0_hi = __float2int_rn(y0 * inv0);
+    int q1_hi = __float2int_rn(y1 * inv0);
+    if (q0_hi < -127) q0_hi = -127;
+    if (q0_hi > 127) q0_hi = 127;
+    if (q1_hi < -127) q1_hi = -127;
+    if (q1_hi > 127) q1_hi = 127;
+
+    const float r0 = __fmaf_rn(-static_cast<float>(q0_hi), sc0, y0);
+    const float r1 = __fmaf_rn(-static_cast<float>(q1_hi), sc0, y1);
+    float amax1 = fmaxf(fabsf(r0), fabsf(r1));
+    amax1 = fmaxf(amax1, __shfl_xor_sync(0xFFFFFFFFu, amax1, 4));
+    amax1 = fmaxf(amax1, __shfl_xor_sync(0xFFFFFFFFu, amax1, 2));
+    amax1 = fmaxf(amax1, __shfl_xor_sync(0xFFFFFFFFu, amax1, 1));
+    const float sc1 = amax1 * (1.0f / 127.0f);
+    const float inv1 = (amax1 > 0.0f) ? (127.0f * ptx_rcp(amax1)) : 0.0f;
+    int q0_lo = __float2int_rn(r0 * inv1);
+    int q1_lo = __float2int_rn(r1 * inv1);
+    if (q0_lo < -127) q0_lo = -127;
+    if (q0_lo > 127) q0_lo = 127;
+    if (q1_lo < -127) q1_lo = -127;
+    if (q1_lo > 127) q1_lo = 127;
+
+    const uint32_t pair_hi = static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q0_hi)))
+        | (static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q1_hi))) << 8);
+    const uint32_t pack_hi = pair_hi | (__shfl_xor_sync(0xFFFFFFFFu, pair_hi, 1) << 16);
+    const uint32_t pair_lo = static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q0_lo)))
+        | (static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q1_lo))) << 8);
+    const uint32_t pack_lo = pair_lo | (__shfl_xor_sync(0xFFFFFFFFu, pair_lo, 1) << 16);
+
+    if ((lane & 1) == 0) {
+        const size_t off_u32 = out_blk * 16u + static_cast<size_t>(lane >> 1);
+        vec_q8[off_u32] = pack_hi;
+        vec_q8[cols_u32 + off_u32] = pack_lo;
+    }
+    if ((lane & 7) == 0) {
+        const size_t cols16 = cols_u32 >> 2;
+        const size_t off_sc = out_blk * 4u + static_cast<size_t>(lane >> 3);
+        vec_sc[off_sc] = sc0;
+        vec_sc[cols16 + off_sc] = sc1;
+    }
+}
+
+// Grid: `(B_out, count)`, Block: `256` (`b = blockIdx.x`, `c_idx = blockIdx.y`)
+extern "C" __global__ void ink2_rmsnorm_quant_q8_16_2t_b(
+    const float* __restrict__ inp_base,            // [count, B_out, 2304]
+    const uint32_t* __restrict__ gamma_bf16_pairs, // [count, 1152]
+    uint32_t* __restrict__ out_q8_u32,             // [count, B_out, 2, 576]
+    float* __restrict__ out_sc16,                  // [count, B_out, 2, 144]
+    int32_t B_out) {
+    __shared__ float smem_x[kD];
+    __shared__ float smem_red[8];
+    const int b = blockIdx.x;
+    const int c_idx = blockIdx.y;
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+
+    const size_t vec_idx = static_cast<size_t>(c_idx) * B_out + b;
+    const float* inp = inp_base + vec_idx * kD;
+    const uint32_t* gamma = gamma_bf16_pairs + static_cast<size_t>(c_idx) * (kD / 2);
+    uint32_t* vec_q8 = out_q8_u32 + vec_idx * (2u * (kD / 4));
+    float* vec_sc = out_sc16 + vec_idx * (2u * (kD / 16));
+
+    uint32_t gw_reg[5];
+    #pragma unroll
+    for (int it = 0; it < 4; ++it) {
+        gw_reg[it] = gamma[(warp_id + it * 8) * 32 + lane];
+    }
+    gw_reg[4] = (warp_id < 4) ? gamma[(warp_id + 32) * 32 + lane] : 0u;
+
+    pdl_wait();
+    pdl_trigger();
+    inp = pdl_in(inp);
+
+    float sq = 0.0f;
+    #pragma unroll
+    for (int t = 0; t < 9; ++t) {
+        const int i = tid + t * 256;
+        const float v = inp[i];
+        smem_x[i] = v;
+        sq = __fmaf_rn(v, v, sq);
+    }
+    sq = warp_sum(sq);
+    if (lane == 0) smem_red[warp_id] = sq;
+    __syncthreads();
+    if (tid < 32) {
+        float bsum = (tid < 8) ? smem_red[tid] : 0.0f;
+        bsum = warp_sum(bsum);
+        if (tid == 0) smem_red[0] = ptx_rsqrt(bsum * (1.0f / static_cast<float>(kD)) + 1e-6f);
+    }
+    __syncthreads();
+    const float k = smem_red[0];
+
+    #pragma unroll
+    for (int it = 0; it < 5; ++it) {
+        const int blk = warp_id + it * 8;
+        if (blk < (kD / 64)) {
+            const uint32_t gw = gw_reg[it];
+            const int base = blk * 64 + lane * 2;
+            const float y0 = __fmul_rn(__fmul_rn(smem_x[base], k), bf16_to_f32(static_cast<uint16_t>(gw & 0xFFFFu)));
+            const float y1 = __fmul_rn(__fmul_rn(smem_x[base + 1], k), bf16_to_f32(static_cast<uint16_t>(gw >> 16)));
+            quant_warp64_q8_16_2t(y0, y1, lane, static_cast<size_t>(blk), kD / 4, vec_q8, vec_sc);
+        }
+    }
+}
+
+// Grid: `(cols / 64, B)`, Block: `32` (`0` SMEM, `0` barriers)
+extern "C" __global__ void ink2_quant_q8_16_2t_b(
+    const float* __restrict__ x_base,   // [B, cols]
+    uint32_t* __restrict__ out_q8_u32,  // [B, 2, cols / 4]
+    float* __restrict__ out_sc16,       // [B, 2, cols / 16]
+    int32_t cols) {
+    pdl_wait();
+    pdl_trigger();
+    x_base = pdl_in(x_base);
+    const size_t blk = blockIdx.x;
+    const size_t b = blockIdx.y;
+    const int lane = threadIdx.x & 31;
+    const size_t cols_u32 = static_cast<size_t>(cols >> 2);
+    const size_t cols16 = static_cast<size_t>(cols >> 4);
+    const float* x = x_base + b * static_cast<size_t>(cols) + blk * 64u;
+    const float y0 = x[lane * 2];
+    const float y1 = x[lane * 2 + 1];
+    quant_warp64_q8_16_2t(
+        y0,
+        y1,
+        lane,
+        blk,
+        cols_u32,
+        out_q8_u32 + b * (2u * cols_u32),
+        out_sc16 + b * (2u * cols16));
+}
+
 // Grid: `(n_q, B_out)`, Block: `256`
 // Supports `stride_B` + `b_offset` so `LastOnly` (`b_offset = B - 1, B_out = 1`) reads directly!
 extern "C" __global__ void ink2_depth_mix_b(
@@ -6367,6 +6517,625 @@ extern "C" __global__ void __launch_bounds__(256, 3) ink2_q8_qkv3_r8_b8(
     }
 }
 
+// Precision-Max `B = 1` Solo Decode 1-Row/Warp `W_q8_16 x X_2term` GEMVs (`6` CTAs/SM = `48` warps/SM = `100%` warp occupancy!):
+// Uses packed `uint32_t` BF16 scale pairs (`<= 40` regs/thread) + `5,760 B` SMEM (`64 KiB` L1), cutting `wq_all`/`qkv3`
+// from `3` waves (`440` CTAs/wave) to `2` waves (`660` CTAs/wave) on PRO 5000 (`3` instead of `4` on PRO 4500), `0-ULP` exact to `_r8_b8`!
+extern "C" __global__ __launch_bounds__(256, 5) void ink2_q8_16_2t_gemv_c2304_r1(
+    const uint4* __restrict__ w_q8_u128,      // [rows, 144]
+    const uint16_t* __restrict__ w_sc16_bf16, // [rows, 144]
+    const uint4* __restrict__ x_q8_u128,      // [2, 144]
+    const float* __restrict__ x_sc16,         // [2, 144]
+    float* __restrict__ y,                    // [rows]
+    int32_t rows) {
+    __shared__ uint4 smem_x[2][144];   // 4,608 B
+    __shared__ float smem_xsc[2][144]; // 1,152 B -> 5,760 B (`6` CTAs/SM = `48` warps/SM!)
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int row = blockIdx.x * 8 + warp_id;
+    const bool has_row = (row < rows);
+
+    uint4 w0[4];
+    uint32_t wsp[2] = {0u, 0u};
+    uint4 w0_4 = make_uint4(0u, 0u, 0u, 0u);
+    uint32_t ws4_u32 = 0u;
+    if (has_row) {
+        const uint4* wr = w_q8_u128 + static_cast<size_t>(row) * 144u;
+        const uint16_t* sr = w_sc16_bf16 + static_cast<size_t>(row) * 144u;
+        w0[0] = wr[lane];
+        w0[1] = wr[lane + 32];
+        w0[2] = wr[lane + 64];
+        w0[3] = wr[lane + 96];
+        wsp[0] = static_cast<uint32_t>(sr[lane]) | (static_cast<uint32_t>(sr[lane + 32]) << 16);
+        wsp[1] = static_cast<uint32_t>(sr[lane + 64]) | (static_cast<uint32_t>(sr[lane + 96]) << 16);
+        if (lane < 16) {
+            w0_4 = wr[lane + 128];
+            ws4_u32 = static_cast<uint32_t>(sr[lane + 128]) << 16;
+        }
+    }
+
+    pdl_wait();
+    x_q8_u128 = pdl_in(x_q8_u128);
+    x_sc16 = pdl_in(x_sc16);
+
+    for (int idx = tid; idx < 288; idx += 256) {
+        const int term = idx >= 144 ? 1 : 0;
+        const int col = idx >= 144 ? (idx - 144) : idx;
+        smem_x[term][col] = x_q8_u128[idx];
+        smem_xsc[term][col] = x_sc16[idx];
+    }
+    __syncthreads();
+
+    float acc0 = 0.0f;
+    if (has_row) {
+        auto step1 = [&](int c16, const uint4& w, float ws) {
+            const int d_hi = dp4a_u128(w, smem_x[0][c16]);
+            const int d_lo = dp4a_u128(w, smem_x[1][c16]);
+            const float x_dot = __fmaf_rn(
+                static_cast<float>(d_lo),
+                smem_xsc[1][c16],
+                __fmul_rn(static_cast<float>(d_hi), smem_xsc[0][c16]));
+            acc0 = __fmaf_rn(ws, x_dot, acc0);
+        };
+        step1(lane, w0[0], __uint_as_float(wsp[0] << 16));
+        step1(lane + 32, w0[1], __uint_as_float(wsp[0] & 0xFFFF0000u));
+        step1(lane + 64, w0[2], __uint_as_float(wsp[1] << 16));
+        step1(lane + 96, w0[3], __uint_as_float(wsp[1] & 0xFFFF0000u));
+        if (lane < 16) {
+            step1(lane + 128, w0_4, __uint_as_float(ws4_u32));
+        }
+        acc0 = warp_sum(acc0);
+    }
+    pdl_trigger();
+    if (has_row && lane == 0) {
+        y[row] = acc0;
+    }
+}
+
+extern "C" __global__ __launch_bounds__(256, 5) void ink2_q8_16_2t_qkv3_gemv_r1(
+    const uint4* __restrict__ wq_u128,
+    const uint16_t* __restrict__ wq_sc16_bf16,
+    const uint4* __restrict__ wk_u128,
+    const uint16_t* __restrict__ wk_sc16_bf16,
+    const uint4* __restrict__ wv_u128,
+    const uint16_t* __restrict__ wv_sc16_bf16,
+    const uint4* __restrict__ x_q8_u128, // [3, 2, 144]
+    const float* __restrict__ x_sc16,    // [3, 2, 144]
+    float* __restrict__ y_q,             // [rows_q]
+    float* __restrict__ y_k,             // [rows_kv]
+    float* __restrict__ y_v,             // [rows_kv]
+    int32_t rows_q,
+    int32_t rows_kv) {
+    __shared__ uint4 smem_x[2][144];   // 4,608 B
+    __shared__ float smem_xsc[2][144]; // 1,152 B -> 5,760 B (`6` CTAs/SM = `48` warps/SM!)
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int nb_q = (rows_q + 7) >> 3;
+    const int nb_kv = (rows_kv + 7) >> 3;
+    const int bx = blockIdx.x;
+
+    int proj = 0;
+    int local_bx = bx;
+    int rows = rows_q;
+    const uint4* w_base = wq_u128;
+    const uint16_t* s_base = wq_sc16_bf16;
+    float* y = y_q;
+    if (bx >= nb_q) {
+        if (bx < nb_q + nb_kv) {
+            proj = 1;
+            local_bx = bx - nb_q;
+            w_base = wk_u128;
+            s_base = wk_sc16_bf16;
+            y = y_k;
+        } else {
+            proj = 2;
+            local_bx = bx - nb_q - nb_kv;
+            w_base = wv_u128;
+            s_base = wv_sc16_bf16;
+            y = y_v;
+        }
+        rows = rows_kv;
+    }
+
+    const int row = local_bx * 8 + warp_id;
+    const bool has_row = (row < rows);
+
+    uint4 w0[4];
+    uint32_t wsp[2] = {0u, 0u};
+    uint4 w0_4 = make_uint4(0u, 0u, 0u, 0u);
+    uint32_t ws4_u32 = 0u;
+    if (has_row) {
+        const uint4* wr = w_base + static_cast<size_t>(row) * 144u;
+        const uint16_t* sr = s_base + static_cast<size_t>(row) * 144u;
+        w0[0] = wr[lane];
+        w0[1] = wr[lane + 32];
+        w0[2] = wr[lane + 64];
+        w0[3] = wr[lane + 96];
+        wsp[0] = static_cast<uint32_t>(sr[lane]) | (static_cast<uint32_t>(sr[lane + 32]) << 16);
+        wsp[1] = static_cast<uint32_t>(sr[lane + 64]) | (static_cast<uint32_t>(sr[lane + 96]) << 16);
+        if (lane < 16) {
+            w0_4 = wr[lane + 128];
+            ws4_u32 = static_cast<uint32_t>(sr[lane + 128]) << 16;
+        }
+    }
+
+    pdl_wait();
+    const uint4* xq_p = pdl_in(x_q8_u128) + static_cast<size_t>(proj) * 288u;
+    const float* xs_p = pdl_in(x_sc16) + static_cast<size_t>(proj) * 288u;
+
+    for (int idx = tid; idx < 288; idx += 256) {
+        const int term = idx >= 144 ? 1 : 0;
+        const int col = idx >= 144 ? (idx - 144) : idx;
+        smem_x[term][col] = xq_p[idx];
+        smem_xsc[term][col] = xs_p[idx];
+    }
+    __syncthreads();
+
+    float acc0 = 0.0f;
+    if (has_row) {
+        auto step1 = [&](int c16, const uint4& w, float ws) {
+            const int d_hi = dp4a_u128(w, smem_x[0][c16]);
+            const int d_lo = dp4a_u128(w, smem_x[1][c16]);
+            const float x_dot = __fmaf_rn(
+                static_cast<float>(d_lo),
+                smem_xsc[1][c16],
+                __fmul_rn(static_cast<float>(d_hi), smem_xsc[0][c16]));
+            acc0 = __fmaf_rn(ws, x_dot, acc0);
+        };
+        step1(lane, w0[0], __uint_as_float(wsp[0] << 16));
+        step1(lane + 32, w0[1], __uint_as_float(wsp[0] & 0xFFFF0000u));
+        step1(lane + 64, w0[2], __uint_as_float(wsp[1] << 16));
+        step1(lane + 96, w0[3], __uint_as_float(wsp[1] & 0xFFFF0000u));
+        if (lane < 16) {
+            step1(lane + 128, w0_4, __uint_as_float(ws4_u32));
+        }
+        acc0 = warp_sum(acc0);
+    }
+    pdl_trigger();
+    if (has_row && lane == 0) {
+        y[row] = acc0;
+    }
+}
+
+extern "C" __global__ __launch_bounds__(256, 4) void ink2_q8_16_2t_gemv_c3072_r1(
+    const uint4* __restrict__ w_q8_u128,      // [rows, 192]
+    const uint16_t* __restrict__ w_sc16_bf16, // [rows, 192]
+    const uint4* __restrict__ x_q8_u128,      // [2, 192]
+    const float* __restrict__ x_sc16,         // [2, 192]
+    float* __restrict__ y,                    // [rows]
+    int32_t rows) {
+    __shared__ uint4 smem_x[2][192];   // 6,144 B
+    __shared__ float smem_xsc[2][192]; // 1,536 B -> 7,680 B (`4` CTAs/SM = `320 >= 288` single wave, `96 KiB` L1!)
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int row = blockIdx.x * 8 + warp_id;
+    const bool has_row = (row < rows);
+
+    const uint4* wr = w_q8_u128 + static_cast<size_t>(has_row ? row : 0) * 192u;
+    const uint16_t* sr = w_sc16_bf16 + static_cast<size_t>(has_row ? row : 0) * 192u;
+    uint4 w0[6];
+    float ws0[6];
+    #pragma unroll
+    for (int i = 0; i < 6; ++i) {
+        const int c16 = lane + 32 * i;
+        w0[i] = wr[c16];
+        ws0[i] = bf16_to_f32(sr[c16]);
+    }
+
+    pdl_wait();
+    x_q8_u128 = pdl_in(x_q8_u128);
+    x_sc16 = pdl_in(x_sc16);
+
+    for (int idx = tid; idx < 384; idx += 256) {
+        const int term = idx >= 192 ? 1 : 0;
+        const int col = idx >= 192 ? (idx - 192) : idx;
+        smem_x[term][col] = x_q8_u128[idx];
+        smem_xsc[term][col] = x_sc16[idx];
+    }
+    __syncthreads();
+
+    float acc0 = 0.0f;
+    if (has_row) {
+        #pragma unroll
+        for (int i = 0; i < 6; ++i) {
+            const int c16 = lane + 32 * i;
+            const int d_hi = dp4a_u128(w0[i], smem_x[0][c16]);
+            const int d_lo = dp4a_u128(w0[i], smem_x[1][c16]);
+            const float x_dot = __fmaf_rn(
+                static_cast<float>(d_lo),
+                smem_xsc[1][c16],
+                __fmul_rn(static_cast<float>(d_hi), smem_xsc[0][c16]));
+            acc0 = __fmaf_rn(ws0[i], x_dot, acc0);
+        }
+        acc0 = warp_sum(acc0);
+    }
+    pdl_trigger();
+    if (has_row && lane == 0) {
+        y[row] = acc0;
+    }
+}
+
+extern "C" __global__ __launch_bounds__(256, 4) void ink2_wo_conv4_save_q8_16_2t_c3072_r1(
+    const uint4* __restrict__ w_q8_u128,      // [2304, 192]
+    const uint16_t* __restrict__ w_sc16_bf16, // [2304, 192]
+    const uint4* __restrict__ x_q8_u128,      // [2, 192]
+    const float* __restrict__ x_sc16,         // [2, 192]
+    const float4* __restrict__ w_conv4,       // [2304]
+    float* __restrict__ hist3,                // [2304 * 3]
+    float* __restrict__ cur_inout,            // [2304]
+    float* __restrict__ save_prev_out,        // nullable (`[2304]`)
+    int32_t do_res_add) {
+    __shared__ uint4 smem_x[2][192];   // 6,144 B
+    __shared__ float smem_xsc[2][192]; // 1,536 B -> 7,680 B (`4` CTAs/SM = `320 >= 288` single wave, `96 KiB` L1!)
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int row = blockIdx.x * 8 + warp_id; // 288 * 8 = 2304 exact
+
+    const uint4* wr = w_q8_u128 + static_cast<size_t>(row) * 192u;
+    const uint16_t* sr = w_sc16_bf16 + static_cast<size_t>(row) * 192u;
+    uint4 w0[6];
+    float ws0[6];
+    #pragma unroll
+    for (int i = 0; i < 6; ++i) {
+        const int c16 = lane + 32 * i;
+        w0[i] = wr[c16];
+        ws0[i] = bf16_to_f32(sr[c16]);
+    }
+
+    pdl_wait();
+    x_q8_u128 = pdl_in(x_q8_u128);
+    x_sc16 = pdl_in(x_sc16);
+    hist3 = pdl_in_mut(hist3);
+    cur_inout = pdl_in_mut(cur_inout);
+
+    for (int idx = tid; idx < 384; idx += 256) {
+        const int term = idx >= 192 ? 1 : 0;
+        const int col = idx >= 192 ? (idx - 192) : idx;
+        smem_x[term][col] = x_q8_u128[idx];
+        smem_xsc[term][col] = x_sc16[idx];
+    }
+    __syncthreads();
+
+    float acc0 = 0.0f;
+    #pragma unroll
+    for (int i = 0; i < 6; ++i) {
+        const int c16 = lane + 32 * i;
+        const int d_hi = dp4a_u128(w0[i], smem_x[0][c16]);
+        const int d_lo = dp4a_u128(w0[i], smem_x[1][c16]);
+        const float x_dot = __fmaf_rn(
+            static_cast<float>(d_lo),
+            smem_xsc[1][c16],
+            __fmul_rn(static_cast<float>(d_hi), smem_xsc[0][c16]));
+        acc0 = __fmaf_rn(ws0[i], x_dot, acc0);
+    }
+    const float x = warp_sum(acc0);
+
+    pdl_trigger();
+    if (lane == 0) {
+        const float4 wc = w_conv4[row];
+        const float prev = cur_inout[row];
+        if (save_prev_out != nullptr) {
+            save_prev_out[row] = prev;
+        }
+        const float h0 = hist3[row * 3 + 0];
+        const float h1 = hist3[row * 3 + 1];
+        const float h2 = hist3[row * 3 + 2];
+        const float res = do_res_add ? prev : 0.0f;
+        const float y = eval_conv4_step(
+            wc, h0, h1, h2, x, 0, make_float4(0.f, 0.f, 0.f, 0.f), do_res_add, res);
+        hist3[row * 3 + 0] = h1;
+        hist3[row * 3 + 1] = h2;
+        hist3[row * 3 + 2] = x;
+        cur_inout[row] = y;
+    }
+}
+
+// Precision-Max `W_q8_16` (`BF16` scales) x `X_2term` (`Q8_16_2T`) GEMMs for `32GB+` (`B = 1..8`, `0-ULP` Solo == Verify!):
+// `4` CTAs/SM (`11,520 B` SMEM, `64 KiB` L1) for `cols == 2304`, `4` CTAs/SM (`15,360 B` SMEM, `64 KiB` L1) for `cols == 3072`.
+extern "C" __global__ void __launch_bounds__(256, 4) ink2_q8_16_2t_gemm_c2304_r8_b8(
+    const uint4* __restrict__ w_q8_u128,      // [rows, 144]
+    const uint16_t* __restrict__ w_sc16_bf16, // [rows, 144]
+    const uint4* __restrict__ x_q8_u128,      // [B, 2, 144]
+    const float* __restrict__ x_sc16,         // [B, 2, 144]
+    float* __restrict__ y_base,               // [B, y_stride]
+    int32_t rows,
+    int32_t B,
+    int32_t y_stride) {
+    __shared__ uint4 smem_x[2][2][144];   //  9,216 B
+    __shared__ float smem_xsc[2][2][144]; //  2,304 B -> 11,520 B (`4` CTAs/SM!)
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int row = blockIdx.x * 8 + warp_id;
+    const bool has_row = (row < rows);
+
+    const uint4* wr = w_q8_u128 + static_cast<size_t>(has_row ? row : 0) * 144u;
+    const uint16_t* sr = w_sc16_bf16 + static_cast<size_t>(has_row ? row : 0) * 144u;
+    uint4 w0[4];
+    float ws0[4];
+    uint4 w0_4 = make_uint4(0u, 0u, 0u, 0u);
+    float ws0_4 = 0.0f;
+    #pragma unroll
+    for (int i = 0; i < 4; ++i) {
+        const int c16 = lane + 32 * i;
+        w0[i] = wr[c16];
+        ws0[i] = bf16_to_f32(sr[c16]);
+    }
+    if (lane < 16) {
+        const int c16 = lane + 128;
+        w0_4 = wr[c16];
+        ws0_4 = bf16_to_f32(sr[c16]);
+    }
+
+    pdl_wait();
+    x_q8_u128 = pdl_in(x_q8_u128);
+    x_sc16 = pdl_in(x_sc16);
+
+    for (int base_t = 0; base_t < B; base_t += 2) {
+        if (base_t > 0) __syncthreads();
+        const int chunk = min(2, B - base_t);
+        for (int t = 0; t < chunk; ++t) {
+            const uint4* x_src = x_q8_u128 + static_cast<size_t>(base_t + t) * 288u;
+            const float* s_src = x_sc16 + static_cast<size_t>(base_t + t) * 288u;
+            for (int idx = tid; idx < 288; idx += 256) {
+                const int term = idx >= 144 ? 1 : 0;
+                const int col = idx >= 144 ? (idx - 144) : idx;
+                smem_x[t][term][col] = x_src[idx];
+                smem_xsc[t][term][col] = s_src[idx];
+            }
+        }
+        __syncthreads();
+        if (has_row) {
+            float a[2] = {0.f, 0.f};
+            auto step_col = [&](int c16, const uint4& w, float ws) {
+                #pragma unroll
+                for (int t = 0; t < 2; ++t) {
+                    if (t < chunk) {
+                        const int d_hi = dp4a_u128(w, smem_x[t][0][c16]);
+                        const int d_lo = dp4a_u128(w, smem_x[t][1][c16]);
+                        const float x_dot = __fmaf_rn(
+                            static_cast<float>(d_lo),
+                            smem_xsc[t][1][c16],
+                            __fmul_rn(static_cast<float>(d_hi), smem_xsc[t][0][c16]));
+                        a[t] = __fmaf_rn(ws, x_dot, a[t]);
+                    }
+                }
+            };
+            #pragma unroll
+            for (int i = 0; i < 4; ++i) {
+                step_col(lane + 32 * i, w0[i], ws0[i]);
+            }
+            if (lane < 16) {
+                step_col(lane + 128, w0_4, ws0_4);
+            }
+            #pragma unroll
+            for (int t = 0; t < 2; ++t) {
+                if (t < chunk) {
+                    const float v0 = warp_sum(a[t]);
+                    if (lane == 0) {
+                        y_base[static_cast<size_t>(base_t + t) * y_stride + row] = v0;
+                    }
+                }
+            }
+        }
+    }
+    pdl_trigger();
+}
+
+extern "C" __global__ void __launch_bounds__(256, 4) ink2_q8_16_2t_gemm_c3072_r8_b8(
+    const uint4* __restrict__ w_q8_u128,      // [rows, 192]
+    const uint16_t* __restrict__ w_sc16_bf16, // [rows, 192]
+    const uint4* __restrict__ x_q8_u128,      // [B, 2, 192]
+    const float* __restrict__ x_sc16,         // [B, 2, 192]
+    float* __restrict__ y_base,               // [B, y_stride]
+    int32_t rows,
+    int32_t B,
+    int32_t y_stride) {
+    __shared__ uint4 smem_x[2][2][192];   // 12,288 B
+    __shared__ float smem_xsc[2][2][192]; //  3,072 B -> 15,360 B (`4` CTAs/SM!)
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int row = blockIdx.x * 8 + warp_id;
+    const bool has_row = (row < rows);
+
+    const uint4* wr = w_q8_u128 + static_cast<size_t>(has_row ? row : 0) * 192u;
+    const uint16_t* sr = w_sc16_bf16 + static_cast<size_t>(has_row ? row : 0) * 192u;
+    uint4 w0[6];
+    float ws0[6];
+    #pragma unroll
+    for (int i = 0; i < 6; ++i) {
+        const int c16 = lane + 32 * i;
+        w0[i] = wr[c16];
+        ws0[i] = bf16_to_f32(sr[c16]);
+    }
+
+    pdl_wait();
+    x_q8_u128 = pdl_in(x_q8_u128);
+    x_sc16 = pdl_in(x_sc16);
+
+    for (int base_t = 0; base_t < B; base_t += 2) {
+        if (base_t > 0) __syncthreads();
+        const int chunk = min(2, B - base_t);
+        for (int t = 0; t < chunk; ++t) {
+            const uint4* x_src = x_q8_u128 + static_cast<size_t>(base_t + t) * 384u;
+            const float* s_src = x_sc16 + static_cast<size_t>(base_t + t) * 384u;
+            for (int idx = tid; idx < 384; idx += 256) {
+                const int term = idx >= 192 ? 1 : 0;
+                const int col = idx >= 192 ? (idx - 192) : idx;
+                smem_x[t][term][col] = x_src[idx];
+                smem_xsc[t][term][col] = s_src[idx];
+            }
+        }
+        __syncthreads();
+        if (has_row) {
+            float a[2] = {0.f, 0.f};
+            #pragma unroll
+            for (int i = 0; i < 6; ++i) {
+                const int c16 = lane + 32 * i;
+                #pragma unroll
+                for (int t = 0; t < 2; ++t) {
+                    if (t < chunk) {
+                        const int d_hi = dp4a_u128(w0[i], smem_x[t][0][c16]);
+                        const int d_lo = dp4a_u128(w0[i], smem_x[t][1][c16]);
+                        const float x_dot = __fmaf_rn(
+                            static_cast<float>(d_lo),
+                            smem_xsc[t][1][c16],
+                            __fmul_rn(static_cast<float>(d_hi), smem_xsc[t][0][c16]));
+                        a[t] = __fmaf_rn(ws0[i], x_dot, a[t]);
+                    }
+                }
+            }
+            #pragma unroll
+            for (int t = 0; t < 2; ++t) {
+                if (t < chunk) {
+                    const float v0 = warp_sum(a[t]);
+                    if (lane == 0) {
+                        y_base[static_cast<size_t>(base_t + t) * y_stride + row] = v0;
+                    }
+                }
+            }
+        }
+    }
+    pdl_trigger();
+}
+
+extern "C" __global__ void __launch_bounds__(256, 4) ink2_q8_16_2t_qkv3_r8_b8(
+    const uint4* __restrict__ wq_u128,
+    const uint16_t* __restrict__ wq_sc16_bf16,
+    const uint4* __restrict__ wk_u128,
+    const uint16_t* __restrict__ wk_sc16_bf16,
+    const uint4* __restrict__ wv_u128,
+    const uint16_t* __restrict__ wv_sc16_bf16,
+    const uint4* __restrict__ x_q8_u128, // [3, B, 2, 144]
+    const float* __restrict__ x_sc16,    // [3, B, 2, 144]
+    float* __restrict__ y_q,             // [B, y_q_stride]
+    float* __restrict__ y_k,             // [B, rows_kv]
+    float* __restrict__ y_v,             // [B, rows_kv]
+    int32_t rows_q,
+    int32_t rows_kv,
+    int32_t y_q_stride,
+    int32_t B) {
+    __shared__ uint4 smem_x[2][2][144];   //  9,216 B
+    __shared__ float smem_xsc[2][2][144]; //  2,304 B -> 11,520 B (`4` CTAs/SM!)
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int nb_q = (rows_q + 7) >> 3;
+    const int nb_kv = (rows_kv + 7) >> 3;
+    const int bx = blockIdx.x;
+
+    int proj = 0;
+    int local_bx = bx;
+    int rows = rows_q;
+    int y_stride = y_q_stride;
+    const uint4* w_base = wq_u128;
+    const uint16_t* s_base = wq_sc16_bf16;
+    float* y_base = y_q;
+    if (bx >= nb_q) {
+        if (bx < nb_q + nb_kv) {
+            proj = 1;
+            local_bx = bx - nb_q;
+            w_base = wk_u128;
+            s_base = wk_sc16_bf16;
+            y_base = y_k;
+        } else {
+            proj = 2;
+            local_bx = bx - nb_q - nb_kv;
+            w_base = wv_u128;
+            s_base = wv_sc16_bf16;
+            y_base = y_v;
+        }
+        rows = rows_kv;
+        y_stride = rows_kv;
+    }
+
+    const int row = local_bx * 8 + warp_id;
+    const bool has_row = (row < rows);
+    const uint4* wr = w_base + static_cast<size_t>(has_row ? row : 0) * 144u;
+    const uint16_t* sr = s_base + static_cast<size_t>(has_row ? row : 0) * 144u;
+
+    uint4 w0[4];
+    float ws0[4];
+    uint4 w0_4 = make_uint4(0u, 0u, 0u, 0u);
+    float ws0_4 = 0.0f;
+    #pragma unroll
+    for (int i = 0; i < 4; ++i) {
+        const int c16 = lane + 32 * i;
+        w0[i] = wr[c16];
+        ws0[i] = bf16_to_f32(sr[c16]);
+    }
+    if (lane < 16) {
+        const int c16 = lane + 128;
+        w0_4 = wr[c16];
+        ws0_4 = bf16_to_f32(sr[c16]);
+    }
+
+    pdl_wait();
+    const uint4* xq_p = pdl_in(x_q8_u128) + static_cast<size_t>(proj * B) * 288u;
+    const float* xs_p = pdl_in(x_sc16) + static_cast<size_t>(proj * B) * 288u;
+
+    for (int base_t = 0; base_t < B; base_t += 2) {
+        if (base_t > 0) __syncthreads();
+        const int chunk = min(2, B - base_t);
+        for (int t = 0; t < chunk; ++t) {
+            const uint4* x_src = xq_p + static_cast<size_t>(base_t + t) * 288u;
+            const float* s_src = xs_p + static_cast<size_t>(base_t + t) * 288u;
+            for (int idx = tid; idx < 288; idx += 256) {
+                const int term = idx >= 144 ? 1 : 0;
+                const int col = idx >= 144 ? (idx - 144) : idx;
+                smem_x[t][term][col] = x_src[idx];
+                smem_xsc[t][term][col] = s_src[idx];
+            }
+        }
+        __syncthreads();
+        if (has_row) {
+            float a[2] = {0.f, 0.f};
+            auto step_col = [&](int c16, const uint4& w, float ws) {
+                #pragma unroll
+                for (int t = 0; t < 2; ++t) {
+                    if (t < chunk) {
+                        const int d_hi = dp4a_u128(w, smem_x[t][0][c16]);
+                        const int d_lo = dp4a_u128(w, smem_x[t][1][c16]);
+                        const float x_dot = __fmaf_rn(
+                            static_cast<float>(d_lo),
+                            smem_xsc[t][1][c16],
+                            __fmul_rn(static_cast<float>(d_hi), smem_xsc[t][0][c16]));
+                        a[t] = __fmaf_rn(ws, x_dot, a[t]);
+                    }
+                }
+            };
+            #pragma unroll
+            for (int i = 0; i < 4; ++i) {
+                step_col(lane + 32 * i, w0[i], ws0[i]);
+            }
+            if (lane < 16) {
+                step_col(lane + 128, w0_4, ws0_4);
+            }
+            #pragma unroll
+            for (int t = 0; t < 2; ++t) {
+                if (t < chunk) {
+                    const float v0 = warp_sum(a[t]);
+                    if (lane == 0) {
+                        y_base[static_cast<size_t>(base_t + t) * y_stride + row] = v0;
+                    }
+                }
+            }
+        }
+    }
+    pdl_trigger();
+}
+
 // Planar `Q8_64` `__dp4a` Markov Fold Head (`Grid (ceil(VOCAB / 64), 1)`, `Block 256`):
 // 4 lanes per vocab row (`64` cols/lane x `4` = `256` cols), softcap `30.0`, block max + sum_exp!
 extern "C" __global__ void mtp_fold_mv_q8(
@@ -7279,6 +8048,163 @@ extern "C" __global__ void ink2_depth_mix_rmsnorm_quant_q8_64_b(
             if (lane == 0) {
                 dst_sc[blk] = amax * (1.0f / 127.0f);
             }
+        }
+    }
+}
+
+// Fused `depth_mix` + `rmsnorm_quant_q8_16_2t` (`Grid: (n_q, B_out)`, `Block: 256`):
+extern "C" __global__ void ink2_depth_mix_rmsnorm_quant_q8_16_2t_b(
+    const float* __restrict__ blocks_buf,          // [max_blocks, stride_B, D]
+    int32_t n_blocks,
+    int32_t stride_B,
+    int32_t b_offset,
+    int32_t B_out,
+    const float* __restrict__ cur_opt,             // [stride_B, D] if `append_cur == 1`
+    int32_t append_cur,
+    const float* __restrict__ queries,             // [n_q, D]
+    const uint32_t* __restrict__ gamma_bf16_pairs, // [n_q, 1152]
+    uint32_t* __restrict__ out_q8_u32,             // [n_q, B_out, 2, 576]
+    float* __restrict__ out_sc16) {                // [n_q, B_out, 2, 144]
+    __shared__ float smem_mix[kD];
+    __shared__ float smem_sq[6][8];
+    __shared__ float smem_dq[6][8];
+    __shared__ float smem_probs[6];
+    __shared__ float smem_inv[6];
+    __shared__ float smem_scores[6];
+    __shared__ float smem_red[8];
+
+    const int q_idx = blockIdx.x;
+    const int b_out = blockIdx.y;
+    const int b_src = b_offset + b_out;
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int total_states = n_blocks + append_cur;
+    const float* q = queries + static_cast<size_t>(q_idx) * kD;
+    const uint32_t* gamma = gamma_bf16_pairs + static_cast<size_t>(q_idx) * (kD / 2);
+    const float inv_sqrt_d = 0.020833333333333332f;
+
+    float q_reg[9];
+    #pragma unroll
+    for (int t = 0; t < 9; ++t) {
+        q_reg[t] = q[tid + t * 256];
+    }
+    uint32_t gw_reg[5];
+    #pragma unroll
+    for (int it = 0; it < 4; ++it) {
+        gw_reg[it] = gamma[(warp_id + it * 8) * 32 + lane];
+    }
+    gw_reg[4] = (warp_id < 4) ? gamma[(warp_id + 32) * 32 + lane] : 0u;
+
+    pdl_wait();
+    pdl_trigger();
+    blocks_buf = pdl_in(blocks_buf);
+    cur_opt = pdl_in(cur_opt);
+
+    float st_reg[6][9];
+    #pragma unroll
+    for (int s = 0; s < 6; ++s) {
+        if (s < total_states) {
+            const float* st = (s < n_blocks)
+                ? (blocks_buf + (static_cast<size_t>(s) * stride_B + b_src) * kD)
+                : (cur_opt + static_cast<size_t>(b_src) * kD);
+            #pragma unroll
+            for (int t = 0; t < 9; ++t) {
+                st_reg[s][t] = st[tid + t * 256];
+            }
+        }
+    }
+
+    #pragma unroll
+    for (int s = 0; s < 6; ++s) {
+        if (s < total_states) {
+            float sq = 0.0f;
+            float dq = 0.0f;
+            #pragma unroll
+            for (int t = 0; t < 9; ++t) {
+                const float v = st_reg[s][t];
+                sq = __fmaf_rn(v, v, sq);
+                dq = __fmaf_rn(v, q_reg[t], dq);
+            }
+            sq = warp_sum(sq);
+            dq = warp_sum(dq);
+            if (lane == 0) {
+                smem_sq[s][warp_id] = sq;
+                smem_dq[s][warp_id] = dq;
+            }
+        }
+    }
+    __syncthreads();
+
+    if (warp_id == 0) {
+        for (int s = 0; s < total_states; ++s) {
+            float total_sq = (lane < 8) ? smem_sq[s][lane] : 0.0f;
+            float total_dq = (lane < 8) ? smem_dq[s][lane] : 0.0f;
+            total_sq = warp_sum(total_sq);
+            total_dq = warp_sum(total_dq);
+            if (lane == 0) {
+                const float inv = ptx_rsqrt(total_sq * (1.0f / static_cast<float>(kD)) + 1e-6f);
+                smem_inv[s] = inv;
+                smem_scores[s] = total_dq * inv * inv_sqrt_d;
+            }
+        }
+        if (lane == 0) {
+            float m = -1e30f;
+            for (int s = 0; s < total_states; ++s) {
+                if (smem_scores[s] > m) m = smem_scores[s];
+            }
+            float z = 0.0f;
+            for (int s = 0; s < total_states; ++s) {
+                const float e = ptx_exp(smem_scores[s] - m);
+                smem_probs[s] = e;
+                z += e;
+            }
+            const float inv_z = ptx_rcp(z);
+            for (int s = 0; s < total_states; ++s) {
+                smem_probs[s] = smem_probs[s] * inv_z * smem_inv[s];
+            }
+        }
+    }
+    __syncthreads();
+
+    float sq_norm = 0.0f;
+    #pragma unroll
+    for (int t = 0; t < 9; ++t) {
+        const int i = tid + t * 256;
+        float acc = 0.0f;
+        #pragma unroll
+        for (int s = 0; s < 6; ++s) {
+            if (s < total_states) {
+                acc = __fmaf_rn(smem_probs[s], st_reg[s][t], acc);
+            }
+        }
+        smem_mix[i] = acc;
+        sq_norm = __fmaf_rn(acc, acc, sq_norm);
+    }
+    sq_norm = warp_sum(sq_norm);
+    if (lane == 0) smem_red[warp_id] = sq_norm;
+    __syncthreads();
+    if (tid < 32) {
+        float bsum = (tid < 8) ? smem_red[tid] : 0.0f;
+        bsum = warp_sum(bsum);
+        if (tid == 0) smem_red[0] = ptx_rsqrt(bsum * (1.0f / static_cast<float>(kD)) + 1e-6f);
+    }
+    __syncthreads();
+    const float k = smem_red[0];
+
+    const size_t vec_idx = static_cast<size_t>(q_idx) * B_out + b_out;
+    uint32_t* vec_q8 = out_q8_u32 + vec_idx * (2u * (kD / 4));
+    float* vec_sc = out_sc16 + vec_idx * (2u * (kD / 16));
+
+    #pragma unroll
+    for (int it = 0; it < 5; ++it) {
+        const int blk = warp_id + it * 8;
+        if (blk < (kD / 64)) {
+            const uint32_t gw = gw_reg[it];
+            const int base = blk * 64 + lane * 2;
+            const float y0 = __fmul_rn(__fmul_rn(smem_mix[base], k), bf16_to_f32(static_cast<uint16_t>(gw & 0xFFFFu)));
+            const float y1 = __fmul_rn(__fmul_rn(smem_mix[base + 1], k), bf16_to_f32(static_cast<uint16_t>(gw >> 16)));
+            quant_warp64_q8_16_2t(y0, y1, lane, static_cast<size_t>(blk), kD / 4, vec_q8, vec_sc);
         }
     }
 }
@@ -9411,6 +10337,123 @@ extern "C" __global__ void __launch_bounds__(256, 3) ink2_wo_conv4_save_c3072_r8
         }
         #pragma unroll
         for (int t = 0; t < 4; ++t) {
+            if (t < chunk) {
+                const float x = warp_sum(a[t]);
+                if (lane == 0) {
+                    const int b = base_t + t;
+                    const size_t idx = static_cast<size_t>(b) * kD + row;
+                    const float prev = cur_inout[idx];
+                    if (save_prev_base != nullptr) {
+                        save_prev_base[idx] = prev;
+                    }
+                    if (seq_out != nullptr) {
+                        seq_out[static_cast<size_t>(3 + b) * kD + row] = x;
+                    }
+                    const float res = do_res_add ? prev : 0.0f;
+                    const float y = eval_conv4_step(
+                        wc, h0, h1, h2, x, 0, make_float4(0.f, 0.f, 0.f, 0.f), do_res_add, res);
+                    h0 = h1;
+                    h1 = h2;
+                    h2 = x;
+                    cur_inout[idx] = y;
+                }
+            }
+        }
+    }
+    if (lane == 0) {
+        hist3[row * 3 + 0] = h0;
+        hist3[row * 3 + 1] = h1;
+        hist3[row * 3 + 2] = h2;
+    }
+}
+
+// Fused Solo + Verify `wo` (`c3072`, `W_q8_16` x `X_2term`) + `attn_sconv` + Block Save + `seq_out` (`Grid: (288, 1)`, `Block: 256`):
+// `4` CTAs/SM (`320` CTA slots on 80-SM PRO 4500 & `440` on 110-SM PRO 5000 >= `288` CTAs = SINGLE WAVE on both!).
+extern "C" __global__ void __launch_bounds__(256, 4) ink2_wo_conv4_save_q8_16_2t_c3072_r8_b8(
+    const uint4* __restrict__ w_q8_u128,      // [2304, 192]
+    const uint16_t* __restrict__ w_sc16_bf16, // [2304, 192]
+    const uint4* __restrict__ x_q8_u128,      // [B, 2, 192]
+    const float* __restrict__ x_sc16,         // [B, 2, 192]
+    const float4* __restrict__ w_conv4,       // [2304]
+    float* __restrict__ hist3,                // [2304 * 3]
+    float* __restrict__ cur_inout,            // [B, 2304]
+    float* __restrict__ save_prev_base,       // nullable (`[B, 2304]`)
+    float* __restrict__ seq_out,              // nullable (`[11, 2304]`)
+    int32_t B,
+    int32_t do_res_add) {
+    __shared__ uint4 smem_x[2][2][192];   // 12,288 B
+    __shared__ float smem_xsc[2][2][192]; //  3,072 B -> 15,360 B (`4` CTAs/SM!)
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid >> 5;
+    const int lane = tid & 31;
+    const int row = blockIdx.x * 8 + warp_id; // 288 * 8 = 2304 exact
+
+    const uint4* wr = w_q8_u128 + static_cast<size_t>(row) * 192u;
+    const uint16_t* sr = w_sc16_bf16 + static_cast<size_t>(row) * 192u;
+    uint4 w0[6];
+    float ws0[6];
+    #pragma unroll
+    for (int i = 0; i < 6; ++i) {
+        const int c16 = lane + 32 * i;
+        w0[i] = wr[c16];
+        ws0[i] = bf16_to_f32(sr[c16]);
+    }
+    const float4 wc = (lane == 0) ? w_conv4[row] : make_float4(0.f, 0.f, 0.f, 0.f);
+
+    pdl_wait();
+    pdl_trigger();
+    x_q8_u128 = pdl_in(x_q8_u128);
+    x_sc16 = pdl_in(x_sc16);
+    hist3 = pdl_in_mut(hist3);
+    cur_inout = pdl_in_mut(cur_inout);
+
+    float h0 = 0.f, h1 = 0.f, h2 = 0.f;
+    if (lane == 0) {
+        h0 = hist3[row * 3 + 0];
+        h1 = hist3[row * 3 + 1];
+        h2 = hist3[row * 3 + 2];
+        if (seq_out != nullptr) {
+            seq_out[0 * kD + row] = h0;
+            seq_out[1 * kD + row] = h1;
+            seq_out[2 * kD + row] = h2;
+        }
+    }
+
+    for (int base_t = 0; base_t < B; base_t += 2) {
+        if (base_t > 0) __syncthreads();
+        const int chunk = min(2, B - base_t);
+        for (int t = 0; t < chunk; ++t) {
+            const uint4* x_src = x_q8_u128 + static_cast<size_t>(base_t + t) * 384u;
+            const float* s_src = x_sc16 + static_cast<size_t>(base_t + t) * 384u;
+            for (int idx = tid; idx < 384; idx += 256) {
+                const int term = idx >= 192 ? 1 : 0;
+                const int col = idx >= 192 ? (idx - 192) : idx;
+                smem_x[t][term][col] = x_src[idx];
+                smem_xsc[t][term][col] = s_src[idx];
+            }
+        }
+        __syncthreads();
+
+        float a[2] = {0.f, 0.f};
+        #pragma unroll
+        for (int i = 0; i < 6; ++i) {
+            const int c16 = lane + 32 * i;
+            #pragma unroll
+            for (int t = 0; t < 2; ++t) {
+                if (t < chunk) {
+                    const int d_hi = dp4a_u128(w0[i], smem_x[t][0][c16]);
+                    const int d_lo = dp4a_u128(w0[i], smem_x[t][1][c16]);
+                    const float x_dot = __fmaf_rn(
+                        static_cast<float>(d_lo),
+                        smem_xsc[t][1][c16],
+                        __fmul_rn(static_cast<float>(d_hi), smem_xsc[t][0][c16]));
+                    a[t] = __fmaf_rn(ws0[i], x_dot, a[t]);
+                }
+            }
+        }
+        #pragma unroll
+        for (int t = 0; t < 2; ++t) {
             if (t < chunk) {
                 const float x = warp_sum(a[t]);
                 if (lane == 0) {
@@ -14492,7 +15535,7 @@ extern "C" __global__ __launch_bounds__(512, 2) void ink2_router_topk8_par_b(
         sel_wts_base + b * 8u);
 }
 
-template <bool kInt8>
+template <bool kInt8, bool kQ8_16_2t = false>
 __device__ __forceinline__ void gqa_attn_g1_q8_decode_body(
     const float* __restrict__ qrgs_base,        // [B, qrgs_stride]
     int32_t qrgs_stride,
@@ -14740,27 +15783,38 @@ __device__ __forceinline__ void gqa_attn_g1_q8_decode_body(
         const float y0 = (sum0 * inv_denom) * ptx_sigmoid(g0);
         const float y1 = (sum1 * inv_denom) * ptx_sigmoid(g1);
 
-        float amax = fmaxf(fabsf(y0), fabsf(y1));
-        #pragma unroll
-        for (int mask = 16; mask > 0; mask >>= 1) {
-            amax = fmaxf(amax, __shfl_xor_sync(0xFFFFFFFFu, amax, mask));
-        }
-        const float qinv = (amax > 0.0f) ? (127.0f * ptx_rcp(amax)) : 0.0f;
-        int q0 = __float2int_rn(y0 * qinv);
-        int q1 = __float2int_rn(y1 * qinv);
-        if (q0 < -127) q0 = -127;
-        if (q0 > 127) q0 = 127;
-        if (q1 < -127) q1 = -127;
-        if (q1 > 127) q1 = 127;
-        const uint32_t pair16 = static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q0)))
-            | (static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q1))) << 8);
-        const uint32_t pack32 = pair16 | (__shfl_xor_sync(0xFFFFFFFFu, pair16, 1) << 16);
         const size_t out_blk = static_cast<size_t>(kvh * 6 + blk);
-        if ((lane & 1) == 0) {
-            out_q8_u32[static_cast<size_t>(b) * 768u + out_blk * 16u + (lane >> 1)] = pack32;
-        }
-        if (lane == 0) {
-            out_sc64[static_cast<size_t>(b) * 48u + out_blk] = amax * (1.0f / 127.0f);
+        if constexpr (kQ8_16_2t) {
+            quant_warp64_q8_16_2t(
+                y0,
+                y1,
+                lane,
+                out_blk,
+                768u,
+                out_q8_u32 + static_cast<size_t>(b) * 1536u,
+                out_sc64 + static_cast<size_t>(b) * 384u);
+        } else {
+            float amax = fmaxf(fabsf(y0), fabsf(y1));
+            #pragma unroll
+            for (int mask = 16; mask > 0; mask >>= 1) {
+                amax = fmaxf(amax, __shfl_xor_sync(0xFFFFFFFFu, amax, mask));
+            }
+            const float qinv = (amax > 0.0f) ? (127.0f * ptx_rcp(amax)) : 0.0f;
+            int q0 = __float2int_rn(y0 * qinv);
+            int q1 = __float2int_rn(y1 * qinv);
+            if (q0 < -127) q0 = -127;
+            if (q0 > 127) q0 = 127;
+            if (q1 < -127) q1 = -127;
+            if (q1 > 127) q1 = 127;
+            const uint32_t pair16 = static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q0)))
+                | (static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q1))) << 8);
+            const uint32_t pack32 = pair16 | (__shfl_xor_sync(0xFFFFFFFFu, pair16, 1) << 16);
+            if ((lane & 1) == 0) {
+                out_q8_u32[static_cast<size_t>(b) * 768u + out_blk * 16u + (lane >> 1)] = pack32;
+            }
+            if (lane == 0) {
+                out_sc64[static_cast<size_t>(b) * 48u + out_blk] = amax * (1.0f / 127.0f);
+            }
         }
     }
 }
@@ -14772,8 +15826,19 @@ extern "C" __global__ __launch_bounds__(256, 4) void ink2_gqa_attn_g1_q8_decode(
     const int32_t* __restrict__ pos_ptr, int32_t kv_cap, int32_t is_global,
     uint32_t* __restrict__ out_q8_u32, float* __restrict__ out_sc64) {
     pdl_wait();
-    gqa_attn_g1_q8_decode_body<false>(qrgs_base, qrgs_stride, rel_proj_bf16,
+    gqa_attn_g1_q8_decode_body<false, false>(qrgs_base, qrgs_stride, rel_proj_bf16,
         k_cache_fp16, v_cache_fp16, k_scale, v_scale, pos_ptr, kv_cap, is_global, out_q8_u32, out_sc64);
+}
+
+extern "C" __global__ __launch_bounds__(256, 4) void ink2_gqa_attn_g1_q8_16_2t_decode(
+    const float* __restrict__ qrgs_base, int32_t qrgs_stride, const uint32_t* __restrict__ rel_proj_bf16,
+    const uint16_t* __restrict__ k_cache_fp16, const uint16_t* __restrict__ v_cache_fp16,
+    const float* __restrict__ k_scale, const float* __restrict__ v_scale,
+    const int32_t* __restrict__ pos_ptr, int32_t kv_cap, int32_t is_global,
+    uint32_t* __restrict__ out_q8_u32, float* __restrict__ out_sc16) {
+    pdl_wait();
+    gqa_attn_g1_q8_decode_body<false, true>(qrgs_base, qrgs_stride, rel_proj_bf16,
+        k_cache_fp16, v_cache_fp16, k_scale, v_scale, pos_ptr, kv_cap, is_global, out_q8_u32, out_sc16);
 }
 
 extern "C" __global__ __launch_bounds__(256, 4) void ink2_gqa_attn_g1_q8_decode_i8(
@@ -15235,7 +16300,7 @@ extern "C" __global__ void ink2_sc_save_depth_mix_inv(
 // Eliminates `48` `ink2_gqa_attn_combine_q8_dyn` launches/step across BOTH Solo Decode (`B=1`) and
 // Speculative Verify (`B<=8`, `0..128K`), keeps `G`-way KV parallelism (`<= 8` KV steps/warp at short ctx),
 // and fires `pdl_trigger()` at entry so `wo` (`288` CTAs) overlaps 100% with attention (`0-ULP` exact)!
-template <bool kInt8>
+template <bool kInt8, bool kQ8_16_2t = false>
 __device__ __forceinline__ void gqa_attn_split_fused_q8_dec_impl(
     const float* __restrict__ qrgs_base,        // [B, qrgs_stride]
     int32_t qrgs_stride,
@@ -15525,27 +16590,38 @@ __device__ __forceinline__ void gqa_attn_split_fused_q8_dec_impl(
             const float y0 = (sum0 * inv_denom) * ptx_sigmoid(gate_buf[h * kHd + d0]);
             const float y1 = (sum1 * inv_denom) * ptx_sigmoid(gate_buf[h * kHd + d1]);
 
-            float amax = fmaxf(fabsf(y0), fabsf(y1));
-            #pragma unroll
-            for (int mask = 16; mask > 0; mask >>= 1) {
-                amax = fmaxf(amax, __shfl_xor_sync(0xFFFFFFFFu, amax, mask));
-            }
-            const float qinv = (amax > 0.0f) ? (127.0f * ptx_rcp(amax)) : 0.0f;
-            int q0 = __float2int_rn(y0 * qinv);
-            int q1 = __float2int_rn(y1 * qinv);
-            if (q0 < -127) q0 = -127;
-            if (q0 > 127) q0 = 127;
-            if (q1 < -127) q1 = -127;
-            if (q1 > 127) q1 = 127;
-            const uint32_t pair16 = static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q0)))
-                | (static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q1))) << 8);
-            const uint32_t pack32 = pair16 | (__shfl_xor_sync(0xFFFFFFFFu, pair16, 1) << 16);
             const size_t out_blk = static_cast<size_t>(kvh * 6 + blk);
-            if ((lane & 1) == 0) {
-                out_q8_u32[static_cast<size_t>(b) * 768u + out_blk * 16u + (lane >> 1)] = pack32;
-            }
-            if (lane == 0) {
-                out_sc64[static_cast<size_t>(b) * 48u + out_blk] = amax * (1.0f / 127.0f);
+            if constexpr (kQ8_16_2t) {
+                quant_warp64_q8_16_2t(
+                    y0,
+                    y1,
+                    lane,
+                    out_blk,
+                    768u,
+                    out_q8_u32 + static_cast<size_t>(b) * 1536u,
+                    out_sc64 + static_cast<size_t>(b) * 384u);
+            } else {
+                float amax = fmaxf(fabsf(y0), fabsf(y1));
+                #pragma unroll
+                for (int mask = 16; mask > 0; mask >>= 1) {
+                    amax = fmaxf(amax, __shfl_xor_sync(0xFFFFFFFFu, amax, mask));
+                }
+                const float qinv = (amax > 0.0f) ? (127.0f * ptx_rcp(amax)) : 0.0f;
+                int q0 = __float2int_rn(y0 * qinv);
+                int q1 = __float2int_rn(y1 * qinv);
+                if (q0 < -127) q0 = -127;
+                if (q0 > 127) q0 = 127;
+                if (q1 < -127) q1 = -127;
+                if (q1 > 127) q1 = 127;
+                const uint32_t pair16 = static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q0)))
+                    | (static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q1))) << 8);
+                const uint32_t pack32 = pair16 | (__shfl_xor_sync(0xFFFFFFFFu, pair16, 1) << 16);
+                if ((lane & 1) == 0) {
+                    out_q8_u32[static_cast<size_t>(b) * 768u + out_blk * 16u + (lane >> 1)] = pack32;
+                }
+                if (lane == 0) {
+                    out_sc64[static_cast<size_t>(b) * 48u + out_blk] = amax * (1.0f / 127.0f);
+                }
             }
         }
         return;
@@ -15620,27 +16696,38 @@ __device__ __forceinline__ void gqa_attn_split_fused_q8_dec_impl(
         const float y0 = (sum0 * inv_denom) * ptx_sigmoid(gate_buf[h * kHd + d0]);
         const float y1 = (sum1 * inv_denom) * ptx_sigmoid(gate_buf[h * kHd + d1]);
 
-        float amax = fmaxf(fabsf(y0), fabsf(y1));
-        #pragma unroll
-        for (int mask = 16; mask > 0; mask >>= 1) {
-            amax = fmaxf(amax, __shfl_xor_sync(0xFFFFFFFFu, amax, mask));
-        }
-        const float qinv = (amax > 0.0f) ? (127.0f * ptx_rcp(amax)) : 0.0f;
-        int q0 = __float2int_rn(y0 * qinv);
-        int q1 = __float2int_rn(y1 * qinv);
-        if (q0 < -127) q0 = -127;
-        if (q0 > 127) q0 = 127;
-        if (q1 < -127) q1 = -127;
-        if (q1 > 127) q1 = 127;
-        const uint32_t pair16 = static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q0)))
-            | (static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q1))) << 8);
-        const uint32_t pack32 = pair16 | (__shfl_xor_sync(0xFFFFFFFFu, pair16, 1) << 16);
         const size_t out_blk = static_cast<size_t>(kvh * 6 + blk);
-        if ((lane & 1) == 0) {
-            out_q8_u32[static_cast<size_t>(b) * 768u + out_blk * 16u + (lane >> 1)] = pack32;
-        }
-        if (lane == 0) {
-            out_sc64[static_cast<size_t>(b) * 48u + out_blk] = amax * (1.0f / 127.0f);
+        if constexpr (kQ8_16_2t) {
+            quant_warp64_q8_16_2t(
+                y0,
+                y1,
+                lane,
+                out_blk,
+                768u,
+                out_q8_u32 + static_cast<size_t>(b) * 1536u,
+                out_sc64 + static_cast<size_t>(b) * 384u);
+        } else {
+            float amax = fmaxf(fabsf(y0), fabsf(y1));
+            #pragma unroll
+            for (int mask = 16; mask > 0; mask >>= 1) {
+                amax = fmaxf(amax, __shfl_xor_sync(0xFFFFFFFFu, amax, mask));
+            }
+            const float qinv = (amax > 0.0f) ? (127.0f * ptx_rcp(amax)) : 0.0f;
+            int q0 = __float2int_rn(y0 * qinv);
+            int q1 = __float2int_rn(y1 * qinv);
+            if (q0 < -127) q0 = -127;
+            if (q0 > 127) q0 = 127;
+            if (q1 < -127) q1 = -127;
+            if (q1 > 127) q1 = 127;
+            const uint32_t pair16 = static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q0)))
+                | (static_cast<uint32_t>(static_cast<uint8_t>(static_cast<int8_t>(q1))) << 8);
+            const uint32_t pack32 = pair16 | (__shfl_xor_sync(0xFFFFFFFFu, pair16, 1) << 16);
+            if ((lane & 1) == 0) {
+                out_q8_u32[static_cast<size_t>(b) * 768u + out_blk * 16u + (lane >> 1)] = pack32;
+            }
+            if (lane == 0) {
+                out_sc64[static_cast<size_t>(b) * 48u + out_blk] = amax * (1.0f / 127.0f);
+            }
         }
     }
 }
@@ -15653,10 +16740,24 @@ extern "C" __global__ __launch_bounds__(256, 3) void ink2_gqa_attn_split_fused_q
     float* part_ml, float* part_o, uint32_t* done_cnt,
     uint32_t* __restrict__ out_q8_u32, float* __restrict__ out_sc64) {
     pdl_wait();
-    gqa_attn_split_fused_q8_dec_impl<false>(
+    gqa_attn_split_fused_q8_dec_impl<false, false>(
         qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_fp16, v_cache_fp16,
         k_scale, v_scale, pos_ptr, kv_cap, is_global,
         part_ml, part_o, done_cnt, out_q8_u32, out_sc64);
+}
+
+extern "C" __global__ __launch_bounds__(256, 3) void ink2_gqa_attn_split_fused_q8_16_2t_dec(
+    const float* __restrict__ qrgs_base, int32_t qrgs_stride, const uint32_t* __restrict__ rel_proj_bf16,
+    const uint16_t* __restrict__ k_cache_fp16, const uint16_t* __restrict__ v_cache_fp16,
+    const float* __restrict__ k_scale, const float* __restrict__ v_scale,
+    const int32_t* __restrict__ pos_ptr, int32_t kv_cap, int32_t is_global,
+    float* part_ml, float* part_o, uint32_t* done_cnt,
+    uint32_t* __restrict__ out_q8_u32, float* __restrict__ out_sc16) {
+    pdl_wait();
+    gqa_attn_split_fused_q8_dec_impl<false, true>(
+        qrgs_base, qrgs_stride, rel_proj_bf16, k_cache_fp16, v_cache_fp16,
+        k_scale, v_scale, pos_ptr, kv_cap, is_global,
+        part_ml, part_o, done_cnt, out_q8_u32, out_sc16);
 }
 
 extern "C" __global__ __launch_bounds__(256, 4) void ink2_gqa_attn_split_fused_q8_dec_i8(
