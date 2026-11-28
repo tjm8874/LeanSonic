@@ -629,6 +629,8 @@ pub struct Qwen38GpuEngine {
     d_mixed: DeviceBuf,
     d_layer_trace: DeviceBuf,
     layer_teacher: Option<DeviceBuf>,
+    mlp_teacher: Option<DeviceBuf>,
+    trace_attention: bool,
     d_branch_out: DeviceBuf,
     d_gdn_in: DeviceBuf,
     d_qkv_conv: DeviceBuf,
@@ -896,6 +898,12 @@ impl Qwen38GpuEngine {
         } else {
             None
         };
+        let mlp_teacher = if std::env::var_os("Q38_TRACE_MLP_INPUT").is_some() {
+            Some(DeviceBuf::alloc_zeroed(&ctx, Q38_LAYERS * Q38_HC_D * 4)?)
+        } else {
+            None
+        };
+        let trace_attention = std::env::var_os("Q38_TRACE_ATTENTION").is_some();
         let d_layer_trace = DeviceBuf::alloc_zeroed(&ctx, (Q38_LAYERS + 1) * Q38_HC_D * 4)?;
         let d_mixed = DeviceBuf::alloc_zeroed(&ctx, Q38_D * 4)?;
         let d_branch_out = DeviceBuf::alloc_zeroed(&ctx, Q38_D * 4)?;
@@ -1427,6 +1435,8 @@ impl Qwen38GpuEngine {
             d_mixed,
             d_layer_trace,
             layer_teacher,
+            mlp_teacher,
+            trace_attention,
             d_branch_out,
             d_gdn_in,
             d_qkv_conv,
@@ -1749,6 +1759,14 @@ impl Qwen38GpuEngine {
             .ok_or("teacher buffer disabled")?;
         if states.len() != buf.byte_len {
             return Err("unexpected teacher-state byte count".into());
+        }
+        buf.copy_from_host_bytes(states)
+    }
+
+    pub fn set_mlp_teacher(&self, states: &[u8]) -> Result<(), String> {
+        let buf = self.mlp_teacher.as_ref().ok_or("MLP teacher disabled")?;
+        if states.len() != buf.byte_len {
+            return Err("incorrect MLP teacher byte count".into());
         }
         buf.copy_from_host_bytes(states)
     }
@@ -2362,6 +2380,23 @@ impl Qwen38GpuEngine {
             }
 
             self.launch_hc_post(stream)?;
+            if self.trace_attention {
+                self.trace_layer(stream, l_idx + 1)?;
+            }
+            if let Some(buf) = &self.mlp_teacher {
+                let bytes = Q38_HC_D * 4;
+                unsafe {
+                    check_cu(
+                        (self.ctx.api.cuMemcpyDtoDAsync_v2)(
+                            self.d_hc.ptr,
+                            buf.ptr + (l_idx * bytes) as u64,
+                            bytes,
+                            stream,
+                        ),
+                        "apply MLP teacher",
+                    )?;
+                }
+            }
             self.launch_hc_pre(stream, &layer.mlp_hc)?;
 
             {
@@ -2538,7 +2573,9 @@ impl Qwen38GpuEngine {
             }
 
             self.launch_hc_post(stream)?;
-            self.trace_layer(stream, l_idx + 1)?;
+            if !self.trace_attention {
+                self.trace_layer(stream, l_idx + 1)?;
+            }
         }
 
         if compute_logits {

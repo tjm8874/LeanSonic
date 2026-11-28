@@ -31,7 +31,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     {
         return Err("unaligned teacher states".into());
     }
+    let mlp_stride = Q38_LAYERS * Q38_HC_D * 4;
+    let mlp = env::var_os("Q38_TRACE_MLP_INPUT")
+        .map(fs::read)
+        .transpose()?;
+    if mlp
+        .as_ref()
+        .is_some_and(|v| v.len() != seq.len() * mlp_stride)
+    {
+        return Err("unaligned MLP states".into());
+    }
     for (i, id) in seq.into_iter().enumerate() {
+        if let Some(bytes) = &mlp {
+            engine.set_mlp_teacher(&bytes[i * mlp_stride..(i + 1) * mlp_stride])?;
+        }
         if let Some(bytes) = &teacher {
             engine.set_layer_teacher(&bytes[i * stride..(i + 1) * stride])?;
         }

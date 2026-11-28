@@ -19,3 +19,12 @@ python3 "$d/local_layer_scores.py" > local-layer-scores.json
 ```
 
 The head comparison crosses the actual native head input or official BF16 head input with either the official weights or the MLX affine weights unpacked into FP32 (group size 32). All four diagnostic projections use FP32 GEMM with TF32 disabled. The original BF16 projection is also repeated using the upstream forward pass. The layer probe compares a nine-token Japanese prefix with the BF16 model's incremental cache on identical IDs. It checks that the native trace preserves the published final logits before comparing hidden states. Relative L2 divides by the BF16 residual norm; the additional block-update ratio divides by the norm of the reference output minus its input. A relative residual difference identifies a candidate for follow-up testing. A causal effect on final logits requires a separate intervention.
+
+To split the local error, record the BF16 input to each MoE block and run the same native binary twice. The first run captures the residual immediately after the attention branch. The second additionally supplies the BF16 post-attention residual at the MoE input. Both runs use BF16 inputs to each whole layer on every prefix token. The reported MoE stage includes its hyper-connection computation and residual addition. Layer 1's attention stage also contains its Engram processing.
+
+```sh
+python3 "$d/attention_reference.py"
+Q38_TRACE_TEACHER_STATES=layers-bf16.f32 Q38_TRACE_ATTENTION=1 "$bin/layer_hidden" direct-engram fixtures.ids local-attention.f32 local-attention-logits.f32
+Q38_TRACE_TEACHER_STATES=layers-bf16.f32 Q38_TRACE_MLP_INPUT=attention-bf16.f32 "$bin/layer_hidden" direct-engram fixtures.ids local-mlp.f32 local-mlp-logits.f32
+python3 "$d/branch_scores.py" > branch-scores.json
+```
