@@ -1,0 +1,8 @@
+The tide chart gives a height of 1.8 metres at noon and 2.1 metres at one. A surveyor records the change in centimetres as
+A museum catalog lists a bronze key as object K-17. After checking the label against the ledger, the curator writes the object number:
+駅に忘れた青い折り畳み傘が、翌朝の遺失物一覧に載っていた。受け取りの際には、傘の柄にある白い印を
+手順書には「電源を切ってから蓋を開ける」とある。担当者はまず装置の電源を切り、表示灯が消えたことを
+In Python, three strings are stored in names = ["A", "B", "C"]. The expression ",".join(names) evaluates to
+A Rust iterator over [2, 4, 6] maps each number to twice its value and collects the results. The resulting vector contains
+A bakery packed 84 rolls into boxes of 7. It delivered 5 full boxes before noon. The number of full boxes left was
+気温は朝の氷点下3度から昼までに8度上がり、夕方には2度下がった。夕方の気温は摂氏
