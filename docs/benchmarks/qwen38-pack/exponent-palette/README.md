@@ -46,3 +46,18 @@ On the PRO 4500, a follow-up pinned `LEANSONIC_MAX_RESIDENT_LAYERS` to 19 or 20.
 | Palette, 20 layers | 30.443 | 701.62 / 5633.50 | 22.64 / 22.29 |
 
 With the palette binary held fixed, moving one additional expert layer to VRAM increased median decode by 3.6% on the short prompt and 1.7% on the long prompt. At 19 layers the short-prompt decode rate differed by 0.01 tok/s between builds. The long-prompt trials showed greater launch-to-launch variation. The stock and palette executables also printed different host Engram size estimates (29.8 and 27.6 GiB) for the same checkpoint path. The table reports process VRAM from NVML. [Timings, loader logs, token IDs and binary hashes](matched32.json)
+
+## Wave 3 integration
+
+The optional palette build at `000c80e` uses the packed exponent reader in both grouped batched MoE kernels. The GPU test allocates each upper plane at its actual packed size. On the PRO 5000 both grouped kernels passed Compute Sanitizer memcheck with 65,536 bytes of padding. Per-kernel names and test output are in the [Wave 3 results](wave3.json).
+
+The stock and palette builds produced byte-identical logits at all 49 scored positions on both the PRO 5000 and PRO 4500. All four eight-token continuations and both 32-token streams matched on each GPU. On the PRO 5000 we also submitted four fixed sequences containing 53 tokens to `forward_verify_tokens`, using chunk widths from 1 through 8 after a fresh reset each time. All 424 returned top-token IDs in each build matched its serial run and the other build. The verifier returns argmax IDs at this boundary. To repeat, copy [verify_widths.rs](verify_widths.rs) into the core crate's examples, build it in the same configurations as the teacher example, and run it with the model path and `fixtures.ids`.
+
+| GPU and layout | Expert layers in VRAM | Sampled peak (GiB) | Prefill to first token, 16 / 128 (tok/s) | Decode, 16 / 128 (tok/s) |
+| --- | ---: | ---: | ---: | ---: |
+| PRO 5000 stock | 48 | 70.303 | 398.17 / 494.25 | 163.18 / 159.14 |
+| PRO 5000 palette | 48 | 68.521 | 395.77 / 488.94 | 157.40 / 153.69 |
+| PRO 4500 stock | 19 | 29.840 | 57.53 / 66.39 | 21.85 / 21.78 |
+| PRO 4500 palette | 20 | 30.490 | 57.17 / 66.05 | 22.66 / 22.60 |
+
+Each cell uses one warm resident process per build and GPU, one warmup and three measured requests at context 256 with 32 greedy output tokens. On this checkpoint the 72 GB card can trade 3.4% of long-prompt decode throughput for 1.781 GiB of space. On the 32 GB card automatic placement spends the saving on one more resident expert layer and increases long-prompt decode by 3.8%. The default remains the stock layout.
