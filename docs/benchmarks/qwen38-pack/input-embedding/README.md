@@ -193,3 +193,18 @@ Run `shared_experts.py "$DIRECT" "$OFFICIAL" "$SHARED"` and `build_ple.py "$SHAR
 The RTX 5070 Ti reproduced all 233 full-vocabulary rows and continuation IDs for the combined PLE/shared arm; the RTX 5060 Ti reproduced the 494-position set. In both cases the FP32, row metadata and continuation SHA-256 hashes matched the PRO 5000. The four 128-output requests used the research loader, which put 19/48 layers in VRAM on the PRO 4500. Warm median decode ranges were 21.81–21.82 → 21.78–21.79 tok/s on that board and 160.41–161.11 → 159.34–160.02 on the PRO 5000. Both boards used 67,108,864 additional peak process bytes. The common 104-position comparison gave mean/worst truncated KL 0.33863/2.45336 for stock, 0.33457/2.32693 for the combined variant, and 0.03287/0.65464 for Basalt fixed. [Timings, outputs, hashes and public scores](ple-shared-validation.json.gz)
 
 These measurements used the pre-correction final mixer gain. The [independent loader correction and repeated four-set ablation](https://github.com/tjm8874/LeanSonic/pull/276) substantially change the baseline. On the 233 new positions, adding both PLE and shared changes to the corrected target lowered worst KL from 1.92162 to 1.49495, but increased mean KL from 0.15861 to 0.15939 and PPL from 20.6235 to 20.6532.
+
+## Higher precision for 726 dense matrices
+
+The routed experts and the 320M-row Engram lookup stayed in MLX Q4, decoded to BF16 at their point of use in the upstream eager implementation. We varied the 726 dense Q4-eligible target matrices (4,882,227,200 weights) between official BF16, symmetric group-32 Q8, and symmetric group-32 Q6. The other nonquantized parameters came from the official checkpoint. Q8/Q6 use a BF16 scale per group and rounded signed integer codes. This experiment assesses the precision allocation; it does not measure native kernel throughput.
+
+| Dense parts | New 233 mean / worst KL | Top-1 | PPL | Common 104 mean / worst truncated KL | Top-1 | PPL |
+|---|---:|---:|---:|---:|---:|---:|
+| BF16 | 0.02835 / 0.20614 | 216/233 | 18.3221 | 0.03453 / 0.20606 | 96/104 | 9.0082 |
+| Q8 | 0.02989 / 0.42574 | 216/233 | 18.3350 | 0.03633 / 0.42539 | 95/104 | 9.0973 |
+| Q6 | 0.03862 / 0.30087 | 209/233 | 18.5011 | 0.04818 / 0.30154 | 93/104 | 8.9670 |
+| Basalt v0.5.7 fixed, UD-Q4_K_XL | — | — | — | 0.03287 / 0.65464 | 98/104 | 9.1700 |
+
+The native corrected Q4 loader reached 0.21018/1.92389 and 82/104 on the common rows. Q8 approached Basalt's mean KL, improved its worst KL and matched three fewer BF16 top predictions. BF16 reference PPL was 18.5885 on 233 positions and 9.1535 on the 104-row subset. On the original 49 positions, Q8 gave 0.02296/0.18979 and 46/49. [Full scores, precision payloads and replay results](dense-precision.json)
+
+Run dense_precision.py with the official and MLX checkpoints, original IDs, new IDs, and a fresh output directory. Use replay_common.py to select exactly the Basalt-scored rows from each saved FP32 matrix, then pipe those rows to native eval-kld --logits-f32 - using the same ref.kld.
