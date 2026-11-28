@@ -4388,3 +4388,36 @@ extern "C" __global__ void q38_hc_up_mix4_b2(
     }
     pdl_trigger();
 }
+
+// A warp computes one output row for one token. Q8 reconstruction rounds each
+// signed-code times BF16 scale to BF16, as in the reference model.
+extern "C" __global__ void q38_dense_q8_gemv(
+    const uint32_t* __restrict__ weights, const uint16_t* __restrict__ scales,
+    const float4* __restrict__ input, float* __restrict__ output, int rows, int cols) {
+    const int row = blockIdx.x * 8 + (threadIdx.x >> 5);
+    const int lane = threadIdx.x & 31;
+    pdl_wait();
+    if (row < rows) {
+        const int words = cols >> 2;
+        const uint32_t* w = weights + static_cast<size_t>(row) * words;
+        const float4* x = input + static_cast<size_t>(blockIdx.y) * words;
+        float acc = 0.0f;
+        for (int i = lane; i < words; i += 32) {
+            const size_t group = static_cast<size_t>(row) * (cols >> 5) + (i >> 3);
+            const float scale = bf16_to_f32(scales[group]);
+            const uint32_t codes = w[i];
+            const float4 v = x[i];
+            const float elements[] = {v.x, v.y, v.z, v.w};
+            #pragma unroll
+            for (int j = 0; j < 4; ++j) {
+                const int code = static_cast<int8_t>(codes >> (8 * j));
+                uint16_t rounded;
+                asm("cvt.rn.bf16.f32 %0, %1;" : "=h"(rounded) : "f"(code * scale));
+                acc = fmaf(bf16_to_f32(rounded), elements[j], acc);
+            }
+        }
+        const float sum = warp_sum(acc);
+        if (lane == 0) output[static_cast<size_t>(blockIdx.y) * rows + row] = sum;
+    }
+    pdl_trigger();
+}

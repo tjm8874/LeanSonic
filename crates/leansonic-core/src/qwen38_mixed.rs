@@ -224,7 +224,11 @@ impl MixedExperts {
                 format!("layer {layer}, projection {proj} exceeds Z24 exponent span")
             })?;
             bases[proj] = u32::from(sc) | (u32::from(bi) << 8);
-            let planes = [weights.as_ref(), u32_slice_bytes(low), u32_slice_bytes(high)];
+            let planes = [
+                weights.as_ref(),
+                u32_slice_bytes(low),
+                u32_slice_bytes(high),
+            ];
             let sizes = [
                 EX_W_BYTES,
                 SW_Z24_LO_BYTES / Q38_EXP,
