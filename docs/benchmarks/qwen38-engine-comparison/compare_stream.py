@@ -85,7 +85,7 @@ def run(args):
             ready = now()
             for cycle in range(4):
                 for case, ids in enumerate(prompts):
-                    n = 32
+                    n = args.generate
                     sendtime = now()
                     send(f"GEN {n} " + ",".join(map(str, ids)))
                     stamps = []
@@ -154,12 +154,15 @@ def run(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--generate", type=int, default=32)
     parser.add_argument("--held-out-routing", action="store_true")
     parser.add_argument("fixtures", type=Path)
     parser.add_argument("log", type=Path)
     parser.add_argument("result", type=Path)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    if args.generate <= 1:
+        parser.error("--generate must be at least two to measure decode")
     result = run(args)
     with args.result.open("x") as out:
         json.dump(result, out, indent=2)

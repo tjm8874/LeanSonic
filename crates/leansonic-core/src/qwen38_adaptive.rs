@@ -16,6 +16,27 @@ fn table_bytes(entries: &[u64]) -> &[u8] {
     unsafe { std::slice::from_raw_parts(entries.as_ptr().cast(), std::mem::size_of_val(entries)) }
 }
 
+// Preserve every physical slot that already contains a required expert. The
+// remaining slots receive only records absent from the old resident set.
+fn retain_slots(occupants: &[Option<usize>], desired: &[usize]) -> Vec<usize> {
+    let mut wanted = [false; Q38_EXP];
+    let mut retained = [false; Q38_EXP];
+    for &e in desired {
+        wanted[e] = true;
+    }
+    for e in occupants.iter().flatten() {
+        retained[*e] = wanted[*e];
+    }
+    let mut missing = desired.iter().copied().filter(|&e| !retained[e]);
+    occupants
+        .iter()
+        .map(|&slot| match slot {
+            Some(e) if retained[e] => e,
+            _ => missing.next().expect("equal slot and desired counts"),
+        })
+        .collect()
+}
+
 impl AdaptiveLayer {
     pub(super) fn new(
         ctx: &Arc<CudaContextHandle>,
@@ -98,6 +119,7 @@ impl AdaptiveLayer {
         for (slot, expert) in victims.zip(candidates) {
             desired[slot] = expert;
         }
+        let desired = retain_slots(&self.occupants, &desired);
         if self.table_published
             && self
                 .occupants
@@ -142,5 +164,23 @@ impl AdaptiveLayer {
         device_table.copy_from_host_bytes(table_bytes(&new_table))?;
         self.table_published = true;
         Ok(moved)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::retain_slots;
+
+    #[test]
+    fn preserves_overlapping_slots_and_refills_incomplete_transfers() {
+        assert_eq!(
+            retain_slots(&[Some(5), Some(2), Some(8)], &[8, 5, 9]),
+            [5, 9, 8]
+        );
+        assert_eq!(
+            retain_slots(&[None, Some(9), Some(8)], &[8, 5, 9]),
+            [5, 9, 8]
+        );
+        assert_eq!(retain_slots(&[Some(2), Some(3)], &[3, 2]), [2, 3]);
     }
 }
