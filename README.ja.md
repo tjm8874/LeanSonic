@@ -144,7 +144,87 @@ curl -N http://127.0.0.1:8080/v1/chat/completions \
   -d '{"model":"qwen3.8-flash-next","messages":[{"role":"user","content":"Stream GDN+QSA"}],"max_tokens":12,"stream":true}'
 ```
 
-### 3. 第1層 Lean 4 証明の再検証とヘッダ再生成
+### 3. ベンチマーク・品質検証ガイド（`leansonic bench` ほか）
+
+`leansonic bench` は、実機 Blackwell GPU 上での Prefill スループット（`tok/s`）、最終ステップの Top-5 ロジット＆チェックサム、および Solo / 投機的デコード速度（`tok/s`・`ms/tok`）を計測する標準コマンドです。`config.json` から **`Inkling-2-Mini`**（`16g` Speed Pack / `32g` Precision Pack）と **`Qwen3.8-Flash-Next`**（`106 GB` 22シャード）を自動判別します。
+
+#### `leansonic bench` コマンド構文・オプション一覧
+
+```bash
+leansonic bench \
+  --weights <model_dir> \
+  --tokens <synth:N | chat:<text> | chat:@prompt.txt | id1,id2,... | @ids.csv> \
+  [--gen N] \
+  [--repeat R] \
+  [--spec 0..7] \
+  [--no-graph]
+```
+
+| オプション | 既定値 | 説明 |
+| :--- | :--- | :--- |
+| `-w`, `--weights <dir>` | *(必須)* | `.safetensors` シャードとトークナイザ（Inkling は `tiktoken/`、Qwen3.8 は `tokenizer.json`）を含むディレクトリ。 |
+| `-t`, `--tokens <spec>` | *(必須)* | 入力トークン指定（下記4形式に対応）。 |
+| `-g`, `--gen <N>` | `32` | Greedy 生成するトークン数（`0` を指定すると Prefill と先頭ロジット検証のみ実行）。 |
+| `-r`, `--repeat <R>` | `1` | 同一プロセス内で `reset() -> prefill -> decode` を `R` 回反復（`run 0` は初回確保・ウォームアップ、`run >= 1` がウォーム定常速度）。 |
+| `--spec <K>` | `0` | 投機デコード深さ（`0` = Solo Decode、`1..7` = `DFlash 2` / `DSpark` / `Qwen3.8 MTP` による `0-ULP` 検証付き投機デコード）。 |
+| `--no-graph` | *(有効)* | CUDA Graph リプレイを無効化（単発デバッグや `nsys` カーネル別プロファイル取得時に使用）。 |
+
+#### `--tokens` の4つの指定形式
+1. **`synth:N`**（例: `--tokens synth:2048`）: 決定論的な合成トークン列 `N` 個（`(i * 7 + 100) % 50000`）を生成。外部ファイルなしで Prefill・長文脈スケーリングを再現性100%で計測できます。
+2. **`chat:<テキスト>`**（例: `--tokens "chat:Gated DeltaNetの仕組みを3行で説明してください"`）: モデル固有のチャットテンプレート（`effort = none`）を適用してその場でトークナイズします。
+3. **`chat:@file.txt`**（例: `--tokens chat:@benches/prompts/code.txt`）: UTF-8 テキストファイルを読み込み、1ターンのユーザー入力としてトークナイズします。
+4. **`id1,id2,...` または `@ids.csv`**（例: `--tokens 100,107,114` / `--tokens @fixture.ids`）: カンマ区切りのトークン ID 列を直接 `prefill_tokens` に渡します。
+
+#### 実践的な計測レシピ集
+
+```bash
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+export CUDA_VISIBLE_DEVICES=0
+
+# 1. Inkling-2-Mini (32g 精度追求パック / 16g 高速パック): 2K Prefill + Solo vs DFlash 2 投機デコード比較
+leansonic bench --weights /path/to/inkling-32g --tokens synth:2048 --gen 128 --repeat 3
+leansonic bench --weights /path/to/inkling-32g --tokens "chat:Rustで非再帰クイックソートを実装してください" --spec 7 --gen 128 --repeat 3
+
+# 2. Qwen3.8-Flash-Next (106 GB Hybrid GDN + QSA + 512-Expert MoE + 30 GiB Engram): Batched Prefill & Solo Decode
+leansonic bench --weights /path/to/qwen3.8-flash-next --tokens synth:512 --gen 64 --repeat 3
+leansonic bench --weights /path/to/qwen3.8-flash-next --tokens synth:2048 --gen 64 --repeat 3
+
+# 3. 32K 長文脈位置での Decode レイテンシ直接計測（32K Prefill を待たずに位置のみジャンプ）
+LEANSONIC_CTX=36864 LEANSONIC_BENCH_DECODE_AT=32768 \
+  leansonic bench --weights /path/to/qwen3.8-flash-next --tokens synth:64 --gen 64 --repeat 3
+```
+
+#### 主な環境変数（`bench` / `-p` / `serve` 共通）
+
+| 環境変数 | 対象 | 用途 |
+| :--- | :--- | :--- |
+| `CUDA_DEVICE_ORDER=PCI_BUS_ID` | 全GPU実行 | マルチGPU環境で `CUDA_VISIBLE_DEVICES` を `nvidia-smi` の物理 PCIe 番号と一致させる。 |
+| `LEANSONIC_CTX=<tokens>` | Inkling / Qwen3.8 | 最大 KV・QSA 文脈長を指定（Qwen3.8 は必要に応じて上限まで自動拡張）。 |
+| `LEANSONIC_BENCH_DECODE_AT=<pos>` | `bench` | Prefill 後にデコード位置を `<pos>` へ移動し、長文脈時の Decode 速度のみを高速測定。 |
+| `LEANSONIC_EVAL_DUMP=<file.f32>` | `bench` | 全語彙 FP32 ロジットをバイナリ出力（`LEANSONIC_EVAL_FORCE=id1,id2,...` と併用し KLD / `0-ULP` 検証に使用）。 |
+| `LEANSONIC_PREFILL_CHUNK=<64..1024>` | Inkling | Batched Prefill のチャンク幅を固定または上限設定。 |
+| `LEANSONIC_KV=<fp16\|int8\|int8-all>` | Inkling | KV キャッシュ精度切替（`<= 16.5 GiB` GPU で `> 8K` 文脈時は `int8` が自動選択）。 |
+| `LEANSONIC_DFLASH2_DIR=<dir>` | Inkling `--spec` | 5層 `DFlash 2` ブロック拡散ドラフタのディレクトリを明示指定。 |
+| `LEANSONIC_CUBIN_PATH` / `LEANSONIC_QWEN38_CUBIN_PATH` | Inkling / Qwen3.8 | 実行バイナリ横の `.cubin` 自動探索を上書き指定。 |
+
+#### 関連ベンチマーク・品質検証サブコマンド（`bench-matrix`, `multiseq`, `canary`, `eval-kld`）
+
+```bash
+# 全GPU一括マトリクス計測（中央値＋ブートストラップ95%信頼区間を targets.json と自動照合）
+leansonic bench-matrix --weights "$MODEL_DIR" --gpus all --n 5 --out host_results.json
+
+# 複数スロット連続バッチ実行＆ C=1 == C=N 状態非干渉チェック（Inkling-2-Mini）
+leansonic multiseq --weights "$INKLING_DIR" --tokens synth:256 --seqs 16 --gen 64
+
+# 定数プロンプト ("Tokyo") + 16K Needle検索 ("RAVEN-731") + --spec 0 == --spec 7 完全一致ゲート
+leansonic canary --weights "$MODEL_DIR"
+leansonic canary --weights "$INKLING_DIR" --long   # 128K ("MARSH-527" / "CORAL-841") 長文脈検索も実行
+
+# BF16 参照ロジットに対する 100チャンク KL情報量（KLD）・Perplexity 品質監査
+leansonic eval-kld --weights "$MODEL_DIR" --ref "$REF_KLD"
+```
+
+### 4. 第1層 Lean 4 証明の再検証とヘッダ再生成
 
 ```bash
 cd spec
@@ -156,12 +236,26 @@ python3 ci/check_lean_axioms.py
 
 ---
 
-## ロードマップ・リリース履歴
+## コントリビューション ＆ AIエージェント用スキル
 
-- [x] **Phase 0 & 1 (`v0.1.0`) — 凍結信頼コア・5段階CI ＆ `Inkling-2-Mini` 実機GPUエンジン**: Lean 4による `sm_120` 離散資源則・`0-ULP` 証明、全24層・48訪問 Full-GPU `Inkling-2-Mini`（`RTX PRO 4500`: `131.3 tok/s`, `RTX 5070 Ti` Spilled: `65.9 tok/s`）。
-- [x] **Cycle 1 (`v0.2.0`) — Multi-Token Batched Prefill**: Planar `Q8_64` `__dp4a` GEMM + Zero-Atomic Grouped MoE（`RTX PRO 4500`: `794.1 tok/s` = `7.14×`, `RTX 5070 Ti`: `337.6 tok/s` = `5.55×`）。
-- [x] **Cycle 2 (`v0.3.0`) — 無損失 `DSpark` Full-GPU 投機的デコード**: `mtp.safetensors` GPUドラフタ + `O(1)` Multi-Token Rewind + `0.0000`-ULP ハードウェアFMA完全一致（`RTX PRO 4500`: `326.8 tok/s` = `2.58×`, `RTX 5070 Ti`: `132.0 tok/s` = `2.02×`、凍結コア差分 `0`）。
-- [x] **Cycle 3 (`v0.4.0`) — 実重み `106 GB` `Qwen3.8-Flash-Next` / `Qwen4Exp` GPUエンジン**: 22シャード `safetensors` `mmap`、36層 Gated DeltaNet + 12層 QSA Sparse Attention、4分岐 Hyper-Connection、`512`-Expert `Top-10` 4-bit MoE（3階層 VRAM / HostPinned / MmapCompact）、`29.80 GiB` 3-Gram `Engram`/`PLE` 非同期オフロード、48層 CUDA Graph、計 `61` 個の Lean 4 機械証明（凍結コア差分 `0`）。
+人間開発者・自律AIエージェント（Antigravity / Claude Code / Codex）ともに、共通の5段階ゲートと凍結信頼コア規則に従って開発を行います。
+- **[CONTRIBUTING.md](./CONTRIBUTING.md)**: Gate 0〜4 のローカル検証手順、`sm_120` 離散資源則、必須の Exact-Size `compute-sanitizer --padding 65536` ＋ Planted-Fault Red Control、共有GPUの `flock` 排他ロック規約、公開リポジトリのプライバシー保護規則を記載しています。
+- **[`.agents/skills/leansonic_contribute/SKILL.md`](./.agents/skills/leansonic_contribute/SKILL.md)** (`leansonic_contribute`): AIコーディングエージェントが自動で読み込めるワークスペーススキルです。
+
+---
+
+## 版ごとのリリースレポート（`docs/releases/` — 英語・日本語）
+
+各バージョンの設計・最適化手法・実機検証レポートを **英語・日本語の両方** で [`docs/releases/`](./docs/releases/) に収録しています。
+
+- **`v0.1.0` – `v0.4.0` 総括**: [日本語](./docs/releases/v0.1.0_to_v0.4.0_retrospective.ja.md) | [English](./docs/releases/v0.1.0_to_v0.4.0_retrospective.md) — 凍結信頼コア・Batched Prefill・`DSpark` 投機デコード・初代 `106 GB` `Qwen3.8-Flash-Next` GPUエンジン
+- **`v0.5.0`**: [日本語](./docs/releases/v0.5.0_report.ja.md) | [English](./docs/releases/v0.5.0_report.md) — `16 GB` Spilled VRAM 動的配分 ＆ 無損失 `Inkling-2-Mini` シャード圧縮
+- **`v0.6.0`**: [日本語](./docs/releases/v0.6.0_report.ja.md) | [English](./docs/releases/v0.6.0_report.md) — マルチスロット連続バッチ（`C = 1..64`）＆ `128K` 長文脈 Split-KV
+- **`v0.7.0`**: [日本語](./docs/releases/v0.7.0_report.ja.md) | [English](./docs/releases/v0.7.0_report.md) — `INT8` Global KV キャッシュ ＆ 広幅 `B = 1024` Grouped MoE Prefill
+- **`v0.8.0`**: [日本語](./docs/releases/v0.8.0_report.ja.md) | [English](./docs/releases/v0.8.0_report.md) — `DFlash 2` ブロック拡散投機デコード ＆ Exact-Size Sanitizer ゲート
+- **`v0.9.0`**: [日本語](./docs/releases/v0.9.0_report.ja.md) | [English](./docs/releases/v0.9.0_report.md) — `PDL` オーバーラップ・GPU圧縮スケール常駐 ＆ Blackwell 4カード統合検証
+- **`v0.10.0`**: [日本語](./docs/releases/v0.10.0_report.ja.md) | [English](./docs/releases/v0.10.0_report.md) — `16 GB` Spilled 機向け適応型 `spec_k` ガバナ ＆ `DFlash 2` 標準化
+- **`v0.11.0`（`Inkling-2-Mini` 完成版）**: [日本語](./docs/releases/v0.11.0_report.ja.md) | [English](./docs/releases/v0.11.0_report.md) — `16g` 高速パック（`879 tok/s` Prefill / `265 tok/s` Spec）＆ `32g` 精度追求パック（`2,731 tok/s` Prefill / `506 tok/s` Spec）二階層完成
 
 ---
 

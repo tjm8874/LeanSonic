@@ -185,7 +185,87 @@ curl -N http://127.0.0.1:8080/v1/chat/completions \
   -d '{"model":"qwen3.8-flash-next","messages":[{"role":"user","content":"Stream GDN+QSA"}],"max_tokens":12,"stream":true}'
 ```
 
-### 3. Re-Verify Layer 1 Lean 4 Proofs & Regenerate Headers
+### 3. Benchmarking & Quality Verification Guide (`leansonic bench`)
+
+`leansonic bench` measures real GPU prefill throughput (`tok/s`), top-5 vocabulary logits + logit checksum, and autoregressive / speculative decode throughput (`tok/s` & `ms/tok`) across both **`Inkling-2-Mini`** (`16g` Speed Pack / `32g` Precision Pack) and **`Qwen3.8-Flash-Next`** (`106 GB` 22-shard checkpoint). Model architecture is auto-detected from `config.json`.
+
+#### `leansonic bench` Command Reference
+
+```bash
+leansonic bench \
+  --weights <model_dir> \
+  --tokens <synth:N | chat:<text> | chat:@prompt.txt | id1,id2,... | @ids.csv> \
+  [--gen N] \
+  [--repeat R] \
+  [--spec 0..7] \
+  [--no-graph]
+```
+
+| Flag | Default | Description |
+| :--- | :--- | :--- |
+| `-w`, `--weights <dir>` | *(required)* | Model directory containing `.safetensors` shards and tokenizer (`tiktoken/` for Inkling, `tokenizer.json` for Qwen3.8). |
+| `-t`, `--tokens <spec>` | *(required)* | Prompt input specification (see the 4 formats below). |
+| `-g`, `--gen <N>` | `32` | Number of greedy completion tokens to generate (`0` = prefill + first-step logits only). |
+| `-r`, `--repeat <R>` | `1` | Repeat `reset() -> prefill -> decode` `R` times in the same process (`run 0` includes cold graph/buffer warmup; `run >= 1` measures warm steady-state). |
+| `--spec <K>` | `0` | Speculative draft depth (`0` = Solo Decode; `1..7` = `0-ULP` verified speculative decode via `DFlash 2` / `DSpark` / `Qwen3.8 MTP`). |
+| `--no-graph` | *(enabled)* | Disable CUDA Graph replay for single-step decode debugging / `nsys` kernel profiling. |
+
+#### `--tokens` Input Formats
+1. **`synth:N`** (e.g. `--tokens synth:2048`): Generates `N` deterministic synthetic token IDs (`(i * 7 + 100) % 50000`) for standardized prefill and KV-scaling benchmarks without external prompt files.
+2. **`chat:<text>`** (e.g. `--tokens "chat:Explain Gated DeltaNet in three bullet points."`): Formats a single user turn with the checkpoint's native chat template (`effort = none`) and tokenizes on the fly.
+3. **`chat:@file.txt`** (e.g. `--tokens chat:@benches/prompts/code.txt`): Reads UTF-8 prompt text from `file.txt` and formats it as a single user chat turn.
+4. **`id1,id2,...` or `@ids.csv`** (e.g. `--tokens 100,107,114` or `--tokens @fixture.ids`): Feeds exact comma-separated token IDs directly into `prefill_tokens`.
+
+#### Practical `leansonic bench` Examples
+
+```bash
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+export CUDA_VISIBLE_DEVICES=0
+
+# 1. Inkling-2-Mini (32g Precision Pack or 16g Speed Pack): 2K prefill + 128-token Solo vs DFlash 2 Speculative Decode
+leansonic bench --weights /path/to/inkling-32g --tokens synth:2048 --gen 128 --repeat 3
+leansonic bench --weights /path/to/inkling-32g --tokens "chat:Write an iterative quicksort in Rust." --spec 7 --gen 128 --repeat 3
+
+# 2. Qwen3.8-Flash-Next (106 GB Hybrid GDN + QSA + 512-Expert MoE + 30 GiB Engram): Batched Prefill & Solo Decode
+leansonic bench --weights /path/to/qwen3.8-flash-next --tokens synth:512 --gen 64 --repeat 3
+leansonic bench --weights /path/to/qwen3.8-flash-next --tokens synth:2048 --gen 64 --repeat 3
+
+# 3. Long-context decode timing at 32K KV depth without waiting to prefill 32K tokens (timing-only jump)
+LEANSONIC_CTX=36864 LEANSONIC_BENCH_DECODE_AT=32768 \
+  leansonic bench --weights /path/to/qwen3.8-flash-next --tokens synth:64 --gen 64 --repeat 3
+```
+
+#### Environment Variables for `bench`, `-p`, and `serve`
+
+| Variable | Applies To | Purpose |
+| :--- | :--- | :--- |
+| `CUDA_DEVICE_ORDER=PCI_BUS_ID` | All GPU runs | Ensures `CUDA_VISIBLE_DEVICES` matches `nvidia-smi` PCIe indices on multi-GPU hosts. |
+| `LEANSONIC_CTX=<tokens>` | Inkling & Qwen3.8 | Sets maximum KV/QSA context capacity (auto-grows on Qwen3.8 up to `LEANSONIC_CTX`). |
+| `LEANSONIC_BENCH_DECODE_AT=<pos>` | `bench` | Jumps decode position to `<pos>` after prefill to benchmark long-context decode latency directly. |
+| `LEANSONIC_EVAL_DUMP=<file.f32>` | `bench` | Writes raw full-vocabulary FP32 logits (`[1 + forced.len(), vocab]`) for offline KLD / `0-ULP` parity audits (pair with `LEANSONIC_EVAL_FORCE=id1,id2,...`). |
+| `LEANSONIC_PREFILL_CHUNK=<64..1024>` | Inkling | Caps or forces the batched prefill chunk width. |
+| `LEANSONIC_KV=<fp16\|int8\|int8-all>` | Inkling | Selects KV cache precision (`int8` auto-activates above `8K` context on `<= 16.5 GiB` GPUs). |
+| `LEANSONIC_DFLASH2_DIR=<dir>` | Inkling `--spec` | Explicit path to the 5-layer `DFlash 2` block-diffusion drafter directory. |
+| `LEANSONIC_CUBIN_PATH` / `LEANSONIC_QWEN38_CUBIN_PATH` | Inkling / Qwen3.8 | Overrides automatic `.cubin` discovery next to the `leansonic` binary. |
+
+#### Companion Suite Commands (`bench-matrix`, `multiseq`, `canary`, `eval-kld`)
+
+```bash
+# Multi-GPU bootstrap benchmark matrix (scores median + 95% CI against docs/benchmarks/targets.json)
+leansonic bench-matrix --weights "$MODEL_DIR" --gpus all --n 5 --out host_results.json
+
+# Multi-sequence continuous batching & C=1 == C=N state-isolation verification (Inkling-2-Mini)
+leansonic multiseq --weights "$INKLING_DIR" --tokens synth:256 --seqs 16 --gen 64
+
+# Deterministic factual ("Tokyo") + 16K needle-in-a-haystack ("RAVEN-731") + --spec 0 == --spec 7 0-ULP gate
+leansonic canary --weights "$MODEL_DIR"
+leansonic canary --weights "$INKLING_DIR" --long   # Adds 128K ("MARSH-527" / "CORAL-841") retrieval gate
+
+# Teacher-forced 100-chunk KL-divergence & Perplexity audit against BF16 reference
+leansonic eval-kld --weights "$MODEL_DIR" --ref "$REF_KLD"
+```
+
+### 4. Re-Verify Layer 1 Lean 4 Proofs & Regenerate Headers
 
 ```bash
 cd spec
@@ -197,12 +277,26 @@ python3 ci/check_lean_axioms.py
 
 ---
 
-## Roadmap & Releases
+## Contributing & AI Agent Skill
 
-- [x] **Phase 0 & 1 (`v0.1.0`) — Immutable Trust Core, 5-Gate CI & `Inkling-2-Mini` GPU Engine**: Constructive Lean 4 `sm_120` laws, `VisitBytecode` (`24 → 48` looped visits), full-GPU `NVFP4`/`MXFP8`/`Q8_64` `Inkling-2-Mini` (`131.3 tok/s` on `RTX PRO 4500`, `65.9 tok/s` Spilled on `RTX 5070 Ti`).
-- [x] **Cycle 1 (`v0.2.0`) — Multi-Token Batched Prefill**: Planar `Q8_64` `__dp4a` GEMM + Zero-Atomic Grouped MoE (`794.1 tok/s` = `7.14×` on `RTX PRO 4500`, `337.6 tok/s` = `5.55×` on `RTX 5070 Ti`).
-- [x] **Cycle 2 (`v0.3.0`) — Lossless `DSpark` Full-GPU Speculative Decoding**: `mtp.safetensors` GPU drafter + `O(1)` Multi-Token Rewind + `0.0000`-ULP hardware FMA alignment (`326.8 tok/s` = `2.58×` on `RTX PRO 4500`, `132.0 tok/s` = `2.02×` on `RTX 5070 Ti`, `0` Trust Core diff).
-- [x] **Cycle 3 (`v0.4.0`) — Real `106 GB` `Qwen3.8-Flash-Next` / `Qwen4Exp` GPU Engine**: 22-shard `safetensors` `mmap`, `36` Gated DeltaNet + `12` QSA Sparse Attention layers, `4`-Stream Hyper-Connection, `512`-Expert `Top-10` Group-32 4-Bit MoE (3-Tier VRAM / HostPinned / MmapCompact), `29.80 GiB` `320M`-row 3-Gram `Engram`/`PLE` Async Offload, 48-layer CUDA Graph, and `61` machine-checked Lean 4 theorems (`0` Trust Core diff).
+Contributions from both human engineers and autonomous coding agents follow the 5-Gate Immutable Trust Core workflow:
+- **[CONTRIBUTING.md](./CONTRIBUTING.md)**: Full guide to the 5 Machine Gates (`Gates 0–4`), SM120 discrete resource laws, mandatory exact-size `compute-sanitizer --padding 65536` + planted-fault red controls, shared GPU `flock` etiquette, and public-repo privacy rules.
+- **[`.agents/skills/leansonic_contribute/SKILL.md`](./.agents/skills/leansonic_contribute/SKILL.md)** (`leansonic_contribute`): Ready-to-use workspace skill for Antigravity, Claude Code, and Codex.
+
+---
+
+## Release Reports (`docs/releases/`)
+
+Detailed engineering & hardware verification reports are published in **both English and Japanese** under [`docs/releases/`](./docs/releases/):
+
+- **`v0.1.0` – `v0.4.0` Retrospective**: [English](./docs/releases/v0.1.0_to_v0.4.0_retrospective.md) | [日本語](./docs/releases/v0.1.0_to_v0.4.0_retrospective.ja.md) — Immutable Trust Core, Batched Prefill, `DSpark` Speculative Decode, and Initial `106 GB` `Qwen3.8-Flash-Next` Engine
+- **`v0.5.0`**: [English](./docs/releases/v0.5.0_report.md) | [日本語](./docs/releases/v0.5.0_report.ja.md) — `16 GB` Spilled VRAM Budgeting & Lossless `Inkling-2-Mini` Shard Packing
+- **`v0.6.0`**: [English](./docs/releases/v0.6.0_report.md) | [日本語](./docs/releases/v0.6.0_report.ja.md) — Multi-Slot Continuous Batching (`C = 1..64`) & `128K` Long-Context Split-KV
+- **`v0.7.0`**: [English](./docs/releases/v0.7.0_report.md) | [日本語](./docs/releases/v0.7.0_report.ja.md) — `INT8` Global KV Cache & Wide `B = 1024` Grouped MoE Prefill
+- **`v0.8.0`**: [English](./docs/releases/v0.8.0_report.md) | [日本語](./docs/releases/v0.8.0_report.ja.md) — `DFlash 2` Block-Diffusion Speculative Decoding & Exact-Size Sanitizer Gate
+- **`v0.9.0`**: [English](./docs/releases/v0.9.0_report.md) | [日本語](./docs/releases/v0.9.0_report.ja.md) — `PDL` Overlap, Packed GPU Expert Scales & `4`-Card Blackwell Matrix
+- **`v0.10.0`**: [English](./docs/releases/v0.10.0_report.md) | [日本語](./docs/releases/v0.10.0_report.ja.md) — Adaptive Spilled `spec_k` Governor & Unified `DFlash 2` Default Drafter
+- **`v0.11.0` (`Inkling-2-Mini` Final Edition)**: [English](./docs/releases/v0.11.0_report.md) | [日本語](./docs/releases/v0.11.0_report.ja.md) — Two-Tier `16g` Speed (`879 tok/s` Prefill / `265 tok/s` Spec) & `32g` Precision (`2,731 tok/s` Prefill / `506 tok/s` Spec) Packs
 
 ---
 
