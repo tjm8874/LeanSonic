@@ -107,9 +107,9 @@ fn f32_norm(
     n: usize,
     add_one: bool,
 ) -> Result<DeviceBuf, String> {
-    let off = if add_one { 1.0f32 } else { 0.0 };
-    let v: Vec<u8> = st
-        .require(name, "BF16", &[n])
+    let tensor = st.require(name, "BF16", &[n]);
+    let off = crate::qwen38_norm::offset(name, tensor.data, add_one);
+    let v: Vec<u8> = tensor
         .to_u16_vec()
         .into_iter()
         .flat_map(|u| (off + f32::from_bits(u32::from(u) << 16)).to_le_bytes())
