@@ -43,3 +43,16 @@ The shared/expert activation precision and execution paths outside the chosen fa
 The mixer driver compared both nonlinear stages and injection outputs against scalar reference dots across both final and intermediate mixers at batch sizes 1, 2, 5 and 8. The PRO 4500, 5070 Ti and 5060 Ti produced identical per-case maximum errors. Both kernels passed compute-sanitizer memcheck on the PRO 4500. Independently truncating the final down or up output by one float triggered an invalid write in each red control.
 
 A separate Q4 experiment changed only the 148 residual norm vectors to official values. It left mean KL slightly higher on all three fixture sets. At 494 positions the corrected Q4 baseline's worst KL rose from 2.32175 to 2.70353 and top-1 agreement fell from 414 to 408. The main loader correction #276 and the separate 148-tensor substitution address distinct changes. [Inputs, outputs, quality metrics, controlled placement timings and mixer numerical errors](native-532.json.gz)
+
+## Complete native Q8 decoder
+
+Commit `070438c` runs all 726 signed-Q8 decoder matrices. The target and drafter share the embedding and output head. Routed experts, Engram and MTP-specific matrices retain their original encodings. Use the [105,692,126,511-byte official-norm package](../qwen38-pack/dense-q8/README.md#restoring-the-148-official-residual-norms). The 32 GB test loaded this complete directory directly. The 16 GB validation pointed an existing direct-Q4 expert/Engram index at a single transferred shard with the exact same 726 Q8 code/scale pairs and 148 official norms.
+
+| Native all-vocabulary fixture | Corrected Q4 → full Q8 mean KL | Worst KL | Top-1 | PPL |
+|---|---:|---:|---:|---:|
+| New, 233 positions (5070 Ti) | 0.15861 → 0.03452 | 1.92162 → 0.78989 | 184 → 215 | 20.6235 → 18.4991 |
+| Extended, 494 positions (PRO 4500) | 0.11960 → 0.02293 | 2.32175 → 0.32195 | 414 → 458 | 12.3159 → 11.4317 |
+
+On the common 176-position Basalt protocol, native Q8 versus Basalt v0.5.7 fixed scored mean/worst truncated KL 0.02043/0.30740 versus 0.01690/0.19575, top-1 171 versus 172, PPL 7.7387 versus 7.6513. On the separate 104 positions the scores were 0.04740/0.78630 versus 0.03287/0.65464, 93 versus 98, and 8.9345 versus 9.1700. The 233- and 494-position complete-vocabulary protocol uses a different selection of positions from those two common subsets. [Native scores and on-device operator checks](full-native.json)
+
+The signed shared-expert projection and the four-stream embedding produced identical independent scalar-check results on the PRO 4500, 5070 Ti and 5060 Ti. The embedding matched the BF16 reconstruction exactly for 10,240 and 174,080 output values. Both kernels passed compute-sanitizer with exactly sized allocations. Each reported an invalid write with the one-float-short red control. The full SM120a cubin passed the repository's SASS audit. The draft remains experimental pending throughput, speculative parity, and the broader BF16 comparisons.
