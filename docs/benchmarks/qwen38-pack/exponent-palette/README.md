@@ -11,7 +11,7 @@ In the full engine on an RTX PRO 5000 72 GB, the new layout lowered the sampled 
 | 16 / 32 | 92.44 / 95.92 | 162.97 / 157.39 |
 | 128 / 32 | 745.96 / 773.72 | 158.98 / 153.69 |
 
-The build is opt-in. The measured 3.3–3.4% standalone decode cost matters when deciding whether to spend the freed VRAM on another component such as MTP. A combined MTP speed or fit still requires testing. The distribution checkpoint is shared between both runs.
+The build is opt-in. The measured 3.3–3.4% standalone decode cost matters when deciding whether to spend the freed VRAM on another component such as MTP. With the drafter from PR 254 loaded, its MoE then fit in VRAM. The measured draft step fell from 1.79 to 0.58 ms, while the target forward increased from 6.29 to 6.50 ms. Batched verification and rollback are outside that fixture. [Combined run and token-by-token checks](https://github.com/tjm8874/LeanSonic/blob/550665c/docs/benchmarks/qwen38-pack/exponent-palette/mtp.md). The distribution checkpoint is shared between both runs.
 
 For the full-engine run, copy the [teacher example](../teacher.rs) and [stream example](../../qwen38-engine-comparison/q38_stream.rs) into a scratch checkout's `crates/leansonic-core/examples`. Build both the Rust feature and its matching cubin. Use the quality and stream commands from the [parent benchmark](../README.md) with the same model and fixture IDs.
 
