@@ -620,6 +620,9 @@ struct Qwen38KernelFns {
     ple_inject_ckpt_b8: CUfunction,
     gdn_conv_silu_ckpt_b8: CUfunction,
     gdn_recurrent_step_ckpt_b8: CUfunction,
+    q4_gemv_b2: CUfunction,
+    hc_down_inj_10k_b2: CUfunction,
+    hc_up_mix4_b2: CUfunction,
 }
 
 unsafe impl Send for Qwen38KernelFns {}
@@ -951,6 +954,9 @@ fn load_kernel_fns(ctx: &Arc<CudaContextHandle>) -> Result<Qwen38KernelFns, Stri
         ple_inject_ckpt_b8: get_fn("q38_ple_inject_ckpt_b8")?,
         gdn_conv_silu_ckpt_b8: get_fn("q38_gdn_conv_silu_ckpt_b8")?,
         gdn_recurrent_step_ckpt_b8: get_fn("q38_gdn_recurrent_step_ckpt_b8")?,
+        q4_gemv_b2: get_fn("q38_q4_gemv_b2")?,
+        hc_down_inj_10k_b2: get_fn("q38_hc_down_inj_10k_b2")?,
+        hc_up_mix4_b2: get_fn("q38_hc_up_mix4_b2")?,
     })
 }
 
@@ -3231,6 +3237,18 @@ impl Qwen38GpuEngine {
                 "q38_q4_gemv_2560_b4",
             );
         }
+        if b_count == 2 {
+            let grid_x = (rows as u32).div_ceil(8);
+            let mut p = kargs![w_p, sc_p, bi_p, x_p, y_p, rows, cols, mode];
+            return self.launch_kern(
+                stream,
+                self.fns.q4_gemv_b2,
+                (grid_x, 1),
+                256,
+                &mut p,
+                "q38_q4_gemv_b2",
+            );
+        }
         let grid_x = (rows as u32).div_ceil(32);
         let grid_y = (b_count as u32).div_ceil(8);
         let mut p = kargs![w_p, sc_p, bi_p, x_p, y_p, rows, cols, bc, mode];
@@ -3294,6 +3312,30 @@ impl Qwen38GpuEngine {
                 256,
                 &mut p_um,
                 "q38_hc_up_mix4",
+            );
+        }
+        if b_count == 2 {
+            let grid_di = if has_inj == 1 { 81u32 } else { 80u32 };
+            let mut p_di =
+                kargs![dw_p, dsc_p, dbi_p, iw_p, isc_p, ibi_p, normed, low_p, inj4_p, has_inj];
+            self.launch_kern(
+                stream,
+                self.fns.hc_down_inj_10k_b2,
+                (grid_di, 1),
+                256,
+                &mut p_di,
+                "q38_hc_down_inj_10k_b2",
+            )?;
+            let (mut uw_p, mut usc_p, mut ubi_p, mut mixed) =
+                (hc.up.w.ptr, hc.up.sc.ptr, hc.up.bi.ptr, bb.d_b_mixed.ptr);
+            let mut p_um = kargs![uw_p, usc_p, ubi_p, low_p, normed, mixed];
+            return self.launch_kern(
+                stream,
+                self.fns.hc_up_mix4_b2,
+                (320, 1),
+                256,
+                &mut p_um,
+                "q38_hc_up_mix4_b2",
             );
         }
         let grid_di = if has_inj == 1 { 41u32 } else { 40u32 };
@@ -5109,6 +5151,60 @@ mod tests {
                             (1, 1),
                             512,
                             &mut kargs![pw, psc, pbi, px4, py4, r_i, b4_i, md],
+                        )?;
+                        let cols_6k = 6144usize;
+                        let w6 = noise(ctx, rng, (rows - s) * 192 * 16)?;
+                        let sc6 = noise(ctx, rng, rows * 96 * 4)?;
+                        let bi6 = noise(ctx, rng, rows * 96 * 4)?;
+                        let x6_b2 = floats(ctx, rng, 2 * cols_6k)?;
+                        let y6_b2 = zeros(ctx, 2 * rows * 4)?;
+                        let (mut pw6, mut psc6, mut pbi6, mut px6, mut py6) =
+                            (w6.ptr, sc6.ptr, bi6.ptr, x6_b2.ptr, y6_b2.ptr);
+                        let mut c6_i = cols_6k as i32;
+                        run(
+                            ctx,
+                            m,
+                            "q38_q4_gemv_b2",
+                            (3, 1),
+                            256,
+                            &mut kargs![pw6, psc6, pbi6, px6, py6, r_i, c6_i, md],
+                        )?;
+
+                        let dw = noise(ctx, rng, 320 * 320 * 16)?;
+                        let dsc = noise(ctx, rng, 320 * 160 * 4)?;
+                        let dbi = noise(ctx, rng, 320 * 160 * 4)?;
+                        let iw = noise(ctx, rng, (4 - s) * 320 * 16)?;
+                        let isc = noise(ctx, rng, 4 * 160 * 4)?;
+                        let ibi = noise(ctx, rng, 4 * 160 * 4)?;
+                        let n_b2 = floats(ctx, rng, 2 * hcd)?;
+                        let low_b2 = zeros(ctx, 2 * 320 * 4)?;
+                        let inj_b2 = zeros(ctx, 2 * 4 * 4)?;
+                        let (mut pdw, mut pds, mut pdb) = (dw.ptr, dsc.ptr, dbi.ptr);
+                        let (mut piw, mut pis, mut pib) = (iw.ptr, isc.ptr, ibi.ptr);
+                        let (mut pnb2, mut plb2, mut pib2) = (n_b2.ptr, low_b2.ptr, inj_b2.ptr);
+                        let mut hi1 = 1i32;
+                        run(
+                            ctx,
+                            m,
+                            "q38_hc_down_inj_10k_b2",
+                            (81, 1),
+                            256,
+                            &mut kargs![pdw, pds, pdb, piw, pis, pib, pnb2, plb2, pib2, hi1],
+                        )?;
+
+                        let uw = noise(ctx, rng, (hcd - s) * 10 * 16)?;
+                        let usc = noise(ctx, rng, hcd * 5 * 4)?;
+                        let ubi = noise(ctx, rng, hcd * 5 * 4)?;
+                        let mix_b2 = zeros(ctx, 2 * d * 4)?;
+                        let (mut puw, mut pus, mut pub_, mut pmxb2) =
+                            (uw.ptr, usc.ptr, ubi.ptr, mix_b2.ptr);
+                        run(
+                            ctx,
+                            m,
+                            "q38_hc_up_mix4_b2",
+                            (320, 1),
+                            256,
+                            &mut kargs![puw, pus, pub_, plb2, pnb2, pmxb2],
                         )?;
                     }
                     {
