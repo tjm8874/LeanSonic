@@ -1,0 +1,265 @@
+{
+  "pro4500": {
+    "stock": {
+      "gpu": "NVIDIA RTX PRO 4500 Blackwell",
+      "exact_teacher_rows": 494,
+      "logits_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "exact_continuations": 16,
+      "spec128_sha256": "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db",
+      "matched_streams": 16,
+      "sampled_peak_process_bytes": 33422311424,
+      "launch_to_ready_ms": 23344.655756,
+      "streams": [
+        {
+          "case": 0,
+          "input_tokens": 19,
+          "output_tokens": 32,
+          "prefill_tok_s": 122.655,
+          "decode_tok_s": 67.648
+        },
+        {
+          "case": 1,
+          "input_tokens": 25,
+          "output_tokens": 32,
+          "prefill_tok_s": 83.294,
+          "decode_tok_s": 57.794
+        },
+        {
+          "case": 2,
+          "input_tokens": 6,
+          "output_tokens": 32,
+          "prefill_tok_s": 37.118,
+          "decode_tok_s": 29.819
+        },
+        {
+          "case": 3,
+          "input_tokens": 19,
+          "output_tokens": 32,
+          "prefill_tok_s": 120.422,
+          "decode_tok_s": 42.336
+        }
+      ]
+    },
+    "dict": {
+      "gpu": "NVIDIA RTX PRO 4500 Blackwell",
+      "exact_teacher_rows": 494,
+      "logits_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "exact_continuations": 16,
+      "spec128_sha256": "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db",
+      "matched_streams": 16,
+      "sampled_peak_process_bytes": 33422311424,
+      "launch_to_ready_ms": 22045.892677,
+      "streams": [
+        {
+          "case": 0,
+          "input_tokens": 19,
+          "output_tokens": 32,
+          "prefill_tok_s": 123.301,
+          "decode_tok_s": 67.917
+        },
+        {
+          "case": 1,
+          "input_tokens": 25,
+          "output_tokens": 32,
+          "prefill_tok_s": 83.292,
+          "decode_tok_s": 57.823
+        },
+        {
+          "case": 2,
+          "input_tokens": 6,
+          "output_tokens": 32,
+          "prefill_tok_s": 37.086,
+          "decode_tok_s": 29.818
+        },
+        {
+          "case": 3,
+          "input_tokens": 19,
+          "output_tokens": 32,
+          "prefill_tok_s": 120.163,
+          "decode_tok_s": 42.327
+        }
+      ]
+    },
+    "weights": {
+      "gpu": "NVIDIA RTX PRO 4500 Blackwell",
+      "exact_teacher_rows": 494,
+      "logits_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "exact_continuations": 16,
+      "spec128_sha256": "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db",
+      "matched_streams": 16,
+      "sampled_peak_process_bytes": 33422311424,
+      "launch_to_ready_ms": 25595.17215,
+      "streams": [
+        {
+          "case": 0,
+          "input_tokens": 19,
+          "output_tokens": 32,
+          "prefill_tok_s": 123.25,
+          "decode_tok_s": 67.954
+        },
+        {
+          "case": 1,
+          "input_tokens": 25,
+          "output_tokens": 32,
+          "prefill_tok_s": 83.244,
+          "decode_tok_s": 57.793
+        },
+        {
+          "case": 2,
+          "input_tokens": 6,
+          "output_tokens": 32,
+          "prefill_tok_s": 37.133,
+          "decode_tok_s": 29.817
+        },
+        {
+          "case": 3,
+          "input_tokens": 19,
+          "output_tokens": 32,
+          "prefill_tok_s": 120.186,
+          "decode_tok_s": 42.331
+        }
+      ]
+    }
+  },
+  "pro5000": {
+    "stock": {
+      "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+      "exact_teacher_rows": 494,
+      "logits_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "exact_continuations": 16,
+      "spec128_sha256": "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db",
+      "matched_streams": 16,
+      "sampled_peak_process_bytes": 75486986240,
+      "launch_to_ready_ms": 22369.926442,
+      "streams": [
+        {
+          "case": 0,
+          "input_tokens": 19,
+          "output_tokens": 32,
+          "prefill_tok_s": 397.31,
+          "decode_tok_s": 163.86
+        },
+        {
+          "case": 1,
+          "input_tokens": 25,
+          "output_tokens": 32,
+          "prefill_tok_s": 415.199,
+          "decode_tok_s": 163.576
+        },
+        {
+          "case": 2,
+          "input_tokens": 6,
+          "output_tokens": 32,
+          "prefill_tok_s": 342.093,
+          "decode_tok_s": 164.359
+        },
+        {
+          "case": 3,
+          "input_tokens": 19,
+          "output_tokens": 32,
+          "prefill_tok_s": 401.279,
+          "decode_tok_s": 163.862
+        }
+      ]
+    },
+    "dict": {
+      "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+      "exact_teacher_rows": 494,
+      "logits_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "exact_continuations": 16,
+      "spec128_sha256": "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db",
+      "matched_streams": 16,
+      "sampled_peak_process_bytes": 75486986240,
+      "launch_to_ready_ms": 10383.183973,
+      "streams": [
+        {
+          "case": 0,
+          "input_tokens": 19,
+          "output_tokens": 32,
+          "prefill_tok_s": 397.453,
+          "decode_tok_s": 163.715
+        },
+        {
+          "case": 1,
+          "input_tokens": 25,
+          "output_tokens": 32,
+          "prefill_tok_s": 414.437,
+          "decode_tok_s": 163.467
+        },
+        {
+          "case": 2,
+          "input_tokens": 6,
+          "output_tokens": 32,
+          "prefill_tok_s": 341.726,
+          "decode_tok_s": 164.249
+        },
+        {
+          "case": 3,
+          "input_tokens": 19,
+          "output_tokens": 32,
+          "prefill_tok_s": 400.865,
+          "decode_tok_s": 163.722
+        }
+      ]
+    },
+    "weights": {
+      "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+      "exact_teacher_rows": 494,
+      "logits_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "exact_continuations": 16,
+      "spec128_sha256": "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db",
+      "matched_streams": 16,
+      "sampled_peak_process_bytes": 75486986240,
+      "launch_to_ready_ms": 15867.07539,
+      "streams": [
+        {
+          "case": 0,
+          "input_tokens": 19,
+          "output_tokens": 32,
+          "prefill_tok_s": 397.479,
+          "decode_tok_s": 163.751
+        },
+        {
+          "case": 1,
+          "input_tokens": 25,
+          "output_tokens": 32,
+          "prefill_tok_s": 414.174,
+          "decode_tok_s": 163.445
+        },
+        {
+          "case": 2,
+          "input_tokens": 6,
+          "output_tokens": 32,
+          "prefill_tok_s": 341.581,
+          "decode_tok_s": 164.257
+        },
+        {
+          "case": 3,
+          "input_tokens": 19,
+          "output_tokens": 32,
+          "prefill_tok_s": 401.076,
+          "decode_tok_s": 163.73
+        }
+      ]
+    }
+  },
+  "secondary_overlay": {
+    "layers_with_weight_frames": [
+      0,
+      47
+    ],
+    "parameter_planes_encoded": 288,
+    "mixed_layers": 48,
+    "hot_experts": {
+      "RTX 5070 Ti": 4335,
+      "RTX 5060 Ti": 4372
+    },
+    "matched_rows": 49,
+    "matched_continuations": 4,
+    "sha256": {
+      "logits.f32": "32f22430fb15114a198cdb404d24875ed4e76557be8d9afc3c53c6d7faa7a986",
+      "rows.tsv": "2d6526c6132d4e559a5a50686fa7ef76b33bbb94805eace8c02e8160f528ecc5",
+      "canaries.txt": "d5eba0884891567c4c71a4a2c8ba4e7bee9f69253302d1270267597949b3d8ca"
+    }
+  }
+}

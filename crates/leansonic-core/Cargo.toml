@@ -8,3 +8,6 @@ authors.workspace = true
 description = "Minimalist Lean 4-verified Blackwell LLM inference runtime core (Inkling-2 & Qwen3.8/4)"
 
 [dependencies]
+
+[features]
+q38-zstd-weights = []
