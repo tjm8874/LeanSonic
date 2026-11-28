@@ -123,3 +123,21 @@ python3 "$d/input-embedding/build_attention.py" "$DIRECT" "$OFFICIAL" "$OUT/nati
 ```
 
 Build the native CUDA module and teacher as above on commit `7bdc611`. Run the native teacher on extended.ids with each overlay and score against the frozen BF16 outputs. For separate upstream single-family interventions on the original 49 positions, run quant_families.py with the same arguments as upstream_q4.py. The final restored BF16 arm checks that the original weights have been restored.
+
+## Independent tensor families in the official model
+
+On the RTX PRO 5000 72 GB, quant_families.py replaced one family per run with the MLX Q4 values in an otherwise official BF16 model. Each row below uses the same four original inputs (49 next-token positions). Every official BF16 tensor was restored before the next family. After all six runs, the final control matched the original BF16 FP32 logits byte for byte and matched all four eight-token continuations by ID.
+
+| Quantized family | Mean KL | Worst KL | Top-1 / 49 | PPL |
+| --- | ---: | ---: | ---: | ---: |
+| Official BF16 control | 0 | 0 | 49 | 28.0382 |
+| Hyper-connections | 0.054800 | 0.339982 | 42 | 30.0121 |
+| Gated DeltaNet projections | 0.021012 | 0.183284 | 45 | 27.5856 |
+| Full-attention projections | 0.021729 | 0.151448 | 44 | 28.8896 |
+| Shared experts and their gates | 0.015288 | 0.088391 | 47 | 28.3740 |
+| Engram table and two PLE projections | 0.138276 | 2.545091 | 44 | 26.2686 |
+| Input embedding and output head | 0.034036 | 0.107086 | 45 | 30.4478 |
+
+Engram produced the highest mean and maximum KL while improving target-token PPL on these inputs. The six KLs measure separate interventions and cannot be summed to predict the combined error. [Full scores and logit hashes](upstream-quant-families.json)
+
+For the table/projection split, run engram_ablation.py with the same four path arguments as upstream_q4.py and choose `--background bf16` or `--background q4`. The latter also replaces the routed experts and dense weights. For a native Q4 hyper-connection refit, run refit_hyperconnection.py with the base package, official checkpoint and a new output directory. Each replacement uses the original group-32 layout and the same tensor payload length. The diagnostic overlay retains the superseded tensors.
