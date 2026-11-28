@@ -670,6 +670,15 @@ impl Dflash2DrafterGpu {
     }
 
     /// Clears the selected sequence's context (like the engine's `reset`).
+    /// Frees the Q4 head copy (about `VOCAB * D / 2` bytes) so drafting reads the target's own
+    /// Q8_64 head. Returns `false` when there was no copy, or `LEANSONIC_DF2_HEAD=q4` asks for it.
+    pub fn release_q4_head(&mut self) -> bool {
+        if std::env::var("LEANSONIC_DF2_HEAD").as_deref() == Ok("q4") {
+            return false;
+        }
+        self.head_q4.take().is_some()
+    }
+
     pub fn reset(&mut self) {
         // The mask row is a pure function of the weights: it stays valid across resets.
         self.ctx_end = 0;
