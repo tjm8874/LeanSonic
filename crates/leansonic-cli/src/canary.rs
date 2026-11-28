@@ -15,10 +15,212 @@ use std::path::Path;
 use std::time::Instant;
 
 use leansonic_core::inkling2_gpu::Inkling2GpuEngine;
+use leansonic_core::qwen38_gpu::Qwen38GpuEngine;
+use leansonic_core::qwen_bpe::{
+    QwenBpeTokenizer, QWEN_TOK_ENDOFTEXT, QWEN_TOK_IM_END, QWEN_TOK_THINK_CLOSE,
+};
 use leansonic_core::serving::json_escape;
 use leansonic_core::tiktoken::{
     TiktokenBpe, TOK_CONTENT_TEXT, TOK_END_MESSAGE, TOK_END_SAMPLING, TOK_MSG_MODEL,
 };
+
+fn is_qwen38_dir(dir: &Path) -> bool {
+    if let Ok(cfg) = std::fs::read_to_string(dir.join("config.json")) {
+        if cfg.contains("qwen4_exp") || cfg.contains("Qwen4Exp") {
+            return true;
+        }
+    }
+    false
+}
+
+fn build_qwen_needle_prompt(
+    tok: &QwenBpeTokenizer,
+    len: usize,
+    depth: usize,
+    code: &str,
+) -> Result<Vec<u32>, String> {
+    if !(1..100).contains(&depth) || !(32..=1_048_576 - NEEDLE_MAX_NEW).contains(&len) {
+        return Err("depth must be 1..99 and input plus output must fit context".into());
+    }
+    let prefix = tok.encode(
+        "<|im_start|>user\nRead the archive and report the verification code for the Juniper cabinet.\n",
+    );
+    let marker = tok.encode(&format!(
+        "\nArchive entry (Juniper cabinet): the Juniper cabinet was inspected in the registry; the verification code was {code}.\n"
+    ));
+    let suffix = tok.encode(
+        "\nQuestion: What is the verification code for the Juniper cabinet? Reply with the code only.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+    );
+    let at = len * depth / 100;
+    if at < prefix.len() || at + marker.len() + suffix.len() > len {
+        return Err("input is too short to place the marker at that depth".into());
+    }
+    let pre = at - prefix.len();
+    let post = len - at - marker.len() - suffix.len();
+    let objects = [
+        "map case",
+        "ceramic tray",
+        "blue chest",
+        "east shelf",
+        "field notebook",
+        "travel ledger",
+        "green cabinet",
+    ];
+    let places = ["library", "registry", "museum", "office", "post room"];
+    let mut filler = Vec::new();
+    for i in 0.. {
+        if filler.len() >= pre + post {
+            break;
+        }
+        let object = objects[i % objects.len()];
+        let place = places[i % places.len()];
+        let entry = format!(
+            "Archive entry {i}: the {object} was inspected in the {place}; the inventory count was {}.\n",
+            17 + i % 41
+        );
+        filler.extend(tok.encode(&entry));
+    }
+    let mut ids = prefix;
+    ids.extend_from_slice(&filler[..pre]);
+    ids.extend(marker);
+    ids.extend_from_slice(&filler[pre..pre + post]);
+    ids.extend(suffix);
+    Ok(ids)
+}
+
+fn decode_qwen_visible(tok: &QwenBpeTokenizer, tokens: &[u32]) -> (String, bool) {
+    let start_idx = tokens
+        .iter()
+        .rposition(|&id| id == QWEN_TOK_THINK_CLOSE)
+        .map(|p| p + 1)
+        .unwrap_or(0);
+    let mut bytes = Vec::new();
+    let mut completed = false;
+    for &id in &tokens[start_idx..] {
+        if id == QWEN_TOK_IM_END || id == QWEN_TOK_ENDOFTEXT {
+            completed = true;
+            break;
+        }
+        if !tok.is_special_token(id) {
+            bytes.extend_from_slice(tok.decode_token_bytes(id));
+        }
+    }
+    (String::from_utf8_lossy(&bytes).into_owned(), completed)
+}
+
+fn run_qwen_canaries(
+    weights_dir: &Path,
+    short_only: bool,
+    long: bool,
+    long_only: bool,
+    results: &mut Vec<CanaryCaseResult>,
+) -> Result<(), String> {
+    let tok = QwenBpeTokenizer::load_from_file(weights_dir.join("tokenizer.json"))
+        .map_err(|e| format!("load Qwen tokenizer.json: {e}"))?;
+    let max_ctx = if long {
+        131_072 + NEEDLE_MAX_NEW
+    } else if short_only {
+        1024
+    } else {
+        16_384 + NEEDLE_MAX_NEW
+    };
+    let mut engine = Qwen38GpuEngine::load_from_dir(weights_dir, max_ctx)?;
+    let stop_ids = [QWEN_TOK_IM_END, QWEN_TOK_ENDOFTEXT];
+
+    if !long_only {
+        {
+            let t0 = Instant::now();
+            let ids = tok.encode_chat_prompt(
+                "What is the capital of Japan? Reply with the city name only.",
+                "none",
+            );
+            engine.reset()?;
+            let (first, _) = engine.prefill_tokens(&ids)?;
+            let logits = engine.read_last_logits()?;
+            let nonfinite = count_nonfinite(&logits);
+            let gen = engine.generate_greedy_tokens(first, SHORT_MAX_NEW, &stop_ids, |_| {})?;
+            let mut full = gen;
+            if full.len() < SHORT_MAX_NEW {
+                full.push(QWEN_TOK_IM_END);
+            }
+            let (decoded, completed) = decode_qwen_visible(&tok, &full);
+            let exact =
+                matches_expected_canary(&decoded, "Tokyo", true) && completed && nonfinite == 0;
+            results.push(CanaryCaseResult {
+                id: "short_tokyo",
+                input_tokens: ids.len(),
+                expected: "Tokyo",
+                answer: decoded.trim().to_string(),
+                nonfinite_logits: nonfinite,
+                spec7_0ulp: None,
+                elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
+                pass: exact,
+            });
+        }
+
+        if !short_only {
+            let t0 = Instant::now();
+            let ids = build_qwen_needle_prompt(&tok, 16_384, 50, "RAVEN-731")?;
+            engine.reset()?;
+            let (first, _) = engine.prefill_tokens(&ids)?;
+            let logits = engine.read_last_logits()?;
+            let nonfinite = count_nonfinite(&logits);
+            let gen = engine.generate_greedy_tokens(first, NEEDLE_MAX_NEW, &stop_ids, |_| {})?;
+            let mut full = gen;
+            if full.len() < NEEDLE_MAX_NEW {
+                full.push(QWEN_TOK_IM_END);
+            }
+            let (decoded, completed) = decode_qwen_visible(&tok, &full);
+            let exact = matches_expected_canary(&decoded, "RAVEN-731", false)
+                && completed
+                && nonfinite == 0;
+            results.push(CanaryCaseResult {
+                id: "needle_16k_50",
+                input_tokens: ids.len(),
+                expected: "RAVEN-731",
+                answer: decoded.trim().to_string(),
+                nonfinite_logits: nonfinite,
+                spec7_0ulp: None,
+                elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
+                pass: exact,
+            });
+        }
+    }
+
+    if long {
+        for (case_id, depth, code) in [
+            ("needle_128k_50", 50usize, "MARSH-527"),
+            ("needle_128k_90", 90usize, "CORAL-841"),
+        ] {
+            let t0 = Instant::now();
+            let ids = build_qwen_needle_prompt(&tok, 131_072, depth, code)?;
+            engine.reset()?;
+            let (first, _) = engine.prefill_tokens(&ids)?;
+            let logits = engine.read_last_logits()?;
+            let nonfinite = count_nonfinite(&logits);
+            let gen = engine.generate_greedy_tokens(first, NEEDLE_MAX_NEW, &stop_ids, |_| {})?;
+            let mut full = gen;
+            if full.len() < NEEDLE_MAX_NEW {
+                full.push(QWEN_TOK_IM_END);
+            }
+            let (decoded, completed) = decode_qwen_visible(&tok, &full);
+            let exact =
+                matches_expected_canary(&decoded, code, false) && completed && nonfinite == 0;
+            results.push(CanaryCaseResult {
+                id: case_id,
+                input_tokens: ids.len(),
+                expected: code,
+                answer: decoded.trim().to_string(),
+                nonfinite_logits: nonfinite,
+                spec7_0ulp: None,
+                elapsed_ms: t0.elapsed().as_secs_f64() * 1e3,
+                pass: exact,
+            });
+        }
+    }
+
+    Ok(())
+}
 
 const SHORT_MAX_NEW: usize = 64;
 const NEEDLE_MAX_NEW: usize = 1024;
@@ -324,14 +526,18 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
 
     let weights_dir = Path::new(&weights);
-    let tok = TiktokenBpe::from_model_dir(weights_dir).map_err(|e| e.to_string())?;
     let mut results = Vec::new();
 
-    if !long_only {
-        run_short_and_16k(weights_dir, &tok, short_only, check_spec, &mut results)?;
-    }
-    if long {
-        run_long_128k(weights_dir, &tok, &mut results)?;
+    if is_qwen38_dir(weights_dir) {
+        run_qwen_canaries(weights_dir, short_only, long, long_only, &mut results)?;
+    } else {
+        let tok = TiktokenBpe::from_model_dir(weights_dir).map_err(|e| e.to_string())?;
+        if !long_only {
+            run_short_and_16k(weights_dir, &tok, short_only, check_spec, &mut results)?;
+        }
+        if long {
+            run_long_128k(weights_dir, &tok, &mut results)?;
+        }
     }
 
     let all_pass = !results.is_empty() && results.iter().all(|r| r.pass);

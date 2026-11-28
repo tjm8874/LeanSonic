@@ -201,18 +201,18 @@ theorem qwen38_real_ple_30gib_valid : ValidEngramOffload qwen38RealPle30GiBSpec 
   decide
 
 def kQ38EmbedInitHc4 : KernelResourceSpec :=
-  { name := "q38_embed_init_hc4", threadsPerCta := 256, rawRegsPerThread := 16,
+  { name := "q38_embed_init_hc4", threadsPerCta := 256, rawRegsPerThread := 18,
     userSmemPerCtaBytes := 0, smemAlignPadBytes := 0, ctasPerSm := 6,
     clusterCtas := 1, minRequiredL1KiB := 120, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38Q4Gemv : KernelResourceSpec :=
   { name := "q38_q4_gemv", threadsPerCta := 256, rawRegsPerThread := 40,
-    userSmemPerCtaBytes := 24576, smemAlignPadBytes := 0, ctasPerSm := 2,
+    userSmemPerCtaBytes := 27648, smemAlignPadBytes := 0, ctasPerSm := 2,
     clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38Q4Gemv10k : KernelResourceSpec :=
-  { name := "q38_q4_gemv_10k", threadsPerCta := 256, rawRegsPerThread := 39,
-    userSmemPerCtaBytes := 40960, smemAlignPadBytes := 0, ctasPerSm := 1,
+  { name := "q38_q4_gemv_10k", threadsPerCta := 256, rawRegsPerThread := 48,
+    userSmemPerCtaBytes := 46080, smemAlignPadBytes := 0, ctasPerSm := 1,
     clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38PleInject : KernelResourceSpec :=
@@ -221,7 +221,7 @@ def kQ38PleInject : KernelResourceSpec :=
     clusterCtas := 1, minRequiredL1KiB := 120, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38HcNorm4 : KernelResourceSpec :=
-  { name := "q38_hc_norm4", threadsPerCta := 256, rawRegsPerThread := 18,
+  { name := "q38_hc_norm4", threadsPerCta := 256, rawRegsPerThread := 36,
     userSmemPerCtaBytes := 36, smemAlignPadBytes := 0, ctasPerSm := 6,
     clusterCtas := 1, minRequiredL1KiB := 120, hasStackSpill := false, hasHotLoopLibmCall := false }
 
@@ -241,18 +241,18 @@ def kQ38GdnConvSilu : KernelResourceSpec :=
     clusterCtas := 1, minRequiredL1KiB := 120, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38GdnRecurrentStep : KernelResourceSpec :=
-  { name := "q38_gdn_recurrent_step", threadsPerCta := 128, rawRegsPerThread := 40,
+  { name := "q38_gdn_recurrent_step", threadsPerCta := 128, rawRegsPerThread := 30,
     userSmemPerCtaBytes := 1052, smemAlignPadBytes := 0, ctasPerSm := 12,
     clusterCtas := 1, minRequiredL1KiB := 96, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38QsaPrepAndCache : KernelResourceSpec :=
-  { name := "q38_qsa_prep_and_cache", threadsPerCta := 256, rawRegsPerThread := 23,
+  { name := "q38_qsa_prep_and_cache", threadsPerCta := 256, rawRegsPerThread := 22,
     userSmemPerCtaBytes := 1056, smemAlignPadBytes := 0, ctasPerSm := 6,
     clusterCtas := 1, minRequiredL1KiB := 112, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38QsaScoreBlocks : KernelResourceSpec :=
-  { name := "q38_qsa_score_blocks", threadsPerCta := 256, rawRegsPerThread := 26,
-    userSmemPerCtaBytes := 2048, smemAlignPadBytes := 0, ctasPerSm := 6,
+  { name := "q38_qsa_score_blocks", threadsPerCta := 256, rawRegsPerThread := 30,
+    userSmemPerCtaBytes := 2112, smemAlignPadBytes := 0, ctasPerSm := 6,
     clusterCtas := 1, minRequiredL1KiB := 96, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38QsaSelectTop512 : KernelResourceSpec :=
@@ -266,8 +266,8 @@ def kQ38QsaAttn : KernelResourceSpec :=
     clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38Bf16Router512 : KernelResourceSpec :=
-  { name := "q38_bf16_router_512", threadsPerCta := 256, rawRegsPerThread := 24,
-    userSmemPerCtaBytes := 10240, smemAlignPadBytes := 0, ctasPerSm := 5,
+  { name := "q38_bf16_router_512", threadsPerCta := 256, rawRegsPerThread := 25,
+    userSmemPerCtaBytes := 11520, smemAlignPadBytes := 0, ctasPerSm := 5,
     clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38SoftmaxTopk10 : KernelResourceSpec :=
@@ -276,18 +276,56 @@ def kQ38SoftmaxTopk10 : KernelResourceSpec :=
     clusterCtas := 1, minRequiredL1KiB := 96, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38MoeUpSwiglu11 : KernelResourceSpec :=
-  { name := "q38_moe_up_swiglu11", threadsPerCta := 256, rawRegsPerThread := 42,
-    userSmemPerCtaBytes := 10272, smemAlignPadBytes := 0, ctasPerSm := 5,
+  { name := "q38_moe_up_swiglu11", threadsPerCta := 256, rawRegsPerThread := 39,
+    userSmemPerCtaBytes := 11552, smemAlignPadBytes := 0, ctasPerSm := 5,
     clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38MoeDownCombine11 : KernelResourceSpec :=
-  { name := "q38_moe_down_combine11", threadsPerCta := 256, rawRegsPerThread := 40,
-    userSmemPerCtaBytes := 28160, smemAlignPadBytes := 0, ctasPerSm := 2,
+  { name := "q38_moe_down_combine11", threadsPerCta := 256, rawRegsPerThread := 48,
+    userSmemPerCtaBytes := 31680, smemAlignPadBytes := 0, ctasPerSm := 2,
     clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def kQ38ArgmaxAndIncPos : KernelResourceSpec :=
   { name := "q38_argmax_and_inc_pos", threadsPerCta := 256, rawRegsPerThread := 39,
     userSmemPerCtaBytes := 64, smemAlignPadBytes := 0, ctasPerSm := 6,
+    clusterCtas := 1, minRequiredL1KiB := 120, hasStackSpill := false, hasHotLoopLibmCall := false }
+
+/-- v1.0.0 Fast `Qwen3.8-Flash-Next` SM120a Kernels (`ptxas -arch=sm_120a` measured):
+    `5` CTAs/SM `q4_gemv_2560` & `moe_up_swiglu11_z24`, `100%` lane-utilized `moe_down_combine11_z24`
+    (`31,680 B <= 31,744 B` preserving `64 KiB` L1), fused `hc_down_inj_10k` + `hc_up_mix4`, and `argmax_fast`. -/
+def kQ38Q4Gemv2560 : KernelResourceSpec :=
+  { name := "q38_q4_gemv_2560", threadsPerCta := 256, rawRegsPerThread := 38,
+    userSmemPerCtaBytes := 11520, smemAlignPadBytes := 0, ctasPerSm := 5,
+    clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
+
+def kQ38HcDownInj10k : KernelResourceSpec :=
+  { name := "q38_hc_down_inj_10k", threadsPerCta := 256, rawRegsPerThread := 44,
+    userSmemPerCtaBytes := 46112, smemAlignPadBytes := 0, ctasPerSm := 1,
+    clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
+
+def kQ38HcUpMix4 : KernelResourceSpec :=
+  { name := "q38_hc_up_mix4", threadsPerCta := 256, rawRegsPerThread := 40,
+    userSmemPerCtaBytes := 1440, smemAlignPadBytes := 0, ctasPerSm := 6,
+    clusterCtas := 1, minRequiredL1KiB := 112, hasStackSpill := false, hasHotLoopLibmCall := false }
+
+def kQ38HcInject4Vec : KernelResourceSpec :=
+  { name := "q38_hc_inject4_vec", threadsPerCta := 256, rawRegsPerThread := 33,
+    userSmemPerCtaBytes := 0, smemAlignPadBytes := 0, ctasPerSm := 6,
+    clusterCtas := 1, minRequiredL1KiB := 120, hasStackSpill := false, hasHotLoopLibmCall := false }
+
+def kQ38MoeUpSwiglu11Z24 : KernelResourceSpec :=
+  { name := "q38_moe_up_swiglu11_z24", threadsPerCta := 256, rawRegsPerThread := 44,
+    userSmemPerCtaBytes := 11552, smemAlignPadBytes := 0, ctasPerSm := 5,
+    clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
+
+def kQ38MoeDownCombine11Z24 : KernelResourceSpec :=
+  { name := "q38_moe_down_combine11_z24", threadsPerCta := 256, rawRegsPerThread := 56,
+    userSmemPerCtaBytes := 31680, smemAlignPadBytes := 0, ctasPerSm := 2,
+    clusterCtas := 1, minRequiredL1KiB := 64, hasStackSpill := false, hasHotLoopLibmCall := false }
+
+def kQ38ArgmaxFast : KernelResourceSpec :=
+  { name := "q38_argmax_fast", threadsPerCta := 1024, rawRegsPerThread := 38,
+    userSmemPerCtaBytes := 256, smemAlignPadBytes := 0, ctasPerSm := 1,
     clusterCtas := 1, minRequiredL1KiB := 120, hasStackSpill := false, hasHotLoopLibmCall := false }
 
 def cycle3Qwen38KernelSuite : List KernelResourceSpec :=
@@ -296,6 +334,29 @@ def cycle3Qwen38KernelSuite : List KernelResourceSpec :=
   , kQ38GdnRecurrentStep, kQ38QsaPrepAndCache, kQ38QsaScoreBlocks, kQ38QsaSelectTop512
   , kQ38QsaAttn, kQ38Bf16Router512, kQ38SoftmaxTopk10, kQ38MoeUpSwiglu11
   , kQ38MoeDownCombine11, kQ38ArgmaxAndIncPos ]
+
+def v100Qwen38FastKernelSuite : List KernelResourceSpec :=
+  [ kQ38Q4Gemv2560, kQ38HcDownInj10k, kQ38HcUpMix4, kQ38HcInject4Vec
+  , kQ38MoeUpSwiglu11Z24, kQ38MoeDownCombine11Z24, kQ38ArgmaxFast ]
+
+/-- `RTX PRO 5000 Blackwell 72GB` (`73,415` MiB) running `106 GB` `Qwen3.8-Flash-Next`:
+    `48/48` `Z24` `switch_mlp` layers (`68,400` MiB) + `3,206` MiB non-expert weights (`embed` in Pinned Host)
+    + `512` MiB GDN/QSA state + `320` MiB scratch = `72,438 <= 73,415` MiB -> `0` spilled experts! -/
+def residentQwen38OnPro5000Z24Spec : SpilledOffloadSpec :=
+  { skuName := "NVIDIA RTX PRO 5000 72GB Blackwell (Qwen3.8-Flash-Next 48/48 Z24 Full VRAM)"
+    vramBudgetMiB := 73415
+    residentWeightsMiB := 71606
+    kvAndStatePoolMiB := 512
+    runtimeScratchMiB := 320
+    pingPongBuffers := 2
+    stagingBufferMiB := 0
+    maxSingleVisitSpillMiB := 0
+    totalSpilledExperts := 0
+    idlePrefetchKernelLaunches := 0
+    lateWaitOverlapOps := 0 }
+
+theorem residentQwen38OnPro5000Z24_valid : ValidSpilledOffload residentQwen38OnPro5000Z24Spec := by
+  decide
 
 theorem q38_q4_gemv_valid : ValidSm120Kernel kQ38Q4Gemv := by decide
 theorem q38_q4_gemv_10k_valid : ValidSm120Kernel kQ38Q4Gemv10k := by decide
@@ -306,6 +367,9 @@ theorem q38_moe_up_swiglu11_valid : ValidSm120Kernel kQ38MoeUpSwiglu11 := by dec
 theorem q38_moe_down_combine11_valid : ValidSm120Kernel kQ38MoeDownCombine11 := by decide
 theorem cycle3_qwen38_all_18_kernels_valid :
     (cycle3Qwen38KernelSuite.all checkSm120Kernel) = true := by
+  decide
+theorem v100_qwen38_fast_7_kernels_valid :
+    (v100Qwen38FastKernelSuite.all checkSm120Kernel) = true := by
   decide
 
 end LeanSonic.Proofs

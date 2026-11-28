@@ -384,7 +384,9 @@ pub struct DeviceBuf {
 }
 
 impl DeviceBuf {
-    pub fn alloc_zeroed(ctx: &Arc<CudaContextHandle>, byte_len: usize) -> Result<Self, String> {
+    /// Allocate device memory without zero-filling (`cuMemAlloc_v2` only).
+    /// Callers MUST overwrite the entire `[0..byte_len)` range before reading it on GPU.
+    pub fn alloc_uninit(ctx: &Arc<CudaContextHandle>, byte_len: usize) -> Result<Self, String> {
         let alloc_len = byte_len.max(16);
         let mut ptr: CUdeviceptr = 0;
         unsafe {
@@ -393,16 +395,24 @@ impl DeviceBuf {
                 "cuMemAlloc_v2",
             )?;
         }
-        let buf = Self {
+        Ok(Self {
             ctx: Arc::clone(ctx),
             ptr,
             byte_len,
-        };
+        })
+    }
+
+    pub fn alloc_zeroed(ctx: &Arc<CudaContextHandle>, byte_len: usize) -> Result<Self, String> {
+        let alloc_len = byte_len.max(16);
+        let buf = Self::alloc_uninit(ctx, byte_len)?;
         // `cuMemsetD8` on device memory is asynchronous and runs on the legacy stream, which the
         // engine's non-blocking streams do not wait for: a kernel launched right after the
         // allocation could otherwise run before the clear and have its output zeroed.
         unsafe {
-            check_cu((ctx.api.cuMemsetD8_v2)(ptr, 0, alloc_len), "cuMemsetD8_v2")?;
+            check_cu(
+                (ctx.api.cuMemsetD8_v2)(buf.ptr, 0, alloc_len),
+                "cuMemsetD8_v2",
+            )?;
             check_cu(
                 (ctx.api.cuStreamSynchronize)(core::ptr::null_mut()),
                 "cuStreamSynchronize(legacy)",
@@ -412,10 +422,11 @@ impl DeviceBuf {
     }
 
     pub fn from_host_bytes(ctx: &Arc<CudaContextHandle>, src: &[u8]) -> Result<Self, String> {
-        let buf = Self::alloc_zeroed(ctx, src.len())?;
-        if !src.is_empty() {
-            buf.copy_from_host_bytes(src)?;
+        if src.is_empty() {
+            return Self::alloc_zeroed(ctx, 0);
         }
+        let buf = Self::alloc_uninit(ctx, src.len())?;
+        buf.copy_from_host_bytes(src)?;
         Ok(buf)
     }
 
