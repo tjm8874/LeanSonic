@@ -796,6 +796,12 @@ extern "C" __global__ void q38_gdn_conv_silu(
     pdl_trigger();
 }
 
+// Both the serial and batched loops must round the key update before the FMA.
+// nvcc can contract the other product when the recurrent state lives in registers.
+__device__ __forceinline__ float gdn_update_value(float previous, float decay, float key, float delta) {
+    return __fmaf_rn(previous, decay, __fmul_rn(key, delta));
+}
+
 // Grid: `(48, 1)`, Block: `128` (`1` CTA per V-head `vh = 0..47`, `1` thread per `dv = 0..127`!)
 extern "C" __global__ void q38_gdn_recurrent_step(
     const float* qkv_conv,                // [10240]: `Q[2048], K[2048], V[6144]`
@@ -862,7 +868,7 @@ extern "C" __global__ void q38_gdn_recurrent_step(
     float out_v = 0.0f;
     #pragma unroll 4
     for (int dk = 0; dk < 128; ++dk) {
-        float s_new = S_vh[dk * 128 + dv] * decay + smem_k[dk] * delta;
+        float s_new = gdn_update_value(S_vh[dk * 128 + dv], decay, smem_k[dk], delta);
         S_vh[dk * 128 + dv] = s_new;
         out_v += s_new * smem_q[dk];
     }
@@ -2233,7 +2239,8 @@ extern "C" __global__ void q38_hc_down_inj_10k_b4(
             uint4 pk = rw[g];
             float sc = load_bf16_from_u32_array(rsc, g);
             float bi = load_bf16_from_u32_array(rbi, g);
-            if (g_base < 160) {
+            // The scalar kernel assigns alternating 32-group tiles to its two warps.
+            if ((g_base / 32) % 2 == 0) {
                 accum_q4_group32_tk33_multi<4>(pk, sc, bi, smem_x, n_b, lane, part_lo);
             } else {
                 accum_q4_group32_tk33_multi<4>(pk, sc, bi, smem_x, n_b, lane, part_hi);
@@ -2486,13 +2493,13 @@ extern "C" __global__ void q38_gdn_recurrent_step_seq_b(
         float out_v = 0.0f;
         #pragma unroll 8
         for (int dk = 0; dk < 64; ++dk) {
-            float s_new = smem_S[dk][dv] * decay + smem_k[dk] * delta;
+            float s_new = gdn_update_value(smem_S[dk][dv], decay, smem_k[dk], delta);
             smem_S[dk][dv] = s_new;
             out_v += s_new * smem_q[dk];
         }
         #pragma unroll
         for (int dk = 0; dk < 64; ++dk) {
-            float s_new = s_hi[dk] * decay + smem_k[64 + dk] * delta;
+            float s_new = gdn_update_value(s_hi[dk], decay, smem_k[64 + dk], delta);
             s_hi[dk] = s_new;
             out_v += s_new * smem_q[64 + dk];
         }
@@ -4091,7 +4098,7 @@ extern "C" __global__ void q38_gdn_recurrent_step_ckpt_b8(
         float out_v = 0.0f;
         #pragma unroll 8
         for (int dk = 0; dk < 64; ++dk) {
-            float s_new = smem_S[dk][dv] * decay + smem_k[dk] * delta;
+            float s_new = gdn_update_value(smem_S[dk][dv], decay, smem_k[dk], delta);
             smem_S[dk][dv] = s_new;
             if (ck_vh != nullptr) {
                 ck_vh[dk * 128 + dv] = s_new;
@@ -4100,7 +4107,7 @@ extern "C" __global__ void q38_gdn_recurrent_step_ckpt_b8(
         }
         #pragma unroll
         for (int dk = 0; dk < 64; ++dk) {
-            float s_new = s_hi[dk] * decay + smem_k[64 + dk] * delta;
+            float s_new = gdn_update_value(s_hi[dk], decay, smem_k[64 + dk], delta);
             s_hi[dk] = s_new;
             if (ck_vh != nullptr) {
                 ck_vh[(64 + dk) * 128 + dv] = s_new;

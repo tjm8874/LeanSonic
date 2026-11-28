@@ -1,0 +1,827 @@
+{
+  "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+  "request_metrics": {
+    "control": {
+      "0-0": {
+        "total_s": [
+          2.53192,
+          0.902593
+        ],
+        "prompt_s": [
+          0.482546,
+          0.051148
+        ],
+        "accepted": [
+          0,
+          0
+        ],
+        "drafted": [
+          0,
+          0
+        ],
+        "token_ids_sha256": [
+          "b2a404fd42c3f676411b289fd6e001000aeaa5172521262f7ad864938bf37f20",
+          "b2a404fd42c3f676411b289fd6e001000aeaa5172521262f7ad864938bf37f20"
+        ]
+      },
+      "0-1": {
+        "total_s": [
+          1.295719,
+          1.013068
+        ],
+        "prompt_s": [
+          0.052634,
+          0.05265
+        ],
+        "accepted": [
+          25,
+          25
+        ],
+        "drafted": [
+          102,
+          102
+        ],
+        "token_ids_sha256": [
+          "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db",
+          "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db"
+        ]
+      },
+      "0-2": {
+        "total_s": [
+          1.885381,
+          1.42564
+        ],
+        "prompt_s": [
+          0.052718,
+          0.052635
+        ],
+        "accepted": [
+          29,
+          29
+        ],
+        "drafted": [
+          195,
+          195
+        ],
+        "token_ids_sha256": [
+          "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db",
+          "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db"
+        ]
+      },
+      "1-0": {
+        "total_s": [
+          2.020402,
+          0.887923
+        ],
+        "prompt_s": [
+          0.368735,
+          0.065411
+        ],
+        "accepted": [
+          0,
+          0
+        ],
+        "drafted": [
+          0,
+          0
+        ],
+        "token_ids_sha256": [
+          "9e3940ce4d255cde738434711d59210d2902d42352ccb0c30e63f00542e77f00",
+          "9e3940ce4d255cde738434711d59210d2902d42352ccb0c30e63f00542e77f00"
+        ]
+      },
+      "1-1": {
+        "total_s": [
+          1.150792,
+          0.801278
+        ],
+        "prompt_s": [
+          0.067222,
+          0.067128
+        ],
+        "accepted": [
+          45,
+          45
+        ],
+        "drafted": [
+          83,
+          83
+        ],
+        "token_ids_sha256": [
+          "9e3940ce4d255cde738434711d59210d2902d42352ccb0c30e63f00542e77f00",
+          "9e3940ce4d255cde738434711d59210d2902d42352ccb0c30e63f00542e77f00"
+        ]
+      },
+      "1-2": {
+        "total_s": [
+          1.692132,
+          1.134778
+        ],
+        "prompt_s": [
+          0.06716,
+          0.067159
+        ],
+        "accepted": [
+          49,
+          49
+        ],
+        "drafted": [
+          157,
+          157
+        ],
+        "token_ids_sha256": [
+          "9e3940ce4d255cde738434711d59210d2902d42352ccb0c30e63f00542e77f00",
+          "9e3940ce4d255cde738434711d59210d2902d42352ccb0c30e63f00542e77f00"
+        ]
+      },
+      "2-0": {
+        "total_s": [
+          1.625531,
+          0.910163
+        ],
+        "prompt_s": [
+          0.070638,
+          0.024191
+        ],
+        "accepted": [
+          0,
+          0
+        ],
+        "drafted": [
+          0,
+          0
+        ],
+        "token_ids_sha256": [
+          "4be597112fe5ef4474d0d5e5f152c7e80190573e00cc22b0c5638839dc6e320c",
+          "4be597112fe5ef4474d0d5e5f152c7e80190573e00cc22b0c5638839dc6e320c"
+        ]
+      },
+      "2-1": {
+        "total_s": [
+          0.871499,
+          0.755563
+        ],
+        "prompt_s": [
+          0.02499,
+          0.024974
+        ],
+        "accepted": [
+          53,
+          53
+        ],
+        "drafted": [
+          74,
+          74
+        ],
+        "token_ids_sha256": [
+          "4be597112fe5ef4474d0d5e5f152c7e80190573e00cc22b0c5638839dc6e320c",
+          "4be597112fe5ef4474d0d5e5f152c7e80190573e00cc22b0c5638839dc6e320c"
+        ]
+      },
+      "2-2": {
+        "total_s": [
+          1.232608,
+          0.981352
+        ],
+        "prompt_s": [
+          0.024987,
+          0.024961
+        ],
+        "accepted": [
+          64,
+          64
+        ],
+        "drafted": [
+          126,
+          126
+        ],
+        "token_ids_sha256": [
+          "4be597112fe5ef4474d0d5e5f152c7e80190573e00cc22b0c5638839dc6e320c",
+          "4be597112fe5ef4474d0d5e5f152c7e80190573e00cc22b0c5638839dc6e320c"
+        ]
+      },
+      "3-0": {
+        "total_s": [
+          1.733592,
+          0.894959
+        ],
+        "prompt_s": [
+          0.174069,
+          0.049411
+        ],
+        "accepted": [
+          0,
+          0
+        ],
+        "drafted": [
+          0,
+          0
+        ],
+        "token_ids_sha256": [
+          "ae2535db868b46cfc8686b93a02e3bfa9995a5183b08edaa61f184f95d8c0b40",
+          "ae2535db868b46cfc8686b93a02e3bfa9995a5183b08edaa61f184f95d8c0b40"
+        ]
+      },
+      "3-1": {
+        "total_s": [
+          0.905651,
+          0.760076
+        ],
+        "prompt_s": [
+          0.050912,
+          0.050808
+        ],
+        "accepted": [
+          51,
+          51
+        ],
+        "drafted": [
+          77,
+          77
+        ],
+        "token_ids_sha256": [
+          "ae2535db868b46cfc8686b93a02e3bfa9995a5183b08edaa61f184f95d8c0b40",
+          "ae2535db868b46cfc8686b93a02e3bfa9995a5183b08edaa61f184f95d8c0b40"
+        ]
+      },
+      "3-2": {
+        "total_s": [
+          1.244092,
+          1.000189
+        ],
+        "prompt_s": [
+          0.050897,
+          0.050802
+        ],
+        "accepted": [
+          61,
+          61
+        ],
+        "drafted": [
+          134,
+          134
+        ],
+        "token_ids_sha256": [
+          "ae2535db868b46cfc8686b93a02e3bfa9995a5183b08edaa61f184f95d8c0b40",
+          "ae2535db868b46cfc8686b93a02e3bfa9995a5183b08edaa61f184f95d8c0b40"
+        ]
+      }
+    },
+    "candidate": {
+      "0-0": {
+        "total_s": [
+          0.920883,
+          0.908523
+        ],
+        "prompt_s": [
+          0.053587,
+          0.051163
+        ],
+        "accepted": [
+          0,
+          0
+        ],
+        "drafted": [
+          0,
+          0
+        ],
+        "token_ids_sha256": [
+          "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db",
+          "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db"
+        ]
+      },
+      "0-1": {
+        "total_s": [
+          1.016945,
+          1.012802
+        ],
+        "prompt_s": [
+          0.052465,
+          0.052595
+        ],
+        "accepted": [
+          25,
+          25
+        ],
+        "drafted": [
+          102,
+          102
+        ],
+        "token_ids_sha256": [
+          "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db",
+          "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db"
+        ]
+      },
+      "0-2": {
+        "total_s": [
+          1.434312,
+          1.428276
+        ],
+        "prompt_s": [
+          0.052701,
+          0.052574
+        ],
+        "accepted": [
+          29,
+          29
+        ],
+        "drafted": [
+          195,
+          195
+        ],
+        "token_ids_sha256": [
+          "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db",
+          "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db"
+        ]
+      },
+      "1-0": {
+        "total_s": [
+          0.89786,
+          0.888304
+        ],
+        "prompt_s": [
+          0.067803,
+          0.065406
+        ],
+        "accepted": [
+          0,
+          0
+        ],
+        "drafted": [
+          0,
+          0
+        ],
+        "token_ids_sha256": [
+          "9e3940ce4d255cde738434711d59210d2902d42352ccb0c30e63f00542e77f00",
+          "9e3940ce4d255cde738434711d59210d2902d42352ccb0c30e63f00542e77f00"
+        ]
+      },
+      "1-1": {
+        "total_s": [
+          0.807,
+          0.801632
+        ],
+        "prompt_s": [
+          0.067044,
+          0.067055
+        ],
+        "accepted": [
+          45,
+          45
+        ],
+        "drafted": [
+          83,
+          83
+        ],
+        "token_ids_sha256": [
+          "9e3940ce4d255cde738434711d59210d2902d42352ccb0c30e63f00542e77f00",
+          "9e3940ce4d255cde738434711d59210d2902d42352ccb0c30e63f00542e77f00"
+        ]
+      },
+      "1-2": {
+        "total_s": [
+          1.126698,
+          1.122365
+        ],
+        "prompt_s": [
+          0.067082,
+          0.067147
+        ],
+        "accepted": [
+          50,
+          50
+        ],
+        "drafted": [
+          155,
+          155
+        ],
+        "token_ids_sha256": [
+          "9e3940ce4d255cde738434711d59210d2902d42352ccb0c30e63f00542e77f00",
+          "9e3940ce4d255cde738434711d59210d2902d42352ccb0c30e63f00542e77f00"
+        ]
+      },
+      "2-0": {
+        "total_s": [
+          0.919935,
+          0.910449
+        ],
+        "prompt_s": [
+          0.024756,
+          0.024189
+        ],
+        "accepted": [
+          0,
+          0
+        ],
+        "drafted": [
+          0,
+          0
+        ],
+        "token_ids_sha256": [
+          "4be597112fe5ef4474d0d5e5f152c7e80190573e00cc22b0c5638839dc6e320c",
+          "4be597112fe5ef4474d0d5e5f152c7e80190573e00cc22b0c5638839dc6e320c"
+        ]
+      },
+      "2-1": {
+        "total_s": [
+          0.825108,
+          0.777364
+        ],
+        "prompt_s": [
+          0.024996,
+          0.024981
+        ],
+        "accepted": [
+          51,
+          51
+        ],
+        "drafted": [
+          76,
+          76
+        ],
+        "token_ids_sha256": [
+          "4be597112fe5ef4474d0d5e5f152c7e80190573e00cc22b0c5638839dc6e320c",
+          "4be597112fe5ef4474d0d5e5f152c7e80190573e00cc22b0c5638839dc6e320c"
+        ]
+      },
+      "2-2": {
+        "total_s": [
+          0.993705,
+          0.983672
+        ],
+        "prompt_s": [
+          0.025,
+          0.024984
+        ],
+        "accepted": [
+          64,
+          64
+        ],
+        "drafted": [
+          126,
+          126
+        ],
+        "token_ids_sha256": [
+          "4be597112fe5ef4474d0d5e5f152c7e80190573e00cc22b0c5638839dc6e320c",
+          "4be597112fe5ef4474d0d5e5f152c7e80190573e00cc22b0c5638839dc6e320c"
+        ]
+      },
+      "3-0": {
+        "total_s": [
+          0.90669,
+          0.895652
+        ],
+        "prompt_s": [
+          0.051085,
+          0.049321
+        ],
+        "accepted": [
+          0,
+          0
+        ],
+        "drafted": [
+          0,
+          0
+        ],
+        "token_ids_sha256": [
+          "ae2535db868b46cfc8686b93a02e3bfa9995a5183b08edaa61f184f95d8c0b40",
+          "ae2535db868b46cfc8686b93a02e3bfa9995a5183b08edaa61f184f95d8c0b40"
+        ]
+      },
+      "3-1": {
+        "total_s": [
+          0.762343,
+          0.760388
+        ],
+        "prompt_s": [
+          0.05077,
+          0.050779
+        ],
+        "accepted": [
+          51,
+          51
+        ],
+        "drafted": [
+          77,
+          77
+        ],
+        "token_ids_sha256": [
+          "ae2535db868b46cfc8686b93a02e3bfa9995a5183b08edaa61f184f95d8c0b40",
+          "ae2535db868b46cfc8686b93a02e3bfa9995a5183b08edaa61f184f95d8c0b40"
+        ]
+      },
+      "3-2": {
+        "total_s": [
+          1.043258,
+          1.016373
+        ],
+        "prompt_s": [
+          0.050878,
+          0.050916
+        ],
+        "accepted": [
+          60,
+          60
+        ],
+        "drafted": [
+          136,
+          136
+        ],
+        "token_ids_sha256": [
+          "ae2535db868b46cfc8686b93a02e3bfa9995a5183b08edaa61f184f95d8c0b40",
+          "ae2535db868b46cfc8686b93a02e3bfa9995a5183b08edaa61f184f95d8c0b40"
+        ]
+      }
+    }
+  },
+  "comparison": [
+    {
+      "case": 0,
+      "depth": 0,
+      "cycle": 0,
+      "first_control_vs_candidate": 80,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 0,
+      "depth": 0,
+      "cycle": 1,
+      "first_control_vs_candidate": 80,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 0,
+      "depth": 1,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": 80,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 0,
+      "depth": 1,
+      "cycle": 1,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": 80,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 0,
+      "depth": 2,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": 80,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 0,
+      "depth": 2,
+      "cycle": 1,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": 80,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 1,
+      "depth": 0,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 1,
+      "depth": 0,
+      "cycle": 1,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 1,
+      "depth": 1,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 1,
+      "depth": 1,
+      "cycle": 1,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 1,
+      "depth": 2,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 1,
+      "depth": 2,
+      "cycle": 1,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 2,
+      "depth": 0,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 2,
+      "depth": 0,
+      "cycle": 1,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 2,
+      "depth": 1,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 2,
+      "depth": 1,
+      "cycle": 1,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 2,
+      "depth": 2,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 2,
+      "depth": 2,
+      "cycle": 1,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 3,
+      "depth": 0,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 3,
+      "depth": 0,
+      "cycle": 1,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 3,
+      "depth": 1,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 3,
+      "depth": 1,
+      "cycle": 1,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 3,
+      "depth": 2,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 3,
+      "depth": 2,
+      "cycle": 1,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    }
+  ]
+}

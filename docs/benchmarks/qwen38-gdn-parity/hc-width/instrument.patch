@@ -1,0 +1,53 @@
+--- a/crates/leansonic-core/src/qwen38_gpu.rs
++++ b/crates/leansonic-core/src/qwen38_gpu.rs
+@@ -2890,6 +2890,18 @@
+         Ok(dev_stage.ptr)
+     }
+ 
++    fn inspect_verifier_ops(&self,layer:usize,phase:&str,fields:&[(&str,u64,usize)]) -> Result<(),String> {
++        use std::io::Write;
++        let Ok(path)=std::env::var("Q38_TRACE_OUTPUT") else {return Ok(())};
++        self.ctx.sync_compute()?;
++        let mut f=std::fs::OpenOptions::new().create(true).append(true).open(path).map_err(|e|e.to_string())?;
++        for &(name,ptr,len) in fields {
++            let mut bytes=vec![0u8;len*4];
++            unsafe{ check_cu((self.ctx.api.cuMemcpyDtoH_v2)(bytes.as_mut_ptr().cast(),ptr,len*4),"diagnostic read")?; }
++            writeln!(f,"{layer} {phase} {name} {len}").and_then(|_|f.write_all(&bytes)).map_err(|e|e.to_string())?;
++        }
++        Ok(())
++    }
+     fn enqueue_all_48_layers(
+         &self,
+         stream: CUstream,
+@@ -3102,6 +3114,7 @@
+                 }
+             }
+ 
++            self.inspect_verifier_ops(l_idx,"attention",&[("hc",self.d_hc.ptr,10240),("hc_normed",self.d_hc_normed.ptr,10240),("hc_low",self.d_hc_low.ptr,320),("hc_inj4",self.d_hc_inj4.ptr,4),("mixed",self.d_mixed.ptr,2560),("gdn_out",self.d_gdn_out.ptr,6144),("branch_out",self.d_branch_out.ptr,2560)])?;
+             self.launch_hc_post(stream)?;
+             self.launch_hc_pre(stream, &layer.mlp_hc)?;
+ 
+@@ -3262,6 +3275,7 @@
+                 )?;
+             }
+ 
++            self.inspect_verifier_ops(l_idx,"mlp",&[("hc",self.d_hc.ptr,10240),("hc_normed",self.d_hc_normed.ptr,10240),("hc_low",self.d_hc_low.ptr,320),("hc_inj4",self.d_hc_inj4.ptr,4),("mixed",self.d_mixed.ptr,2560),("router_logits",self.d_router_logits.ptr,512),("sel_ids10",self.d_sel_ids10.ptr,10),("sel_wts11",self.d_sel_wts11.ptr,11),("branch_out",self.d_branch_out.ptr,2560)])?;
+             self.launch_hc_post(stream)?;
+         }
+ 
+@@ -3763,6 +3777,7 @@
+                 }
+             }
+ 
++            self.inspect_verifier_ops(l_idx,"attention",&[("hc",bb.d_b_hc.ptr,10240),("hc_normed",bb.d_b_hc_normed.ptr,10240),("hc_low",bb.d_b_hc_low.ptr,320),("hc_inj4",bb.d_b_hc_inj4.ptr,4),("mixed",bb.d_b_mixed.ptr,2560),("gdn_out",bb.d_b_gdn_out.ptr,6144),("branch_out",bb.d_b_branch_out.ptr,2560)])?;
+             self.launch_hc_post_batch(stream, bb, b_count)?;
+             self.launch_hc_pre_batch(stream, &layer.mlp_hc, bb, b_count)?;
+ 
+@@ -3903,6 +3918,7 @@
+                 )?;
+             }
+ 
++            self.inspect_verifier_ops(l_idx,"mlp",&[("hc",bb.d_b_hc.ptr,10240),("hc_normed",bb.d_b_hc_normed.ptr,10240),("hc_low",bb.d_b_hc_low.ptr,320),("hc_inj4",bb.d_b_hc_inj4.ptr,4),("mixed",bb.d_b_mixed.ptr,2560),("router_logits",bb.d_b_router_logits.ptr,512),("sel_ids10",bb.d_b_sel_ids10.ptr,10),("sel_wts11",bb.d_b_sel_wts11.ptr,11),("branch_out",bb.d_b_branch_out.ptr,2560)])?;
+             self.launch_hc_post_batch(stream, bb, b_count)?;
+         }
+         Ok(())
