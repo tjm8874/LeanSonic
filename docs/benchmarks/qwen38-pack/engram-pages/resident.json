@@ -1,0 +1,84 @@
+{
+  "original": {
+    "score": {
+      "rows": 494,
+      "vocabulary": 248320,
+      "mean_kl": 0.0,
+      "max_kl": 0.0,
+      "worst_case_position": [
+        0,
+        0
+      ],
+      "top1_matches": 494,
+      "byte_equal_rows": 494,
+      "reference_ppl": 15.946024916463667,
+      "candidate_ppl": 15.946024916463667,
+      "reference_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "candidate_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "canary_cases": 16,
+      "matching_canaries": 16
+    },
+    "peak_bytes": 75486986240,
+    "launch_to_ready_ms": 10463.250957,
+    "teacher_resident_copy_seconds": 5.27,
+    "warm": [
+      [
+        397.114,
+        163.661
+      ],
+      [
+        413.939,
+        163.351
+      ],
+      [
+        341.419,
+        164.156
+      ],
+      [
+        400.523,
+        163.656
+      ]
+    ]
+  },
+  "tile": {
+    "score": {
+      "rows": 494,
+      "vocabulary": 248320,
+      "mean_kl": 0.0,
+      "max_kl": 0.0,
+      "worst_case_position": [
+        0,
+        0
+      ],
+      "top1_matches": 494,
+      "byte_equal_rows": 494,
+      "reference_ppl": 15.946024916463667,
+      "candidate_ppl": 15.946024916463667,
+      "reference_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "candidate_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "canary_cases": 16,
+      "matching_canaries": 16
+    },
+    "peak_bytes": 75486986240,
+    "launch_to_ready_ms": 11329.084121,
+    "teacher_resident_copy_seconds": 6.59,
+    "warm": [
+      [
+        397.483,
+        163.799
+      ],
+      [
+        414.266,
+        163.524
+      ],
+      [
+        341.495,
+        164.313
+      ],
+      [
+        401.08,
+        163.815
+      ]
+    ]
+  }
+}
