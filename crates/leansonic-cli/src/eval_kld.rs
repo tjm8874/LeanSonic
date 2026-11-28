@@ -1,5 +1,6 @@
-//! Score teacher-forced Inkling logits against a llama.cpp _logits_ reference.
+//! Score teacher-forced Inkling / Qwen3.8 logits against a llama.cpp _logits_ reference.
 use leansonic_core::inkling2_gpu::{Inkling2GpuEngine, VOCAB};
+use leansonic_core::qwen38_gpu::{Qwen38GpuEngine, Q38_VOCAB};
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
@@ -11,6 +12,7 @@ struct Reference {
     tokens: BufReader<File>,
     rows: BufReader<File>,
     ctx: usize,
+    vocab: usize,
     chunks: usize,
 }
 
@@ -26,7 +28,7 @@ impl Reference {
         let ctx = u32_at(8) as usize;
         let vocab = u32_at(12) as usize;
         let chunks = u32_at(16) as usize;
-        if vocab != VOCAB || ctx < 3 || chunks == 0 {
+        if (vocab != VOCAB && vocab != Q38_VOCAB) || ctx < 3 || chunks == 0 {
             return Err(format!(
                 "incompatible reference: ctx={ctx}, vocab={vocab}, chunks={chunks}"
             )
@@ -44,6 +46,7 @@ impl Reference {
             tokens,
             rows,
             ctx,
+            vocab,
             chunks,
         })
     }
@@ -59,7 +62,7 @@ impl Reference {
         self.tokens
             .seek(SeekFrom::Start(20 + chunk as u64 * token_bytes))?;
         self.rows.seek(SeekFrom::Start(
-            row_start + chunk as u64 * rows_per_chunk * row_bytes(VOCAB) as u64,
+            row_start + chunk as u64 * rows_per_chunk * row_bytes(self.vocab) as u64,
         ))?;
         Ok(())
     }
@@ -73,7 +76,7 @@ impl Reference {
             .iter()
             .map(|&bytes| u32::from_le_bytes(bytes))
             .collect();
-        if tokens.iter().any(|&id| id as usize >= VOCAB) {
+        if tokens.iter().any(|&id| id as usize >= self.vocab) {
             return Err("reference token outside the model vocabulary".into());
         }
         Ok(tokens)
@@ -142,7 +145,8 @@ fn score_row(logits: &[f32], row: &[u8], target: usize) -> Result<Score> {
 }
 
 enum LogitsSource {
-    Gpu(Box<Inkling2GpuEngine>),
+    Inkling(Box<Inkling2GpuEngine>),
+    Qwen38(Box<Qwen38GpuEngine>),
     Replay {
         reader: Box<dyn Read>,
         bytes: Vec<u8>,
@@ -152,7 +156,16 @@ enum LogitsSource {
 impl LogitsSource {
     fn row(&mut self, ids: &[u32], pos: usize) -> Result<Vec<f32>> {
         match self {
-            Self::Gpu(engine) => {
+            Self::Inkling(engine) => {
+                if pos == ids.len() / 2 {
+                    engine.reset()?;
+                    engine.prefill_tokens(&ids[..=pos])?;
+                } else {
+                    engine.forward_greedy_token(ids[pos])?;
+                }
+                Ok(engine.read_last_logits()?)
+            }
+            Self::Qwen38(engine) => {
                 if pos == ids.len() / 2 {
                     engine.reset()?;
                     engine.prefill_tokens(&ids[..=pos])?;
@@ -211,9 +224,21 @@ pub fn run(args: &[String]) -> Result<()> {
         return Err(format!("--chunks must be between 1 and {remaining}").into());
     }
     let mut source = match (weights, replay) {
-        (Some(path), None) => LogitsSource::Gpu(Box::new(
-            Inkling2GpuEngine::load_from_dir_with_spec(path, reference.ctx, true, 0)?,
-        )),
+        (Some(path), None) => {
+            if reference.vocab == Q38_VOCAB {
+                LogitsSource::Qwen38(Box::new(Qwen38GpuEngine::load_from_dir(
+                    path,
+                    reference.ctx,
+                )?))
+            } else {
+                LogitsSource::Inkling(Box::new(Inkling2GpuEngine::load_from_dir_with_spec(
+                    path,
+                    reference.ctx,
+                    true,
+                    0,
+                )?))
+            }
+        }
         (None, Some(path)) => {
             let reader: Box<dyn Read> = if path == "-" {
                 Box::new(std::io::stdin().lock())
@@ -222,12 +247,12 @@ pub fn run(args: &[String]) -> Result<()> {
             };
             LogitsSource::Replay {
                 reader,
-                bytes: vec![0; 4 * VOCAB],
+                bytes: vec![0; 4 * reference.vocab],
             }
         }
         _ => return Err("specify exactly one of --weights and --logits-f32".into()),
     };
-    let mut row = vec![0; row_bytes(VOCAB)];
+    let mut row = vec![0; row_bytes(reference.vocab)];
     let mut klds = Vec::new();
     let (mut sum_nll, mut sum_ref, mut matches) = (0.0, 0.0, 0usize);
     let mut ref_floor_targets = 0usize;
