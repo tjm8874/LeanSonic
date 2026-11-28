@@ -1432,6 +1432,27 @@ extern "C" __global__ void q38_moe_up_swiglu11(
 }
 
 // `0-ULP` 24-bit `(scale, bias)` (`Z24`) `moe_up_swiglu11` (`Grid (160, 11)`, `Block 256`, `5` CTAs/SM!)
+#ifdef LEANSONIC_Q38_MIXED
+// One expert projection uses 819200 B of Q4 weights, 102400 B of low bits
+// and 51200 B of upper bits. Records in the same table can live on either tier.
+struct MixedZ24Projection {
+    const uint4* weights;
+    const uint32_t* low;
+    const uint32_t* high;
+};
+
+__device__ __forceinline__ MixedZ24Projection mixed_z24_projection(const uint4* table, int expert) {
+    const uint4* weights = reinterpret_cast<const uint4* const*>(table)[expert];
+    const uint32_t* low = reinterpret_cast<const uint32_t*>(weights + 51200);
+    return {weights, low, low + 25600};
+}
+#define q38_moe_up_swiglu11_z24 q38_moe_up_swiglu11_z24_mixed
+#define q38_moe_up_swiglu11_z24_bn q38_moe_up_swiglu11_z24_bn_mixed
+#define q38_moe_down_combine11_z24 q38_moe_down_combine11_z24_mixed
+#define q38_moe_down_combine11_z24_bn q38_moe_down_combine11_z24_bn_mixed
+#define q38_moe_up_grouped_z24 q38_moe_up_grouped_z24_mixed
+#define q38_moe_down_grouped_z24 q38_moe_down_grouped_z24_mixed
+#endif
 extern "C" __global__ void q38_moe_up_swiglu11_z24(
     const uint4* __restrict__ sw_gate_w,         // [512, 640, 80]
     const uint32_t* __restrict__ sw_gate_sb_lo,  // [512 * 640 * 40]
@@ -1463,10 +1484,18 @@ extern "C" __global__ void q38_moe_up_swiglu11_z24(
 
     if (k < kTopK) {
         const int ex = sel_ids10[k];
+#ifdef LEANSONIC_Q38_MIXED
+        const MixedZ24Projection record = mixed_z24_projection(is_up ? sw_up_w : sw_gate_w, ex);
+        const size_t row = m;
+        const uint4* w_ptr = record.weights + row * 80u;
+        const uint32_t* sb_lo = record.low;
+        const uint32_t* sb_hi = record.high;
+#else
         const size_t row = static_cast<size_t>(ex) * kMoeFf + m;
         const uint4* w_ptr = (is_up ? sw_up_w : sw_gate_w) + row * 80u;
         const uint32_t* sb_lo = is_up ? sw_up_sb_lo : sw_gate_sb_lo;
         const uint32_t* sb_hi = is_up ? sw_up_sb_hi : sw_gate_sb_hi;
+#endif
         const uint32_t base_sc_m1 = is_up ? ((packed_bases_m1 >> 16) & 0xFFu) : (packed_bases_m1 & 0xFFu);
         const uint32_t base_bi_m1 = is_up ? ((packed_bases_m1 >> 24) & 0xFFu) : ((packed_bases_m1 >> 8) & 0xFFu);
         float dot = warp_dot_q4_row_z24_smem9(
@@ -1606,8 +1635,18 @@ extern "C" __global__ void q38_moe_down_combine11_z24(
         for (int k = k_start; k < k_end; ++k) {
             const int ex = sel_ids10[k];
             const float wt = sel_wts11[k];
+#ifdef LEANSONIC_Q38_MIXED
+            const MixedZ24Projection record = mixed_z24_projection(sw_down_w, ex);
+            const size_t r_idx = row;
+            const uint4* rw = record.weights + r_idx * 20u;
+            const uint32_t* sb_lo = record.low;
+            const uint32_t* sb_hi = record.high;
+#else
             const size_t r_idx = static_cast<size_t>(ex) * kD + static_cast<size_t>(row);
             const uint4* rw = sw_down_w + r_idx * 20u;
+            const uint32_t* sb_lo = sw_down_sb_lo;
+            const uint32_t* sb_hi = sw_down_sb_hi;
+#endif
             const size_t g_base = r_idx * 20u;
             const float4* a_k = smem_a9 + k * 20 * 9;
 
@@ -1618,8 +1657,8 @@ extern "C" __global__ void q38_moe_down_combine11_z24(
                 uint4 pk = rw[g];
                 float sc, bi;
                 load_z24_sb_pair(
-                    sw_down_sb_lo,
-                    sw_down_sb_hi,
+                    sb_lo,
+                    sb_hi,
                     g_base + static_cast<size_t>(g),
                     base_sc_m1,
                     base_bi_m1,
@@ -3157,10 +3196,18 @@ extern "C" __global__ void q38_moe_up_grouped_z24(
 
         float acc[4] = {0.0f, 0.0f, 0.0f, 0.0f};
         if (ex < kExp) {
+#ifdef LEANSONIC_Q38_MIXED
+            const MixedZ24Projection record = mixed_z24_projection(is_up ? sw_up_w : sw_gate_w, ex);
+            const size_t row = m;
+            const uint4* w_ptr = record.weights + row * 80u;
+            const uint32_t* sb_lo = record.low;
+            const uint32_t* sb_hi = record.high;
+#else
             const size_t row = static_cast<size_t>(ex) * kMoeFf + m;
             const uint4* w_ptr = (is_up ? sw_up_w : sw_gate_w) + row * 80u;
             const uint32_t* sb_lo = is_up ? sw_up_sb_lo : sw_gate_sb_lo;
             const uint32_t* sb_hi = is_up ? sw_up_sb_hi : sw_gate_sb_hi;
+#endif
             const uint32_t base_sc_m1 = is_up ? ((packed_bases_m1 >> 16) & 0xFFu) : (packed_bases_m1 & 0xFFu);
             const uint32_t base_bi_m1 = is_up ? ((packed_bases_m1 >> 24) & 0xFFu) : ((packed_bases_m1 >> 8) & 0xFFu);
 
@@ -3302,15 +3349,25 @@ extern "C" __global__ void q38_moe_down_grouped_z24(
         if (row < kD) {
             float dot[8] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
             if (ex < kExp) {
+#ifdef LEANSONIC_Q38_MIXED
+                const MixedZ24Projection record = mixed_z24_projection(sw_down_w, ex);
+                const size_t r_idx = row;
+                const uint4* rw = record.weights + r_idx * 20u;
+                const uint32_t* sb_lo = record.low;
+                const uint32_t* sb_hi = record.high;
+#else
                 const size_t r_idx = static_cast<size_t>(ex) * kD + static_cast<size_t>(row);
                 const uint4* rw = sw_down_w + r_idx * 20u;
+                const uint32_t* sb_lo = sw_down_sb_lo;
+                const uint32_t* sb_hi = sw_down_sb_hi;
+#endif
                 const size_t g_base = r_idx * 20u;
                 #pragma unroll
                 for (int it = 0; it < 5; ++it) {
                     const int g = it * 4 + sub_lane;
                     uint4 pk = rw[g];
                     float sc, bi;
-                    load_z24_sb_pair(sw_down_sb_lo, sw_down_sb_hi, g_base + static_cast<size_t>(g), base_sc_m1, base_bi_m1, &sc, &bi);
+                    load_z24_sb_pair(sb_lo, sb_hi, g_base + static_cast<size_t>(g), base_sc_m1, base_bi_m1, &sc, &bi);
                     #pragma unroll
                     for (int t = 0; t < 8; ++t) {
                         if (t < n_sub) {
@@ -3675,10 +3732,18 @@ extern "C" __global__ void q38_moe_up_swiglu11_z24_bn(
 
     if (k < kTopK) {
         const int ex = sel_ids10_batch[static_cast<size_t>(b) * kTopK + k];
+#ifdef LEANSONIC_Q38_MIXED
+        const MixedZ24Projection record = mixed_z24_projection(is_up ? sw_up_w : sw_gate_w, ex);
+        const size_t row = m;
+        const uint4* w_ptr = record.weights + row * 80u;
+        const uint32_t* sb_lo = record.low;
+        const uint32_t* sb_hi = record.high;
+#else
         const size_t row = static_cast<size_t>(ex) * kMoeFf + m;
         const uint4* w_ptr = (is_up ? sw_up_w : sw_gate_w) + row * 80u;
         const uint32_t* sb_lo = is_up ? sw_up_sb_lo : sw_gate_sb_lo;
         const uint32_t* sb_hi = is_up ? sw_up_sb_hi : sw_gate_sb_hi;
+#endif
         const uint32_t base_sc_m1 = is_up ? ((packed_bases_m1 >> 16) & 0xFFu) : (packed_bases_m1 & 0xFFu);
         const uint32_t base_bi_m1 = is_up ? ((packed_bases_m1 >> 24) & 0xFFu) : ((packed_bases_m1 >> 8) & 0xFFu);
         float dot = warp_dot_q4_row_z24_smem9(
@@ -3755,8 +3820,18 @@ extern "C" __global__ void q38_moe_down_combine11_z24_bn(
         for (int k = k_start; k < k_end; ++k) {
             const int ex = sel_ids10[k];
             const float wt = sel_wts11[k];
+#ifdef LEANSONIC_Q38_MIXED
+            const MixedZ24Projection record = mixed_z24_projection(sw_down_w, ex);
+            const size_t r_idx = row;
+            const uint4* rw = record.weights + r_idx * 20u;
+            const uint32_t* sb_lo = record.low;
+            const uint32_t* sb_hi = record.high;
+#else
             const size_t r_idx = static_cast<size_t>(ex) * kD + static_cast<size_t>(row);
             const uint4* rw = sw_down_w + r_idx * 20u;
+            const uint32_t* sb_lo = sw_down_sb_lo;
+            const uint32_t* sb_hi = sw_down_sb_hi;
+#endif
             const size_t g_base = r_idx * 20u;
             const float4* a_k = smem_a9 + k * 20 * 9;
 
@@ -3766,7 +3841,7 @@ extern "C" __global__ void q38_moe_down_combine11_z24_bn(
                 const int g = it * 4 + sub_lane;
                 uint4 pk = rw[g];
                 float sc, bi;
-                load_z24_sb_pair(sw_down_sb_lo, sw_down_sb_hi, g_base + static_cast<size_t>(g), base_sc_m1, base_bi_m1, &sc, &bi);
+                load_z24_sb_pair(sb_lo, sb_hi, g_base + static_cast<size_t>(g), base_sc_m1, base_bi_m1, &sc, &bi);
                 dot += dot_q4_group32_smem9(pk, sc, bi, a_k + g * 9);
             }
             dot += __shfl_xor_sync(lane4_mask, dot, 2);

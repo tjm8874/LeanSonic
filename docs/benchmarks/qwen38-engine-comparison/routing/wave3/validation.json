@@ -1,0 +1,71 @@
+{
+  "memcheck_commit": "256b074",
+  "memcheck_padding_bytes": 65536,
+  "memcheck_gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+  "memcheck": {
+    "q38_moe_down_combine11_z24_mixed": [
+      "========= COMPUTE-SANITIZER",
+      "",
+      "running 1 test",
+      "checked q38_moe_down_combine11_z24_mixed with expert 511 on both tiers",
+      "test qwen38_gpu::tests::exact_size::exact_size_qwen38_kernels ... ok",
+      "",
+      "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 89 filtered out; finished in 4.50s",
+      "",
+      "========= ERROR SUMMARY: 0 errors"
+    ],
+    "q38_moe_down_grouped_z24_mixed": [
+      "========= COMPUTE-SANITIZER",
+      "",
+      "running 1 test",
+      "checked q38_moe_down_grouped_z24_mixed with expert 511 on both tiers",
+      "test qwen38_gpu::tests::exact_size::exact_size_qwen38_kernels ... ok",
+      "",
+      "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 89 filtered out; finished in 4.52s",
+      "",
+      "========= ERROR SUMMARY: 0 errors"
+    ],
+    "q38_moe_up_grouped_z24_mixed": [
+      "========= COMPUTE-SANITIZER",
+      "",
+      "running 1 test",
+      "checked q38_moe_up_grouped_z24_mixed with expert 511 on both tiers",
+      "test qwen38_gpu::tests::exact_size::exact_size_qwen38_kernels ... ok",
+      "",
+      "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 89 filtered out; finished in 4.52s",
+      "",
+      "========= ERROR SUMMARY: 0 errors"
+    ],
+    "q38_moe_up_swiglu11_z24_mixed": [
+      "========= COMPUTE-SANITIZER",
+      "",
+      "running 1 test",
+      "checked q38_moe_up_swiglu11_z24_mixed with expert 511 on both tiers",
+      "test qwen38_gpu::tests::exact_size::exact_size_qwen38_kernels ... ok",
+      "",
+      "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 89 filtered out; finished in 4.62s",
+      "",
+      "========= ERROR SUMMARY: 0 errors"
+    ]
+  },
+  "nvrtc_commit": "064281d",
+  "nvrtc_log": "[Qwen38GpuEngine] Loaded direct-engram (22 shards, zero_norm=true, pdl=true, z24=48/48, graph=true) on NVIDIA RTX PRO 5000 72GB Blackwell in 27.40s | Experts: 48 mixed layers (9728 VRAM and 14848 pinned expert records) + 27.6GiB Async Engram",
+  "nvrtc_vs_32gb_reference": {
+    "rows": 65,
+    "vocabulary": 248320,
+    "mean_kl": 0.0,
+    "max_kl": 0.0,
+    "worst_case_position": [
+      0,
+      0
+    ],
+    "top1_matches": 65,
+    "byte_equal_rows": 65,
+    "reference_ppl": 25.268597736025463,
+    "candidate_ppl": 25.268597736025463,
+    "reference_sha256": "c5ae9da4abc84735892d4325ef41de85d113bf808426f50f18585680b859ae4c",
+    "candidate_sha256": "c5ae9da4abc84735892d4325ef41de85d113bf808426f50f18585680b859ae4c",
+    "canary_cases": 4,
+    "matching_canaries": 4
+  }
+}
