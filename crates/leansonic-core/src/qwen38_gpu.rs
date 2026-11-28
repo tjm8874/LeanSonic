@@ -796,7 +796,14 @@ fn discover_qwen38_cubin() -> Option<PathBuf> {
 }
 
 fn load_kernel_fns(ctx: &Arc<CudaContextHandle>, mixed: bool) -> Result<Qwen38KernelFns, String> {
-    let module_image: Vec<u8> = if let Some(cubin_path) = discover_qwen38_cubin() {
+    // Bundled stock cubins address contiguous weight planes. For split records,
+    // require a matching explicit cubin or compile the mixed entry points with NVRTC.
+    let cubin = if mixed {
+        std::env::var_os("LEANSONIC_QWEN38_CUBIN_PATH").map(PathBuf::from)
+    } else {
+        discover_qwen38_cubin()
+    };
+    let module_image: Vec<u8> = if let Some(cubin_path) = cubin {
         let mut raw = std::fs::read(&cubin_path)
             .map_err(|e| format!("read {}: {e}", cubin_path.display()))?;
         raw.push(0);
@@ -3866,10 +3873,7 @@ mod tests {
                     // deliberately selects expert 511, the last valid table entry.
                     let bytes = SW_Z24_PROJ_BYTES / Q38_EXP;
                     let gpu = DeviceBuf::alloc_zeroed(ctx, bytes)?;
-                    let cpu = PinnedHostBuf::alloc_uninit(ctx, bytes)?;
-                    unsafe {
-                        std::ptr::write_bytes(cpu.host_ptr, 0, bytes);
-                    }
+                    let cpu = PinnedHostBuf::alloc_zeroed(ctx, bytes)?;
                     for address in [gpu.ptr, cpu.dev_ptr] {
                         let table = DeviceBuf::from_host_bytes(
                             ctx,
