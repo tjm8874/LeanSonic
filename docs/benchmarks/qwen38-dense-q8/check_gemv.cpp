@@ -35,7 +35,7 @@ template<class T> static CUdeviceptr upload(const std::vector<T>& data) {
     return p;
 }
 
-static void exercise(CUfunction fn, int rows, int cols, int batch, bool red) {
+static void exercise(CUfunction fn, int rows, int cols, int batch, bool red, bool staged = false) {
     std::vector<int8_t> weights(size_t(rows) * cols);
     std::vector<uint16_t> scales(weights.size() / 32);
     std::vector<float> inputs(size_t(batch) * cols);
@@ -45,7 +45,8 @@ static void exercise(CUfunction fn, int rows, int cols, int batch, bool red) {
     std::vector<float> outputs(size_t(batch) * rows - (red ? 1 : 0), NAN);
     auto w = upload(weights), s = upload(scales), x = upload(inputs), y = upload(outputs);
     void* args[] = {&w, &s, &x, &y, &rows, &cols};
-    check(cuLaunchKernel(fn, (rows + 7) / 8, batch, 1, 256, 1, 1, 0, nullptr, args, nullptr));
+    unsigned scratch = staged ? (cols / 32) * 9 * 16 : 0;
+    check(cuLaunchKernel(fn, (rows + 7) / 8, batch, 1, 256, 1, 1, scratch, nullptr, args, nullptr));
     CUresult result = cuCtxSynchronize();
     if (red) return; // memcheck owns the one-float-short fault and its exit code.
     check(result);
@@ -152,6 +153,34 @@ static void exercise_hc(CUmodule module, const char* fault, int rows, int batch)
     for (auto ptr : {dw,ds,uw,us,n,l,j,m}) check(cuMemFree(ptr));
 }
 
+static void check_embedding(CUmodule module, bool red, int batch) {
+    constexpr int rows = 11, cols = 2560;
+    std::vector<int8_t> weights(rows * cols);
+    std::vector<uint16_t> scales(weights.size()/32);
+    std::vector<int> tokens(batch);
+    for (size_t i=0; i<weights.size(); ++i) weights[i]=int((i*101+i/53)%255)-127;
+    for (size_t i=0; i<scales.size(); ++i) scales[i]=i%13 ? 0x3a80+(i*5%512) : 0;
+    for (int i=0; i<batch; ++i) tokens[i]=i%3 ? 0 : rows-1;
+    std::vector<float> out(size_t(batch)*4*cols-red,NAN);
+    auto w=upload(weights), sc=upload(scales), t=upload(tokens), o=upload(out);
+    CUdeviceptr zero=0;
+    void* args[]={&w,&sc,&zero,&t,&o};
+    CUfunction fn;
+    check(cuModuleGetFunction(&fn,module,"q38_embed_q8_hc4"));
+    check(cuLaunchKernel(fn,cols/256,batch,1,256,1,1,0,nullptr,args,nullptr));
+    CUresult result=cuCtxSynchronize();
+    if (red) return;
+    check(result);
+    check(cuMemcpyDtoH(out.data(),o,out.size()*sizeof(float)));
+    for (int b=0; b<batch; ++b) for (int k=0; k<4; ++k) for (int d=0; d<cols; ++d) {
+        int index=tokens[b]*cols+d;
+        float expected=bf16_round(weights[index]*as_float(scales[index/32]));
+        if (out[(b*4+k)*cols+d]!=expected) std::exit(1);
+    }
+    std::printf("embedding batch=%d exact=%zu\n",batch,out.size());
+    for (auto ptr:{w,sc,t,o}) check(cuMemFree(ptr));
+}
+
 int main(int argc, char** argv) {
     if (argc != 3) return 2;
     check(cuInit(0));
@@ -162,6 +191,20 @@ int main(int argc, char** argv) {
     check(cuCtxSetCurrent(context));
     CUmodule module;
     check(cuModuleLoad(&module, argv[1]));
+    if (!std::strcmp(argv[2], "embed-green") || !std::strcmp(argv[2], "embed-red")) {
+        bool red=!std::strcmp(argv[2], "embed-red");
+        check_embedding(module,red,1);
+        if (!red) check_embedding(module,false,17);
+        return 0;
+    }
+    if (!std::strcmp(argv[2], "shared-green") || !std::strcmp(argv[2], "shared-red")) {
+        CUfunction fn;
+        check(cuModuleGetFunction(&fn, module, "q38_shared_q8_projection"));
+        bool red=!std::strcmp(argv[2], "shared-red");
+        if (red) exercise(fn,9,640,2,true,true);
+        else for (int cols:{640,2560}) for (int batch:{1,2,7,32,64}) exercise(fn,17,cols,batch,false,true);
+        return 0;
+    }
     if (!std::strcmp(argv[2], "hc-green")) {
         for (int rows : {320,324})
             for (int batch : {1,2,5,8}) exercise_hc(module, argv[2], rows, batch);
