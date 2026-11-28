@@ -548,7 +548,24 @@ struct PleShard {
     biases: PleParameter,
 }
 
+fn optional_projection(
+    ctx: &Arc<CudaContextHandle>,
+    st: &ShardedSafeTensors,
+    key: &str,
+    rows: usize,
+    cols: usize,
+) -> Result<Option<DeviceBuf>, String> {
+    let Some(t) = st.get(key) else {
+        return Ok(None);
+    };
+    if t.dtype != "BF16" || t.shape != [rows, cols] || t.data.len() != rows * cols * 2 {
+        return Err(format!("invalid projection probe {key}"));
+    }
+    Ok(Some(DeviceBuf::from_host_bytes(ctx, t.data)?))
+}
+
 struct PleGpu {
+    probe_kv: Option<DeviceBuf>,
     kv_proj: Q4LinearGpu,
     norm_key: DeviceBuf,
     norm_query: DeviceBuf,
@@ -1150,7 +1167,15 @@ impl Qwen38GpuEngine {
                         biases: PleParameter::open(&st, &format!("{sp}.biases"), warm_engram)?,
                     });
                 }
+                let probe_kv = optional_projection(
+                    &ctx,
+                    &st,
+                    &format!("{pp}.kv_proj.probe_bf16"),
+                    Q38_HC_D + Q38_D,
+                    Q38_D,
+                )?;
                 Some(PleGpu {
+                    probe_kv,
                     kv_proj,
                     norm_key,
                     norm_query,
@@ -1267,22 +1292,15 @@ impl Qwen38GpuEngine {
                 let v_cache_fp16 = DeviceBuf::alloc_zeroed(&ctx, kv_cap * 512 * 2)?;
                 let idx_raw_k_cache = DeviceBuf::alloc_zeroed(&ctx, kv_cap * 128 * 4)?;
                 let idx_block_k_cache = DeviceBuf::alloc_zeroed(&ctx, init_blocks * 128 * 4)?;
-                let probe =
-                    |proj: &str, rows: usize, cols: usize| -> Result<Option<DeviceBuf>, String> {
-                        let key = format!("{sp}.{proj}.probe_bf16");
-                        let Some(t) = st.get(&key) else {
-                            return Ok(None);
-                        };
-                        if t.dtype != "BF16"
-                            || t.shape != [rows, cols]
-                            || t.data.len() != rows * cols * 2
-                        {
-                            return Err(format!("invalid projection probe {key}"));
-                        }
-                        Ok(Some(DeviceBuf::from_host_bytes(&ctx, t.data)?))
-                    };
-                let probe_v = probe("v_proj", 512, Q38_D)?;
-                let probe_o = probe("o_proj", Q38_D, 6144)?;
+                let probe_v =
+                    optional_projection(&ctx, &st, &format!("{sp}.v_proj.probe_bf16"), 512, Q38_D)?;
+                let probe_o = optional_projection(
+                    &ctx,
+                    &st,
+                    &format!("{sp}.o_proj.probe_bf16"),
+                    Q38_D,
+                    6144,
+                )?;
                 AttentionBranchGpu::Qsa {
                     qkv_idx,
                     o_proj,
@@ -2652,13 +2670,26 @@ impl Qwen38GpuEngine {
                         )?;
                     }
                 }
-                self.launch_q4_gemv(
-                    stream,
-                    &ple.kv_proj,
-                    self.d_ple_emb.ptr,
-                    self.d_ple_kv.ptr,
-                    0,
-                )?;
+                if let Some(w) = &ple.probe_kv {
+                    self.probe_projection(
+                        stream,
+                        w,
+                        self.d_ple_emb.ptr,
+                        self.d_ple_kv.ptr,
+                        (Q38_HC_D + Q38_D) as i32,
+                        Q38_D as i32,
+                        (Q38_HC_D + Q38_D) as i32,
+                        1,
+                    )?;
+                } else {
+                    self.launch_q4_gemv(
+                        stream,
+                        &ple.kv_proj,
+                        self.d_ple_emb.ptr,
+                        self.d_ple_kv.ptr,
+                        0,
+                    )?;
+                }
                 let (mut hc_io, mut k_raw, mut v_raw) = (
                     self.d_hc.ptr,
                     self.d_ple_kv.ptr,
@@ -3197,14 +3228,27 @@ impl Qwen38GpuEngine {
         for l_idx in 0..Q38_LAYERS {
             let layer = &self.layers[l_idx];
             if let Some(ple) = &layer.ple {
-                self.launch_q4_gemm_b8(
-                    stream,
-                    &ple.kv_proj,
-                    bb.d_b_ple_emb.ptr,
-                    bb.d_b_ple_kv.ptr,
-                    b_count,
-                    0,
-                )?;
+                if let Some(w) = &ple.probe_kv {
+                    self.probe_projection(
+                        stream,
+                        w,
+                        bb.d_b_ple_emb.ptr,
+                        bb.d_b_ple_kv.ptr,
+                        (Q38_HC_D + Q38_D) as i32,
+                        Q38_D as i32,
+                        (Q38_HC_D + Q38_D) as i32,
+                        b_count,
+                    )?;
+                } else {
+                    self.launch_q4_gemm_b8(
+                        stream,
+                        &ple.kv_proj,
+                        bb.d_b_ple_emb.ptr,
+                        bb.d_b_ple_kv.ptr,
+                        b_count,
+                        0,
+                    )?;
+                }
                 let (mut hc_io, mut kv_b) = (bb.d_b_hc.ptr, bb.d_b_ple_kv.ptr);
                 let (mut nk, mut nq, mut nc, mut cw, mut h9, mut pos_p) = (
                     ple.norm_key.ptr,
