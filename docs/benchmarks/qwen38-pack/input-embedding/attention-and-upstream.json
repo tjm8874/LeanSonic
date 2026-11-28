@@ -1,0 +1,286 @@
+{
+  "official_bf16_q4_vo": {
+    "official": {
+      "rows": 494,
+      "vocabulary": 248320,
+      "mean_kl": 0.0,
+      "max_kl": 0.0,
+      "worst_case_position": [
+        0,
+        0
+      ],
+      "top1_matches": 494,
+      "byte_equal_rows": 494,
+      "reference_ppl": 11.382111666671216,
+      "candidate_ppl": 11.382111666671216,
+      "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+      "candidate_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+      "canary_cases": 16,
+      "matching_canaries": 16
+    },
+    "four-vo": {
+      "rows": 494,
+      "vocabulary": 248320,
+      "mean_kl": 0.013736763368986831,
+      "max_kl": 0.14965651940332525,
+      "worst_case_position": [
+        10,
+        22
+      ],
+      "top1_matches": 471,
+      "byte_equal_rows": 0,
+      "reference_ppl": 11.382111666671216,
+      "candidate_ppl": 11.371997799902692,
+      "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+      "candidate_sha256": "5b89cc0bdd3b15f3563de22ad65f7673fa7ce795565decd5d6aaef727bcaf843",
+      "canary_cases": 16,
+      "matching_canaries": 5
+    },
+    "twelve-vo": {
+      "rows": 494,
+      "vocabulary": 248320,
+      "mean_kl": 0.02610673911593363,
+      "max_kl": 0.38536837922705514,
+      "worst_case_position": [
+        10,
+        22
+      ],
+      "top1_matches": 456,
+      "byte_equal_rows": 0,
+      "reference_ppl": 11.382111666671216,
+      "candidate_ppl": 11.476347437034958,
+      "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+      "candidate_sha256": "a5509be4c7864f5624a94f789b6087d1df3eb721cd9d5d25908b47d90156e165",
+      "canary_cases": 16,
+      "matching_canaries": 3
+    }
+  },
+  "native_q4_bf16_vo": {
+    "stock": {
+      "rows": 494,
+      "vocabulary": 248320,
+      "mean_kl": 0.26967042252760437,
+      "max_kl": 2.4993284016812174,
+      "worst_case_position": [
+        8,
+        20
+      ],
+      "top1_matches": 406,
+      "byte_equal_rows": 0,
+      "reference_ppl": 11.382111666671216,
+      "candidate_ppl": 15.946024916463667,
+      "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+      "candidate_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "canary_cases": 16,
+      "matching_canaries": 0
+    },
+    "twelve-o": {
+      "rows": 494,
+      "vocabulary": 248320,
+      "mean_kl": 0.25312067616709627,
+      "max_kl": 2.0850649635036187,
+      "worst_case_position": [
+        8,
+        20
+      ],
+      "top1_matches": 408,
+      "byte_equal_rows": 0,
+      "reference_ppl": 11.382111666671216,
+      "candidate_ppl": 16.114494879327637,
+      "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+      "candidate_sha256": "74a5d4650fc7a294a03adca3f932fe4130b1c9a07ac71e4d2f2f976fc31553d6",
+      "canary_cases": 16,
+      "matching_canaries": 0
+    },
+    "twelve-v": {
+      "rows": 494,
+      "vocabulary": 248320,
+      "mean_kl": 0.2677899841819923,
+      "max_kl": 2.2559894590188687,
+      "worst_case_position": [
+        8,
+        20
+      ],
+      "top1_matches": 408,
+      "byte_equal_rows": 0,
+      "reference_ppl": 11.382111666671216,
+      "candidate_ppl": 15.85038241772826,
+      "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+      "candidate_sha256": "54f7a647f7cae39054fb0e03d8b5fb5ab9f04c58955d320db34dca0c47f288ed",
+      "canary_cases": 16,
+      "matching_canaries": 0
+    },
+    "four-vo": {
+      "rows": 494,
+      "vocabulary": 248320,
+      "mean_kl": 0.2658013626515209,
+      "max_kl": 3.5787681000237668,
+      "worst_case_position": [
+        8,
+        20
+      ],
+      "top1_matches": 408,
+      "byte_equal_rows": 0,
+      "reference_ppl": 11.382111666671216,
+      "candidate_ppl": 16.413246574437853,
+      "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+      "candidate_sha256": "39e856c15e18ea4f7514b066f39d8a9d6f7d43fee75402ceaeb8fd419b5e3a9e",
+      "canary_cases": 16,
+      "matching_canaries": 0
+    },
+    "control": {
+      "rows": 494,
+      "vocabulary": 248320,
+      "mean_kl": 0.0,
+      "max_kl": 0.0,
+      "worst_case_position": [
+        0,
+        0
+      ],
+      "top1_matches": 494,
+      "byte_equal_rows": 494,
+      "reference_ppl": 15.946024916463667,
+      "candidate_ppl": 15.946024916463667,
+      "reference_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "candidate_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+      "canary_cases": 16,
+      "matching_canaries": 16
+    },
+    "twelve-vo": {
+      "rows": 494,
+      "vocabulary": 248320,
+      "mean_kl": 0.25818997563938784,
+      "max_kl": 2.614154597845785,
+      "worst_case_position": [
+        8,
+        20
+      ],
+      "top1_matches": 400,
+      "byte_equal_rows": 0,
+      "reference_ppl": 11.382111666671216,
+      "candidate_ppl": 16.10824890549369,
+      "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+      "candidate_sha256": "ca8e00529f50d7a78bdeb211e6b52e616f9f13ee5979f2cab1c66ab7cd416b94",
+      "canary_cases": 16,
+      "matching_canaries": 0
+    }
+  },
+  "official_mlx_q4": {
+    "bf16-only-routed": {
+      "rows": 49,
+      "vocabulary": 248320,
+      "mean_kl": 0.01816051960735865,
+      "max_kl": 0.12747158077380236,
+      "worst_case_position": [
+        3,
+        7
+      ],
+      "top1_matches": 43,
+      "byte_equal_rows": 0,
+      "reference_ppl": 28.038166623626164,
+      "candidate_ppl": 29.08258294839605,
+      "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+      "candidate_sha256": "2c93804edf9e4c5e2d6d6b76cf03aa20cfcd07be7d422dc7151e8ec4f35395b6",
+      "canary_cases": 4,
+      "matching_canaries": 2
+    },
+    "all-q4-to-native": {
+      "rows": 49,
+      "vocabulary": 248320,
+      "mean_kl": 0.0211052231899268,
+      "max_kl": 0.15940764886898154,
+      "worst_case_position": [
+        3,
+        12
+      ],
+      "top1_matches": 49,
+      "byte_equal_rows": 0,
+      "reference_ppl": 53.491044899915195,
+      "candidate_ppl": 52.991022603491864,
+      "reference_sha256": "e202e5785635727c7ba7b75155cfc3d4e02fde3b2970122703899376a5606892",
+      "candidate_sha256": "32f22430fb15114a198cdb404d24875ed4e76557be8d9afc3c53c6d7faa7a986",
+      "canary_cases": 4,
+      "matching_canaries": 0
+    },
+    "bf16-all-q4": {
+      "rows": 49,
+      "vocabulary": 248320,
+      "mean_kl": 0.28465052631565096,
+      "max_kl": 1.4290755158670843,
+      "worst_case_position": [
+        1,
+        8
+      ],
+      "top1_matches": 39,
+      "byte_equal_rows": 0,
+      "reference_ppl": 28.038166623626164,
+      "candidate_ppl": 53.491044899915195,
+      "reference_sha256": "a52a9e4d506fa76f153ea8c998715b92994d90b21212f83384c84a3d63793679",
+      "candidate_sha256": "e202e5785635727c7ba7b75155cfc3d4e02fde3b2970122703899376a5606892",
+      "canary_cases": 4,
+      "matching_canaries": 1
+    },
+    "only-routed-to-native": {
+      "rows": 49,
+      "vocabulary": 248320,
+      "mean_kl": 0.27569480491850595,
+      "max_kl": 1.2867189925046572,
+      "worst_case_position": [
+        1,
+        8
+      ],
+      "top1_matches": 42,
+      "byte_equal_rows": 0,
+      "reference_ppl": 29.08258294839605,
+      "candidate_ppl": 52.991022603491864,
+      "reference_sha256": "2c93804edf9e4c5e2d6d6b76cf03aa20cfcd07be7d422dc7151e8ec4f35395b6",
+      "candidate_sha256": "32f22430fb15114a198cdb404d24875ed4e76557be8d9afc3c53c6d7faa7a986",
+      "canary_cases": 4,
+      "matching_canaries": 0
+    }
+  },
+  "pro5000_stream": {
+    "stock-stream": {
+      "distinct_sequences_including_warmup": [
+        1,
+        1
+      ],
+      "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+      "sampled_process_peak_bytes": 75486986240,
+      "launch_to_ready_ms": 7972.888981,
+      "median_after_warmup": {
+        "16": {
+          "cycles": 3,
+          "prefill_tok_s": 397.39689140255666,
+          "decode_tok_s": 162.99003044664283
+        },
+        "128": {
+          "cycles": 3,
+          "prefill_tok_s": 491.9813081234116,
+          "decode_tok_s": 158.96981162251674
+        }
+      }
+    },
+    "twelve-vo-stream": {
+      "distinct_sequences_including_warmup": [
+        1,
+        1
+      ],
+      "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+      "sampled_process_peak_bytes": 75914805248,
+      "launch_to_ready_ms": 8004.3868,
+      "median_after_warmup": {
+        "16": {
+          "cycles": 3,
+          "prefill_tok_s": 393.1109082331232,
+          "decode_tok_s": 155.95796870360252
+        },
+        "128": {
+          "cycles": 3,
+          "prefill_tok_s": 484.6327736994731,
+          "decode_tok_s": 152.46066171891164
+        }
+      }
+    }
+  }
+}
