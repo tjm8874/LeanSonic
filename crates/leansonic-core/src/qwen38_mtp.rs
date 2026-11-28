@@ -952,21 +952,18 @@ pub fn spec_generate(
             "speculative decode needs the batched verify path (48/48 Z24)".to_string()
         })
     };
-    // Prompt: verify-sized chunks so the drafter sees the target HC at every position.
+    // Keep the target's normal prefill grouping. Splitting the prompt at verify width can
+    // change target arithmetic enough to flip a later greedy token on the same history.
     let t0 = std::time::Instant::now();
-    let mut cur = 0u32;
-    let mut draft = 0u32;
-    for (c, chunk) in prompt.chunks(Q38_MAX_VERIFY_BATCH).enumerate() {
-        let out = eng.forward_verify_tokens(chunk)?;
-        for (r, &o) in out.iter().enumerate() {
-            let i = c * Q38_MAX_VERIFY_BATCH + r;
-            match prompt.get(i + 1) {
-                Some(&next) => mtp.step_kv_only(row(eng, r)?, next, embed, lm_head)?,
-                None => draft = mtp.step(row(eng, r)?, o, embed, lm_head)?,
-            }
+    let mut draft = 0;
+    let (mut cur, _) = eng.prefill_with_hc(prompt, |hc, next, last| {
+        if last {
+            draft = mtp.step(hc, next, embed, lm_head)?;
+        } else {
+            mtp.step_kv_only(hc, next, embed, lm_head)?;
         }
-        cur = *out.last().unwrap();
-    }
+        Ok(())
+    })?;
     stats.prompt_s = t0.elapsed().as_secs_f64();
     let mut out = Vec::with_capacity(n + k + 1);
     let mut seq = Vec::with_capacity(k + 1);

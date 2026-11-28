@@ -2321,8 +2321,18 @@ impl Qwen38GpuEngine {
         self.forward_batch_chunk(tokens, BatchLogitMode::AllVerifyLogits)
     }
 
-    #[allow(clippy::manual_is_multiple_of)]
     pub fn prefill_tokens(&mut self, prompt_ids: &[u32]) -> Result<(u32, f64), String> {
+        self.prefill_with_hc(prompt_ids, |_, _, _| Ok(()))
+    }
+
+    /// Visit each prompt hidden state on the compute stream before its buffer is reused.
+    /// The successor is teacher-forced except on the last row, which uses the target argmax.
+    #[allow(clippy::manual_is_multiple_of)]
+    pub(crate) fn prefill_with_hc(
+        &mut self,
+        prompt_ids: &[u32],
+        mut visit: impl FnMut(CUdeviceptr, u32, bool) -> Result<(), String>,
+    ) -> Result<(u32, f64), String> {
         if prompt_ids.is_empty() {
             return Err("prefill_tokens requires at least 1 token".into());
         }
@@ -2345,20 +2355,22 @@ impl Qwen38GpuEngine {
         let t0 = Instant::now();
         if use_batched {
             let n = prompt_ids.len();
-            let mut cursor = 0usize;
-            while cursor < n {
-                let end = (cursor + Q38_MAX_BATCH).min(n);
-                let slice = &prompt_ids[cursor..end];
-                if end < n {
-                    let _ = self.forward_batch_chunk(slice, BatchLogitMode::NoLogits)?;
+            let mut next = 0;
+            for (group, chunk) in prompt_ids.chunks(Q38_MAX_BATCH).enumerate() {
+                let start = group * Q38_MAX_BATCH;
+                if start + chunk.len() == n {
+                    next = self.forward_batch_chunk(chunk, BatchLogitMode::LastLogitOnly)?[0];
                 } else {
-                    let out = self.forward_batch_chunk(slice, BatchLogitMode::LastLogitOnly)?;
-                    let ms = t0.elapsed().as_secs_f64() * 1000.0;
-                    return Ok((out[0], ms));
+                    self.forward_batch_chunk(chunk, BatchLogitMode::NoLogits)?;
                 }
-                cursor = end;
+                let base = self.batch_bufs.as_ref().unwrap().d_b_hc.ptr;
+                for row in 0..chunk.len() {
+                    let successor = prompt_ids.get(start + row + 1);
+                    let hc = base + (row * Q38_HC_D * 4) as u64;
+                    visit(hc, successor.copied().unwrap_or(next), successor.is_none())?;
+                }
             }
-            unreachable!()
+            return Ok((next, t0.elapsed().as_secs_f64() * 1000.0));
         }
 
         for (idx, &tok) in prompt_ids[..prompt_ids.len() - 1].iter().enumerate() {
@@ -2366,11 +2378,13 @@ impl Qwen38GpuEngine {
                 self.ctx.sync_compute()?;
             }
             self.forward_token_internal(tok, false)?;
+            visit(self.hc_state_ptr(), prompt_ids[idx + 1], false)?;
         }
         if prompt_ids.len() > 1 {
             self.ctx.sync_compute()?;
         }
         let next = self.forward_token_internal(*prompt_ids.last().unwrap(), true)?;
+        visit(self.hc_state_ptr(), next, true)?;
         let ms = t0.elapsed().as_secs_f64() * 1000.0;
         Ok((next, ms))
     }
