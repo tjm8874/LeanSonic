@@ -1,8 +1,8 @@
-# Qwen3.8-Flash-Next on RTX PRO 4500 32GB
+# Qwen3.8-Flash-Next on RTX PRO 4500 32GB and PRO 5000 72GB
 
 Two resident engines took the same token IDs over stdin, one request at a time, with a 256-token context and exactly 32 greedy output tokens. LeanSonic used the restored MLX Q4 checkpoint from the [lossless distribution](../qwen38-pack/README.md) and the pinned engine commit `9b3e4f2aabc5e33e73b34e0aea8e031b48aba0fe`. Basalt used its public v0.5.7 Linux x64 release and the `Qwen3.8-FN-UD-Q4_K_XL.basalt` checkpoint (revision `65de5a9e636e8bbe1200cbcd6eb8aa421e6a66c6`, 115,307,561,176 bytes). These checkpoints represent the same base model with different quantization and runtime arithmetic. The Q4 weights used by LeanSonic occupy 113,209,682,735 shard bytes and require 105,964,842,612 total distribution bytes using the dictionary pack.
 
-## Latency and sampled memory
+## RTX PRO 4500 latency and sampled memory
 
 Each arm ran one warmup pair followed by three measured pairs in the order 16 input tokens, then 128. The short input is the Japanese fixture. The long input repeats all four token fixtures and stops at 128 tokens. The table uses medians of the three measured requests. Prefill throughput includes submission through arrival of the first output token. Decode throughput covers the next 31 token intervals. The final column measures the full request through the engine's DONE line. Peak VRAM is the maximum process usage observed by NVML at a nominal 25 ms interval.
 
@@ -16,6 +16,19 @@ Each arm ran one warmup pair followed by three measured pairs in the order 16 in
 | Basalt, fixed expert placement | 128 | 393.97 | 324.89 | 43.39 | 1107.44 | 30.60 |
 
 All three measured repeats produced identical tokens within each arm and prompt. For the short prompt, Basalt with adaptive placement first diverged from its own warmup on output token 8. Fixed placement and LeanSonic reproduced their warmup sequences. The two Basalt modes differ in expert placement and can take different arithmetic paths. These observations come from two prompts. The measurements are for warmed resident processes on a shared host, and the VRAM sampling can miss short peaks. Exact token traces and individual times are in [pro4500.json](pro4500.json).
+
+## RTX PRO 5000 72GB
+
+The same binaries, fixture IDs, context size and request schedule ran on the 72GB GPU. LeanSonic kept 45/48 expert layers in VRAM on this checkout. Individual timings and output IDs are in [pro5000.json](pro5000.json).
+
+| Engine and placement | Input | First token (ms) | Prefill (tok/s) | Decode (tok/s) | Through DONE (ms) | Sampled peak (GiB) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| LeanSonic | 16 | 219.78 | 72.80 | 69.43 | 666.32 | 69.70 |
+| Basalt, adaptive | 16 | 116.91 | 136.86 | 134.42 | 347.77 | 70.44 |
+| Basalt, fixed | 16 | 193.54 | 82.67 | 83.68 | 564.42 | 70.44 |
+| LeanSonic | 128 | 1760.95 | 72.69 | 68.76 | 2211.77 | 69.70 |
+| Basalt, adaptive | 128 | 141.53 | 904.40 | 135.69 | 370.23 | 70.44 |
+| Basalt, fixed | 128 | 145.14 | 881.89 | 115.69 | 413.09 | 70.44 |
 
 ## Teacher-forced cross-check
 
