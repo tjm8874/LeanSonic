@@ -1,0 +1,76 @@
+# Native group-32 Q8 projection experiment
+
+The runtime reads signed codes and per-group BF16 scales for attention and PLE input/output matrices. Reconstructed weights are rounded to BF16 before the FP32 dot product. The first experiment covers 242 matrices. Other model components retain their existing Q4 layout. This is a development branch.
+
+The standalone driver launches the cubin compiled from the normal production CUDA translation unit. It checks the result against a host implementation using independent BF16 rounding and a double accumulator. The 28 cases combine four input widths and seven batch sizes. Nine output rows also exercise the partial final block. The RTX PRO 4500, RTX 5070 Ti and RTX 5060 Ti reported identical per-case errors. On the PRO 4500, compute-sanitizer memcheck returned zero errors with exactly sized allocations. Removing the final output float produced the expected invalid global write with exit 77. [Per-shape errors, cubin digest and memcheck results](kernel.json)
+
+Run from the repository root with a reserved GPU. The red control intentionally faults and should exit 77 under memcheck.
+
+```sh
+nvcc -O3 -std=c++17 -arch=sm_120a -Ikernels --cubin kernels/qwen38_sm120.cu -o q8.cubin
+g++ -O2 -std=c++17 -I/usr/local/cuda/include docs/benchmarks/qwen38-dense-q8/check_gemv.cpp -o check_gemv -L/usr/local/cuda/lib64/stubs -lcuda
+./check_gemv q8.cubin green
+compute-sanitizer --tool memcheck --padding 65536 --error-exitcode 77 ./check_gemv q8.cubin green
+compute-sanitizer --tool memcheck --padding 65536 --error-exitcode 77 ./check_gemv q8.cubin red
+```
+
+## First 242 native projections
+
+The compact Q4 target used the corrected norm loader from #276. The mixed arm changed only the 242 QSA, Gated DeltaNet and PLE matrix precisions. The unchanged Q4 model ran on the experimental binary and matched the previous engine on all 233 FP32 logit rows and eight continuations. Quality was measured against the upstream BF16 teacher on an RTX PRO 5000 72 GB. The Q8 variant here uses the original MLX residual norms.
+
+| Positions | Mean KL, Q4 → 242 Q8 | Worst KL | Top-1 match | PPL |
+|---|---:|---:|---:|---:|
+| 49 | 0.10005 → 0.08010 | 0.58455 → 0.38864 | 41 → 41 | 33.2775 → 33.0302 |
+| 233 | 0.15861 → 0.09956 | 1.92162 → 0.76126 | 184 → 195 | 20.6235 → 19.6779 |
+| 494 | 0.11960 → 0.09061 | 2.32175 → 1.32242 | 414 → 421 | 12.3159 → 12.0495 |
+
+For four fixed prompts and 128 generated tokens each, median warmed prefill fell from 405.57–453.51 to 361.84–391.35 tok/s and decode from 160.91–161.66 to 132.68–133.18 tok/s. Sampled peak VRAM increased from 75,486,986,240 to 76,055,314,432 bytes. With automatic placement all 24,576 experts were in VRAM in the Q4 arm and 24,377 in the Q8 arm. The difference combines matrix precision, kernel implementation and expert placement. Exact distribution bytes for the 726-matrix artifact and timings from this 242-matrix indexed overlay describe different configurations. [Pinned package format and size](https://github.com/tjm8874/LeanSonic/blob/e5e59dd/docs/benchmarks/qwen38-pack/dense-q8/README.md) · [All timing/quality records and input/output IDs](native-242.json.gz)
+
+## Hyper-connection precision and expert placement
+
+Adding all 290 hyper-connection projections to the first 242 gives 532 Q8 matrices. On the same 494 positions, mean/worst KL improved from 0.09061/1.32242 to 0.05170/0.53670, top-1 matches increased from 421 to 432 and PPL improved from 12.0495 to 11.6515. On the 233 positions, mean KL improved from 0.09956 to 0.06356 and PPL from 19.6779 to 18.6362, but worst KL rose from 0.76126 to 1.49901. Four warmed decode medians with automatic placement lay between 107.07 and 109.68 tok/s.
+
+With the same solver, revision, cubin and an explicit cap of 46 resident layers, each arm kept the same 23,552 of 24,576 routed experts in VRAM (45 contiguous layers and the same three partially resident layers). The fixed placement also reduced Q4 throughput relative to its automatic placement. Each comparison used the same four prompts, one sequence per request, 128 outputs, one warmup and three measured cycles. Output IDs may vary with the weight precision.
+
+| Fixed-placement model | Prefill tok/s | Decode tok/s | Sampled VRAM bytes |
+|---|---:|---:|---:|
+| Q4 | 308.72–385.56 | 120.70–132.78 | 72,496,447,488 |
+| 242 Q8 matrices | 292.52–356.13 | 106.57–123.20 | 73,645,686,784 |
+| 532 Q8 matrices | 282.54–340.96 | 92.22–104.41 | 74,094,477,312 |
+
+The shared/expert activation precision and execution paths outside the chosen families are unchanged in these three arms. Use `overlay.py Q4 Q8 OUT attention` or append `mixer` for the second arm. Build q38_stream with the q38-zstd-weights feature at `be2c93d` and set LEANSONIC_MAX_RESIDENT_LAYERS to 46. Both source directories must reside on the same filesystem for the diagnostic overlay. The file count includes superseded tensors and is unsuitable for release-size accounting.
+
+The mixer driver compared both nonlinear stages and injection outputs against scalar reference dots across both final and intermediate mixers at batch sizes 1, 2, 5 and 8. The PRO 4500, 5070 Ti and 5060 Ti produced identical per-case maximum errors. Both kernels passed compute-sanitizer memcheck on the PRO 4500. Independently truncating the final down or up output by one float triggered an invalid write in each red control.
+
+A separate Q4 experiment changed only the 148 residual norm vectors to official values. It left mean KL slightly higher on all three fixture sets. At 494 positions the corrected Q4 baseline's worst KL rose from 2.32175 to 2.70353 and top-1 agreement fell from 414 to 408. The main loader correction #276 and the separate 148-tensor substitution address distinct changes. [Inputs, outputs, quality metrics, controlled placement timings and mixer numerical errors](native-532.json.gz)
+
+## Complete native Q8 decoder
+
+Commit `070438c` runs all 726 signed-Q8 decoder matrices. The target and drafter share the embedding and output head. Routed experts, Engram and MTP-specific matrices retain their original encodings. Use the [105,692,126,511-byte official-norm package](../qwen38-pack/dense-q8/README.md#restoring-the-148-official-residual-norms). The 32 GB test loaded this complete directory directly. The 16 GB validation pointed an existing direct-Q4 expert/Engram index at a single transferred shard with the exact same 726 Q8 code/scale pairs and 148 official norms.
+
+| Native all-vocabulary fixture | Corrected Q4 → full Q8 mean KL | Worst KL | Top-1 | PPL |
+|---|---:|---:|---:|---:|
+| New, 233 positions (5070 Ti) | 0.15861 → 0.03452 | 1.92162 → 0.78989 | 184 → 215 | 20.6235 → 18.4991 |
+| Extended, 494 positions (PRO 4500) | 0.11960 → 0.02293 | 2.32175 → 0.32195 | 414 → 458 | 12.3159 → 11.4317 |
+
+On the common 176-position Basalt protocol, native Q8 versus Basalt v0.5.7 fixed scored mean/worst truncated KL 0.02043/0.30740 versus 0.01690/0.19575, top-1 171 versus 172, PPL 7.7387 versus 7.6513. On the separate 104 positions the scores were 0.04740/0.78630 versus 0.03287/0.65464, 93 versus 98, and 8.9345 versus 9.1700. The 233- and 494-position complete-vocabulary protocol uses a different selection of positions from those two common subsets. [Native scores and on-device operator checks](full-native.json)
+
+The signed shared-expert projection and the four-stream embedding produced identical independent scalar-check results on the PRO 4500, 5070 Ti and 5060 Ti. The embedding matched the BF16 reconstruction exactly for 10,240 and 174,080 output values. Both kernels passed compute-sanitizer with exactly sized allocations. Each reported an invalid write with the one-float-short red control. The full SM120a cubin passed the repository's SASS audit. The draft remains experimental pending throughput, speculative parity, and the broader BF16 comparisons.
+
+## Full checkpoint, four GPUs and matched public-engine timings
+
+On the PRO 5000, the complete native Q8 model scored mean/worst KL 0.01487/0.05551, 46/49 top-1 and PPL 28.9555 on the original short fixture. On the 233-position fixture, the PRO 5000 matched the 5070 Ti in all FP32 logits, row metadata and eight-token continuations. On all 494 extended positions, the PRO 5000, PRO 4500 and 5060 Ti matched all three files byte for byte.
+
+Four identical prompts, batch one, context 256, 128 outputs each, greedy generation, one warmup and three timed cycles per prompt. Adaptive uses Basalt's zero-temperature setting. Times are observed through the streaming protocol. The table reports the range of per-input medians. LeanSonic Q4 and Q8 have different quantized weights; Basalt uses UD-Q4_K_XL. VRAM is a sampled process peak.
+
+| GPU / engine | Prefill tok/s | Decode tok/s | Package bytes | Sampled peak VRAM bytes |
+|---|---:|---:|---:|---:|
+| PRO 5000 / LeanSonic corrected Q4 | 405.57–453.51 | 160.91–161.66 | 103,556,334,617 | 75,486,986,240 |
+| PRO 5000 / LeanSonic full Q8 mix | 295.46–331.03 | 98.73–104.89 | 105,692,126,511 | 76,055,314,432 |
+| PRO 5000 / Basalt v0.5.7 fixed | 104.05–135.09 | 106.93–134.85 | 115,307,561,176 | 75,608,621,056 |
+| PRO 5000 / Basalt v0.5.7 adaptive | 138.45–139.13 | 138.20–138.81 | 115,307,561,176 | 75,608,621,056 |
+| PRO 4500 / LeanSonic full Q8 mix | 62.83–100.69 | 24.33–41.02 | 105,692,126,511 | 33,390,854,144 |
+
+At 72 GB, full Q8 increased prefill speed relative to both Basalt configurations, but decode was slower on every prompt. Q8 used 9,615,434,665 fewer model bytes and 446,693,376 more peak GPU bytes than Basalt. Keep the full Q8 profile experimental. [All IDs, per-request timings, quality metrics and cross-GPU hashes](full-matched.json.gz)
+
+All eight modified fused MoE kernel entry points passed the independent shared-expert numerical and exact-allocation memory checks. In each entry point, shortening the Q8 weight plane by one 32-code group produced an invalid read in compute-sanitizer and exit 77. [Per-kernel outcomes](fused-memcheck.txt) · [Scalar reference driver](check_shared_moe.cpp)

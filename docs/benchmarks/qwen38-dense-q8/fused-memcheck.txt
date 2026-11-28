@@ -1,0 +1,16 @@
+q38_moe_up_swiglu11 green 0
+q38_moe_up_swiglu11 red 77
+q38_moe_up_swiglu11_z24 green 0
+q38_moe_up_swiglu11_z24 red 77
+q38_moe_up_swiglu11_z24_bn green 0
+q38_moe_up_swiglu11_z24_bn red 77
+q38_moe_up_grouped_z24 green 0
+q38_moe_up_grouped_z24 red 77
+q38_moe_down_combine11 green 0
+q38_moe_down_combine11 red 77
+q38_moe_down_combine11_z24 green 0
+q38_moe_down_combine11_z24 red 77
+q38_moe_down_combine11_z24_bn green 0
+q38_moe_down_combine11_z24_bn red 77
+q38_moe_down_grouped_z24 green 0
+q38_moe_down_grouped_z24 red 77
