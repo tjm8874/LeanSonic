@@ -25,3 +25,20 @@ python3 trace_eval.py
 ```
 
 The source IDs have SHA-256 `cd0a1459401deb950951cbe891cb7b49d79d04ecf4ba6688283593b4a5d78875`. The complete graph-enabled response stream has SHA-256 `7100e88eb378ee516ead21223b05eaffc50400919c78166adbf3fbf9827a93c6`. Filtering the diagnostic stderr to lines beginning with `ROUTE ` produces SHA-256 `e81cf70e65e4d952e2af18aac4fea6a4c23457f8e7c4d433d7b6df3751bbf64c`.
+
+## Running the placement policy on hardware
+
+The [experimental branch](https://github.com/tjm8874/LeanSonic/commit/c705da4) packs each selected expert's nine parameter planes into one VRAM record and each remaining expert into a mapped pinned-host record. A per-layer GPU pointer table directs the two MoE kernels to the selected record. This experiment uses the pre-Wave-1 v0.11.0 kernel arithmetic and ordinary MLX Q4 weights. The trained arm allocates 192 hot records in every layer; a seeded random profile tests the same layout and per-layer budget with different experts.
+
+On the RTX PRO 4500, five engine launches used the order stock, calibrated, random, calibrated, stock. Each launch warmed up every held-out input and then ran it three times. Decode rates below use the median time for the 31 tokens following the first token, pooled within each arm. All launches returned the same 32 greedy token IDs as the stock engine on all four held-out inputs.
+
+| Held-out fixture | Stock (tok/s) | Calibrated (tok/s) | Random (tok/s) |
+| --- | ---: | ---: | ---: |
+| English route | 20.43 | 51.73 | 19.35 |
+| Japanese continuation | 20.46 | 45.69 | 19.63 |
+| Code | 20.47 | 26.06 | 19.86 |
+| Arithmetic | 20.45 | 35.05 | 20.58 |
+
+The calibrated layout's sampled process peak was 30.14 GiB versus 30.07 GiB for stock. Its full-vocabulary logits were byte-equal to stock on 49 fixture positions, and all four eight-token canaries matched. The timing sample covers four short prompts; deployment on the newer Z24 runtime needs its own port and measurements. [Per-trial timings and output IDs](mixed-pro4500.json)
+
+To reproduce, generate `profile-calibrated-192.txt` and `profile-random-192.txt` with `python3 make_profile.py 192` beside the trace files. In a checkout of the experimental commit, compile `kernels/qwen38_sm120.cu` into a cubin for sm_120a and build the uninstrumented `q38_stream` example. Select the generated cubin with `LEANSONIC_QWEN38_CUBIN_PATH`. Leave `Q38_EXPERT_PROFILE` unset for stock and set it to the corresponding profile file for the other arms. Use `mixed_stream.py route-fixtures.ids LOG JSON Q38_STREAM RESTORED 256` for each launch; it selects only the last four prompts for timing.
