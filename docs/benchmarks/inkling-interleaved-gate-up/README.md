@@ -25,3 +25,17 @@ python3 ci/audit_sass.py --cubin engine.cubin
 The trial passed the SASS audit. Six of 243 functions had different instruction fingerprints after recompilation of the common template. The measured speedup applies to that complete binary. [Function-level SASS comparison](sass.json).
 
 Select the GPU by UUID. Set LEANSONIC_CTX=2048, LEANSONIC_PREFILL_CHUNK=1024, LEANSONIC_KV=fp16, LEANSONIC_SEQS=1 and enable LEANSONIC_PDL, LEANSONIC_PDL_ALL, LEANSONIC_MXFP8_DEVICE_U4 and LEANSONIC_MXFP8_DIRECT_ALL. Set LEANSONIC_CUBIN_PATH to each arm and alternate four fresh `bench MODEL` processes per cycle (base/trial/trial/base, then reverse). Use the [four-fixture runner and IDs](https://github.com/tjm8874/LeanSonic/tree/78def8f/docs/benchmarks/inkling-class-frames/three-engines/prefill-tiles) for the parity check. Compare both output files with `cmp` and SHA-256.
+
+## Ragged expert counts and CUDA sanitizers
+
+An isolated driver harness loads the exact baseline and trial cubins and calls the production gate/up kernel directly. It tests 18 counts including zero, 7/8/9, 63/64/65 and 127/128/129. On PRO 4500 all 1,456,128 active FP32 outputs agreed bit for bit. All 41,472 guard words retained their sentinels. For counts 9 and 129, memcheck, synccheck, racecheck and initcheck each checked both arms, with 158,976 outputs and 4,608 guards per tool. All four reported zero errors and racecheck also reported zero warnings. The full-engine memcheck additionally reported six missing-symbol lookups at model initialization; that run cannot establish a clean full-engine result. The direct harness requires only the two actual kernel entry points. [Outputs, sanitizer reports and digests](sanitizers.json).
+
+Compile [check.cu](check.cu) with the CUDA toolkit. Run both binaries on the same GPU:
+
+```sh
+nvcc -arch=sm_120a -std=c++17 -O2 check.cu -L/usr/local/cuda/lib64/stubs -lcuda -o check
+./check base.cubin trial.cubin
+for tool in memcheck synccheck racecheck initcheck; do
+    compute-sanitizer --tool "$tool" --error-exitcode 17 ./check base.cubin trial.cubin quick || exit
+done
+```
