@@ -56,3 +56,18 @@ PPL measures probability assigned to the observed next tokens in this small samp
 To reproduce, first produce the BF16 teacher dump with the [official reference runner](../../../qwen38-pack/reference/README.md) on the last four inputs of `route-fixtures.ids`. Point `PYTHONPATH` at the absolute engine-comparison directory. Run [split_reference.py](split_reference.py) with the four input lines, BF16 teacher output directory, and a new destination. In each numbered subdirectory run `leansonic eval-kld --weights "$MODEL" --ref ref.kld`. For Basalt, run `basalt_ppl.py "$PWD" "$PWD/score.json" "$BASALT"` followed by the same server and sampler flags as the fixed or adaptive timing run. Pool NLL and KL over scored positions before computing combined PPL and mean KL.
 
 The released CUDA driver's runtime compiler independently reproduced the reference Q4 logits and eight-token continuations on all 65 held-out positions on the 72 GB PRO 5000. The four new sm_120a kernels also passed the tested exact-size boundary at expert 511 on both device and mapped host records with 65,536 bytes of Compute Sanitizer padding. [Cross-device hashes and sanitizer output](validation.json)
+
+## GeForce 16 GB results
+
+Both cards used the same 4,096 VRAM expert records, equal to eight complete layers in stock placement. The trained profile allocates 86 experts in each of the first 16 layers and 85 in each remaining layer. Timing uses four held-out prompts, 32 greedy tokens, context 256, one warmup and three measured cycles. Columns show prefill / decode tok/s.
+
+| Prompt | 5070 Ti stock | 5070 Ti profile | 5060 Ti stock | 5060 Ti profile |
+| --- | ---: | ---: | ---: | ---: |
+| English | 21.69 / 9.90 | 34.87 / 23.17 | 9.70 / 4.33 | 14.22 / 9.28 |
+| Japanese | 25.25 / 9.91 | 30.80 / 22.85 | 11.33 / 4.33 | 12.64 / 9.15 |
+| Code | 16.18 / 9.91 | 21.02 / 13.54 | 7.25 / 4.33 | 8.59 / 5.46 |
+| Arithmetic | 23.57 / 9.91 | 35.62 / 16.78 | 10.55 / 4.33 | 14.55 / 6.74 |
+
+The sampled VRAM peak rose by 50,331,648 bytes on both cards, from 15,558,770,688 to 15,609,102,336 on the RTX 5070 Ti and from 15,460,204,544 to 15,510,536,192 on the RTX 5060 Ti. Both builds produced the same 32 output IDs on every paired run. The mixed build also reproduced the PRO 5000 reference hashes for all 65 held-out full-vocabulary rows and four eight-token continuations on each card. These runs used the same pre-small-batch mixed Z24 binaries, identified by SHA-256 in the receipt.
+
+In the separate stock 16/128-input length fixture the RTX 5070 Ti reached 24.42/9.90 and 28.69/9.89 tok/s respectively, and the RTX 5060 Ti reached 10.94/4.32 and 12.84/4.32 tok/s. To repeat the held-out runs, use the same commands above with the [eight-layer-budget profile](profile-calibrated-8layers.txt) and set the stock resident layer cap to eight. The [full records](geforce16.json) include inputs, generations, peaks, teacher hashes and binary digests.
