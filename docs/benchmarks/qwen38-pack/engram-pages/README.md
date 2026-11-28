@@ -57,3 +57,19 @@ Each row gives the first request on a fresh engine with 128 generated tokens. Th
 ## With the lossless expert-weight frames
 
 An integration of this branch with #268 at `d3ec717` also accepts the 103,556,413,821-byte expert-frame model as the converter input. The tiled distribution occupied **103,556,334,617 bytes**. The disk audit checked all 320,001,536 Engram rows and 3,363 other tensor payloads. On the RTX PRO 4500 32 GB, every one of 494 full-vocabulary rows, all 16 eight-token continuations and all 16 held-out 32-output requests matched the untiled compressed model. [Per-case timings, peak VRAM and exact counts](measurements.json)
+
+## Reversed cold order and matched public engine
+
+Repeating the private-page test in reverse layout order gave cold TTFTs of 910.9 → 404.0 ms (English), 879.8 → 389.5 ms (Japanese), 690.5 → 343.5 ms (Python), and 1006.2 → 492.3 ms (arithmetic). All eight cold/warm sequences per prompt matched across the two experiments. [Reverse-order measurements and hashes](reverse-cold-summary.json)
+
+The warmed public-engine comparison used the same four input ID sequences, 128 output tokens, max context 256, no speculative decoding, and no prompt-cache reuse. We discarded the first cycle and took the median of the next three for each prompt. The ranges below span those four medians. Prefill throughput divides the input length by client time to the first token. Decode throughput covers the remaining 127 tokens. The finish column measures the interval from the final token to DONE. [All timestamps, IDs and process VRAM samples summarized per engine](public128.json.gz)
+
+| Engine | Prefill tok/s | Decode tok/s | TTFT ms | Finish ms | Total ms | Peak process bytes |
+|---|---:|---:|---:|---:|---:|---:|
+| LeanSonic combined | 405.69–453.83 | 160.94–161.70 | 56.69–94.75 | 0.00–0.00 | 842.09–883.93 | 75,486,986,240 |
+| Basalt adaptive | 138.45–139.13 | 138.20–138.81 | 165.72–309.06 | 0.24–0.27 | 1083.52–1228.46 | 75,608,621,056 |
+| Basalt fixed | 104.05–135.09 | 106.93–134.85 | 170.45–318.30 | 0.24–0.24 | 1114.97–1476.19 | 75,608,621,056 |
+
+LeanSonic used the 103,556,334,617-byte MLX Q4 derivative at `d3ec717`; Basalt v0.5.7 used the 115,307,561,176-byte UD-Q4_K_XL file. Basalt used FP16 KV, RAM Engram, automatic expert cache and prefill; adaptive used `--temperature 0`, fixed used `--greedy --adapt-every 0`. Each LeanSonic and fixed Basalt prompt produced the same sequence across four cycles. Each adaptive prompt produced three distinct sequences. Timing used the RTX PRO 5000 72 GB and the protocol in `docs/benchmarks/qwen38-engine-comparison/compare_stream.py --held-out-routing --generation-length 128`. Use the four exact prompt arrays in cycle 0 of the archive as the four measured fixture rows. The combined model and engine command are specified above.
+
+BF16 quality on 176 common positions favors Basalt. Mean/worst truncated KL, top-1 matches and PPL were 0.25952/2.49949, 156/176, 10.8242 for native MLX Q4; 0.01609/0.18175, 170/176, 7.7054 for Basalt adaptive; and 0.01690/0.19575, 172/176, 7.6513 for Basalt fixed. BF16 reference PPL was 7.5174. The two distributed quantizations differ. [Quality protocol and measurements](https://github.com/tjm8874/LeanSonic/blob/c34a9b2/docs/benchmarks/qwen38-pack/input-embedding/README.md#sixteen-additional-prompts-on-the-rtx-pro-5000)
