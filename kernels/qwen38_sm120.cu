@@ -4417,8 +4417,65 @@ extern "C" __global__ void q38_dense_q8_gemv(
     const int row = blockIdx.x * 8 + (threadIdx.x >> 5);
     pdl_wait();
     if (row < rows) {
-        const float sum = q38_q8_row_dot(weights, scales, input + static_cast<size_t>(blockIdx.y) * (cols / 4), row, cols);
+        const int lane = threadIdx.x & 31;
+        const int words = cols / 4;
+        const uint32_t* w = weights + static_cast<size_t>(row) * words;
+        const uint16_t* sc = scales + static_cast<size_t>(row) * (cols / 32);
+        const float4* x = input + static_cast<size_t>(blockIdx.y) * words;
+        float acc = 0.0f;
+        for (int i = lane; i < words; i += 32) {
+            const uint32_t codes = w[i];
+            const float scale = bf16_to_f32(sc[i / 8]);
+            const float4 v = input[i];
+            const float elements[] = {v.x, v.y, v.z, v.w};
+            #pragma unroll
+            for (int j = 0; j < 4; ++j) {
+                const int code = static_cast<int8_t>(codes >> (8 * j));
+                uint16_t rounded;
+                asm("cvt.rn.bf16.f32 %0, %1;" : "=h"(rounded) : "f"(code * scale));
+                acc = fmaf(bf16_to_f32(rounded), elements[j], acc);
+            }
+        }
+        const float sum = warp_sum(acc);
         if ((threadIdx.x & 31) == 0) output[static_cast<size_t>(blockIdx.y) * rows + row] = sum;
+    }
+    pdl_trigger();
+}
+
+// Four adjacent token rows share one group's codes, scales and reconstructed
+// weights. Each token keeps the scalar lane-local and warp accumulation order.
+extern "C" __global__ void q38_dense_q8_gemm_b4(
+    const uint32_t* weights, const uint16_t* scales, const float4* input,
+    float* output, int rows, int cols, int batch) {
+    const int row = blockIdx.x * 8 + (threadIdx.x >> 5);
+    const int token = blockIdx.y * 4;
+    const int lane = threadIdx.x & 31;
+    pdl_wait();
+    if (row < rows) {
+        const int words = cols / 4;
+        const uint32_t* w = weights + static_cast<size_t>(row) * words;
+        const uint16_t* sc = scales + static_cast<size_t>(row) * (cols / 32);
+        float sums[4] = {};
+        for (int i = lane; i < words; i += 32) {
+            const float4 val = q38_scaled_q8_word(w[i], sc[i / 8]);
+            #pragma unroll
+            for (int t = 0; t < 4; ++t) {
+                if (token + t < batch) {
+                    const float4 v = input[static_cast<size_t>(token + t) * words + i];
+                    float a = fmaf(val.x, v.x, sums[t]);
+                    a = fmaf(val.y, v.y, a);
+                    a = fmaf(val.z, v.z, a);
+                    sums[t] = fmaf(val.w, v.w, a);
+                }
+            }
+        }
+        #pragma unroll
+        for (int t = 0; t < 4; ++t) {
+            if (token + t < batch) {
+                const float v = warp_sum(sums[t]);
+                if (lane == 0) output[static_cast<size_t>(token + t) * rows + row] = v;
+            }
+        }
     }
     pdl_trigger();
 }

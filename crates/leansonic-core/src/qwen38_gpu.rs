@@ -466,6 +466,7 @@ enum DenseProjection {
         rows: i32,
         cols: i32,
         kernel: CUfunction,
+        batch_kernel: CUfunction,
     },
 }
 
@@ -522,6 +523,7 @@ impl DenseProjection {
         }
         Ok(Self::Q8 {
             kernel: module_function(ctx, module, "q38_dense_q8_gemv")?,
+            batch_kernel: module_function(ctx, module, "q38_dense_q8_gemm_b4")?,
             weights: DeviceBuf::from_host_bytes(ctx, &concat_bytes(&weights))?,
             scales: DeviceBuf::from_host_bytes(ctx, &concat_bytes(&scales))?,
             rows: items.iter().map(|(_, rows)| *rows).sum::<usize>() as i32,
@@ -2910,8 +2912,21 @@ impl Qwen38GpuEngine {
                 rows,
                 cols,
                 kernel,
+                batch_kernel,
             } => {
                 let (mut wp, mut sp, mut nr, mut nc) = (weights.ptr, scales.ptr, *rows, *cols);
+                if batch > 1 {
+                    let mut count = batch as i32;
+                    let mut args = kargs![wp, sp, input, output, nr, nc, count];
+                    return self.launch_kern(
+                        stream,
+                        *batch_kernel,
+                        ((nr as u32).div_ceil(8), (batch as u32).div_ceil(4)),
+                        256,
+                        &mut args,
+                        "q38_dense_q8_gemm_b4",
+                    );
+                }
                 let mut args = kargs![wp, sp, input, output, nr, nc];
                 self.launch_kern(
                     stream,
