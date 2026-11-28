@@ -47,8 +47,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             .create_new(true)
             .open(dir.join("canaries.txt"))?,
     );
+    let adapt_before_scoring = std::env::var_os("Q38_TEACHER_ADAPT_PREFILL").is_some();
     for (case, seq) in sequences.iter().enumerate() {
         engine.reset()?;
+        if adapt_before_scoring {
+            engine.prefill_tokens(seq)?;
+            engine.reset()?;
+        }
         for (pos, pair) in seq.windows(2).enumerate() {
             let top = engine.forward_greedy_token(pair[0])?;
             let values = engine.read_last_logits()?;

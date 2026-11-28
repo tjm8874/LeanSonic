@@ -33,6 +33,7 @@ def run(args):
         if len(fixtures) < 2 or not whole:
             raise ValueError("expected a nonempty short and long prompt source")
         prompts = [fixtures[1], (whole * ((128 + len(whole) - 1) // len(whole)))[:128]]
+    cases = [(ids, n) for n in args.generate for ids in prompts]
     records = []
     peak = [0]
     event = threading.Event()
@@ -84,8 +85,7 @@ def run(args):
                 pass
             ready = now()
             for cycle in range(4):
-                for case, ids in enumerate(prompts):
-                    n = 32
+                for case, (ids, n) in enumerate(cases):
                     sendtime = now()
                     send(f"GEN {n} " + ",".join(map(str, ids)))
                     stamps = []
@@ -105,7 +105,7 @@ def run(args):
                             if len(fields) > 8 and int(fields[8]) != 0:
                                 raise ValueError("engine reported reused prompt tokens")
                             break
-                    if len(tokens) != n:
+                    if len(tokens) != n and not (args.allow_early_stop and 0 < len(tokens) < n):
                         raise ValueError(f"expected {n}, got {len(tokens)}")
                     records.append(
                         {
@@ -113,6 +113,7 @@ def run(args):
                             "case": case,
                             "prompt": ids,
                             "generated": tokens,
+                            "requested_output_tokens": n,
                             "prefill_to_first_ms": (stamps[0] - sendtime) / 1e6,
                             "decode_ms": (stamps[-1] - stamps[0]) / 1e6,
                             "last_to_done_ms": (done - stamps[-1]) / 1e6,
@@ -141,7 +142,7 @@ def run(args):
             signal.signal(signal.SIGALRM, previous_handler)
     distinct = [
         len({tuple(r["generated"]) for r in records if r["case"] == i})
-        for i in range(len(prompts))
+        for i in range(len(cases))
     ]
     return {
         "distinct_sequences_including_warmup": distinct,
@@ -154,12 +155,17 @@ def run(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--generate", type=int, action="append", help="repeat for multiple output lengths")
     parser.add_argument("--held-out-routing", action="store_true")
+    parser.add_argument("--allow-early-stop", action="store_true", help="retain naturally completed requests shorter than the requested output length")
     parser.add_argument("fixtures", type=Path)
     parser.add_argument("log", type=Path)
     parser.add_argument("result", type=Path)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    args.generate = args.generate or [32]
+    if min(args.generate) <= 1:
+        parser.error("--generate must be at least two to measure decode")
     result = run(args)
     with args.result.open("x") as out:
         json.dump(result, out, indent=2)
