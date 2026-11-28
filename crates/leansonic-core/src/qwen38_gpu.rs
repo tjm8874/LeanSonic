@@ -4585,6 +4585,44 @@ impl Qwen38GpuEngine {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn dense_codes_recover_every_signed_q6_field_and_borrow_q8() {
+        use super::signed_dense_codes;
+        use crate::safetensors::TensorView;
+        use std::borrow::Cow;
+
+        let mut packed = [0u8; 192];
+        let mut expected = [0u8; 256];
+        for (i, value) in expected.iter_mut().enumerate() {
+            let signed = ((i / 4 + (i % 4) * 17) % 64) as i8 - 32;
+            *value = signed as u8;
+            for bit in 0..6 {
+                let offset = i * 6 + bit;
+                packed[offset / 8] |= ((*value >> bit) & 1) << (offset % 8);
+            }
+        }
+        let mut view = TensorView {
+            dtype: "U8",
+            shape: &[8, 24],
+            data: &packed,
+        };
+        assert_eq!(signed_dense_codes(&view, 8, 32).unwrap().as_ref(), expected);
+        view.data = &packed[..191];
+        assert!(signed_dense_codes(&view, 8, 32).is_err());
+        view.data = &packed;
+        view.shape = &[4, 48];
+        assert!(signed_dense_codes(&view, 8, 32).is_err());
+
+        let legacy = TensorView {
+            dtype: "I8",
+            shape: &[8, 32],
+            data: &expected,
+        };
+        assert!(
+            matches!(signed_dense_codes(&legacy, 8, 32).unwrap(), Cow::Borrowed(bytes) if bytes.as_ptr() == expected.as_ptr())
+        );
+    }
+
     /// Exact-size `compute-sanitizer --tool memcheck --padding 65536` harness for every
     /// `kernels/qwen38_sm120.cu` kernel (#179, #248, #249): each launch gets buffers of exactly
     /// the documented shape, with indices at the last row / expert / position, so any over-read or
