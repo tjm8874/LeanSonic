@@ -37,3 +37,11 @@ export LEANSONIC_QWEN38_CUBIN_PATH=$PWD/wave3.cubin
 ```
 
 Use the [frozen 16-input fixture](https://github.com/tjm8874/LeanSonic/blob/492b72b/docs/benchmarks/qwen38-pack/input-embedding/extended.ids) with the native teacher for each checkpoint. Run `score.py BASE_TEACHER FRAMED_TEACHER --require-exact`. Use the existing compare_stream.py script and four-fixture input from the [engine comparison](../../qwen38-engine-comparison/README.md) to reproduce the timing runs. For the mmap control, set `LEANSONIC_MAX_RESIDENT_LAYERS=47 LEANSONIC_SPILLED_MODE=compact` for each teacher launch.
+
+## Integrated mixed placement on four GPUs
+
+The controls used the runtime from `f9fe64d`, dictionary head `be596b4` and weight-frame head `be85944`. On the PRO 4500 32 GB and PRO 5000 72 GB, three layouts each matched the pre-integration native Q4 baseline at all 494 full-vocabulary positions and all 16 eight-token continuations. The layouts produced identical 128-token K=1 streams across both GPUs, including tokens after EOS. Each compressed layout also matched its GPU's stock output in all 16 full requests (four held-out prompts across four cycles).
+
+On the 32 GB card with 10,175 of 24,576 experts placed in VRAM, the spectrum across four prompts was 29.82–67.95 decode tok/s for the full 103,556,413,821-byte checkpoint. The stock and compressed layouts both peaked at 33,422,311,424 sampled process bytes; launch-to-ready was 23.34 s and 25.60 s in these single launches. The linked file gives prefill and decode by prompt on each GPU. Rates use the median of three cycles following warmup.
+
+Both 16 GB GPUs used the secondary-host overlay with all 288 packed parameter planes, six packed Q4 weight planes in layers 0 and 47, and the other 46 Q4 weight layers raw. The 5070 Ti and 5060 Ti used mixed placement in every layer, with 4,335 and 4,372 hot experts respectively. Both reproduced all 49 original logit rows and four continuations byte for byte. [Hashes, all three layouts and four-GPU results](integrated-main.json)
