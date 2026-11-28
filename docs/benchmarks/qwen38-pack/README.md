@@ -52,6 +52,8 @@ python3 "$s/compare_stream.py" "$d/fixtures.ids" raw.log raw.json target/release
 python3 "$s/compare_stream.py" "$d/fixtures.ids" direct.log direct.json target/release/examples/q38_stream "$DIRECT" 256
 ```
 
+For accuracy against the official BF16 weights, use the [shared quality reference and native KL results](reference/README.md).
+
 ## Reproduce the pack and row test
 
 Start at the repository root with a recent Rust compiler and Python 3.11 or later. Use new destination directories on a filesystem with space for both outputs.

@@ -30,6 +30,19 @@ The same binaries, fixture IDs, context size and request schedule ran on the 72G
 | Basalt, adaptive | 128 | 141.53 | 904.40 | 135.69 | 370.23 | 70.44 |
 | Basalt, fixed | 128 | 145.14 | 881.89 | 115.69 | 413.09 | 70.44 |
 
+## Wave 1 with native Engram dictionaries
+
+The Wave 1 loader was subsequently tested on the same GPUs and exact input IDs with the same resident streaming runner and 32 output tokens. The Basalt values below come from the earlier v0.5.7 adaptive-placement run. LeanSonic uses the MLX Q4 weights with lossless Engram dictionaries, while Basalt uses its own UD-Q4_K_XL model. The runnable LeanSonic directory occupies 110,833,479,038 bytes including auxiliary files. The Basalt model file occupies 115,307,561,176 bytes. Output quality and quantization can differ. [Wave 1 input IDs, output IDs, peak VRAM and timing samples](../qwen38-pack/direct-results.json)
+
+| GPU | Input | Prefill LeanSonic / Basalt (tok/s) | Decode LeanSonic / Basalt (tok/s) | Peak LeanSonic / Basalt (GiB) |
+| --- | ---: | ---: | ---: | ---: |
+| PRO 5000 72 GB | 16 | 173.02 / 136.86 | 162.91 / 134.42 | 70.26 / 70.44 |
+| PRO 5000 72 GB | 128 | 171.77 / 904.40 | 158.84 / 135.69 | 70.26 / 70.44 |
+| PRO 4500 32 GB | 16 | 22.17 / 92.50 | 21.88 / 92.54 | 29.79 / 30.61 |
+| PRO 4500 32 GB | 128 | 22.15 / 358.50 | 21.84 / 74.29 | 29.79 / 30.61 |
+
+On 72 GB, LeanSonic had higher resident decode throughput for both inputs. Basalt's 128-token prefill was 5.27× faster. On 32 GB, the tested Basalt configuration led on both metrics for both inputs.
+
 ## Teacher-forced cross-check
 
 We also ran the stock Basalt PPL gate with fixed placement over four fixtures, truncating each to the same ten-token window. Basalt scores positions 5–8 in each window, giving 16 target distributions. Against the original LeanSonic Q4 logits, Basalt matched the top prediction at 14/16 positions. On these targets, PPL was 9.5383 for Basalt and 13.0978 for the Q4 reference. Mean/max KL as computed by the Basalt gate were 0.22557/0.92462. This gate quantizes its reference log probabilities to uint16 and drops terms with reference log probability at or below −16 when summing KL. The maximum measured export error was 0.000299 in log probability and at most 0.001722 of reference probability mass fell in that tail. The BF16 reference evaluation is a separate measurement.
