@@ -71,3 +71,19 @@ All seven arms used the same 494 next-token positions, the full 248,320-token vo
 The two higher-precision input tables raised mean KL on the expanded set. Refitting the output head alone produced the lowest mean KL and raised worst KL from 2.4993 to 2.7481. Both maxima occur at token position 20 of the Python passage (zero-based case 8). The shared-expert-only refit improved all four aggregate measures relative to stock here, although its PPL increased on the previous 65 positions. None of the seven arms reproduced any full eight-token BF16 continuation on these 16 prompts. Leave the default model unchanged. [Full scores, worst positions and logit hashes](extended-scores.json)
 
 To reproduce, use `extended.ids` in both the reference and candidate teacher commands above. For the head-only run, pass `refit_head_q4` to `build.py`; it fits the output projection against the BF16 head and preserves the input embedding. This diagnostic overlay measured 111,230,791,349 file bytes, including the superseded Q4 head. Its replacement tensor payload has the same length as the stock head.
+
+## Basalt v0.5.7 on the common 176 positions
+
+Each engine scored positions 11–21 inclusive in each of the same 16 prompts (context 23). KL uses the common uint16 BF16 reference and the −16 log-probability cutoff. The reference PPL on this subset is 7.5174. Basalt uses UD-Q4_K_XL; LeanSonic uses MLX Q4 or its indicated variation. The engine and the weight representation both vary.
+
+| Candidate | Mean KL | Worst KL | Top-1 | PPL |
+| --- | ---: | ---: | ---: | ---: |
+| stock | 0.259522 | 2.499486 | 156/176 | 10.8242 |
+| bf16 | 0.263003 | 2.442311 | 156/176 | 10.7177 |
+| q8 | 0.263432 | 2.395195 | 155/176 | 10.7128 |
+| shared | 0.260742 | 2.415700 | 153/176 | 10.7108 |
+| shared-bf16 | 0.254413 | 2.696595 | 158/176 | 10.5781 |
+| basalt-adaptive | 0.016088 | 0.181749 | 170/176 | 7.7054 |
+| basalt-fixed | 0.016902 | 0.195750 | 172/176 | 7.6513 |
+
+Both Basalt modes were closer to BF16 on mean and worst KL than all five native variants. To reproduce, use the pinned [engine comparison](../../qwen38-engine-comparison/README.md) and replace its fixtures.ids with extended.ids in a new benchmark directory. Regenerate the BF16 teacher for those same IDs, then run kld_fixture.py, the native eval-kld command and basalt_ppl.py for both configurations. [Native metrics and aligned Basalt rows](extended-public.json)
