@@ -19,6 +19,8 @@ pub mod inkling_scales;
 mod json_string;
 pub mod kernels;
 pub mod offload;
+#[cfg(test)]
+mod qwen38_exact_tests;
 pub mod qwen38_gpu;
 pub mod qwen_bpe;
 pub mod safetensors;
