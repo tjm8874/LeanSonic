@@ -47,3 +47,22 @@ python3 "$D/assemble.py" "$OFFICIAL" "$WORK/fit" "$BIN/pack" "$WORK/model" > pac
 Compare the hashes in fixture.json, covariance.json and package.json against the linked records. The optional compact overlay consumes the same 24 fitted frames and requires all 24 group-scale frames to match the compact source byte for byte. Run `python3 "$D/overlay.py" "$COMPACT" "$WORK/frames" "$WORK/compact-model"`. The #231 + #236 compact package grew by 19,584 bytes to 13,407,193,392 bytes. [Compact distribution hashes](compact-package.json).
 
 For end-to-end scoring, use a clean release CLI with the [row observer and WikiText BF16 oracle instructions](https://github.com/tjm8874/LeanSonic/tree/fcbd52a/docs/benchmarks/inkling-mxscale-codes#reproduce). Keep the same release cubin and set LEANSONIC_G1_ATTN=1, LEANSONIC_CTX=8192, LEANSONIC_PREFILL_CHUNK=512, LEANSONIC_KV=fp16, LEANSONIC_SEQS=1, LEANSONIC_PDL=1 and LEANSONIC_PDL_ALL=1. Run eval-kld --chunks 100 once per model and oracle, setting DIAG_ROWS to a fresh file each time. The official matrix's short solo decode probe uses `bench --tokens synth:32 --spec 0 --gen 128 --repeat 2` at context 8192.
+
+## Compact corpus
+
+The 13,407,173,808-byte parent and 13,407,193,392-byte fitted overlay differ in the 24 output-projection code frames. All their stock scale frames match byte for byte. Each pair uses the same CLI, cubin, 512-token chunks, BF16 oracle, 24 resident expert layers and GPU (5070 Ti test, 5060 Ti validation). Each row here covers 25,500 scored predictions.
+
+| Split | Weights | Mean KL | Worst KL | Top-1 matches | PPL |
+| --- | --- | ---: | ---: | ---: | ---: |
+| valid | Parent | 0.0069527 | 0.744671 | 24,645 | 6.530797 |
+| valid | Fitted | 0.0068973 | 1.625774 | 24,650 | 6.536081 |
+
+On validation both arms had their largest KL at chunk 12 position 317. The fitted overlay more than doubled the divergence at that position. Retain the original compact weights for the drafter comparison. [Per-split scores, paired intervals and outliers](compact-scores.json).
+
+## Official short solo decode probe
+
+Fresh release CLI processes ran the bench-matrix short workload on the original and fitted precision packs. The prompt is synth:32, with 128 greedy output tokens, spec 0, context 8192 and FP16 KV. The figures below are medians of each process's warm second request, with four fresh processes per mirrored cycle. This probe uses natural greedy continuation from each model. [Every measured phase and output ID](short-decode.json).
+
+| GPU | Complete cycles of five | Official decode tok/s | Fitted decode tok/s |
+| --- | ---: | ---: | ---: |
+| RTX PRO 4500 | 2 | 169.4 | 169.5 |
