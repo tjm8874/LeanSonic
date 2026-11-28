@@ -38,3 +38,11 @@ Compare both complete TSV files using the release checkpoint's EOS IDs. The repo
 ```sh
 python3 "$d/compare_requests.py" requests-control.tsv requests-candidate.tsv --stop-id 248046 --stop-id 248044
 ```
+
+## Fixed-length generation after the rounding change
+
+Using NVCC 13.0.88 and driver 595.99.02, both the RTX 5070 Ti and 5060 Ti reproduced the synthetic result (78/110 failing field comparisons on control, 0/110 after the change). The exact-match test exited with status 1 for control and 0 for the candidate on the 5060 Ti. The [5070 Ti control](5070ti-control.tsv) and [candidate](5070ti-fixed.tsv) give counts per array.
+
+On the PRO 5000 72 GB, 12/16 speculative requests matched greedy across all 128 token IDs on control; all 16/16 matched with this patch. On the 5070 Ti the counts were 6/8 and 8/8, respectively (one cycle). Every control stream already matched its greedy result through the first EOS or the 128-token limit. For the English reproducer, the original greedy and K=1/K=2 streams diverged at zero-based output index 80, following EOS at index 64. The candidate changed the **greedy** continuation at 80 to match the previous speculative result. The speculative streams retained all 128 original IDs. Rounding a batched prefill state can change later greedy outputs even though the scalar kernel passes the fixed-input reference test. All twelve request hashes for each arm agreed across both GPUs. The other three prompts preserved every ID under the change.
+
+[PRO 5000 timings, output hashes and comparisons](pro5000-requests.json) · [RTX 5070 Ti measurements](5070ti-requests.json)

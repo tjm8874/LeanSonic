@@ -1,0 +1,563 @@
+{
+  "gpu": "NVIDIA GeForce RTX 5070 Ti",
+  "request_metrics": {
+    "control": {
+      "0-0": {
+        "total_s": [
+          18.078417
+        ],
+        "prompt_s": [
+          1.367822
+        ],
+        "accepted": [
+          0
+        ],
+        "drafted": [
+          0
+        ],
+        "token_ids_sha256": [
+          "b2a404fd42c3f676411b289fd6e001000aeaa5172521262f7ad864938bf37f20"
+        ]
+      },
+      "0-1": {
+        "total_s": [
+          19.281325
+        ],
+        "prompt_s": [
+          0.562232
+        ],
+        "accepted": [
+          25
+        ],
+        "drafted": [
+          102
+        ],
+        "token_ids_sha256": [
+          "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db"
+        ]
+      },
+      "0-2": {
+        "total_s": [
+          26.47271
+        ],
+        "prompt_s": [
+          0.550388
+        ],
+        "accepted": [
+          29
+        ],
+        "drafted": [
+          195
+        ],
+        "token_ids_sha256": [
+          "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db"
+        ]
+      },
+      "1-0": {
+        "total_s": [
+          18.498708
+        ],
+        "prompt_s": [
+          1.879504
+        ],
+        "accepted": [
+          0
+        ],
+        "drafted": [
+          0
+        ],
+        "token_ids_sha256": [
+          "9e3940ce4d255cde738434711d59210d2902d42352ccb0c30e63f00542e77f00"
+        ]
+      },
+      "1-1": {
+        "total_s": [
+          20.196178
+        ],
+        "prompt_s": [
+          0.80126
+        ],
+        "accepted": [
+          45
+        ],
+        "drafted": [
+          83
+        ],
+        "token_ids_sha256": [
+          "9e3940ce4d255cde738434711d59210d2902d42352ccb0c30e63f00542e77f00"
+        ]
+      },
+      "1-2": {
+        "total_s": [
+          33.083874
+        ],
+        "prompt_s": [
+          0.810177
+        ],
+        "accepted": [
+          49
+        ],
+        "drafted": [
+          157
+        ],
+        "token_ids_sha256": [
+          "9e3940ce4d255cde738434711d59210d2902d42352ccb0c30e63f00542e77f00"
+        ]
+      },
+      "2-0": {
+        "total_s": [
+          29.338958
+        ],
+        "prompt_s": [
+          0.873608
+        ],
+        "accepted": [
+          0
+        ],
+        "drafted": [
+          0
+        ],
+        "token_ids_sha256": [
+          "4be597112fe5ef4474d0d5e5f152c7e80190573e00cc22b0c5638839dc6e320c"
+        ]
+      },
+      "2-1": {
+        "total_s": [
+          16.121256
+        ],
+        "prompt_s": [
+          0.454897
+        ],
+        "accepted": [
+          53
+        ],
+        "drafted": [
+          74
+        ],
+        "token_ids_sha256": [
+          "4be597112fe5ef4474d0d5e5f152c7e80190573e00cc22b0c5638839dc6e320c"
+        ]
+      },
+      "2-2": {
+        "total_s": [
+          24.932088
+        ],
+        "prompt_s": [
+          0.454389
+        ],
+        "accepted": [
+          64
+        ],
+        "drafted": [
+          126
+        ],
+        "token_ids_sha256": [
+          "4be597112fe5ef4474d0d5e5f152c7e80190573e00cc22b0c5638839dc6e320c"
+        ]
+      },
+      "3-0": {
+        "total_s": [
+          26.174299
+        ],
+        "prompt_s": [
+          1.319103
+        ],
+        "accepted": [
+          0
+        ],
+        "drafted": [
+          0
+        ],
+        "token_ids_sha256": [
+          "ae2535db868b46cfc8686b93a02e3bfa9995a5183b08edaa61f184f95d8c0b40"
+        ]
+      },
+      "3-1": {
+        "total_s": [
+          17.848967
+        ],
+        "prompt_s": [
+          0.536679
+        ],
+        "accepted": [
+          51
+        ],
+        "drafted": [
+          77
+        ],
+        "token_ids_sha256": [
+          "ae2535db868b46cfc8686b93a02e3bfa9995a5183b08edaa61f184f95d8c0b40"
+        ]
+      },
+      "3-2": {
+        "total_s": [
+          25.540841
+        ],
+        "prompt_s": [
+          0.53679
+        ],
+        "accepted": [
+          61
+        ],
+        "drafted": [
+          134
+        ],
+        "token_ids_sha256": [
+          "ae2535db868b46cfc8686b93a02e3bfa9995a5183b08edaa61f184f95d8c0b40"
+        ]
+      }
+    },
+    "candidate": {
+      "0-0": {
+        "total_s": [
+          10.279182
+        ],
+        "prompt_s": [
+          0.765684
+        ],
+        "accepted": [
+          0
+        ],
+        "drafted": [
+          0
+        ],
+        "token_ids_sha256": [
+          "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db"
+        ]
+      },
+      "0-1": {
+        "total_s": [
+          14.499713
+        ],
+        "prompt_s": [
+          0.545294
+        ],
+        "accepted": [
+          25
+        ],
+        "drafted": [
+          102
+        ],
+        "token_ids_sha256": [
+          "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db"
+        ]
+      },
+      "0-2": {
+        "total_s": [
+          19.205497
+        ],
+        "prompt_s": [
+          0.544504
+        ],
+        "accepted": [
+          29
+        ],
+        "drafted": [
+          195
+        ],
+        "token_ids_sha256": [
+          "74ad703e3c4cdcde5b93177885297f6dce2666eacb2eacf91977debfab1384db"
+        ]
+      },
+      "1-0": {
+        "total_s": [
+          7.793742
+        ],
+        "prompt_s": [
+          0.831345
+        ],
+        "accepted": [
+          0
+        ],
+        "drafted": [
+          0
+        ],
+        "token_ids_sha256": [
+          "9e3940ce4d255cde738434711d59210d2902d42352ccb0c30e63f00542e77f00"
+        ]
+      },
+      "1-1": {
+        "total_s": [
+          10.267126
+        ],
+        "prompt_s": [
+          0.803119
+        ],
+        "accepted": [
+          45
+        ],
+        "drafted": [
+          83
+        ],
+        "token_ids_sha256": [
+          "9e3940ce4d255cde738434711d59210d2902d42352ccb0c30e63f00542e77f00"
+        ]
+      },
+      "1-2": {
+        "total_s": [
+          14.866835
+        ],
+        "prompt_s": [
+          0.802568
+        ],
+        "accepted": [
+          50
+        ],
+        "drafted": [
+          155
+        ],
+        "token_ids_sha256": [
+          "9e3940ce4d255cde738434711d59210d2902d42352ccb0c30e63f00542e77f00"
+        ]
+      },
+      "2-0": {
+        "total_s": [
+          11.106562
+        ],
+        "prompt_s": [
+          0.468165
+        ],
+        "accepted": [
+          0
+        ],
+        "drafted": [
+          0
+        ],
+        "token_ids_sha256": [
+          "4be597112fe5ef4474d0d5e5f152c7e80190573e00cc22b0c5638839dc6e320c"
+        ]
+      },
+      "2-1": {
+        "total_s": [
+          13.564993
+        ],
+        "prompt_s": [
+          0.451676
+        ],
+        "accepted": [
+          51
+        ],
+        "drafted": [
+          76
+        ],
+        "token_ids_sha256": [
+          "4be597112fe5ef4474d0d5e5f152c7e80190573e00cc22b0c5638839dc6e320c"
+        ]
+      },
+      "2-2": {
+        "total_s": [
+          17.037778
+        ],
+        "prompt_s": [
+          0.452138
+        ],
+        "accepted": [
+          64
+        ],
+        "drafted": [
+          126
+        ],
+        "token_ids_sha256": [
+          "4be597112fe5ef4474d0d5e5f152c7e80190573e00cc22b0c5638839dc6e320c"
+        ]
+      },
+      "3-0": {
+        "total_s": [
+          9.834587
+        ],
+        "prompt_s": [
+          0.570168
+        ],
+        "accepted": [
+          0
+        ],
+        "drafted": [
+          0
+        ],
+        "token_ids_sha256": [
+          "ae2535db868b46cfc8686b93a02e3bfa9995a5183b08edaa61f184f95d8c0b40"
+        ]
+      },
+      "3-1": {
+        "total_s": [
+          11.788892
+        ],
+        "prompt_s": [
+          0.532726
+        ],
+        "accepted": [
+          51
+        ],
+        "drafted": [
+          77
+        ],
+        "token_ids_sha256": [
+          "ae2535db868b46cfc8686b93a02e3bfa9995a5183b08edaa61f184f95d8c0b40"
+        ]
+      },
+      "3-2": {
+        "total_s": [
+          15.89486
+        ],
+        "prompt_s": [
+          0.532728
+        ],
+        "accepted": [
+          60
+        ],
+        "drafted": [
+          136
+        ],
+        "token_ids_sha256": [
+          "ae2535db868b46cfc8686b93a02e3bfa9995a5183b08edaa61f184f95d8c0b40"
+        ]
+      }
+    }
+  },
+  "comparison": [
+    {
+      "case": 0,
+      "depth": 0,
+      "cycle": 0,
+      "first_control_vs_candidate": 80,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 0,
+      "depth": 1,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": 80,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 0,
+      "depth": 2,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": 80,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 1,
+      "depth": 0,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 1,
+      "depth": 1,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 1,
+      "depth": 2,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 2,
+      "depth": 0,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 2,
+      "depth": 1,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 2,
+      "depth": 2,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 3,
+      "depth": 0,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 3,
+      "depth": 1,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    },
+    {
+      "case": 3,
+      "depth": 2,
+      "cycle": 0,
+      "first_control_vs_candidate": null,
+      "control_first_vs_greedy": null,
+      "control_equal_through_stop": true,
+      "control_repeatable": true,
+      "candidate_first_vs_greedy": null,
+      "candidate_equal_through_stop": true,
+      "candidate_repeatable": true
+    }
+  ]
+}
