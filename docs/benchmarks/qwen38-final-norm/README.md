@@ -31,3 +31,16 @@ python3 "$d/final_norm.py" "$DIRECT" "$OFFICIAL" "$ORACLE" --mode official
 ```
 
 Build q38_teacher from docs/benchmarks/qwen38-pack/teacher.rs as a leansonic-core example. Run it on the old loader + repaired model, updated loader + unchanged model, updated loader + repaired model, and official-weight control. Each time, use the same ID file and fresh output directory. Compare FP32 vocabulary rows and eight-token continuations by ID. The [494- and 233-position fixture files](https://github.com/tjm8874/LeanSonic/tree/9b1654b/docs/benchmarks/qwen38-pack/input-embedding) are frozen at the same revision used for the earlier quality study.
+
+## Unmodified files and speculative generation
+
+The updated loader and unchanged direct package exactly reproduced the independent old-loader + reconstructed-weight arm on all 494 extended FP32 logit rows and 16 continuations. On the new inputs, both the original and already-repaired files produced the same corrected 233 rows and 8 continuations. Installing the official raw weight with the new loader also reproduced its corresponding old-loader control. On the common public-engine metrics, the corrected native model reached mean/worst truncated KL 0.11850/2.32316, 157/176 and PPL 8.5384. On the common 104 new positions it reached 0.21018/1.92389, 82/104 and PPL 10.0025. Basalt v0.5.7 fixed (different UD-Q4_K_XL weights) scored 0.03287/0.65464, 98/104 and PPL 9.1700 on those same positions. [Loader equality and public-engine protocol metrics](loader.json)
+
+With the same corrected target and target placement, we changed only the MTP norm handling. We used the exact-width CUDA arithmetic of PR #271, the same auxiliary MTP cubin, four prompts and four cycles; 128 output IDs were required even across EOS. All 32 speculative sequences in each arm matched their greedy control, and all 48 paired sequences were identical between builds. After dropping warmup, K=1 accepted 540/990 draft tokens with the old MTP gains and 675/852 with the corrected gains. K=2 accepted 642/1,776 and 888/1,281, respectively.
+
+| Median decode tok/s on each input | English | Japanese | Python | Arithmetic |
+|---|---:|---:|---:|---:|
+| K=1, old → corrected MTP | 154.06 → 186.03 | 131.41 → 166.14 | 176.18 → 200.49 | 189.67 → 201.87 |
+| K=2, old → corrected MTP | 112.95 → 166.55 | 87.27 → 126.29 | 139.96 → 191.53 | 142.45 → 185.18 |
+
+Decode rates use 127 tokens divided by engine elapsed time after reported prefill. The greedy medians with both fixes were 144.73–146.26 tok/s in this shared target/drafter placement. Reproduce with the [requests example and four prompt IDs](https://github.com/tjm8874/LeanSonic/tree/ae44677/docs/benchmarks/qwen38-gdn-parity) (hc-width/inputs-5070.ids), `d001241` or `cee3c46` for the loader, and the target CUDA source from `62fcedc` for both. [Complete timings and token IDs](speculative-requests.json.gz)
