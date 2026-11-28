@@ -44,3 +44,16 @@ With the same corrected target and target placement, we changed only the MTP nor
 | K=2, old → corrected MTP | 112.95 → 166.55 | 87.27 → 126.29 | 139.96 → 191.53 | 142.45 → 185.18 |
 
 Decode rates use 127 tokens divided by engine elapsed time after reported prefill. The greedy medians with both fixes were 144.73–146.26 tok/s in this shared target/drafter placement. Reproduce with the [requests example and four prompt IDs](https://github.com/tjm8874/LeanSonic/tree/ae44677/docs/benchmarks/qwen38-gdn-parity) (hc-width/inputs-5070.ids), `d001241` or `cee3c46` for the loader, and the target CUDA source from `62fcedc` for both. [Complete timings and token IDs](speculative-requests.json.gz)
+
+## Four-GPU reproduction
+
+On direct weights, the RTX 5070 Ti produced identical FP32 logits, row metadata and eight-token continuations to the RTX PRO 5000 for all 233 new positions. The RTX 5060 Ti matched the same three files for the 494-position fixture. With both the loader correction and the exact-width kernels, all 40 speculative streams (20 prompts × K=1 and K=2, 128 IDs each) matched their own greedy stream on the PRO 5000.
+
+The compact Q4 package occupies 103,556,334,617 logical bytes. Build the [integration revision](https://github.com/tjm8874/LeanSonic/tree/8aafb97) with the q38-zstd-weights feature. Both PRO cards exactly reproduced the corrected direct model's 494 FP32 rows and 16 continuations. For timing, use q38_stream with batch one and four fixed input ID sequences, require 128 output tokens and discard the first cycle. The table gives the range of the four per-input medians over the three remaining cycles. Prefill uses input tokens divided by time to first token. Decode uses the next 127 tokens. Peak process VRAM is sampled.
+
+| GPU | Prefill tok/s | Decode tok/s | Sampled peak bytes |
+|---|---:|---:|---:|
+| RTX PRO 4500 Blackwell 32 GB | 81.01–124.30 | 27.46–37.17 | 33,422,311,424 |
+| RTX PRO 5000 Blackwell 72 GB | 405.57–453.51 | 160.91–161.66 | 75,486,986,240 |
+
+[Full inputs, output IDs, timings, equality counts and cross-host hashes](cross-gpu.json.gz)
