@@ -1,0 +1,128 @@
+{
+  "stock": {
+    "rows": 494,
+    "vocabulary": 248320,
+    "mean_kl": 0.26967042252760437,
+    "max_kl": 2.4993284016812174,
+    "worst_case_position": [
+      8,
+      20
+    ],
+    "top1_matches": 406,
+    "byte_equal_rows": 0,
+    "reference_ppl": 11.382111666671216,
+    "candidate_ppl": 15.946024916463667,
+    "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+    "candidate_sha256": "aca1fedfe58abebc6d6de4119987be7dfac9d014718cb4061bf90553dc2803ca",
+    "canary_cases": 16,
+    "matching_canaries": 0
+  },
+  "head": {
+    "rows": 494,
+    "vocabulary": 248320,
+    "mean_kl": 0.26481028695978026,
+    "max_kl": 2.7481309582459077,
+    "worst_case_position": [
+      8,
+      20
+    ],
+    "top1_matches": 404,
+    "byte_equal_rows": 0,
+    "reference_ppl": 11.382111666671216,
+    "candidate_ppl": 15.906570514834167,
+    "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+    "candidate_sha256": "5e01f2af5c89d92f0fa489e2723a3181c2a392dde0f65541abf261dc2b38a465",
+    "canary_cases": 16,
+    "matching_canaries": 0
+  },
+  "shared": {
+    "rows": 494,
+    "vocabulary": 248320,
+    "mean_kl": 0.26937032585753184,
+    "max_kl": 2.415493680818209,
+    "worst_case_position": [
+      8,
+      20
+    ],
+    "top1_matches": 410,
+    "byte_equal_rows": 0,
+    "reference_ppl": 11.382111666671216,
+    "candidate_ppl": 15.716788889354838,
+    "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+    "candidate_sha256": "230b06b2c91ede9a6ae7814c727ec5b7015b1ede47111187c8088726b4e61d82",
+    "canary_cases": 16,
+    "matching_canaries": 0
+  },
+  "shared-bf16": {
+    "rows": 494,
+    "vocabulary": 248320,
+    "mean_kl": 0.26643320918020885,
+    "max_kl": 2.6963364227153943,
+    "worst_case_position": [
+      8,
+      20
+    ],
+    "top1_matches": 413,
+    "byte_equal_rows": 0,
+    "reference_ppl": 11.382111666671216,
+    "candidate_ppl": 15.721000500247508,
+    "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+    "candidate_sha256": "4605655850025278ee673338088bdc843ef9815c0ec13ca711f8f5fc985946bc",
+    "canary_cases": 16,
+    "matching_canaries": 0
+  },
+  "bf16": {
+    "rows": 494,
+    "vocabulary": 248320,
+    "mean_kl": 0.2721896260399312,
+    "max_kl": 2.4419771689466456,
+    "worst_case_position": [
+      8,
+      20
+    ],
+    "top1_matches": 408,
+    "byte_equal_rows": 0,
+    "reference_ppl": 11.382111666671216,
+    "candidate_ppl": 15.741862229667898,
+    "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+    "candidate_sha256": "dff5e910931e2aa2bc4fe04a4d82d65e9755b7b9c04fd8618999a662a24652a2",
+    "canary_cases": 16,
+    "matching_canaries": 0
+  },
+  "refit_q4": {
+    "rows": 494,
+    "vocabulary": 248320,
+    "mean_kl": 0.271692569748671,
+    "max_kl": 2.106242873092962,
+    "worst_case_position": [
+      8,
+      20
+    ],
+    "top1_matches": 408,
+    "byte_equal_rows": 0,
+    "reference_ppl": 11.382111666671216,
+    "candidate_ppl": 16.065947312546303,
+    "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+    "candidate_sha256": "2858cebc6675821070b84859ea09e01e6264432a25908315e5d5655af4d9a59d",
+    "canary_cases": 16,
+    "matching_canaries": 0
+  },
+  "q8": {
+    "rows": 494,
+    "vocabulary": 248320,
+    "mean_kl": 0.2731257329719097,
+    "max_kl": 2.3960282100408183,
+    "worst_case_position": [
+      8,
+      20
+    ],
+    "top1_matches": 404,
+    "byte_equal_rows": 0,
+    "reference_ppl": 11.382111666671216,
+    "candidate_ppl": 15.787338604944141,
+    "reference_sha256": "299386483e806dbfca5afea48dd7542f26727c653b8622ae94395cba8c5a59db",
+    "candidate_sha256": "1315b1810050720bfc9c6ac4af97c8f511e44e24bb030e6405362b263cef576e",
+    "canary_cases": 16,
+    "matching_canaries": 0
+  }
+}

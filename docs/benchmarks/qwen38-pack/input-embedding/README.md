@@ -19,7 +19,7 @@ The two probe packages include the original Q4 embedding. The original direct ch
 
 ## Stock-format refits and a second GPU
 
-The fixed-size input refit keeps the original group-32 Q4 codes and BF16 affine parameter shapes, initializes from stock and retains the lowest squared weight error found within five iterations. A second refit applies this procedure to all 48 shared experts (gate, up, down and shared expert gate projections); routed experts remain unchanged. Both Q4-only candidates use the stock engine. The temporary overlay keeps the old tensors physically on disk. Replacing them in a release would preserve tensor payload length. The combined arm also uses the BF16 input probe.
+The fixed-size input refit keeps the original group-32 Q4 layout and BF16 affine parameter shapes, initializes from stock and retains the lowest squared weight error found within five iterations. A second refit applies this procedure to all 48 shared experts (gate, up, down and shared expert gate projections); routed experts remain unchanged. Both Q4-only candidates use the stock engine. The temporary overlay keeps the old tensors physically on disk. Replacing them in a release would preserve tensor payload length. The combined arm also uses the BF16 input probe.
 
 | Candidate | Original mean / worst KL | Original top-1 / PPL | Held-out mean / worst KL | Held-out top-1 / PPL |
 | --- | ---: | ---: | ---: | ---: |
@@ -53,3 +53,21 @@ python3 "$d/score.py" "$HELDOUT_BF16_TEACHER" candidate
 ```
 
 Repeat with the Q4 control and Q8 candidate and use `$d/fixtures.ids` for the original four prompts. The reference dump must use the identical input IDs.
+
+## Sixteen additional prompts on the RTX PRO 5000
+
+All seven arms used the same 494 next-token positions, the full 248,320-token vocabulary and the official BF16 reference (PPL 11.3821). Prompts and IDs were frozen at `492b72b`. These are authored passages, four per topic. They do not measure downstream task accuracy.
+
+| Candidate | Mean KL | Worst KL | Top-1 | PPL |
+| --- | ---: | ---: | ---: | ---: |
+| Stock Q4 | 0.269670 | 2.499328 | 406/494 | 15.9460 |
+| BF16 input | 0.272190 | 2.441977 | 408/494 | 15.7419 |
+| Q8 input | 0.273126 | 2.396028 | 404/494 | 15.7873 |
+| Input Q4 refit | 0.271693 | 2.106243 | 408/494 | 16.0659 |
+| Shared expert Q4 refit | 0.269370 | 2.415494 | 410/494 | 15.7168 |
+| Shared refit + BF16 input | 0.266433 | 2.696336 | 413/494 | 15.7210 |
+| Output head Q4 refit | 0.264810 | 2.748131 | 404/494 | 15.9066 |
+
+The two higher-precision input tables raised mean KL on the expanded set. Refitting the output head alone produced the lowest mean KL and raised worst KL from 2.4993 to 2.7481. Both maxima occur at token position 20 of the Python passage (zero-based case 8). The shared-expert-only refit improved all four aggregate measures relative to stock here, although its PPL increased on the previous 65 positions. None of the seven arms reproduced any full eight-token BF16 continuation on these 16 prompts. Leave the default model unchanged. [Full scores, worst positions and logit hashes](extended-scores.json)
+
+To reproduce, use `extended.ids` in both the reference and candidate teacher commands above. For the head-only run, pass `refit_head_q4` to `build.py`; it fits the output projection against the BF16 head and preserves the input embedding. This diagnostic overlay measured 111,230,791,349 file bytes, including the superseded Q4 head. Its replacement tensor payload has the same length as the stock head.

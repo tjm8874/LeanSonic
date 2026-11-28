@@ -51,15 +51,18 @@ def build(base, official, destination, mode):
     if destination.exists():
         raise FileExistsError(destination)
     index = "model.safetensors.index.json"
-    key = "model.language_model.embed_tokens.weight"
+    output_head = mode == "refit_head_q4"
+    key = "lm_head.weight" if output_head else "model.language_model.embed_tokens.weight"
     shard = json.loads((official / index).read_bytes())["weight_map"][key]
     prefix = "language_model.model.embed_tokens.probe_"
     with safe_open(official / shard, framework="pt", device="cpu") as f:
         table = f.get_tensor(key)
     if table.shape != (248320, 2560) or table.dtype != torch.bfloat16:
-        raise ValueError("unexpected upstream input embedding")
+        raise ValueError(f"unexpected upstream shape or dtype for {key}")
 
-    if mode == "refit_q4":
+    if output_head:
+        data = refit_q4(base, table, "language_model.lm_head.")
+    elif mode == "refit_q4":
         data = refit_q4(base, table)
     elif mode == "bf16":
         data = {prefix + "bf16": table}
@@ -78,14 +81,14 @@ def build(base, official, destination, mode):
         output = Path(scratch) / "model"
         output.mkdir()
         manifest = json.loads((base / index).read_bytes())
-        extra = "input-embedding-probe.safetensors"
+        extra = "output-head-refit.safetensors" if output_head else "input-embedding-probe.safetensors"
         for path in base.iterdir():
             if path.name != index:
                 os.link(path, output / path.name)
         save_file(data, output / extra)
         for name in data:
             manifest["weight_map"][name] = extra
-        if mode != "refit_q4":
+        if mode in ("bf16", "q8"):
             manifest["metadata"]["total_size"] += sum(x.numel() * x.element_size() for x in data.values())
         (output / index).write_text(json.dumps(manifest, indent=2) + "\n")
         output.rename(destination)
@@ -97,6 +100,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__)
     for name in ("base", "official", "destination"):
         ap.add_argument(name, type=Path)
-    ap.add_argument("mode", choices=("refit_q4", "q8", "bf16"))
+    ap.add_argument("mode", choices=("refit_q4", "refit_head_q4", "q8", "bf16"))
     args = ap.parse_args()
     build(args.base, args.official, args.destination, args.mode)
