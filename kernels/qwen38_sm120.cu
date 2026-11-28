@@ -148,8 +148,19 @@ __device__ __forceinline__ void load_z24_sb_pair(
     float* bi_out) {
     uint32_t lo_pair = sb_lo_u32[idx >> 1];
     uint32_t lo16 = (lo_pair >> ((idx & 1u) * 16u)) & 0xFFFFu;
+#ifdef LEANSONIC_Q38_EXPONENT_PALETTE
+    constexpr unsigned groups_per_expert = 51200;
+    constexpr unsigned record_words = (128 + groups_per_expert / 2) / 4;
+    const unsigned expert = static_cast<unsigned>(idx) / groups_per_expert;
+    const unsigned local = static_cast<unsigned>(idx) % groups_per_expert;
+    const uint32_t* record = sb_hi_u32 + expert * record_words;
+    const unsigned codes = record[32 + local / 8];
+    const unsigned entry = (codes >> ((local & 7u) * 4u)) & 15u;
+    const uint32_t hi8 = (record[entry / 4] >> ((entry & 3u) * 8u)) & 255u;
+#else
     uint32_t hi_quad = sb_hi_u32[idx >> 2];
     uint32_t hi8 = (hi_quad >> ((idx & 3u) * 8u)) & 0xFFu;
+#endif
 
     uint32_t sc_sm = lo16 & 0xFFu;
     uint32_t sc_c = hi8 & 0xFu;
@@ -1432,6 +1443,9 @@ extern "C" __global__ void q38_moe_up_swiglu11(
 }
 
 // `0-ULP` 24-bit `(scale, bias)` (`Z24`) `moe_up_swiglu11` (`Grid (160, 11)`, `Block 256`, `5` CTAs/SM!)
+#ifdef LEANSONIC_Q38_EXPONENT_PALETTE
+#define q38_moe_up_swiglu11_z24 q38_moe_up_swiglu11_z24_exp4
+#endif
 extern "C" __global__ void q38_moe_up_swiglu11_z24(
     const uint4* __restrict__ sw_gate_w,         // [512, 640, 80]
     const uint32_t* __restrict__ sw_gate_sb_lo,  // [512 * 640 * 40]
@@ -1568,6 +1582,9 @@ extern "C" __global__ void q38_moe_down_combine11(
 
 // `0-ULP` Z24 `moe_down_combine11` with `100%` lane utilization (`4` lanes/row × `8` rows/warp,
 // `2` warps split `k = 0..4` and `k = 5..10` -> `32` rows/CTA, `Grid = (80, 1)`, `Block = 256`!)
+#ifdef LEANSONIC_Q38_EXPONENT_PALETTE
+#define q38_moe_down_combine11_z24 q38_moe_down_combine11_z24_exp4
+#endif
 extern "C" __global__ void q38_moe_down_combine11_z24(
     const uint4* __restrict__ sw_down_w,         // [512, 2560, 20]
     const uint32_t* __restrict__ sw_down_sb_lo,  // [512 * 2560 * 10]

@@ -26,7 +26,13 @@ use crate::cuda_ffi::{
 use crate::safetensors::{MappedTensorRange, ShardedSafeTensors};
 
 const CUDA_HEADER_SRC: &str = include_str!("../../../kernels/include/leansonic_verified.cuh");
+#[cfg(not(feature = "q38-exponent-palette"))]
 const CUDA_QWEN38_SRC: &str = include_str!("../../../kernels/qwen38_sm120.cu");
+#[cfg(feature = "q38-exponent-palette")]
+const CUDA_QWEN38_SRC: &str = concat!(
+    "#define LEANSONIC_Q38_EXPONENT_PALETTE 1\n",
+    include_str!("../../../kernels/qwen38_sm120.cu")
+);
 
 pub const Q38_D: usize = 2560;
 pub const Q38_HC: usize = 4;
@@ -61,7 +67,23 @@ const OFF_DOWN_BI: usize = 2 * SW_PROJ_BYTES + SW_W_BYTES + SW_SB_BYTES;
 // `0-ULP` lossless `24-bit` (`Z24`: `50 MiB` `lo_u32` + `25 MiB` `hi_u32`) `1,425 MiB` `switch_mlp` slab
 const SW_GROUPS_PER_PROJ: usize = 26_214_400; // `512 * 640 * 80 == 512 * 2560 * 20`
 const SW_Z24_LO_BYTES: usize = SW_GROUPS_PER_PROJ * 2; // 50 MiB
-const SW_Z24_HI_BYTES: usize = SW_GROUPS_PER_PROJ; // 25 MiB
+const MOE_UP_Z24_SYMBOL: &str = if cfg!(feature = "q38-exponent-palette") {
+    "q38_moe_up_swiglu11_z24_exp4"
+} else {
+    "q38_moe_up_swiglu11_z24"
+};
+const MOE_DOWN_Z24_SYMBOL: &str = if cfg!(feature = "q38-exponent-palette") {
+    "q38_moe_down_combine11_z24_exp4"
+} else {
+    "q38_moe_down_combine11_z24"
+};
+const EXP4_GROUPS: usize = SW_GROUPS_PER_PROJ / 512;
+const EXP4_RECORD_BYTES: usize = 128 + EXP4_GROUPS / 2;
+const SW_Z24_HI_BYTES: usize = if cfg!(feature = "q38-exponent-palette") {
+    512 * EXP4_RECORD_BYTES
+} else {
+    SW_GROUPS_PER_PROJ
+};
 const SW_Z24_PROJ_BYTES: usize = SW_W_BYTES + SW_Z24_LO_BYTES + SW_Z24_HI_BYTES; // 475 MiB
 const SW_Z24_LAYER_BYTES: usize = 3 * SW_Z24_PROJ_BYTES; // 1,425 MiB
 
@@ -102,6 +124,44 @@ macro_rules! kargs {
 #[inline]
 fn bf16_to_f32(b: u16) -> f32 {
     f32::from_bits((b as u32) << 16)
+}
+
+fn z24_upper_bytes(upper: &[u32]) -> Result<std::borrow::Cow<'_, [u8]>, String> {
+    let bytes = u32_slice_bytes(upper);
+    if !cfg!(feature = "q38-exponent-palette") {
+        return Ok(std::borrow::Cow::Borrowed(bytes));
+    }
+    if bytes.len() != SW_GROUPS_PER_PROJ {
+        return Err("incorrect upper plane size".into());
+    }
+    let mut output = vec![0u8; SW_Z24_HI_BYTES];
+    for (source, record) in bytes
+        .as_chunks::<EXP4_GROUPS>()
+        .0
+        .iter()
+        .zip(output.as_chunks_mut::<EXP4_RECORD_BYTES>().0)
+    {
+        let (palette, indices) = record.split_at_mut(128);
+        let mut lookup = [u8::MAX; 256];
+        let mut used = 0;
+        for (pair, index) in source.as_chunks::<2>().0.iter().zip(indices) {
+            let mut value = 0;
+            for (lane, &byte) in pair.iter().enumerate() {
+                let slot = &mut lookup[usize::from(byte)];
+                if *slot == u8::MAX {
+                    if used == 16 {
+                        return Err("expert exponent dictionary exceeds 16 values".into());
+                    }
+                    palette[usize::from(used)] = byte;
+                    *slot = used;
+                    used += 1;
+                }
+                value |= *slot << (lane * 4);
+            }
+            *index = value;
+        }
+    }
+    Ok(std::borrow::Cow::Owned(output))
 }
 
 /// Losslessly (`0-ULP`) packs `n_groups` (`n_groups % 4 == 0`) BF16 `(scale, bias)` pairs into
@@ -658,6 +718,10 @@ fn discover_qwen38_cubin() -> Option<PathBuf> {
             return Some(pb);
         }
     }
+    if cfg!(feature = "q38-exponent-palette") {
+        // The stock cubin uses one upper byte per group and different kernel symbols.
+        return None;
+    }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             for rel in [
@@ -732,9 +796,9 @@ fn load_kernel_fns(ctx: &Arc<CudaContextHandle>) -> Result<Qwen38KernelFns, Stri
         bf16_router_512: get_fn("q38_bf16_router_512")?,
         softmax_topk10: get_fn("q38_softmax_topk10")?,
         moe_up_swiglu11: get_fn("q38_moe_up_swiglu11")?,
-        moe_up_swiglu11_z24: get_fn("q38_moe_up_swiglu11_z24")?,
+        moe_up_swiglu11_z24: get_fn(MOE_UP_Z24_SYMBOL)?,
         moe_down_combine11: get_fn("q38_moe_down_combine11")?,
-        moe_down_combine11_z24: get_fn("q38_moe_down_combine11_z24")?,
+        moe_down_combine11_z24: get_fn(MOE_DOWN_Z24_SYMBOL)?,
         argmax_fast: get_fn("q38_argmax_fast")?,
         inc_pos: get_fn("q38_inc_pos")?,
     })
@@ -1223,7 +1287,7 @@ impl Qwen38GpuEngine {
                         let slab = DeviceBuf::alloc_uninit(&ctx, SW_Z24_LAYER_BYTES)?;
                         slab.copy_from_host_at(ZOFF_GATE_W, gw.data)?;
                         slab.copy_from_host_at(ZOFF_GATE_LO, u32_slice_bytes(&z24_lo_scratch))?;
-                        slab.copy_from_host_at(ZOFF_GATE_HI, u32_slice_bytes(&z24_hi_scratch))?;
+                        slab.copy_from_host_at(ZOFF_GATE_HI, &z24_upper_bytes(&z24_hi_scratch)?)?;
 
                         let (u_sc_m1, u_bi_m1) = pack_z24_sb_slice(
                             usc.data,
@@ -1234,7 +1298,7 @@ impl Qwen38GpuEngine {
                         .ok_or_else(|| format!("layer {l} up_proj exceeded Z24 exponent span"))?;
                         slab.copy_from_host_at(ZOFF_UP_W, uw.data)?;
                         slab.copy_from_host_at(ZOFF_UP_LO, u32_slice_bytes(&z24_lo_scratch))?;
-                        slab.copy_from_host_at(ZOFF_UP_HI, u32_slice_bytes(&z24_hi_scratch))?;
+                        slab.copy_from_host_at(ZOFF_UP_HI, &z24_upper_bytes(&z24_hi_scratch)?)?;
 
                         let (d_sc_m1, d_bi_m1) = pack_z24_sb_slice(
                             dsc.data,
@@ -1245,7 +1309,7 @@ impl Qwen38GpuEngine {
                         .ok_or_else(|| format!("layer {l} down_proj exceeded Z24 exponent span"))?;
                         slab.copy_from_host_at(ZOFF_DOWN_W, dw.data)?;
                         slab.copy_from_host_at(ZOFF_DOWN_LO, u32_slice_bytes(&z24_lo_scratch))?;
-                        slab.copy_from_host_at(ZOFF_DOWN_HI, u32_slice_bytes(&z24_hi_scratch))?;
+                        slab.copy_from_host_at(ZOFF_DOWN_HI, &z24_upper_bytes(&z24_hi_scratch)?)?;
 
                         resident_expert_layers += 1;
                         z24_layers += 1;
@@ -1266,7 +1330,7 @@ impl Qwen38GpuEngine {
                             &[
                                 (ZOFF_GATE_W, gw.data),
                                 (ZOFF_GATE_LO, u32_slice_bytes(&z24_lo_scratch)),
-                                (ZOFF_GATE_HI, u32_slice_bytes(&z24_hi_scratch)),
+                                (ZOFF_GATE_HI, &z24_upper_bytes(&z24_hi_scratch)?),
                             ],
                         );
                         let (u_sc_m1, u_bi_m1) = pack_z24_sb_slice(
@@ -1281,7 +1345,7 @@ impl Qwen38GpuEngine {
                             &[
                                 (ZOFF_UP_W, uw.data),
                                 (ZOFF_UP_LO, u32_slice_bytes(&z24_lo_scratch)),
-                                (ZOFF_UP_HI, u32_slice_bytes(&z24_hi_scratch)),
+                                (ZOFF_UP_HI, &z24_upper_bytes(&z24_hi_scratch)?),
                             ],
                         );
                         let (d_sc_m1, d_bi_m1) = pack_z24_sb_slice(
@@ -1296,7 +1360,7 @@ impl Qwen38GpuEngine {
                             &[
                                 (ZOFF_DOWN_W, dw.data),
                                 (ZOFF_DOWN_LO, u32_slice_bytes(&z24_lo_scratch)),
-                                (ZOFF_DOWN_HI, u32_slice_bytes(&z24_hi_scratch)),
+                                (ZOFF_DOWN_HI, &z24_upper_bytes(&z24_hi_scratch)?),
                             ],
                         );
 
@@ -2383,7 +2447,7 @@ impl Qwen38GpuEngine {
                     (160, 11),
                     256,
                     &mut p_up,
-                    "q38_moe_up_swiglu11_z24",
+                    MOE_UP_Z24_SYMBOL,
                 )?;
                 self.launch_kern(
                     stream,
@@ -2391,7 +2455,7 @@ impl Qwen38GpuEngine {
                     (80, 1),
                     256,
                     &mut p_dn,
-                    "q38_moe_down_combine11_z24",
+                    MOE_DOWN_Z24_SYMBOL,
                 )?;
             } else {
                 let (
@@ -3127,16 +3191,16 @@ mod tests {
                     )?;
                     if compact == 0 {
                         let glo = noise(ctx, rng, experts * 640 * 40 * 4)?;
-                        let ghi = noise(ctx, rng, experts * 640 * 20 * 4)?;
+                        let ghi = noise(ctx, rng, experts * (SW_Z24_HI_BYTES / 512))?;
                         let ulo = noise(ctx, rng, experts * 640 * 40 * 4)?;
-                        let uhi = noise(ctx, rng, experts * 640 * 20 * 4)?;
+                        let uhi = noise(ctx, rng, experts * (SW_Z24_HI_BYTES / 512))?;
                         let (mut pglo, mut pghi, mut pulo, mut puhi) =
                             (glo.ptr, ghi.ptr, ulo.ptr, uhi.ptr);
                         let mut up_bases = 0x76727672u32;
                         run(
                             ctx,
                             m,
-                            "q38_moe_up_swiglu11_z24",
+                            MOE_UP_Z24_SYMBOL,
                             (160, 11),
                             256,
                             &mut kargs![
@@ -3162,13 +3226,13 @@ mod tests {
                     )?;
                     if compact == 0 {
                         let dlo = noise(ctx, rng, experts * d * 10 * 4)?;
-                        let dhi = noise(ctx, rng, experts * d * 5 * 4)?;
+                        let dhi = noise(ctx, rng, experts * (SW_Z24_HI_BYTES / 512))?;
                         let (mut pdlo, mut pdhi) = (dlo.ptr, dhi.ptr);
                         let mut dn_bases = 0x7672u32;
                         run(
                             ctx,
                             m,
-                            "q38_moe_down_combine11_z24",
+                            MOE_DOWN_Z24_SYMBOL,
                             (80, 1),
                             256,
                             &mut kargs![
@@ -3224,6 +3288,25 @@ mod tests {
 #[cfg(test)]
 mod direct_engram_tests {
     use super::*;
+
+    #[cfg(feature = "q38-exponent-palette")]
+    #[test]
+    fn exponent_palette_checks_bounds_and_expert_order() {
+        let mut upper = vec![0x04030201u32; SW_GROUPS_PER_PROJ / 4];
+        upper[EXP4_GROUPS / 4] = 0x08070605;
+        let packed = z24_upper_bytes(&upper).unwrap();
+        assert_eq!(packed.len(), SW_Z24_HI_BYTES);
+        assert_eq!(&packed[..4], &[1, 2, 3, 4]);
+        assert_eq!(&packed[128..130], &[0x10, 0x32]);
+        assert_eq!(
+            &packed[EXP4_RECORD_BYTES..EXP4_RECORD_BYTES + 8],
+            &[5, 6, 7, 8, 1, 2, 3, 4]
+        );
+        for (i, v) in upper[..5].iter_mut().enumerate() {
+            *v = u32::from_le_bytes(std::array::from_fn(|j| (i * 4 + j) as u8));
+        }
+        assert!(z24_upper_bytes(&upper).is_err());
+    }
     use std::io::{Seek, SeekFrom, Write};
 
     #[test]
