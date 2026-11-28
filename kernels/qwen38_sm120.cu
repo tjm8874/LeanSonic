@@ -4426,7 +4426,7 @@ extern "C" __global__ void q38_dense_q8_gemv(
         for (int i = lane; i < words; i += 32) {
             const uint32_t codes = w[i];
             const float scale = bf16_to_f32(sc[i / 8]);
-            const float4 v = input[i];
+            const float4 v = x[i];
             const float elements[] = {v.x, v.y, v.z, v.w};
             #pragma unroll
             for (int j = 0; j < 4; ++j) {
