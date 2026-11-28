@@ -4262,6 +4262,8 @@ mod tests {
                             | "q38_moe_down_combine11_z24"
                             | "q38_moe_up_grouped_z24"
                             | "q38_moe_down_grouped_z24"
+                            | "q38_moe_up_swiglu11_z24_bn"
+                            | "q38_moe_down_combine11_z24_bn"
                     )
                 {
                     // Exercise the exact end of one record on each tier. The fixture
