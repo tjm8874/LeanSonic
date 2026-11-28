@@ -80,3 +80,18 @@ Removing the strongest improvement still leaves a lower empirical mean KL in bot
 ### Runtime of the single-round head on RTX 5060 Ti
 
 With the 571-slice model and the integrated 85523a7 operators, the current and single-round paths reached **3,955.90 / 3,956.03 prefill tok/s** and **95.460 / 95.457 decode tok/s**. Maximum sampled process GPU allocation was **14,686,355,456 bytes** in both arms. The 95% paired ratio intervals span one for both phases, 0.99954–1.00066 prefill and 0.99988–1.00004 decode. There were five mirrored cycles, ten fresh processes per arm, four warm repetitions per process, 1,024 identical input IDs and 32 forced decode steps, one sequence and FP16 KV. This measures the single-round operator, separately from the earlier ea3a7cf timing. [Hashes, GPU, predicted IDs and all warm/cold timings](single-round/timing-5060.json).
+
+## Official-weight precision-max check
+
+The 32 GB roadmap target uses the original publisher weights. On an RTX PRO 4500, the v0.10.0 baseline (aa4d429) and the single-round patch (1f4feb4 kernel diff on aa4d429) scored the same WikiText-2 test oracle. One observed CLI loaded both cubins. All 24 layers were resident. The test covers 100 chunks of 512 tokens, scoring the last 255 predictions per chunk.
+
+| Test metric | v0.10.0 | Single-round |
+| --- | ---: | ---: |
+| Mean KL | 0.003204114 | 0.003214226 |
+| Worst KL | 0.676308 | 1.517378 |
+| Top-1 matches / 25,500 | 24,896 | 24,868 |
+| PPL | 7.070718 | 7.072706 |
+
+At chunk 36 position 375, KL improved from 0.676308 to 0.101663. At position 319 of that same chunk it increased from 0.112166 to 1.517378, with top choice 149876 in both arms. The paired 95% whole-chunk interval for mean KL change spans −0.0001013 to +0.0001167. Given the larger observed worst case and mean above 0.0030, keep the release recurrence as the precision-max reference.
+
+To repeat, use the official b85c3cfa shard and the same [WikiText oracle and row observer](https://github.com/tjm8874/LeanSonic/tree/fcbd52a/docs/benchmarks/inkling-mxscale-codes#reproduce). Build the observed release CLI once. Compile the SM120a cubin before and after applying the kernel diff with nvcc -O3 -std=c++17. Set LEANSONIC_G1_ATTN=1, LEANSONIC_KV=fp16, LEANSONIC_SEQS=1, LEANSONIC_CTX=8192, LEANSONIC_PREFILL_CHUNK=512, LEANSONIC_PDL=1 and LEANSONIC_PDL_ALL=1. Select the cubin using LEANSONIC_CUBIN_PATH and use a fresh DIAG_ROWS file for each eval-kld --chunks 100 run. [Dataset scores, paired estimates, row and binary hashes](single-round/official-test.json).
