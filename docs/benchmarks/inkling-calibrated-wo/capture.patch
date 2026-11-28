@@ -1,0 +1,32 @@
+--- a/crates/leansonic-core/src/inkling2_gpu.rs
++++ b/crates/leansonic-core/src/inkling2_gpu.rs
+@@ -8539,6 +8539,29 @@
+             )?;
+         }
+
++        // Offline training observation at the exact Q8_64 input to W_o.
++        if b_len == 512 && std::env::var_os("INKLING_TRAIN_WO").is_some() {
++            use std::io::Write;
++            let mut codes = vec![0u8; b_len * 3072];
++            let mut scales = vec![0u8; b_len * 48 * 4];
++            unsafe {
++                check_cu((self.ctx.api.cuStreamSynchronize)(stream), "train W_o synchronize")?;
++                check_cu((self.ctx.api.cuMemcpyDtoH_v2)(codes.as_mut_ptr().cast(),
++                    self.prefill.d_b_act_codes.ptr, codes.len()), "train W_o Q8 codes")?;
++                check_cu((self.ctx.api.cuMemcpyDtoH_v2)(scales.as_mut_ptr().cast(),
++                    self.prefill.d_b_act_scales.ptr, scales.len()), "train W_o Q8 scales")?;
++            }
++            let file = std::fs::OpenOptions::new().create(true).append(true).open("activations.bin")
++                .map_err(|e| e.to_string())?;
++            let mut out = std::io::BufWriter::new(file);
++            out.write_all(&(il as u32).to_le_bytes()).map_err(|e|e.to_string())?;
++            for i in (3..512).step_by(8) {
++                out.write_all(&codes[3072*i..3072*(i+1)]).map_err(|e|e.to_string())?;
++                out.write_all(&scales[192*i..192*(i+1)]).map_err(|e|e.to_string())?;
++            }
++            out.flush().map_err(|e|e.to_string())?;
++        }
++
+         // 7. `wo` Batched `Q8_64` GEMM + `attn_sconv` (+ fused block-start save!)
+         let is_block_start = il.is_multiple_of(6);
+         let save_blk_ptr = if is_block_start {
