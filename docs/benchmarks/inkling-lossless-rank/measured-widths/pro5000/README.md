@@ -33,3 +33,11 @@ On valid, native vLLM chose different top-1 tokens on 1,180 of 25,500 identical 
 ## Repeated native capture
 
 Two new native vLLM processes per GPU each reran the first three WikiText test chunks, with the same capture and scorer as the 100-chunk measurement. On each GPU, all 765 rows from each new process matched the original rows on that GPU byte for byte, including every full-vocabulary fingerprint. This reproduces the PRO 5000 KL of 7.372331 at chunk 2 position 478 in both repeats. The PRO 4500 original and both repeats had KL 0.025777 at the same position. This is a repeatable difference between these two configurations. Its cause is open. To repeat, run the full-vocabulary capture in the preceding section twice in fresh processes, with the first three chunks of the pinned test oracle and the same device selected for all three captures. [Per-GPU row hashes, mismatches and maxima](repeated-native.json).
+
+## Kernel timeline on RTX PRO 5000
+
+A single Nsight Systems capture used the same seven-bit package, 1,024 prompt IDs and 32 forced decode IDs as the paired speed comparison. The 1,324 prefill launches occupied 89.924 ms of an 89.940 ms span. The NVFP4 gate/up kernel was the only active kernel for 33.012 ms (36.70% of the span). The corresponding down kernel ran alone for 13.277 ms (14.76%). This makes the gate/up token-warp mapping from #238 a candidate for a same-card replay.
+
+The 23,328 decode launches spanned 235.277 ms. Two kernels overlapped for 137.466 ms. The 3072-column Q8 GEMV accumulated 100.536 ms, but ran alone for just 2.200 ms. The NVFP4 gate/up and down kernels were the largest sole-active intervals, 30.102 and 16.466 ms. Adding kernel durations would double-count overlapping work. [Timeline totals, overlap depths and named kernel pairs](phase-profile.json).
+
+Reproduce with the [pinned CUDA profiler harness and analysis](https://github.com/tjm8874/LeanSonic/tree/4d40691/docs/benchmarks/inkling-class-frames/three-engines), the seven-bit model, the local PRO 5000 native anchor and two separate Nsight Systems captures. Enable CUDA graph node tracing and capture the cudaProfilerApi interval around each isolated phase.
