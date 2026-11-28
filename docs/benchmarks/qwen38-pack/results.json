@@ -1,0 +1,213 @@
+{
+  "format": "Q38DIST1",
+  "sha256": {
+    "model-00001-of-00022.safetensors": "f52f0cb348f74659a6a129d83c99d95469238264feefbb4458c5d6ffa9af7302",
+    "model-00002-of-00022.safetensors": "8af1a616f2f39dbfe6ee92e959afb2414623fcb299aff1ced55984bfe810d608",
+    "model-00003-of-00022.safetensors": "519a0472252ac9a51af020686f462aa6be82ce655f948fd5f054d70949de17a6",
+    "model-00004-of-00022.safetensors": "b1ad7e951969eb8dc4e92762dc2e50bd47353c95990ae207db5da393d441400f",
+    "model-00005-of-00022.safetensors": "9ca797304c563bb65f2356b67d444511b11744bc5b5c8ec8345ae7d97d3e251c",
+    "model-00006-of-00022.safetensors": "8aab4c1dce7d8a0af645426b66d1caf30245d422d4c6b7029583959d675a1827",
+    "model-00007-of-00022.safetensors": "2b40dc73830bbed68921ce2454dc30291a4f696d8c3f8b17ec4c1340d2587745",
+    "model-00008-of-00022.safetensors": "7a1fe95ef92720aeaf3e78094133b537d33774c579f203b99d0bd93cc1292dd8",
+    "model-00009-of-00022.safetensors": "0ec6b891e3238b91180c0c70dfec0266a5958db70cf5fcd2f136dd772fadd194",
+    "model-00010-of-00022.safetensors": "a6d4ad262c98b33ad021ab283293cfe004f96f0c37836284e80c1b66355f926d",
+    "model-00011-of-00022.safetensors": "5a3c0825806da8f97c370faddb149469ab5c144820ed90acf17ce025e4046339",
+    "model-00012-of-00022.safetensors": "ffd04f8f289a456c30943e36e5c65a0fd9b706ec865d3150bedbd5aea6571935",
+    "model-00013-of-00022.safetensors": "f8761851c356bb2310830dd6be95222ae5ab5e32c43bf56ba56c68f4b9bebf59",
+    "model-00014-of-00022.safetensors": "399daa34340d85a11caeea2db43d36946ea2c4b2881cf230a92222fe50462014",
+    "model-00015-of-00022.safetensors": "a3d658c1f15dfccf6001236d28dc7e93b32b68ce6f8bba6a71177b0effae416a",
+    "model-00016-of-00022.safetensors": "bf87dc167b3f448fbd7860848d61260122c2d395a5b7b247d9054b80b44126b0",
+    "model-00017-of-00022.safetensors": "2385112c090732118c3894dfec8f6647a444d5e5cbbd0c3814ae4d6923a0c321",
+    "model-00018-of-00022.safetensors": "c323940ddecf50916987bc4ae4694754b8a8d882e92f7c27481f7d3edb2fac7f",
+    "model-00019-of-00022.safetensors": "a429cb1d73c9c38153e5d55bc31f6f95b42557a6f861094dfe5863b79bb0fa86",
+    "model-00020-of-00022.safetensors": "3b2b3fc783d910ebb3db8553f74f48391f0278af9051517a7acfd1eed5cd6608",
+    "model-00021-of-00022.safetensors": "9246076fc585de77dd2e1dea67b721247d289d00c88e5962cc0ffb0707143a70",
+    "model-00022-of-00022.safetensors": "87280d2195f0ab3ffa3c8d9aeaed2b6a0f5c92d6c762c104509e8bf9801b5994"
+  },
+  "counts": {
+    "engram_raw": 6400030720,
+    "engram_stored": 4000395264,
+    "engram_planes": 256,
+    "expert_raw": 15099494400,
+    "expert_stored": 10230842258,
+    "expert_planes": 288,
+    "source_shard_bytes": 113209682735,
+    "output_shard_bytes": 105941395313
+  },
+  "source_model_bytes": 113233127335,
+  "packed_model_bytes": 105964842612,
+  "file_count": 34,
+  "verified_restored_shards": 22,
+  "verified_auxiliary_files": 12,
+  "engine_commit": "9b3e4f2aabc5e33e73b34e0aea8e031b48aba0fe",
+  "reference": "flashnext-norm-zero (MLX Q4)",
+  "gpu": "NVIDIA RTX PRO 5000 72GB Blackwell",
+  "driver": "595.99.02",
+  "quality": {
+    "rows": 49,
+    "vocabulary": 248320,
+    "mean_kl": 0.0,
+    "max_kl": 0.0,
+    "worst_case_position": [
+      0,
+      0
+    ],
+    "top1_matches": 49,
+    "byte_equal_rows": 49,
+    "reference_ppl": 52.99062111363452,
+    "candidate_ppl": 52.99062111363452,
+    "reference_sha256": "f87fd5d143fe17242c6d6e7af11345a30c3a13605647a8943d795c81883bde37",
+    "candidate_sha256": "f87fd5d143fe17242c6d6e7af11345a30c3a13605647a8943d795c81883bde37",
+    "canary_cases": 4,
+    "matching_canaries": 4
+  },
+  "engram_warm_cpu_row_bench": {
+    "scales": {
+      "planes": 128,
+      "random_draws_per_plane": 65536,
+      "extra_edge_rows_per_plane": 2,
+      "raw_ns_per_row_median_of_plane_medians": 2.4434165954589844,
+      "packed_ns_per_row_median_of_plane_medians": 8.404407501220703
+    },
+    "biases": {
+      "planes": 128,
+      "random_draws_per_plane": 65536,
+      "extra_edge_rows_per_plane": 2,
+      "raw_ns_per_row_median_of_plane_medians": 2.4234580993652344,
+      "packed_ns_per_row_median_of_plane_medians": 8.303695678710938
+    }
+  },
+  "additional_gpu": {
+    "name": "NVIDIA RTX PRO 4500 Blackwell (32 GB)",
+    "expert_layers_vram": 18,
+    "expert_layers_host_pinned": 30,
+    "quality": {
+      "rows": 49,
+      "vocabulary": 248320,
+      "mean_kl": 0.0,
+      "max_kl": 0.0,
+      "worst_case_position": [
+        0,
+        0
+      ],
+      "top1_matches": 49,
+      "byte_equal_rows": 49,
+      "reference_ppl": 52.99062111363452,
+      "candidate_ppl": 52.99062111363452,
+      "reference_sha256": "f87fd5d143fe17242c6d6e7af11345a30c3a13605647a8943d795c81883bde37",
+      "candidate_sha256": "f87fd5d143fe17242c6d6e7af11345a30c3a13605647a8943d795c81883bde37",
+      "canary_cases": 4,
+      "matching_canaries": 4
+    }
+  },
+  "weight_block_experiment": {
+    "expert": {
+      "planes": 144,
+      "raw_bytes": 60397977600,
+      "sum_selected_payload_and_offset_bytes": 57997031440,
+      "block_bytes": 262144,
+      "zstd_level": 1,
+      "sample_candidates": [
+        {
+          "block_bytes": 16384,
+          "level": 1,
+          "stored_bytes": 109312170
+        },
+        {
+          "block_bytes": 16384,
+          "level": 3,
+          "stored_bytes": 109312185
+        },
+        {
+          "block_bytes": 16384,
+          "level": 6,
+          "stored_bytes": 109312210
+        },
+        {
+          "block_bytes": 65536,
+          "level": 1,
+          "stored_bytes": 108846947
+        },
+        {
+          "block_bytes": 65536,
+          "level": 3,
+          "stored_bytes": 108846946
+        },
+        {
+          "block_bytes": 65536,
+          "level": 6,
+          "stored_bytes": 108846973
+        },
+        {
+          "block_bytes": 262144,
+          "level": 1,
+          "stored_bytes": 108748685
+        },
+        {
+          "block_bytes": 262144,
+          "level": 3,
+          "stored_bytes": 108755916
+        },
+        {
+          "block_bytes": 262144,
+          "level": 6,
+          "stored_bytes": 108748687
+        }
+      ]
+    },
+    "engram": {
+      "planes": 128,
+      "raw_bytes": 25600122880,
+      "sum_selected_payload_and_offset_bytes": 24650963540,
+      "block_bytes": 262144,
+      "zstd_level": 1,
+      "sample_candidates": [
+        {
+          "block_bytes": 16384,
+          "level": 1,
+          "stored_bytes": 97426258
+        },
+        {
+          "block_bytes": 16384,
+          "level": 3,
+          "stored_bytes": 97426271
+        },
+        {
+          "block_bytes": 16384,
+          "level": 6,
+          "stored_bytes": 97426282
+        },
+        {
+          "block_bytes": 65536,
+          "level": 1,
+          "stored_bytes": 97016963
+        },
+        {
+          "block_bytes": 65536,
+          "level": 3,
+          "stored_bytes": 97016963
+        },
+        {
+          "block_bytes": 65536,
+          "level": 6,
+          "stored_bytes": 97016981
+        },
+        {
+          "block_bytes": 262144,
+          "level": 1,
+          "stored_bytes": 96931275
+        },
+        {
+          "block_bytes": 262144,
+          "level": 3,
+          "stored_bytes": 96937639
+        },
+        {
+          "block_bytes": 262144,
+          "level": 6,
+          "stored_bytes": 96931275
+        }
+      ]
+    }
+  }
+}
