@@ -1174,6 +1174,9 @@ impl Qwen38GpuEngine {
                     Q38_HC_D + Q38_D,
                     Q38_D,
                 )?;
+                if probe_kv.is_some() {
+                    eprintln!("[Qwen38GpuEngine] Loaded BF16 PLE key/value projections");
+                }
                 Some(PleGpu {
                     probe_kv,
                     kv_proj,

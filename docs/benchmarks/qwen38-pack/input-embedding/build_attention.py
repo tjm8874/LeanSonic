@@ -28,7 +28,6 @@ def build(base, official, dest, layers, projections):
                 raise ValueError(key)
             name = f"language_model.model.layers.{i}.self_attn.{proj}_proj.probe_bf16"
             added[name] = t
-            manifest["weight_map"][name] = extra
     save_overlay(base, dest, manifest, extra, added)
     print(json.dumps({"layers": list(layers), "projections": projections, "file_bytes": sum(f.stat().st_size for f in dest.iterdir())}))
 
@@ -42,6 +41,7 @@ def save_overlay(base, dest, manifest, extra, added):
             if f.name != index:
                 os.link(f, out / f.name)
         save_file(added, out / extra)
+        manifest["weight_map"].update(dict.fromkeys(added, extra))
         manifest["metadata"]["total_size"] += sum(t.numel() * t.element_size() for t in added.values())
         (out / index).write_text(json.dumps(manifest, indent=2) + "\n")
         out.rename(dest)
