@@ -2585,6 +2585,43 @@ impl Qwen38GpuEngine {
     }
 }
 
+impl Qwen38GpuEngine {
+    /// Handles the MTP drafter (`qwen38_mtp`) borrows: the CUDA context, the `[4, 2560]` HC state
+    /// after the last layer (`d_hc`, valid after each forward), the embedding table (host-mapped),
+    /// the LM head and the mapped shards.
+    pub fn mtp_view(
+        &self,
+    ) -> (
+        Arc<CudaContextHandle>,
+        CUdeviceptr,
+        crate::qwen38_mtp::Q4Ref,
+        crate::qwen38_mtp::Q4Ref,
+        &ShardedSafeTensors,
+    ) {
+        let embed = crate::qwen38_mtp::Q4Ref {
+            w: self.embed.w.dev_ptr,
+            sc: self.embed.sc.dev_ptr,
+            bi: self.embed.bi.dev_ptr,
+            rows: Q38_VOCAB as i32,
+            cols: Q38_D as i32,
+        };
+        let lm_head = crate::qwen38_mtp::Q4Ref {
+            w: self.lm_head.w.ptr,
+            sc: self.lm_head.sc.ptr,
+            bi: self.lm_head.bi.ptr,
+            rows: self.lm_head.rows,
+            cols: self.lm_head.cols,
+        };
+        (
+            Arc::clone(&self.ctx),
+            self.d_hc.ptr,
+            embed,
+            lm_head,
+            &self.sharded_mmap,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     /// Exact-size `compute-sanitizer --tool memcheck --padding 65536` harness for every
